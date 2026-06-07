@@ -1,0 +1,17 @@
+/* ============================================================
+   SAE.css — SAE Report, Adverse Events, SAE Listing
+   Import in: FormY_SAE.jsx, AdverseEventsForm.jsx, SeriousAdverseEventsList.jsx
+   Also requires: global.css + Tables.css
+   ============================================================ */
+
+/* SAE-specific card styles */
+.sae-section { margin-top: 20px; }
+.sae-section h4 { font-size: 15px; font-weight: 600; color: #374151; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+
+/* Contact box */
+.contact-container { display: flex; gap: 40px; }
+.contact-box { display: flex; flex-direction: column; align-items: center; }
+.contact-box span { margin-top: 5px; font-size: 14px; color: #444; }
+.crf-underline-input { border: none; border-bottom: 2px solid black; outline: none; width: 180px; padding: 4px; text-align: center; background: transparent; }
+
+@media (max-width: 600px) { .contact-container { flex-direction: column; gap: 16px; } }

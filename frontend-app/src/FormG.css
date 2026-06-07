@@ -1,0 +1,165 @@
+/* FULL WIDTH FORM FOR FORM G */
+
+.formg-page {
+  width: 100%;
+  max-width: 1800px;
+  margin: auto;
+  padding: 0 40px;
+}
+
+.formg-page .screening-form {
+  width: 100%;
+  max-width: none;
+}
+
+.formg-page .form-section {
+  max-width: none;
+}
+
+/* expand outcome table */
+.formg-page .outcome-table {
+  width: 100%;
+  max-width: none;
+}
+
+.formg-page .outcome-header,
+.formg-page .outcome-row {
+  grid-template-columns: 2fr 4fr 1.2fr 4.8fr;
+}
+/* Force Form G to use full width */
+
+.formg-page {
+  width: 100%;
+  max-width: 1800px;
+  margin: auto;
+}
+
+/* override the layout wrapper */
+.formg-page ~ * .content-wrapper,
+.content-wrapper:has(.formg-page) {
+  max-width: 1800px !important;
+  width: 100% !important;
+}
+
+/* expand form card */
+.formg-page .screening-form {
+  max-width: none;
+  width: 100%;
+}
+
+/* expand table */
+.formg-page .outcome-table {
+  max-width: none;
+  width: 100%;
+}
+.outcome-row input{
+width:100%;
+min-width:260px;
+}
+
+.outcome-row select{
+width:100%;
+}
+
+/* Expand Additional Information input */
+.outcome-row input{
+width:100%;
+min-width:0;
+box-sizing:border-box;
+}
+
+/* Expand dropdown also */
+.outcome-row select{
+width:100%;
+}
+
+/* Improve column layout */
+.outcome-header,
+.outcome-row{
+display:grid;
+grid-template-columns: 2.5fr 4.5fr 1.5fr 4fr;
+gap:20px;
+}
+
+/* rows that need wide input fields */
+.outcome-row.span-wide{
+grid-template-columns: 2.5fr 4.5fr 6fr;
+}
+
+/* wide input container */
+.wide-field{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+align-items:center;
+}
+
+.wide-field input{
+width:70px;
+height:38px;
+text-align:center;
+}
+
+/* rows where inputs start from Result column */
+.outcome-row.span-result{
+display:grid;
+grid-template-columns:2.5fr 4.5fr 5.5fr;
+gap:20px;
+}
+
+/* container for wide inputs */
+.result-wide{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+align-items:center;
+}
+
+.result-wide input{
+height:38px;
+padding:6px 10px;
+border:1px solid #cbd5e1;
+border-radius:6px;
+}
+
+/* keep the same 4 columns */
+.outcome-header,
+.outcome-row{
+display:grid;
+grid-template-columns:2.5fr 4.5fr 1.5fr 4fr;
+gap:20px;
+}
+
+/* wide input starting in Result column */
+.result-span{
+grid-column:3 / span 2;
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+align-items:center;
+}
+
+.mortality-fields{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+}
+
+.mortality-fields input{
+height:38px;
+padding:6px 10px;
+border-radius:6px;
+border:1px solid #cbd5e1;
+}
+
+.mortality-fields input[type="date"]{
+width:150px;
+}
+
+.mortality-fields input[type="time"]{
+width:120px;
+}
+
+.mortality-fields input[type="text"]{
+width:130px;
+}

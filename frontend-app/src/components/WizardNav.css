@@ -1,0 +1,31 @@
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.wizard-nav span {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.wizard-nav span.active {
+  background: #6366f1;
+  color: white;
+}
+
+.dashboard-btn {
+  margin-left: auto;
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+}

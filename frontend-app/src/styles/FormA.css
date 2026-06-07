@@ -1,0 +1,13 @@
+/* FormA.css — Form A only overrides */
+.screening-form {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+.screening-form.readonly .field-input input:not(:focus),
+.screening-form.readonly .field-input select:not(:focus) {
+  background: var(--surface-dim, #f1f5f9);
+  color: var(--text-muted, #64748b);
+}

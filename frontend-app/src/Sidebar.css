@@ -1,0 +1,231 @@
+/* Sidebar.css — Stitch design */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+.sidebar {
+  width: var(--sidebar-width, 280px);
+  height: 100vh;
+  position: fixed;
+  top: 0; left: 0;
+  background: var(--surface, #fff);
+  border-right: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  flex-direction: column;
+  z-index: 150;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.02);
+  font-family: 'Inter', sans-serif;
+}
+
+/* ── Header ── */
+.sidebar-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--border-light, #f1f5f9);
+  flex-shrink: 0;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.sidebar-logo-box {
+  width: 36px; height: 36px;
+  background: var(--background, #f8fafc);
+  border-radius: var(--radius-sm, 6px);
+  padding: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+
+.sidebar-logo-img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+}
+
+.sidebar-header-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-main, #0f172a);
+  letter-spacing: 0.02em;
+}
+
+/* ── Progress ── */
+.sidebar-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.progress-bar-bg {
+  height: 6px;
+  background: var(--surface-dim, #f1f5f9);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0ea5e9, var(--primary, #0284c7));
+  border-radius: 99px;
+  transition: width 0.6s ease-in-out;
+  min-width: 4px;
+}
+
+/* ── Nav ── */
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+}
+
+.sidebar-nav::-webkit-scrollbar { width: 3px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+.sidebar-section { margin-bottom: 24px; }
+
+.sidebar-section-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-light, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0 12px 10px;
+}
+
+.sidebar-loading {
+  padding: 16px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 10px);
+  color: #475569;
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  margin-bottom: 2px;
+  cursor: pointer;
+}
+
+.sidebar-item:hover:not(.locked) {
+  background: var(--background, #f8fafc);
+  color: var(--primary, #0284c7);
+}
+
+.sidebar-item.active {
+  background: #f0f9ff;
+  color: var(--primary, #0284c7);
+}
+
+.sidebar-item.active .icon-box {
+  background: var(--primary, #0284c7);
+  color: white;
+  border-color: var(--primary, #0284c7);
+}
+
+.sidebar-item.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.icon-box {
+  width: 28px; height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 1.5px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  color: var(--text-muted, #64748b);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-indicator {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted, #64748b);
+}
+
+.status-check { color: var(--success, #22c55e); }
+
+/* ── Footer ── */
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border-light, #f1f5f9);
+  background: #fcfdfe;
+  flex-shrink: 0;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 32px; height: 32px;
+  background: var(--primary-light, #e0f2fe);
+  color: var(--primary, #0284c7);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-role {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .sidebar { display: none; }
+}

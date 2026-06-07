@@ -1,0 +1,155 @@
+/* Header.css */
+.app-header {
+  width: 100%;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(56,189,248,0.36), transparent 28%),
+    radial-gradient(circle at 84% 10%, rgba(45,212,191,0.18), transparent 26%),
+    linear-gradient(135deg, #082f49 0%, #0f3f73 48%, #123c69 100%);
+  box-shadow: 0 10px 30px rgba(15,23,42,0.15);
+  position: relative;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.header-inner {
+  display: grid;
+  grid-template-columns: 140px 1fr 140px;
+  min-height: 118px;
+}
+
+.header-logo-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  background: rgba(2,6,23,0.15);
+  border-left: 1px solid rgba(255,255,255,0.05);
+  border-right: 1px solid rgba(255,255,255,0.05);
+  position: relative;
+}
+
+.header-logo-box {
+  width: 64px;
+  height: 64px;
+  background: white;
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(2,6,23,0.2);
+}
+
+.header-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.header-logo-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: rgba(219,234,254,0.6);
+  text-transform: uppercase;
+}
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px 24px;
+}
+
+.header-breadcrumb {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7dd3fc;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 4px;
+}
+
+.header-titles h1 {
+  margin: 0 0 2px;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.header-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #dbeafe;
+  font-weight: 500;
+  opacity: 0.85;
+  max-width: 600px;
+  line-height: 1.4;
+}
+
+.header-badges {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.header-badges span {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 3px 12px;
+  border-radius: 99px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #f1f5f9;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.header-badges .badge-green {
+  background: rgba(34,197,94,0.2);
+  border-color: rgba(34,197,94,0.3);
+  color: #dcfce7;
+}
+
+.header-id-indicator {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.header-id-indicator .id-value {
+  color: #fbbf24;
+  font-weight: 800;
+}
+
+.header-glow-bar {
+  height: 4px;
+  background: linear-gradient(90deg, #22c55e, #0ea5e9, #3b82f6, #22c55e);
+  background-size: 200% 100%;
+}
+
+@media (max-width: 768px) {
+  .header-inner { grid-template-columns: 80px 1fr 80px; }
+  .header-logo-box { width: 44px; height: 44px; }
+  .header-titles h1 { font-size: 18px; }
+  .header-subtitle { font-size: 11px; }
+  .header-badges { display: none; }
+}

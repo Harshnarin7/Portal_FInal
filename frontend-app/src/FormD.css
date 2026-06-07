@@ -1,0 +1,45 @@
+/* Expand Form D Layout */
+
+.form-d-container {
+  max-width: 1400px;
+  margin: auto;
+}
+
+/* Improve row spacing */
+
+.form-d-container .form-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 22px;
+}
+
+/* Bigger inputs */
+
+.form-d-container input,
+.form-d-container select {
+  height: 40px;
+}
+
+/* Better section spacing */
+
+.form-d-container .form-section {
+  padding: 25px;
+}
+.form-d-wrapper {
+  border: 5px solid red;
+}
+
+.error-input {
+  border: 1px solid #e53935;
+  background: #fff5f5;
+}
+
+.error-text {
+  color: #e53935;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.warning-input {
+  border: 1px solid orange;
+  background: #fff8e1;
+}

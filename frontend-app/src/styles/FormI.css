@@ -1,0 +1,13 @@
+/* ============================================================
+   FormI.css — ROP Screening
+   Import: import "./FormI.css"; in FormI.jsx
+   Also requires: global.css + FormComponents.css + Tables.css
+   ============================================================ */
+
+.rop-guideline-box { display: flex; gap: 20px; background: #f3f3f3; border: 2px solid #999; padding: 16px; margin-top: 20px; }
+.rop-guideline-col { flex: 1; }
+.rop-guideline-col h4 { margin-bottom: 8px; }
+.rop-guideline-col ul { margin-left: 18px; }
+.guideline-sub { font-size: 13px; color: #333; }
+.date-row th { background: #f5f5f5; font-weight: 500; font-size: 13px; }
+.date-input { width: 70px; text-align: center; font-size: 12px; padding: 4px; }

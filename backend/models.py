@@ -1,0 +1,1036 @@
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, JSON, Time
+from datetime import datetime, timezone
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+from db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+
+    hashed_password = Column(String, nullable=False)
+
+    role = Column(String, nullable=False)
+    site_name = Column(String, nullable=True)  # NULL for super admin
+
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    username = Column(String, nullable=True)
+    action = Column(String, nullable=False)  # INSERT, UPDATE, SOFT_DELETE
+    table_name = Column(String, nullable=False, index=True)
+    record_id = Column(String, nullable=True)
+    enrollment_id = Column(String, nullable=True, index=True)
+    screening_id = Column(String, nullable=True, index=True)
+    old_values = Column(JSON, nullable=True)
+    new_values = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+
+
+class SiteStaff(Base):
+    __tablename__ = "site_staff"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_name = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    role = Column(String, default="screener")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
+# ==========================================================
+# PARTICIPANT PII (DPDP / ICMR — separate from clinical data)
+# ==========================================================
+class ParticipantPII(Base):
+    __tablename__ = "participant_pii"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, unique=True, index=True, nullable=True)
+    screening_id = Column(String, unique=True, index=True, nullable=True)
+    site_name = Column(String, index=True, nullable=True)
+
+    mother_first_name = Column(String, nullable=True)
+    mother_surname = Column(String, nullable=True)
+    husband_first_name = Column(String, nullable=True)
+    husband_surname = Column(String, nullable=True)
+    maternal_uid = Column(String, nullable=True)
+    hospital_admission_number = Column(String, nullable=True)
+    mother_contact = Column(String(15), nullable=True)
+    husband_contact = Column(String(15), nullable=True)
+    address = Column(String, nullable=True)
+    baby_name = Column(String, nullable=True)
+    contact_mother = Column(String(15), nullable=True)
+    contact_husband = Column(String(15), nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ==========================================================
+# FORM A — SCREENING
+# ==========================================================
+class Screening(Base):
+    __tablename__ = "screenings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    screening_id = Column(String, unique=True, index=True)
+    enrollment_id = Column(String, index=True)
+
+    site_name = Column(String)
+    site_id = Column(String)
+    screened_by = Column(String)
+    screening_status = Column(String)
+
+    mother_first_name = Column(String)
+    mother_surname = Column(String)
+    husband_first_name = Column(String)
+    husband_surname = Column(String)
+
+    maternal_uid = Column(String)
+    hospital_admission_number = Column(String)
+    mother_contact = Column(String(10), nullable=True)
+    husband_contact = Column(String(10), nullable=True)
+
+    gestation_weeks = Column(Integer)
+    gestation_days = Column(Integer)
+    gestation_method = Column(String)
+    expected_delivery_date = Column(String)
+    lmp_date = Column(String)
+    inclusion_gest_lt_32 = Column(Boolean)
+    anticipated_dr_resus = Column(Boolean)
+
+    exclusion_present = Column(Boolean)
+    exclusion_reasons = Column(String)
+    reason_for_insufficient_time = Column(String)
+    decision_forego_resuscitation_reason = Column(String)
+    major_structural_anomalies_if_yes = Column(String)
+    fetal_hydrops = Column(String)
+
+    final_decision = Column(String)
+    consent_given = Column(String)
+    consent_taken_by = Column(String)
+    consent_datetime = Column(DateTime, nullable=True)
+    consent_form_version = Column(String, nullable=True)
+    consent_language = Column(String, nullable=True)
+    consent_obtained_by_signature = Column(String, nullable=True)
+    reconsent_obtained = Column(Boolean, default=False)
+    reconsent_datetime = Column(DateTime, nullable=True)
+    reconsent_form_version = Column(String, nullable=True)
+    relationship_to_participant = Column(String)
+    relationship_other = Column(String)
+    reason_not_approached = Column(String)
+
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, default=False)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(String, nullable=True)
+
+    screening_datetime = Column(DateTime, default=utcnow)
+    created_at = Column(DateTime, default=utcnow)
+
+
+# ==========================================================
+# FORM B — BIRTH & RESUSCITATION
+# ==========================================================
+class BirthResuscitation(Base):
+    __tablename__ = "birth_resuscitation"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    screening_id = Column(String, index=True)
+    enrollment_id = Column(String, unique=True, index=True)
+
+    mother_name_first = Column(String)
+    mother_name_surname = Column(String)
+    maternal_uid = Column(String)
+
+    baby_uid = Column(String, nullable=True)
+    contact_mother = Column(String)
+    contact_husband = Column(String)
+    date_of_birth = Column(Date)
+    time_of_birth = Column(Time)
+    baby_admission_no = Column(String)
+
+    gestation_weeks = Column(Integer)
+    gestation_days = Column(Integer)
+    birth_weight = Column(Float)
+    
+    indication_for_delivery = Column(String)
+    maternal_complication = Column(String)
+    delivery_mode = Column(String)
+    labor_type = Column(String)
+    gender = Column(String)
+
+    poor_resp_efforts = Column(Boolean)
+    poor_muscle_tone = Column(Boolean)
+
+    required_resuscitation = Column(Boolean)
+    initial_steps = Column(Boolean)
+    ppv_required = Column(Boolean)
+    device_ppv = Column(String)
+
+    intubation = Column(Boolean)
+    chest_compression = Column(Boolean)
+    ppv_duration = Column(Integer)
+    cc_duration = Column(Integer)
+
+    adrenaline = Column(Boolean)
+    med_doses = Column(Integer)
+    fluid_bolus = Column(Boolean)
+
+    placental_transfusion = Column(Boolean)
+    transfusion_method = Column(String)
+    cord_clamp_time = Column(Integer)
+
+    time_to_respiration = Column(Integer)
+    # ✅ FIX C1: Removed duplicate definition - kept nullable version
+    time_to_spo2_80 = Column(Integer, nullable=True)
+    spo2_5min = Column(Integer)
+
+    randomised = Column(Boolean)
+    randomisation_date = Column(String)
+    resus_failure = Column(Boolean)
+
+    fio2_exit = Column(Float)
+    reason_exit_trial_gas = Column(String, nullable=True)
+    spo2_exit_trial_gas = Column(Float)
+    total_resus_time = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+# ==========================================================
+# FORM C — MATERNAL DETAILS (Randomized subjects only)
+# ==========================================================
+class MaternalDetails(Base):
+    __tablename__ = "maternal_details"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # ---------- IDENTIFICATION ----------
+    enrollment_id = Column(String, index=True, nullable=False)
+    mother_name = Column(String)
+    mother_age = Column(Integer, nullable=True)
+    maternal_uid = Column(String)
+    contact_mother = Column(String)
+    contact_husband = Column(String)
+    address = Column(String)
+
+    # ---------- OBSTETRIC HISTORY ----------
+    gravida = Column(String)
+    parity = Column(String)
+    abortions = Column(String)
+    live = Column(String)
+    still = Column(String)
+    booked = Column(String)
+    anc_visits = Column(String)
+    multiple = Column(String)
+
+    lmp = Column(String)
+    edd = Column(String)
+    conception = Column(String)
+    artificial_type = Column(String)
+
+    antenatal_steroids = Column(String)
+    steroid_drug = Column(String)
+    steroid_doses = Column(String)
+    lddi_hours = Column(String)
+    antenatal_mgso4 = Column(String)
+    gestation_at_steroids = Column(String)
+    steroid_date = Column(Date)
+    mgso4_date = Column(Date)
+    mgso4_gestation_weeks = Column(Integer)
+    mgso4_gestation_days = Column(Integer)
+
+    # ---------- MATERNAL MEDICAL DISORDERS ----------
+    chronic_hypertension = Column(Boolean, default=False)
+    hepatitis = Column(Boolean, default=False)
+    heart_disease = Column(Boolean, default=False)
+    renal_disease = Column(Boolean, default=False)
+    vdrl_positive = Column(Boolean, default=False)
+    seizure_disorder = Column(Boolean, default=False)
+    asthma = Column(Boolean, default=False)
+    hiv = Column(Boolean, default=False)
+    thyroid = Column(Boolean, default=False)
+    tb = Column(Boolean, default=False)
+    malaria = Column(Boolean, default=False)
+    severe_anemia = Column(Boolean, default=False)
+    other_medical_disorder = Column(String)
+
+    # ---------- OBSTETRIC PROBLEMS ----------
+    hdp = Column(String)
+    hdp_type = Column(String)
+
+    gdm = Column(String)
+    gdm_rx = Column(String)
+
+    liquor = Column(String)
+
+    fgr = Column(String)
+    fgr_centile = Column(String)
+    doppler = Column(String)
+    doppler_other = Column(String)
+
+    obstetric_other = Column(String)
+
+    placental_abnormality = Column(String)
+    placental_type = Column(String)
+    placental_other = Column(String)
+
+    retroplacental_collection = Column(String)
+
+    aph = Column(String)
+    aph_type = Column(String)
+    aph_other = Column(String)
+    isoimmunization = Column(String, nullable=True)
+    # ---------- EVIDENCE OF INFECTION ----------
+    pprom = Column(String)
+    pprom_duration = Column(String)
+    preterm_labor = Column(String)
+
+    triple_i = Column(String)
+    maternal_fever = Column(String)
+    fetal_tachycardia = Column(String)
+    maternal_tlc_high = Column(String)
+    foul_smelling_liquor = Column(String)
+    maternal_uti = Column(String)
+    maternal_diarrhea = Column(String)
+
+    # ---------- INTRAPARTUM EVENTS ----------
+    msl = Column(String)
+    non_reactive_nst = Column(String)
+    reduced_fm = Column(String)
+    prolonged_labor = Column(String)
+
+    cord_accident = Column(String)
+    cord_accident_type = Column(String)
+
+    fetal_bradycardia = Column(String)
+    fetal_tachycardia_intrapartum = Column(String)
+
+    duration_rom = Column(String)
+    
+
+    uterotonic = Column(String)
+    uterotonic_timing = Column(String)
+
+    created_at = Column(DateTime, default=utcnow)
+
+# =========================
+# FORM D — DAY 1 POSTNATAL
+# =========================
+
+class PostnatalDay1(Base):
+    __tablename__ = "postnatal_day1"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    # IDENTIFICATION
+    enrollment_id = Column(String, index=True)
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days = Column(Integer, nullable=True)
+    annual_number = Column(String, nullable=True)
+    baby_name = Column(String, nullable=True)
+    baby_uid = Column(String, nullable=True)
+    birth_weight = Column(Float, nullable=True)
+
+    # GOLDEN HOUR
+    plastic_wrap = Column(Boolean, nullable=True)
+    remained_intubated = Column(Boolean, nullable=True)
+    et_intubation = Column(Boolean, nullable=True)
+    labored_breathing = Column(Boolean, nullable=True)
+
+    # SURFACTANT
+    surfactant_required = Column(Boolean, nullable=True)
+    surfactant_indication = Column(String, nullable=True)
+    cpap_cm = Column(Float, nullable=True)
+    fio2_percent = Column(Float, nullable=True)
+    surfactant_method = Column(String, nullable=True)
+    lisa_catheter = Column(String, nullable=True)
+    device_assistance = Column(Boolean, nullable=True)
+    device_type = Column(String, nullable=True)
+    surfactant_brand = Column(String, nullable=True)
+    surfactant_dose = Column(Float, nullable=True)
+    adverse_effects = Column(Boolean, nullable=True)
+    adverse_type = Column(String, nullable=True)
+    mode_of_support = Column(String, nullable=True)
+
+    # EARLY RESPIRATORY SUPPORT
+    early_cpap = Column(Boolean, nullable=True)
+    humidified_gas = Column(Boolean, nullable=True)
+    max_fio2_1hr = Column(Float, nullable=True)
+    caffeine = Column(Boolean, nullable=True)
+    caffeine_dose = Column(Float, nullable=True)
+    intubation_after_resus = Column(Boolean, nullable=True)
+    immediate_kmc = Column(Boolean, nullable=True)
+
+    # COMPLETION
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    signature = Column(String, nullable=True)
+    completion_date = Column(Date, nullable=True)
+
+class NICUAdmission(Base):
+    __tablename__ = "nicu_admission"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+
+    baby_uid = Column(String)
+    annual_number = Column(String)
+    baby_name = Column(String)
+
+    admission_datetime = Column(DateTime)
+    age_at_admission_hours = Column(Float)
+
+    temp_skin = Column(Float)
+    temp_axillary = Column(Float)
+
+    transport_incubator = Column(Boolean)
+    transport_mode = Column(String)
+
+    additional_heating = Column(Boolean)
+    heating_type = Column(String)
+
+    transport_adverse_event = Column(Boolean)
+    adverse_event_type = Column(String)
+    tube_accident_type = Column(String)
+
+    transport_mode_resp = Column(String)
+    transport_fio2 = Column(Float)
+
+    nicu_mode_resp = Column(String)
+    nicu_fio2 = Column(Float)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+
+
+# ==========================================================
+# FORM F — NEONATAL MORBIDITIES MODEL
+# ==========================================================
+
+class NeonatalMorbidities(Base):
+    __tablename__ = "neonatal_morbidities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+
+    ivh = Column(Boolean)
+    ivh_side = Column(String)
+    ivh_grade = Column(String)
+    ivh_date = Column(Date)
+    ivh_age_days = Column(Integer)
+    pvhi = Column(Boolean)
+    phh = Column(Boolean)
+    vp_shunt = Column(Boolean)
+
+    pvl = Column(Boolean)
+    pvl_side = Column(String)
+    pvl_grade = Column(String)
+    pvl_date = Column(Date)
+
+    ventriculomegaly = Column(Boolean)
+    ventriculomegaly_severity = Column(String)
+    max_vi_mm = Column(Float)
+    ahw_mm = Column(Float)
+    tod_mm = Column(Float)
+    aca_ri = Column(Float)
+    mca_ri = Column(Float)
+
+    seizures = Column(Boolean)
+    seizure_date = Column(Date)
+    seizure_type = Column(String)
+    eeg = Column(String)
+    aeds_required = Column(Boolean)
+    aed_name = Column(String)
+    seizure_etiology = Column(String)
+
+    non_ivh_ich = Column(Boolean)
+    non_ivh_ich_type = Column(String)
+
+    meningitis = Column(Boolean)
+    meningitis_type = Column(String)
+    meningitis_date = Column(Date)
+    csf_culture = Column(String)
+    csf_organism = Column(String)
+
+    bpd = Column(Boolean)
+    bpd_grade = Column(String)
+    oxygen_days = Column(Integer)
+    vent_days = Column(Integer)
+    cpap_days = Column(Integer)
+
+    pulmonary_hemorrhage = Column(Boolean)
+    pneumothorax = Column(Boolean)
+    pneumothorax_side = Column(String)
+    chest_drain = Column(Boolean)
+    pulmonary_htn = Column(Boolean)
+
+    apnea = Column(Boolean)
+    apnea_onset_days = Column(Integer)
+    caffeine = Column(Boolean)
+    caffeine_duration_days = Column(Integer)
+
+    postnatal_steroids = Column(Boolean)
+    steroid_drug = Column(String)
+    steroid_age_days = Column(Integer)
+    steroid_dose_mgkg = Column(Float)
+    steroid_indication = Column(String)
+
+    feed_intolerance = Column(Boolean)
+    nec = Column(Boolean)
+    nec_stage = Column(String)
+    nec_date = Column(Date)
+    nec_surgery = Column(Boolean)
+
+    pn = Column(Boolean)
+    pn_days = Column(Integer)
+    cholestasis = Column(Boolean)
+    max_direct_bilirubin = Column(Float)
+
+    hs_pda = Column(Boolean)
+    pda_diagnosed_by = Column(String)
+    pda_treatment = Column(String)
+    pda_ligation = Column(Boolean)
+
+    shock = Column(Boolean)
+    hypotension = Column(Boolean)
+    inotropes = Column(Boolean)
+
+    sepsis = Column(Boolean)
+    sepsis_type = Column(String)
+    sepsis_episodes = Column(Integer)
+
+    total_los_days = Column(Integer)
+    nicu_days = Column(Integer)
+    discharge_weight = Column(Float)
+    discharge_date = Column(Date)
+    outcome = Column(String)
+    back_referred_hospital = Column(String)
+
+    completed_by = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+    created_at = Column(DateTime, default=utcnow)
+
+# ==========================================================
+# FORM G — STUDY OUTCOMES
+# ==========================================================
+
+class StudyOutcomes(Base):
+    __tablename__ = "study_outcomes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+    baby_uid = Column(String)
+
+    gestation_weeks = Column(Integer)
+    birth_weight = Column(Float)
+
+    # Mortality
+    mortality_in_hospital = Column(Boolean)
+    mortality_after_discharge = Column(Boolean)
+    mortality_7_days = Column(Boolean)
+    mortality_28_days = Column(Boolean)
+    age_at_death = Column(String)
+
+    # BPD
+    bpd_jensen = Column(Boolean)
+    bpd_nichd = Column(Boolean)
+
+    # Brain & ROP
+    abnormal_mri = Column(Boolean)
+    rop_44w = Column(Boolean)
+    rop_treated = Column(Boolean)
+    rop_age_at_dx = Column(String)
+
+    # NEC & Brain injury
+    nec_stage_2 = Column(Boolean)
+    nec_surgery = Column(Boolean)
+    brain_injury = Column(Boolean)
+
+    # Delivery room outcomes
+    switched_100_o2 = Column(Boolean)
+    cc_epi_volume = Column(Boolean)
+    ventilation_required = Column(Boolean)
+    time_to_spontaneous_breathing = Column(Integer)
+
+    # FiO2 (0–10 min)
+    fio2_0 = Column(Integer)
+    fio2_1 = Column(Integer)
+    fio2_2 = Column(Integer)
+    fio2_3 = Column(Integer)
+    fio2_4 = Column(Integer)
+    fio2_5 = Column(Integer)
+    fio2_6 = Column(Integer)
+    fio2_7 = Column(Integer)
+    fio2_8 = Column(Integer)
+    fio2_9 = Column(Integer)
+    fio2_10 = Column(Integer)
+
+    # Other outcomes
+    intubation_during_resus = Column(Boolean)
+    hie_grade = Column(String)
+
+    resp_support_72h = Column(Boolean)
+    mv_days = Column(Integer)
+    cpap_days = Column(Integer)
+    niv_days = Column(Integer)
+    hfnc_days = Column(Integer)
+
+    sepsis_72h = Column(Boolean)
+    sepsis_overall = Column(Boolean)
+
+    # Completion
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+    created_at = Column(DateTime, default=utcnow)
+
+class CranialUltrasound(Base):
+    __tablename__ = "cranial_ultrasound"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+
+    gestation_weeks = Column(Integer)
+    birth_weight = Column(String)
+    dob = Column(String)
+
+    worst_ivh_grade = Column(String)
+    ivh_side = Column(String)
+    ivh_date = Column(String)
+    ivh_dol = Column(String)
+    ivh_pma = Column(String)
+
+    phvd = Column(String)
+    phvd_date = Column(String)
+
+    vp_shunt = Column(String)
+    vp_shunt_date = Column(String)
+
+    cpvl_grade = Column(String)
+    cpvl_side = Column(String)
+    cpvl_date = Column(String)
+    cpvl_dol = Column(String)
+    cpvl_pma = Column(String)
+
+    other_findings = Column(String)
+    brain_injury_composite = Column(String)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(String)
+
+    scans = Column(JSON)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+
+# ==========================================================
+# FORM I — ROP SCREENING
+# ==========================================================
+
+class ROPScreening(Base):
+    __tablename__ = "rop_screening"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+
+    gestation_weeks = Column(Integer, nullable=True)
+    birth_weight = Column(Float, nullable=True)
+    dob = Column(Date, nullable=True)
+
+    # Risk factors
+    risk_factors = Column(JSON)  # ["O2 Therapy", "Sepsis", "IVH", ...]
+
+    # Repeatable screening visits (max 12)
+    screenings = Column(JSON)
+    """
+    [
+      {
+        screening_no: 1,
+        date: "2026-01-01",
+        dol: 14,
+        pma: "32+1",
+        re_stage: "2",
+        re_zone: "II",
+        le_stage: "1",
+        le_zone: "II",
+        plus_status: "None / Plus / A-ROP",
+        next_review: "1 week",
+        signature: "Dr X"
+      }
+    ]
+    """
+
+    # Worst disease summary
+    worst_stage = Column(String, nullable=True)
+    worst_zone = Column(String, nullable=True)
+    plus_disease = Column(Boolean, nullable=True)
+    a_rop = Column(Boolean, nullable=True)
+
+    # Treatment
+    treatment_required = Column(Boolean, nullable=True)
+    treatment_type = Column(JSON)  # ["Laser", "Anti-VEGF"]
+    anti_vegf_agent = Column(String, nullable=True)
+    treatment_re_date = Column(Date, nullable=True)
+    treatment_le_date = Column(Date, nullable=True)
+    bilateral_treatment = Column(Boolean, nullable=True)
+    pma_at_treatment = Column(String, nullable=True)
+
+    # Outcome
+    outcome = Column(String, nullable=True)
+    final_screening_date = Column(Date, nullable=True)
+    pma_discharge = Column(String, nullable=True)
+    rop_treatment_composite = Column(Boolean, nullable=True)
+
+    # Completion
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    signature = Column(String, nullable=True)
+    completion_date = Column(Date, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+# ==========================================================
+# FORM J — COMPOSITE OUTCOME ASSESSMENT
+# ==========================================================
+
+class CompositeOutcome(Base):
+    __tablename__ = "composite_outcomes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+
+    gestation_at_birth = Column(Integer)
+    dob = Column(Date)
+
+    # ================= 36 WEEKS =================
+    assess_36_date = Column(Date)
+    assess_36_method = Column(String)
+    actual_pma_36_weeks = Column(Integer)
+    actual_pma_36_days = Column(Integer)
+
+    death_before_36 = Column(Boolean)
+    death_36_date = Column(Date)
+    death_36_age_days = Column(Integer)
+    death_36_cause = Column(String)
+
+    resp_support_36 = Column(String)
+    bpd_jensen_grade = Column(String)
+
+    radiographic_lung_disease = Column(Boolean)
+    fio2_36 = Column(Float)
+    flow_rate_36 = Column(Float)
+    bpd_nichd_grade = Column(String)
+
+    composite_36 = Column(Boolean)
+
+    # ================= 40 WEEKS =================
+    assess_40_date = Column(Date)
+    assess_40_method = Column(String)
+    actual_pma_40_weeks = Column(Integer)
+    actual_pma_40_days = Column(Integer)
+
+    death_36_40 = Column(Boolean)
+    death_40_date = Column(Date)
+    death_40_age_days = Column(Integer)
+    death_40_cause = Column(String)
+
+    rop_any = Column(Boolean)
+    rop_stage = Column(String)
+    rop_zone = Column(String)
+    rop_plus = Column(Boolean)
+    a_rop = Column(Boolean)
+    rop_treatment = Column(Boolean)
+    rop_treatment_type = Column(String)
+    rop_bilateral = Column(Boolean)
+    rop_rx = Column(Boolean)
+
+    nec_dx = Column(Boolean)
+    nec_date = Column(Date)
+    nec_stage = Column(String)
+    nec_surgery = Column(Boolean)
+    nec_stage_ge_2a = Column(Boolean)
+
+    ivh_dx = Column(Boolean)
+    ivh_grade = Column(String)
+    ivh_ge_3 = Column(Boolean)
+
+    cpvl_dx = Column(Boolean)
+    cpvl_grade = Column(String)
+    cpvl_ge_2 = Column(Boolean)
+
+    composite_40 = Column(Boolean)
+
+    # ================= 44 WEEKS =================
+    assess_44_date = Column(Date)
+    assess_44_method = Column(String)
+    actual_pma_44_weeks = Column(Integer)
+    actual_pma_44_days = Column(Integer)
+
+    death_40_44 = Column(Boolean)
+    death_44_date = Column(Date)
+    death_44_age_days = Column(Integer)
+    death_44_cause = Column(String)
+
+    new_rop = Column(Boolean)
+    additional_rop_rx = Column(Boolean)
+    additional_rop_rx_type = Column(String)
+
+    new_nec = Column(Boolean)
+    new_nec_stage = Column(String)
+
+    new_ivh = Column(Boolean)
+    new_ivh_grade = Column(String)
+
+    new_cpvl = Column(Boolean)
+    new_cpvl_grade = Column(String)
+
+    composite_44 = Column(Boolean)
+
+    # ================= MRI =================
+    mri_subset = Column(Boolean)
+    mri_date = Column(Date)
+    mri_weeks = Column(Integer)
+    mri_days = Column(Integer)
+    scanner = Column(String)
+    sedation = Column(Boolean)
+    sedation_agent = Column(String)
+    sequences = Column(JSON)
+
+    overall_mri = Column(String)
+    mri_summary = Column(String)
+
+    # ================= FINAL =================
+    final_composite_36 = Column(Boolean)
+    final_composite_44 = Column(Boolean)
+    mri_abnormal = Column(Boolean)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+    created_at = Column(DateTime, default=utcnow)
+
+# ==========================================================
+# HELPER FORM — FiO2 LOGGING (AUC CALCULATION)
+# ==========================================================
+
+class FiO2AUC(Base):
+    __tablename__ = "fio2_auc_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+
+    dob = Column(Date)
+    gestation_weeks = Column(Integer)
+
+    # 6-hourly records for 7 days (stored as JSON)
+    # Each entry: { day, block, fio2, mode }
+    fio2_logs = Column(JSON)
+
+    # ================= DERIVED =================
+    total_auc = Column(Float)              # Σ (FiO2 × hours)
+    mean_daily_fio2 = Column(Float)        # Mean FiO2 over 7 days
+    excess_o2_auc = Column(Float)           # Total AUC - (0.21 × 168)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+# ==========================================================
+# HELPER FORM VS6.1 — RESP / CV / NEURO DAILY LOG
+# ==========================================================
+
+class RespCVNeuroLog(Base):
+    __tablename__ = "resp_cv_neuro_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    enrollment_id = Column(String, index=True, nullable=False)
+
+    gestation = Column(String)
+    mother_name = Column(String)
+    maternal_uid = Column(String)
+
+    # Main grid data (31 days × parameters)
+    daily_log = Column(JSON)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    signature = Column(String)
+    completion_date = Column(Date)
+
+    created_at = Column(DateTime, default=utcnow)
+
+
+class InfectGIHemaLog(Base):
+    __tablename__ = "infect_gi_hema_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    enrollment_id = Column(String, index=True, nullable=False)
+    gestation = Column(String, nullable=True)
+    mother_name = Column(String, nullable=True)
+    maternal_uid = Column(String, nullable=True)
+
+    daily_log = Column(JSON, nullable=False)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow
+    )
+
+class MetabRenalVascEyeLog(Base):
+    __tablename__ = "metab_renal_vasc_eye_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    enrollment_id = Column(String, index=True, nullable=False)
+    gestation = Column(String, nullable=True)
+    mother_name = Column(String, nullable=True)
+    maternal_uid = Column(String, nullable=True)
+
+    daily_log = Column(JSON, nullable=False)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow
+    )
+
+class SAEReport(Base):
+    __tablename__ = "sae_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # I. Event Identification
+    study_id = Column(String, nullable=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    report_type = Column(String, nullable=False)  # Initial / Follow-up / Final
+    report_date = Column(String, nullable=False)
+
+    # II. Event Description
+    diagnosis = Column(String, nullable=False)
+    onset_datetime = Column(String, nullable=False)
+    end_datetime = Column(String, nullable=True)
+    ongoing = Column(Boolean, default=False)
+
+    # III. Seriousness criteria (multiple)
+    seriousness = Column(JSON, nullable=False)  # list of criteria
+
+    # IV–VII
+    severity = Column(String, nullable=False)
+    causality = Column(String, nullable=False)
+    action_taken = Column(String, nullable=False)
+    outcome = Column(String, nullable=False)
+    date_of_death = Column(String, nullable=True)
+
+    # VIII. Narrative
+    narrative = Column(String, nullable=False)
+
+    # IX. Reporter
+    reporter_name = Column(String, nullable=False)
+    reporter_designation = Column(String, nullable=False)
+    reporter_contact = Column(String, nullable=True)
+    reporter_date = Column(String, nullable=False)
+    reporter_signature = Column(String, nullable=True)
+
+    # X. Investigator verification
+    investigator_name = Column(String, nullable=True)
+    investigator_signature = Column(String, nullable=True)
+    investigator_date = Column(String, nullable=True)
+    site = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow) 
+
+class AdverseEvents(Base):
+    __tablename__ = "adverse_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    enrollment_id = Column(String, index=True, nullable=False)
+    mother_name = Column(String, nullable=True)
+    baby_uid = Column(String, nullable=True)
+    maternal_uid = Column(String, nullable=True)
+
+    has_adverse_event = Column(Boolean, nullable=False)
+
+    events = Column(JSON, nullable=True)  # list of AE rows
+
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    completion_date = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)  
+
+class SAEList(Base):
+    __tablename__ = "sae_list"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+
+    rows = Column(JSON, nullable=False)
+
+    completed_by = Column(String)
+    designation = Column(String)
+    completion_date = Column(String)
+
+    created_at = Column(DateTime, default=utcnow)         
+
+class RespiratoryLog(Base):
+    __tablename__ = "respiratory_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String)
+    date = Column(Date)
+    support_mode = Column(String)  # CPAP / NIPPV / IMV    
+    steroid_age_days = Column(Integer, nullable=True)
+
+class SteroidData(Base):
+    __tablename__ = "steroid_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True)
+    steroid_age_days = Column(Integer)    
+    pulmonary_hemorrhage = Column(String)
+    pulmonary_hypertension = Column(String)
+    pneumothorax = Column(String)
+    chest_drain = Column(String)

@@ -1,0 +1,165 @@
+/* Centered form card */
+.screening-form-container {
+  max-width: 900px;
+  margin: 50px auto;
+  background-color: #f9f9f9;
+  padding: 40px 30px;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+  border: 1px solid #e0e0e0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Professional header */
+.screening-form-header {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e3a8a;
+  margin-bottom: 30px;
+  border-bottom: 2px solid #1e88e5;
+  padding-bottom: 10px;
+}
+
+/* Section containers */
+.section {
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 25px;
+}
+
+/* Different soft colored backgrounds for sections */
+.section.site-info {
+  background-color: #e0f7fa; /* soft cyan */
+}
+
+.section.mother-details {
+  background-color: #fff3e0; /* soft orange */
+}
+
+.section.eligibility {
+  background-color: #e8f5e9; /* soft green */
+}
+
+.section.consent {
+  background-color: #f3e5f5; /* soft purple */
+}
+
+/* Section title */
+.section h2 {
+  margin-top: 0;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 15px;
+  color: #0d47a1;
+}
+
+/* Input, select, textarea */
+.screening-form-container input,
+.screening-form-container select,
+.screening-form-container textarea {
+  width: 100%;
+  padding: 10px 12px;
+  margin: 6px 0 18px 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+/* Checkboxes and radios */
+input[type="checkbox"],
+input[type="radio"] {
+  margin-right: 8px;
+  accent-color: #1e88e5; /* colored checkboxes/radios */
+}
+
+/* Submit button */
+button {
+  background-color: #1e88e5;
+  color: white;
+  font-weight: 600;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: 0.3s;
+}
+
+button:hover {
+  background-color: #1565c0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .screening-form-container {
+    padding: 25px 20px;
+  }
+}
+
+
+.view-actions {
+  display: flex;
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.dashboard-btn {
+  background-color: #6366f1; /* indigo */
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dashboard-btn:hover {
+  background-color: #4f46e5;
+}
+
+.add-btn {
+  background-color: #22c55e;
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.add-btn:hover {
+  background-color: #16a34a;
+}
+
+.view-container {
+  position: relative;
+  overflow: visible;   /* 🔴 THIS FIXES IT */
+}
+
+
+.action-bar {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0;
+  padding: 10px 0;
+  position: relative;
+  z-index: 10; /* 🔥 force above headers */
+}
+
+.btn {
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn.primary {
+  background: #6366f1;
+  color: #fff;
+}
+
+.btn.success {
+  background: #22c55e;
+  color: #fff;
+}

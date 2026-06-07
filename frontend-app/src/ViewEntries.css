@@ -1,0 +1,158 @@
+/* src/ViewEntries.css */
+
+/* ===== Container ===== */
+.view-container {
+  max-width: 1200px;
+  margin: 30px auto;
+  padding: 20px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #fefefe;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+}
+
+/* ===== Table ===== */
+.entries-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.entries-table th,
+.entries-table td {
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
+.entries-table th {
+  background: #9ad1f7; /* pastel blue header */
+  color: #333;
+  font-weight: bold;
+}
+
+.entries-table tr:nth-child(even) {
+  background: #f2f9ff; /* soft striped rows */
+}
+
+.entries-table tr:hover {
+  background: #d1f0ff;
+}
+
+/* ===== Buttons ===== */
+.actions button {
+  margin-right: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: 0.3s;
+  color: white;
+}
+
+.edit-btn {
+  background-color: #6fa8dc;
+}
+
+.edit-btn:hover {
+  background-color: #3d85c6;
+}
+
+.delete-btn {
+  background-color: #e06666;
+}
+
+.delete-btn:hover {
+  background-color: #cc0000;
+}
+
+.view-btn {
+  background-color: #93c47d;
+}
+
+.view-btn:hover {
+  background-color: #6aa84f;
+}
+
+/* ===== Modal Overlay ===== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+/* ===== Modal Content ===== */
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  width: 80%;
+  max-width: 600px;
+  padding: 20px 30px;
+  position: relative;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+  animation: fadeIn 0.3s ease;
+}
+
+/* ===== Close Button ===== */
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 20px;
+  background: #e06666;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.close-btn:hover {
+  background: #cc0000;
+}
+
+/* ===== Modal Body ===== */
+.modal-body p {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== No Data Message ===== */
+.no-data {
+  margin-top: 20px;
+  font-style: italic;
+  color: #777;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .entries-table th, .entries-table td {
+    padding: 8px 10px;
+  }
+
+  .modal-content {
+    width: 95%;
+  }
+
+  .actions button {
+    padding: 5px 8px;
+    font-size: 13px;
+  }
+}
