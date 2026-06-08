@@ -1,4 +1,8 @@
-/* FormA.css — Form A only overrides */
+/* ============================================================
+   FormA.css — Complete & Clean (no duplicates)
+   ============================================================ */
+
+/* ── Base form reset ── */
 .screening-form {
   background: transparent !important;
   box-shadow: none !important;
@@ -6,8 +10,322 @@
   margin: 0 !important;
   overflow: visible !important;
 }
-.screening-form.readonly .field-input input:not(:focus),
-.screening-form.readonly .field-input select:not(:focus) {
-  background: var(--surface-dim, #f1f5f9);
-  color: var(--text-muted, #64748b);
+
+/* ── field-row: plain full-width wrapper ── */
+.field-row {
+  width: 100%;
+  display: block;
+}
+
+.field-row input,
+.field-row select {
+  width: 100%;
+}
+
+.field-row .react-datepicker-wrapper {
+  width: 100%;
+}
+
+.field-row .react-datepicker-wrapper input {
+  width: 100%;
+}
+
+/* ══════════════════════════════════════════════════════════
+   READ-ONLY MODE — clean, not greyed out
+══════════════════════════════════════════════════════════ */
+.screening-form.readonly input[readonly],
+.screening-form.readonly .react-datepicker__input-container input[readonly] {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #1a202c;
+  cursor: default;
+  box-shadow: none;
+  pointer-events: none;
+  user-select: text;
+}
+
+.screening-form.readonly select[disabled] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  opacity: 1;
+  color: #1a202c;
+  background-color: transparent;
+  background-image: none;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
+  pointer-events: none;
+  cursor: default;
+}
+
+.screening-form.readonly select[disabled]::-ms-expand {
+  display: none;
+}
+
+/* ══════════════════════════════════════════════════════════
+   EDITING MODE — soft blue highlights
+══════════════════════════════════════════════════════════ */
+.screening-form.editing-mode input:not([readonly]),
+.screening-form.editing-mode .react-datepicker__input-container input:not([readonly]) {
+  background: #f0f7ff;
+  border: 1.5px solid #4a9eff;
+  border-radius: 6px;
+  color: #1a202c;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.07);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.screening-form.editing-mode select:not([disabled]) {
+  background: #f0f7ff;
+  border: 1.5px solid #4a9eff;
+  border-radius: 6px;
+  color: #1a202c;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.07);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.screening-form.editing-mode input:not([readonly]):focus,
+.screening-form.editing-mode select:not([disabled]):focus,
+.screening-form.editing-mode .react-datepicker__input-container input:not([readonly]):focus {
+  border-color: #1a7fe8;
+  box-shadow: 0 0 0 3px rgba(26, 127, 232, 0.14);
+  background: #e8f3ff;
+  outline: none;
+}
+
+.screening-form.editing-mode input:not([readonly]):hover,
+.screening-form.editing-mode select:not([disabled]):hover {
+  border-color: #2f8ff5;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
+}
+
+/* ══════════════════════════════════════════════════════════
+   EDITING MODE BANNER
+══════════════════════════════════════════════════════════ */
+.editing-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 24px;
+  letter-spacing: 0.01em;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.editing-mode-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3b82f6;
+  flex-shrink: 0;
+  animation: editing-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes editing-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.4; transform: scale(0.72); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   HEADER META AREA — button + badge on same row
+══════════════════════════════════════════════════════════ */
+.form-header-meta-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   EDIT FORM BUTTON
+══════════════════════════════════════════════════════════ */
+.btn-edit-form-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1.5px solid #3b82f6;
+  background: #ffffff;
+  color: #1d4ed8;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.15);
+  transition: background 0.15s ease, color 0.15s ease,
+              border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-edit-form-header:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.22);
+}
+
+.btn-edit-form-header:active {
+  background: #dbeafe;
+  box-shadow: none;
+}
+
+/* "Done Editing" active state — solid blue */
+.btn-edit-form-header.editing-active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.btn-edit-form-header.editing-active:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  box-shadow: 0 3px 10px rgba(29, 78, 216, 0.35);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCREENING ID BADGE — colorful gradient ID
+══════════════════════════════════════════════════════════ */
+.screening-id-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+  border: 1.5px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 7px 16px;
+  min-width: 140px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.screening-id-badge .id-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.screening-id-badge .id-val {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;          /* ← prevents 01- / 4124 split */
+  display: block;
+  width: max-content;
+  background: linear-gradient(90deg, #2563eb 0%, #0ea5e9 55%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ══════════════════════════════════════════════════════════
+   PRINT BUTTON
+══════════════════════════════════════════════════════════ */
+.btn-print-form {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  transition: background 0.15s ease, border-color 0.15s ease,
+              color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-print-form:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-print-form:active {
+  background: #f1f5f9;
+  box-shadow: none;
+}
+
+/* ══════════════════════════════════════════════════════════
+   PRINT MEDIA — clean printed output
+══════════════════════════════════════════════════════════ */
+@media print {
+  /* Hide everything except the form */
+  body > *:not(.screening-form-print-root) { }
+
+  /* Hide nav, sidebar, action bar, buttons */
+  .form-navigation,
+  .btn-print-form,
+  .btn-edit-form-header,
+  .editing-mode-banner,
+  .modal-overlay,
+  .consent-overlay {
+    display: none !important;
+  }
+
+  /* Reset form for print */
+  .screening-form {
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Make all fields visible and print-friendly */
+  .screening-form input,
+  .screening-form select,
+  .screening-form textarea {
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    -webkit-text-fill-color: #000 !important;
+  }
+
+  /* Keep cards readable */
+  .card-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #e2e8f0 !important;
+    margin-bottom: 16px !important;
+  }
+
+  /* Screening ID — print in black since gradients don't print well */
+  .screening-id-badge .id-val {
+    background: none !important;
+    -webkit-background-clip: unset !important;
+    -webkit-text-fill-color: #1d4ed8 !important;
+    background-clip: unset !important;
+    color: #1d4ed8 !important;
+  }
+
+  /* Page setup */
+  @page {
+    margin: 18mm 15mm;
+    size: A4 portrait;
+  }
 }

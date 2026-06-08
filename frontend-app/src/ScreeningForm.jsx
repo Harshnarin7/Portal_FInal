@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import api from "./api/axios";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -6,6 +6,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import "./styles/global.css";
 import "./styles/FormA.css";
 import YesNoToggle from "./components/YesNoToggle";
+import PrintSummary from "./components/PrintSummary";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
@@ -23,30 +24,37 @@ const toDateTimeLocalValue = d => {
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-/* ── EditableField ── */
-const EditableField = ({ name, children, isSaved, isEditing, activeField, setActiveField }) => {
-  const editable = !isSaved || (isEditing && activeField === name);
-  const child = React.cloneElement(children, {
-    readOnly: !editable,
-    disabled: !editable && children.type === "select",
-  });
-  return (
-    <div className="field-row">
-      <div className="field-input">{child}</div>
-      {isSaved && (
-        <button type="button"
-          className={`edit-icon${activeField === name ? " active" : ""}`}
-          onClick={() => setActiveField(name)}>✏️</button>
-      )}
-    </div>
-  );
+/* ── blank form state ── */
+const BLANK_FORM = {
+  screening_datetime:"", site_name:"", site_id:"", screened_by:"",
+  mother_first_name:"", mother_surname:"", husband_first_name:"", husband_surname:"",
+  maternal_uid:"", hospital_admission_number:"", mother_contact:"", husband_contact:"",
+  gestation_weeks:"", gestation_days:"", gestation_method:"",
+  lmp_known:"", ga_source:"", lmp_date:"", expected_delivery_date:"",
+  inclusion_gest_lt_32:false, anticipated_dr_resus:false,
+  exclusion_present:false, exclusion_reasons:"", fetal_hydrops:"", final_decision:"",
+  consent_given:"", consent_taken_by:"", consent_datetime:"",
+  consent_form_version:"v1.0", consent_language:"English",
+  consent_obtained_by_signature:"", reconsent_obtained:false,
+  reconsent_datetime:"", reconsent_form_version:"",
+  reason_not_approached:"", other_reason:"",
+  gestation_known:"", best_ga_weeks:"", best_ga_days:"",
+  edd_known:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"",
+  ga_not_determinable:false, exclusion_anomaly:"", exclusion_anomaly_details:"",
+  fetal_hydrops_type:"", iufd:"",
+  decision_forego_resus:"", decision_forego_resus_reason:"",
+  decision_forego_resus_reason_other:"",
+  insufficient_time:"", insufficient_time_reason:"",
+  relationship_to_participant:"", relationship_other:"",
+  reason_for_consent_refusal:"", reason_for_consent_refusal_other:"",
+  reason_not_approached_other:"",
 };
 
 /* ════════════════════════════════════════════
    SCREENING FORM
 ════════════════════════════════════════════ */
 function ScreeningForm() {
-  const navigate = useNavigate();
+  const navigate   = useNavigate();
   const { markFormCompleted, resetProgress } = useFormProgress();
   const { screeningId } = useParams();
 
@@ -62,104 +70,151 @@ function ScreeningForm() {
   const [missingFields, setMissingFields]       = useState([]);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentMessage, setConsentMessage]     = useState("");
+  const [dataLoaded, setDataLoaded]             = useState(false);
 
-  const editableProps = { isSaved, isEditing, activeField, setActiveField };
   const SITE_ID_MAP   = { PGIMER:"01", GMCH:"02", IOG:"03", AFMC:"04", "GMCH-A":"05", AMC:"06" };
 
+  /* ── isFieldEditable: true when form is not yet saved, OR when saved and in edit mode ── */
+  const isFieldEditable = !isSaved || isEditing;
+
   const [formData, setFormData] = useState({
-    screening_datetime:"", site_name:"", site_id:"", screened_by:"",
-    mother_first_name:"", mother_surname:"", husband_first_name:"", husband_surname:"",
-    maternal_uid:"", hospital_admission_number:"", mother_contact:"", husband_contact:"",
-    gestation_weeks:"", gestation_days:"", gestation_method:"",
-    lmp_known:"", ga_source:"", lmp_date:"", expected_delivery_date:"",
-    inclusion_gest_lt_32:false, anticipated_dr_resus:false,
-    exclusion_present:false, exclusion_reasons:"", fetal_hydrops:"", final_decision:"",
-    consent_given:"", consent_taken_by:"", consent_datetime:"",
-    consent_form_version:"v1.0", consent_language:"English",
-    consent_obtained_by_signature:"", reconsent_obtained:false,
-    reconsent_datetime:"", reconsent_form_version:"",
-    reason_not_approached:"", other_reason:"",
-    gestation_known:"", best_ga_weeks:"", best_ga_days:"",
-    edd_known:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"",
-    ga_not_determinable:false, exclusion_anomaly:"", exclusion_anomaly_details:"",
-    fetal_hydrops_type:"", iufd:"",
-    decision_forego_resus:"", decision_forego_resus_reason:"",
-    insufficient_time:"", insufficient_time_reason:"",
-    relationship_to_participant:"", relationship_other:"",
+    ...BLANK_FORM,
+    screening_datetime: toDateTimeLocalValue(new Date()),
   });
 
-  /* ── effects (all unchanged) ── */
+  /* ── Single authoritative load effect ── */
   useEffect(() => {
-    setFormData(p => ({ ...p, screening_datetime: toDateTimeLocalValue(new Date()) }));
-  }, []);
+    if (screeningId && screeningId !== "undefined" && screeningId !== "null") {
+      loadScreeningData(screeningId);
+      return;
+    }
+    const storedId = localStorage.getItem("current_screening_id");
+    if (storedId && storedId !== "undefined" && storedId !== "null") {
+      navigate(`/form-a/${storedId}`, { replace: true });
+      return;
+    }
+    // Genuinely new form
+    setFormData({ ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()) });
+    setIsSaved(false);
+    setIsEditing(false);
+    setActiveField(null);
+    setDataLoaded(true);
+    resetProgress();
+  }, [screeningId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadScreeningData = useCallback(async (id) => {
+    try {
+      const res = await api.get(`/screenings/by-screening-id/${id}`);
+      const d   = res.data;
+
+      let piiData = {};
+
+      try {
+        const piiRes = await api.get(`/pii/screening/${id}`);
+        piiData = piiRes.data || {};
+      } catch (primaryErr) {
+        const enrollmentId = d.enrollment_id ||
+          localStorage.getItem("current_enrollment_id");
+        if (enrollmentId && enrollmentId !== "undefined" && enrollmentId !== "null") {
+          try {
+            const piiRes2 = await api.get(`/pii/enrollment/${enrollmentId}`);
+            piiData = piiRes2.data || {};
+          } catch {
+            // PII completely unavailable
+          }
+        }
+      }
+
+      setFormData(() => ({
+        ...BLANK_FORM,
+        ...d,
+        mother_first_name:         piiData.mother_first_name         || d.mother_first_name         || "",
+        mother_surname:            piiData.mother_surname            || d.mother_surname            || "",
+        husband_first_name:        piiData.husband_first_name        || d.husband_first_name        || "",
+        husband_surname:           piiData.husband_surname           || d.husband_surname           || "",
+        maternal_uid:              piiData.maternal_uid              || d.maternal_uid              || "",
+        hospital_admission_number: piiData.hospital_admission_number || d.hospital_admission_number || "",
+        mother_contact:            piiData.mother_contact            || d.mother_contact            || "",
+        husband_contact:           piiData.husband_contact           || d.husband_contact           || "",
+        gestation_known: d.gestation_weeks
+          ? "Yes"
+          : (d.lmp_date || d.expected_delivery_date ? "No" : ""),
+        best_ga_weeks: d.gestation_weeks || "",
+        best_ga_days:  d.gestation_days  || "",
+        ga_source: d.gestation_weeks ? ""
+          : d.lmp_date ? "LMP"
+          : d.expected_delivery_date ? "EDD" : "",
+        edd_known: d.expected_delivery_date ? "Yes" : "",
+        edd_date:  d.expected_delivery_date || "",
+        lmp_date:  d.lmp_date || "",
+        exclusion_anomaly:     d.exclusion_reasons?.includes("Structural anomaly")   ? "Yes" : "No",
+        fetal_hydrops:         d.exclusion_reasons?.includes("Fetal hydrops")        ? "Yes" : "No",
+        decision_forego_resus: d.exclusion_reasons?.includes("Forego resuscitation") ? "Yes" : "No",
+        insufficient_time:     d.exclusion_reasons?.includes("Insufficient time")    ? "Yes" : "No",
+        iufd:                  d.exclusion_reasons?.includes("IUFD")                 ? "Yes" : "No",
+        consent_given:                    d.consent_given                    || "",
+        consent_taken_by:                 d.consent_taken_by                 || "",
+        consent_datetime:                 d.consent_datetime
+          ? String(d.consent_datetime).slice(0, 16) : "",
+        consent_form_version:             d.consent_form_version             || "v1.0",
+        consent_language:                 d.consent_language                 || "English",
+        consent_obtained_by_signature:    d.consent_obtained_by_signature    || "",
+        reconsent_obtained:               Boolean(d.reconsent_obtained),
+        reconsent_datetime:               d.reconsent_datetime
+          ? String(d.reconsent_datetime).slice(0, 16) : "",
+        reconsent_form_version:           d.reconsent_form_version           || "",
+        relationship_to_participant:      d.relationship_to_participant      || "",
+        relationship_other:               d.relationship_other               || "",
+        reason_for_consent_refusal:       d.reason_for_consent_refusal       || "",
+        reason_for_consent_refusal_other: d.reason_for_consent_refusal_other || "",
+        reason_not_approached:            d.reason_not_approached            || "",
+        reason_not_approached_other:      d.reason_not_approached_other      || "",
+      }));
+
+      if (d.screening_id)  localStorage.setItem("current_screening_id",  d.screening_id);
+      if (d.enrollment_id) localStorage.setItem("current_enrollment_id", d.enrollment_id);
+
+      setIsSaved(true);
+      setIsEditing(false);
+      setActiveField(null);
+      setIsInitialLoad(false);
+      setDataLoaded(true);
+
+    } catch (err) {
+      if (err?.response?.status !== 404) {
+        setMessage("⚠️ Could not load saved data. Please check your connection.");
+      }
+      setDataLoaded(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── load nurses when site changes ── */
   useEffect(() => {
     if (!formData.site_name) { setNurses([]); return; }
     api.get(`/sites/${formData.site_name}/screeners`)
       .then(r => setNurses(r.data)).catch(() => setNurses([]));
   }, [formData.site_name]);
 
-  useEffect(() => {
-    if (!screeningId) {
-      localStorage.removeItem("current_screening_id");
-      localStorage.removeItem("current_enrollment_id");
-      resetProgress();
-    }
-  }, [screeningId]);
-
   useEffect(() => { if (!isSaved) setActiveField(null); }, [isSaved]);
 
+  /* ── LMP → EDD auto-calc ── */
   useEffect(() => {
-    if (!formData.lmp_date) return;
+    if (!formData.lmp_date || !dataLoaded) return;
+    if (formData.edd_date) return;
     const edd = new Date(formData.lmp_date);
     edd.setDate(edd.getDate() + 280);
     setFormData(p => ({ ...p, edd_date: edd.toISOString().split("T")[0], edd_known:"Yes" }));
-  }, [formData.lmp_date]);
+  }, [formData.lmp_date, dataLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ── EDD → GA auto-calc ── */
   useEffect(() => {
-    if (!formData.edd_date) return;
+    if (!formData.edd_date || !dataLoaded) return;
+    if (formData.gestation_known === "Yes") return;
     const diff = Math.floor(280 - (new Date(formData.edd_date) - new Date()) / 86400000);
     setFormData(p => ({ ...p, auto_ga_weeks: Math.floor(diff/7), auto_ga_days: diff%7, ga_not_determinable:false }));
-  }, [formData.edd_date]);
+  }, [formData.edd_date, dataLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const id = screeningId || localStorage.getItem("current_screening_id");
-    if (!id || id === "undefined" || id === "null") return;
-    if (!screeningId) navigate(`/form-a/${id}`);
-    api.get(`/screenings/by-screening-id/${id}`).then(res => {
-      const d = res.data;
-      setFormData(p => ({
-        ...p, ...d,
-        gestation_known: d.gestation_weeks ? "Yes" : "No",
-        best_ga_weeks: d.gestation_weeks||"", best_ga_days: d.gestation_days||"",
-        edd_known: d.expected_delivery_date ? "Yes" : "No",
-        edd_date: d.expected_delivery_date||"",
-        exclusion_anomaly:     d.exclusion_reasons?.includes("Structural anomaly")   ?"Yes":"No",
-        fetal_hydrops:         d.exclusion_reasons?.includes("Fetal hydrops")        ?"Yes":"No",
-        decision_forego_resus: d.exclusion_reasons?.includes("Forego resuscitation") ?"Yes":"No",
-        insufficient_time:     d.exclusion_reasons?.includes("Insufficient time")    ?"Yes":"No",
-        iufd:                  d.exclusion_reasons?.includes("IUFD")                 ?"Yes":"No",
-        consent_given: d.consent_given||"",
-        consent_taken_by: d.consent_taken_by||"",
-        consent_datetime: d.consent_datetime ? String(d.consent_datetime).slice(0,16) : "",
-        consent_form_version:  d.consent_form_version||"v1.0",
-        consent_language:      d.consent_language||"English",
-        consent_obtained_by_signature: d.consent_obtained_by_signature||"",
-        reconsent_obtained: Boolean(d.reconsent_obtained),
-        reconsent_datetime: d.reconsent_datetime ? String(d.reconsent_datetime).slice(0,16) : "",
-        reconsent_form_version: d.reconsent_form_version||"",
-        relationship_to_participant: d.relationship_to_participant||"",
-        relationship_other: d.relationship_other||"",
-        reason_for_consent_refusal: d.reason_for_consent_refusal||"",
-        reason_for_consent_refusal_other: d.reason_for_consent_refusal_other||"",
-        reason_not_approached: d.reason_not_approached||"",
-        reason_not_approached_other: d.reason_not_approached_other||"",
-      }));
-      setIsSaved(true); setIsEditing(false); setActiveField(null); setIsInitialLoad(false);
-    }).catch(() => {});
-  }, [screeningId]);
-
-  /* ── derived ── */
+  /* ── derived values ── */
   const getEligibilityStatus = () => {
     let weeks = null, days = 0;
     if (formData.gestation_known === "Yes") {
@@ -180,10 +235,12 @@ function ScreeningForm() {
   const isNotEligible         = eligibilityStatus === "low" || eligibilityStatus === "high";
   const gaNotDeterminable     = formData.gestation_known === "No" && formData.ga_source === "Neither";
   const endParticipation      = gaNotDeterminable || isNotEligible;
-  const gestationPathComplete = formData.gestation_known === "Yes" || (formData.gestation_known === "No" && formData.edd_known === "Yes");
-  const anyExclusionYes       = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"].some(k => formData[k] === "Yes");
-  const displayWeeks          = formData.gestation_known === "Yes" ? formData.best_ga_weeks : formData.auto_ga_weeks;
-  const displayDays           = formData.gestation_known === "Yes" ? (formData.best_ga_days||0) : (formData.auto_ga_days||0);
+  const gestationPathComplete = formData.gestation_known === "Yes" ||
+    (formData.gestation_known === "No" && formData.edd_known === "Yes");
+  const anyExclusionYes = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
+    .some(k => formData[k] === "Yes");
+  const displayWeeks = formData.gestation_known === "Yes" ? formData.best_ga_weeks : formData.auto_ga_weeks;
+  const displayDays  = formData.gestation_known === "Yes" ? (formData.best_ga_days||0) : (formData.auto_ga_days||0);
 
   /* ── handleChange ── */
   const handleChange = e => {
@@ -191,24 +248,52 @@ function ScreeningForm() {
     if (type === "checkbox") value = checked;
     ["screened_by","mother_first_name","mother_surname","husband_first_name","husband_surname"]
       .includes(name) && (value = value.replace(/[^a-zA-Z ]/g, ""));
-    if (name === "site_name")         { setFormData(p => ({ ...p, site_name:value, site_id:SITE_ID_MAP[value]||"", screened_by:"" })); return; }
-    if (name === "gestation_known")   { setFormData(p => ({ ...p, gestation_known:value, ga_source:"", lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"", best_ga_weeks:"", best_ga_days:"" })); return; }
-    if (name === "ga_source")         { setFormData(p => ({ ...p, ga_source:value, lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"" })); return; }
-    if (name === "exclusion_anomaly") { setFormData(p => ({ ...p, exclusion_anomaly:value, exclusion_anomaly_details:value==="Yes"?p.exclusion_anomaly_details:"" })); return; }
-    if (name === "fetal_hydrops")     { setFormData(p => ({ ...p, fetal_hydrops:value, fetal_hydrops_type:value==="Yes"?p.fetal_hydrops_type:"" })); return; }
-    if (name === "decision_forego_resus")        { setFormData(p => ({ ...p, decision_forego_resus:value, decision_forego_resus_reason:value==="Yes"?p.decision_forego_resus_reason:"" })); return; }
-    if (name === "decision_forego_resus_reason") { setFormData(p => ({ ...p, decision_forego_resus_reason:value, decision_forego_resus_reason_other:value==="Other"?p.decision_forego_resus_reason_other:"" })); return; }
-    if (name === "insufficient_time") { setFormData(p => ({ ...p, insufficient_time:value, insufficient_time_reason:value==="Yes"?p.insufficient_time_reason:"" })); return; }
+    if (name === "site_name") {
+      setFormData(p => ({ ...p, site_name:value, site_id:SITE_ID_MAP[value]||"", screened_by:"" })); return;
+    }
+    if (name === "gestation_known") {
+      setFormData(p => ({ ...p, gestation_known:value, ga_source:"", lmp_date:"", edd_date:"",
+        auto_ga_weeks:"", auto_ga_days:"", best_ga_weeks:"", best_ga_days:"" })); return;
+    }
+    if (name === "ga_source") {
+      setFormData(p => ({ ...p, ga_source:value, lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"" })); return;
+    }
+    if (name === "exclusion_anomaly") {
+      setFormData(p => ({ ...p, exclusion_anomaly:value, exclusion_anomaly_details:value==="Yes"?p.exclusion_anomaly_details:"" })); return;
+    }
+    if (name === "fetal_hydrops") {
+      setFormData(p => ({ ...p, fetal_hydrops:value, fetal_hydrops_type:value==="Yes"?p.fetal_hydrops_type:"" })); return;
+    }
+    if (name === "decision_forego_resus") {
+      setFormData(p => ({ ...p, decision_forego_resus:value, decision_forego_resus_reason:value==="Yes"?p.decision_forego_resus_reason:"" })); return;
+    }
+    if (name === "decision_forego_resus_reason") {
+      setFormData(p => ({ ...p, decision_forego_resus_reason:value,
+        decision_forego_resus_reason_other:value==="Other"?p.decision_forego_resus_reason_other:"" })); return;
+    }
+    if (name === "insufficient_time") {
+      setFormData(p => ({ ...p, insufficient_time:value, insufficient_time_reason:value==="Yes"?p.insufficient_time_reason:"" })); return;
+    }
     if (name === "consent_given") {
       setFormData(p => {
         if (isInitialLoad || p.consent_given === value) return { ...p, consent_given:value };
-        return { ...p, consent_given:value, consent_taken_by:"", relationship_to_participant:"", relationship_other:"",
-          reason_for_consent_refusal:"", reason_for_consent_refusal_other:"", reason_not_approached:"", reason_not_approached_other:"" };
+        return { ...p, consent_given:value, consent_taken_by:"", relationship_to_participant:"",
+          relationship_other:"", reason_for_consent_refusal:"", reason_for_consent_refusal_other:"",
+          reason_not_approached:"", reason_not_approached_other:"" };
       }); return;
     }
-    if (name === "reason_for_consent_refusal")  { setFormData(p => ({ ...p, reason_for_consent_refusal:value, reason_for_consent_refusal_other:value==="Other"?p.reason_for_consent_refusal_other:"" })); return; }
-    if (name === "reason_not_approached")       { setFormData(p => ({ ...p, reason_not_approached:value, reason_not_approached_other:value==="Other"?p.reason_not_approached_other:"" })); return; }
-    if (name === "relationship_to_participant") { setFormData(p => ({ ...p, relationship_to_participant:value, relationship_other:value==="Other"?p.relationship_other:"" })); return; }
+    if (name === "reason_for_consent_refusal") {
+      setFormData(p => ({ ...p, reason_for_consent_refusal:value,
+        reason_for_consent_refusal_other:value==="Other"?p.reason_for_consent_refusal_other:"" })); return;
+    }
+    if (name === "reason_not_approached") {
+      setFormData(p => ({ ...p, reason_not_approached:value,
+        reason_not_approached_other:value==="Other"?p.reason_not_approached_other:"" })); return;
+    }
+    if (name === "relationship_to_participant") {
+      setFormData(p => ({ ...p, relationship_to_participant:value,
+        relationship_other:value==="Other"?p.relationship_other:"" })); return;
+    }
     if (name === "maternal_uid") value = value.replace(/[^0-9]/g, "");
     setFormData(p => ({ ...p, [name]:value }));
   };
@@ -219,6 +304,7 @@ function ScreeningForm() {
     setErrors(p => ({ ...p, [field]: value.length === 0 || value.length === 10 ? "" : "Must be 10 digits" }));
   };
 
+  /* ── getMissingFields ── */
   const getMissingFields = () => {
     const m = [];
     if (!formData.site_name)             m.push("Site");
@@ -237,6 +323,7 @@ function ScreeningForm() {
     return m;
   };
 
+  /* ── saveForm ── */
   const saveForm = async () => {
     const missing = getMissingFields();
     if (missing.length > 0) {
@@ -244,32 +331,63 @@ function ScreeningForm() {
       window.scrollTo({ top:0, behavior:"smooth" });
       setShowMissingModal(true);
     }
-    const backendDate = formData.edd_date ? new Date(formData.edd_date).toISOString().split("T")[0] : null;
+    const backendDate = formData.edd_date
+      ? new Date(formData.edd_date).toISOString().split("T")[0] : null;
+
     const payload = {
-      screening_id: formData.screening_id,
-      screening_datetime: formData.screening_datetime,
-      site_name: formData.site_name, site_id: formData.site_id, screened_by: formData.screened_by,
-      mother_first_name: formData.mother_first_name, mother_surname: formData.mother_surname,
-      husband_first_name: formData.husband_first_name, husband_surname: formData.husband_surname,
-      maternal_uid: formData.maternal_uid, hospital_admission_number: formData.hospital_admission_number,
-      mother_contact: formData.mother_contact||null, husband_contact: formData.husband_contact||null,
-      gestation_weeks: formData.gestation_known==="Yes" ? parseInt(formData.best_ga_weeks)||0 : parseInt(formData.auto_ga_weeks)||0,
-      gestation_days:  formData.gestation_known==="Yes" ? parseInt(formData.best_ga_days)||0  : parseInt(formData.auto_ga_days)||0,
-      exclusion_present: anyExclusionYes,
-      lmp_date: formData.lmp_date||null, expected_delivery_date: backendDate||null,
+      screening_id:              formData.screening_id,
+      screening_datetime:        formData.screening_datetime,
+      site_name:                 formData.site_name,
+      site_id:                   formData.site_id,
+      screened_by:               formData.screened_by,
+      mother_first_name:         formData.mother_first_name,
+      mother_surname:            formData.mother_surname,
+      husband_first_name:        formData.husband_first_name,
+      husband_surname:           formData.husband_surname,
+      maternal_uid:              formData.maternal_uid,
+      hospital_admission_number: formData.hospital_admission_number,
+      mother_contact:            formData.mother_contact  || null,
+      husband_contact:           formData.husband_contact || null,
+      gestation_weeks: formData.gestation_known === "Yes"
+        ? parseInt(formData.best_ga_weeks)||0 : parseInt(formData.auto_ga_weeks)||0,
+      gestation_days: formData.gestation_known === "Yes"
+        ? parseInt(formData.best_ga_days)||0  : parseInt(formData.auto_ga_days)||0,
+      gestation_method:          formData.gestation_method || null,
+      lmp_date:                  formData.lmp_date || null,
+      expected_delivery_date:    backendDate || null,
+      exclusion_present:         anyExclusionYes,
+      consent_given:             formData.consent_given             || null,
+      consent_taken_by:          formData.consent_taken_by          || null,
+      consent_form_version:      formData.consent_form_version      || null,
+      consent_language:          formData.consent_language          || null,
+      relationship_to_participant: formData.relationship_to_participant || null,
+      relationship_other:        formData.relationship_other        || null,
+      reason_not_approached:     formData.reason_not_approached     || null,
     };
+
     try {
       const storedId = localStorage.getItem("current_screening_id");
-      const existingId = (screeningId && screeningId !== "undefined") ? screeningId
-        : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId =
+        (screeningId && screeningId !== "undefined") ? screeningId :
+        (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+
       const res = existingId
         ? await api.put(`/screenings/${existingId}`, payload)
         : await api.post("/screenings/", payload);
-      localStorage.setItem("current_screening_id", res.data.screening_id);
-      localStorage.setItem("current_enrollment_id", res.data.enrollment_id);
+
+      const savedScreeningId  = res.data.screening_id;
+      const savedEnrollmentId = res.data.enrollment_id;
+
+      localStorage.setItem("current_screening_id", savedScreeningId);
+      if (savedEnrollmentId)
+        localStorage.setItem("current_enrollment_id", savedEnrollmentId);
+
+      window.dispatchEvent(new Event("storage"));
+
       if (missing.length === 0) {
         setMessage("✅ Form saved successfully");
-        setIsSaved(true); setIsEditing(false);
+        setIsSaved(true);
+        setIsEditing(false);
       } else {
         setMessage("⚠️ Saved (Incomplete)");
         setIsSaved(false);
@@ -277,15 +395,21 @@ function ScreeningForm() {
       setActiveField(null);
       window.scrollTo({ top:0, behavior:"smooth" });
       setTimeout(() => setMessage(""), 3000);
+
+      if (!screeningId && savedScreeningId) {
+        navigate(`/form-a/${savedScreeningId}`, { replace: true });
+      }
+
       return true;
-    } catch {
-      setMessage("❌ Save failed");
+    } catch (err) {
+      setMessage(`❌ Save failed: ${err?.response?.data?.detail || err.message}`);
       window.scrollTo({ top:0, behavior:"smooth" });
       setIsSaved(false);
       return false;
     }
   };
 
+  /* ── handleNext ── */
   const handleNext = async () => {
     const success = await saveForm();
     if (!success) return;
@@ -293,13 +417,15 @@ function ScreeningForm() {
       localStorage.setItem("enrollment_locked", "true");
       window.dispatchEvent(new Event("storage"));
       const msgs = { No:"consent was refused.", "Not approached":"consent was not taken." };
-      setConsentMessage(`Screening completed. Participant cannot be enrolled because ${msgs[formData.consent_given]||"of consent status."}`);
+      setConsentMessage(
+        `Screening completed. Participant cannot be enrolled because ${msgs[formData.consent_given]||"of consent status."}`
+      );
       setShowConsentModal(true);
       return;
     }
-    markFormCompleted("form_a");
     localStorage.removeItem("enrollment_locked");
     window.dispatchEvent(new Event("storage"));
+    markFormCompleted("form_a");
     navigate(`/form-b/${localStorage.getItem("current_screening_id")}`);
   };
 
@@ -308,16 +434,22 @@ function ScreeningForm() {
   ════════════════════════════════════════════ */
   return (
     <>
-      <form className={`screening-form${isSaved ? " readonly" : ""}`}>
+      {/* ── EDITING MODE BANNER ── */}
+      {isSaved && isEditing && (
+        <div className="editing-mode-banner">
+          <span className="editing-mode-dot" />
+          Editing Mode Active — changes will be saved when you click Save
+        </div>
+      )}
+
+      <form className={`screening-form${isSaved && !isEditing ? " readonly" : ""}${isSaved && isEditing ? " editing-mode" : ""}`}>
         <fieldset>
           <div className="form-inner">
 
             {/* ── HEADER ROW ── */}
             <div className="form-header-action-row">
               <div className="form-header-title-area">
-                <div className="form-breadcrumb">
-                  <Home size={12} /> FORM A
-                </div>
+                <div className="form-breadcrumb"><Home size={12} /> FORM A</div>
                 <h2 className="form-main-title">Screening Form</h2>
                 <p className="form-main-subtitle">
                   Eligibility Assessment for Pregnant Women &lt;32 weeks gestation
@@ -325,9 +457,22 @@ function ScreeningForm() {
               </div>
               <div className="form-header-meta-area">
                 {isSaved && (
-                  <button type="button" className="btn-edit-form-header"
-                    onClick={() => setIsEditing(p => !p)}>
-                    ✏️ {isEditing ? "Done Editing" : "Edit Form"}
+                  <button
+                    type="button"
+                    className="btn-print-form"
+                    onClick={() => window.print()}
+                    title="Print this form"
+                  >
+                    🖨️ Print
+                  </button>
+                )}
+                {isSaved && (
+                  <button
+                    type="button"
+                    className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
+                    onClick={() => setIsEditing(p => !p)}
+                  >
+                    {isEditing ? "✓ Done Editing" : "Edit Form"}
                   </button>
                 )}
                 <div className="screening-id-badge">
@@ -347,11 +492,11 @@ function ScreeningForm() {
                   <h3>Gestation Assessment</h3>
                 </div>
                 {eligibilityStatus === "eligible" && <span className="badge-eligible">✓ ELIGIBLE</span>}
-                {(eligibilityStatus === "high" || eligibilityStatus === "low") && <span className="badge-not-eligible">✗ NOT ELIGIBLE</span>}
+                {(eligibilityStatus === "high" || eligibilityStatus === "low") &&
+                  <span className="badge-not-eligible">✗ NOT ELIGIBLE</span>}
               </div>
               <div className="form-section-body">
 
-                {/* Row 1 — Gestation known */}
                 <div className="form-grid-2">
                   <div className="form-group">
                     <label>Gestation in weeks clearly known?<span className="required">*</span></label>
@@ -361,14 +506,11 @@ function ScreeningForm() {
                       <option value="No">No</option>
                     </select>
                   </div>
-                  {/* spacer keeps grid aligned */}
                   <div />
                 </div>
 
-                {/* YES branch */}
                 {formData.gestation_known === "Yes" && (
                   <>
-                    {/* Row 2 — GA weeks + days */}
                     <div className="form-grid-3">
                       <div className="form-group">
                         <label>Best Estimate GA (Weeks)<span className="required">*</span></label>
@@ -388,7 +530,6 @@ function ScreeningForm() {
                           dateFormat="dd-MM-yyyy" placeholderText="dd-----yyyy" />
                       </div>
                     </div>
-                    {/* Row 3 — Method */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Method of Assessment<span className="required">*</span></label>
@@ -405,7 +546,6 @@ function ScreeningForm() {
                   </>
                 )}
 
-                {/* NO branch */}
                 {formData.gestation_known === "No" && (
                   <>
                     <div className="form-grid-2">
@@ -429,12 +569,12 @@ function ScreeningForm() {
                             onChange={d => setFormData(p => ({ ...p, lmp_date: d ? d.toISOString().split("T")[0] : "" }))}
                             dateFormat="dd-MM-yyyy" placeholderText="Select date" />
                         </div>
-                        {formData.edd_date && (
+                        {formData.edd_date ? (
                           <div className="form-group">
                             <label>Expected Delivery Date (Auto-calculated)</label>
                             <input value={formatDateToDDMMYYYY(formData.edd_date)} readOnly className="readonly-input" />
                           </div>
-                        )}
+                        ) : <div />}
                       </div>
                     )}
                     {formData.ga_source === "EDD" && (
@@ -452,23 +592,25 @@ function ScreeningForm() {
                   </>
                 )}
 
-                {/* GA banner */}
                 {displayWeeks !== "" && displayWeeks !== null && (
                   <div className="gestation-info-banner">
                     <Info size={16} className="banner-info-icon" />
                     <span className="banner-text">
                       Best calculated gestational age:{" "}
                       <strong>{displayWeeks} weeks {displayDays} days</strong>.{" "}
-                      Participant is <strong>{eligibilityStatus === "eligible" ? "eligible" : "not eligible"}</strong> for the study.
+                      Participant is <strong>
+                        {eligibilityStatus === "eligible" ? "eligible" : "not eligible"}
+                      </strong> for the study.
                     </span>
                   </div>
                 )}
 
-                {formData.gestation_known === "No" && formData.ga_source === "Neither" && (
-                  <div className="alert-danger">❌ Gestational age cannot be determined. End participation.</div>
-                )}
-                {eligibilityStatus === "high" && <div className="alert-danger">❌ Gestational age ≥32 weeks. Cannot proceed.</div>}
-                {eligibilityStatus === "low"  && <div className="alert-danger">❌ Gestational age &lt;25 weeks. Not eligible.</div>}
+                {formData.gestation_known === "No" && formData.ga_source === "Neither" &&
+                  <div className="alert-danger">❌ Gestational age cannot be determined. End participation.</div>}
+                {eligibilityStatus === "high" &&
+                  <div className="alert-danger">❌ Gestational age ≥32 weeks. Cannot proceed.</div>}
+                {eligibilityStatus === "low" &&
+                  <div className="alert-danger">❌ Gestational age &lt;25 weeks. Not eligible.</div>}
 
               </div>
             </div>
@@ -476,7 +618,6 @@ function ScreeningForm() {
             {/* ══ CONDITIONAL SECTIONS ══ */}
             {gestationPathComplete && !endParticipation && (
               <>
-
                 {/* ══════════════════════════════════
                     CARD 2 — IDENTIFICATION
                 ══════════════════════════════════ */}
@@ -488,67 +629,67 @@ function ScreeningForm() {
                     </div>
                   </div>
                   <div className="form-section-body">
-
-                    {/* Row 1 — Site + Site ID */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Site Name<span className="required">*</span></label>
-                        <EditableField name="site_name" {...editableProps}>
-                          <select name="site_name" value={formData.site_name || ""} onChange={handleChange}>
+                        <div className="field-row">
+                          <select name="site_name" value={formData.site_name || ""} onChange={handleChange}
+                            disabled={!isFieldEditable}>
                             <option value="">-- Select --</option>
                             <option>PGIMER</option><option>GMCH</option><option>IOG</option>
                             <option>AFMC</option><option>GMCH-A</option><option>AMC</option>
                           </select>
-                        </EditableField>
+                        </div>
                       </div>
                       <div className="form-group">
                         <label>Site ID</label>
                         <input value={formData.site_id || ""} readOnly className="readonly-input" />
                       </div>
                     </div>
-
-                    {/* Row 2 — Date + Screened By */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Screening Date &amp; Time<span className="required">*</span></label>
-                        <EditableField name="screening_datetime" {...editableProps}>
+                        <div className="field-row">
                           <DatePicker
                             selected={formData.screening_datetime ? new Date(formData.screening_datetime) : null}
                             onChange={d => setFormData(p => ({ ...p, screening_datetime: d ? d.toISOString() : "" }))}
                             showTimeSelect timeFormat="HH:mm" timeIntervals={1}
-                            dateFormat="dd-MM-yyyy | HH:mm" />
-                        </EditableField>
+                            dateFormat="dd-MM-yyyy | HH:mm"
+                            readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                       <div className="form-group">
                         <label>Screened By<span className="required">*</span></label>
-                        <EditableField name="screened_by" {...editableProps}>
-                          <select name="screened_by" value={formData.screened_by || ""} onChange={handleChange} disabled={!formData.site_name}>
+                        <div className="field-row">
+                          <select name="screened_by" value={formData.screened_by || ""} onChange={handleChange}
+                            disabled={!isFieldEditable || !formData.site_name}>
                             <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
                             {formData.screened_by && !nurses.includes(formData.screened_by) &&
                               <option value={formData.screened_by}>{formData.screened_by}</option>}
                             {nurses.map(n => <option key={n} value={n}>{n}</option>)}
                           </select>
-                        </EditableField>
+                        </div>
                       </div>
                     </div>
-
-                    {/* Row 3 — Screening ID alone */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Screening ID</label>
-                        <input type="text" name="screening_id" value={formData.screening_id || ""}
-                          placeholder="01-0001" maxLength={7}
-                          onChange={e => {
-                            let v = e.target.value.replace(/[^0-9-]/g, "");
-                            if (v.length === 2 && !v.includes("-")) v += "-";
-                            const pts = v.split("-");
-                            if (pts.length > 2 || pts[0].length > 2 || (pts[1] && pts[1].length > 4)) return;
-                            setFormData(p => ({ ...p, screening_id: v }));
-                          }} />
+                        <div className="field-row">
+                          <input type="text" name="screening_id" value={formData.screening_id || ""}
+                            placeholder="01-0001" maxLength={7}
+                            readOnly={!isFieldEditable}
+                            onChange={e => {
+                              if (!isFieldEditable) return;
+                              let v = e.target.value.replace(/[^0-9-]/g, "");
+                              if (v.length === 2 && !v.includes("-")) v += "-";
+                              const pts = v.split("-");
+                              if (pts.length > 2 || pts[0].length > 2 || (pts[1] && pts[1].length > 4)) return;
+                              setFormData(p => ({ ...p, screening_id: v }));
+                            }} />
+                        </div>
                       </div>
                       <div />
                     </div>
-
                   </div>
                 </div>
 
@@ -563,83 +704,82 @@ function ScreeningForm() {
                     </div>
                   </div>
                   <div className="form-section-body">
-
-                    {/* Row 1 — Mother names */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Mother's First Name<span className="required">*</span></label>
-                        <EditableField name="mother_first_name" {...editableProps}>
-                          <input name="mother_first_name" value={formData.mother_first_name || ""} onChange={handleChange} />
-                        </EditableField>
+                        <div className="field-row">
+                          <input name="mother_first_name" value={formData.mother_first_name || ""}
+                            onChange={handleChange} readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                       <div className="form-group">
                         <label>Mother's Surname</label>
-                        <EditableField name="mother_surname" {...editableProps}>
-                          <input name="mother_surname" value={formData.mother_surname || ""} onChange={handleChange} placeholder="Optional" />
-                        </EditableField>
+                        <div className="field-row">
+                          <input name="mother_surname" value={formData.mother_surname || ""}
+                            onChange={handleChange} placeholder="Optional" readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                     </div>
-
-                    {/* Row 2 — Husband names */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Husband's First Name<span className="required">*</span></label>
-                        <EditableField name="husband_first_name" {...editableProps}>
-                          <input name="husband_first_name" value={formData.husband_first_name || ""} onChange={handleChange} />
-                        </EditableField>
+                        <div className="field-row">
+                          <input name="husband_first_name" value={formData.husband_first_name || ""}
+                            onChange={handleChange} readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                       <div className="form-group">
                         <label>Husband's Surname</label>
-                        <EditableField name="husband_surname" {...editableProps}>
-                          <input name="husband_surname" value={formData.husband_surname || ""} onChange={handleChange} placeholder="Optional" />
-                        </EditableField>
+                        <div className="field-row">
+                          <input name="husband_surname" value={formData.husband_surname || ""}
+                            onChange={handleChange} placeholder="Optional" readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                     </div>
-
-                    {/* Row 3 — UIDs */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Maternal UID (CR Number)<span className="required">*</span></label>
-                        <EditableField name="maternal_uid" {...editableProps}>
-                          <input name="maternal_uid" value={formData.maternal_uid || ""} onChange={handleChange} maxLength={12} inputMode="numeric" />
-                        </EditableField>
+                        <div className="field-row">
+                          <input name="maternal_uid" value={formData.maternal_uid || ""}
+                            onChange={handleChange} maxLength={12} inputMode="numeric"
+                            readOnly={!isFieldEditable} />
+                        </div>
                       </div>
                       <div className="form-group">
                         <label>Hospital Admission Number</label>
-                        <EditableField name="hospital_admission_number" {...editableProps}>
+                        <div className="field-row">
                           <input name="hospital_admission_number" value={formData.hospital_admission_number || ""}
                             maxLength={15} inputMode="numeric" placeholder="Up to 15 digits"
+                            readOnly={!isFieldEditable}
                             onChange={e => {
+                              if (!isFieldEditable) return;
                               const v = e.target.value.replace(/\D/g, "");
                               if (v.length > 15) return;
                               setFormData(p => ({ ...p, hospital_admission_number: v }));
                             }} />
-                        </EditableField>
+                        </div>
                       </div>
                     </div>
-
-                    {/* Row 4 — Contacts  ← FIXED: form-grid-2 not form-row */}
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>Contact (Mother)<span className="required">*</span></label>
-                        <EditableField name="mother_contact" {...editableProps}>
+                        <div className="field-row">
                           <input type="text" name="mother_contact" value={formData.mother_contact || ""}
-                            maxLength={10} inputMode="numeric"
-                            onChange={e => handleContactChange(e, "mother_contact")} />
-                        </EditableField>
+                            maxLength={10} inputMode="numeric" readOnly={!isFieldEditable}
+                            onChange={e => { if (!isFieldEditable) return; handleContactChange(e, "mother_contact"); }} />
+                        </div>
                         {errors.mother_contact && <div className="field-error">{errors.mother_contact}</div>}
                       </div>
                       <div className="form-group">
                         <label>Contact (Husband)<span className="required">*</span></label>
-                        <EditableField name="husband_contact" {...editableProps}>
+                        <div className="field-row">
                           <input type="text" name="husband_contact" value={formData.husband_contact || ""}
-                            maxLength={10} inputMode="numeric"
-                            onChange={e => handleContactChange(e, "husband_contact")} />
-                        </EditableField>
+                            maxLength={10} inputMode="numeric" readOnly={!isFieldEditable}
+                            onChange={e => { if (!isFieldEditable) return; handleContactChange(e, "husband_contact"); }} />
+                        </div>
                         {errors.husband_contact && <div className="field-error">{errors.husband_contact}</div>}
                       </div>
                     </div>
-
                   </div>
                 </div>
 
@@ -655,13 +795,8 @@ function ScreeningForm() {
                       </div>
                     </div>
                     <div className="form-section-body">
-
-                      <YesNoToggle
-                        label="Major structural anomalies or genetic abnormality (suspected/proven)"
-                        name="exclusion_anomaly"
-                        value={formData.exclusion_anomaly}
-                        onChange={handleChange}
-                      />
+                      <YesNoToggle label="Major structural anomalies or genetic abnormality (suspected/proven)"
+                        name="exclusion_anomaly" value={formData.exclusion_anomaly} onChange={handleChange} />
                       {formData.exclusion_anomaly === "Yes" && (
                         <div className="followup-box">
                           <div className="form-grid-2">
@@ -674,13 +809,8 @@ function ScreeningForm() {
                           </div>
                         </div>
                       )}
-
-                      <YesNoToggle
-                        label="Fetal Hydrops"
-                        name="fetal_hydrops"
-                        value={formData.fetal_hydrops}
-                        onChange={handleChange}
-                      />
+                      <YesNoToggle label="Fetal Hydrops"
+                        name="fetal_hydrops" value={formData.fetal_hydrops} onChange={handleChange} />
                       {formData.fetal_hydrops === "Yes" && (
                         <div className="followup-box">
                           <div className="form-grid-2">
@@ -695,13 +825,8 @@ function ScreeningForm() {
                           </div>
                         </div>
                       )}
-
-                      <YesNoToggle
-                        label="Decision to forego resuscitation"
-                        name="decision_forego_resus"
-                        value={formData.decision_forego_resus}
-                        onChange={handleChange}
-                      />
+                      <YesNoToggle label="Decision to forego resuscitation"
+                        name="decision_forego_resus" value={formData.decision_forego_resus} onChange={handleChange} />
                       {formData.decision_forego_resus === "Yes" && (
                         <div className="followup-box">
                           <div className="form-grid-2">
@@ -732,13 +857,8 @@ function ScreeningForm() {
                           )}
                         </div>
                       )}
-
-                      <YesNoToggle
-                        label="Insufficient time for consent/randomization before birth"
-                        name="insufficient_time"
-                        value={formData.insufficient_time}
-                        onChange={handleChange}
-                      />
+                      <YesNoToggle label="Insufficient time for consent/randomization before birth"
+                        name="insufficient_time" value={formData.insufficient_time} onChange={handleChange} />
                       {formData.insufficient_time === "Yes" && (
                         <div className="followup-box">
                           <div className="form-grid-2">
@@ -751,14 +871,8 @@ function ScreeningForm() {
                           </div>
                         </div>
                       )}
-
-                      <YesNoToggle
-                        label="Intrauterine Fetal Death (IUFD)"
-                        name="iufd"
-                        value={formData.iufd}
-                        onChange={handleChange}
-                      />
-
+                      <YesNoToggle label="Intrauterine Fetal Death (IUFD)"
+                        name="iufd" value={formData.iufd} onChange={handleChange} />
                     </div>
                   </div>
                 )}
@@ -775,8 +889,6 @@ function ScreeningForm() {
                       </div>
                     </div>
                     <div className="form-section-body">
-
-                      {/* Row 1 — Consent */}
                       <div className="form-grid-2">
                         <div className="form-group">
                           <label>Consent<span className="required">*</span></label>
@@ -789,10 +901,8 @@ function ScreeningForm() {
                         </div>
                         <div />
                       </div>
-
                       {(formData.consent_given === "Yes" || formData.consent_given === "No") && (
                         <>
-                          {/* Row 2 — Relationship + Consent Taken By */}
                           <div className="form-grid-2">
                             <div className="form-group">
                               <label>Relationship to Participant<span className="required">*</span></label>
@@ -815,8 +925,6 @@ function ScreeningForm() {
                               </select>
                             </div>
                           </div>
-
-                          {/* Relationship Other */}
                           {formData.relationship_to_participant === "Other" && (
                             <div className="form-grid-2">
                               <div className="form-group">
@@ -829,8 +937,6 @@ function ScreeningForm() {
                           )}
                         </>
                       )}
-
-                      {/* Consent = NO */}
                       {formData.consent_given === "No" && (
                         <div className="form-grid-2">
                           <div className="form-group">
@@ -853,8 +959,6 @@ function ScreeningForm() {
                           ) : <div />}
                         </div>
                       )}
-
-                      {/* Not approached */}
                       {formData.consent_given === "Not approached" && (
                         <div className="form-grid-2">
                           <div className="form-group">
@@ -878,11 +982,9 @@ function ScreeningForm() {
                           ) : <div />}
                         </div>
                       )}
-
                     </div>
                   </div>
                 )}
-
               </>
             )}
 
@@ -909,19 +1011,17 @@ function ScreeningForm() {
           <ArrowLeft size={15} /> Dashboard
         </button>
         <button type="button" className="btn btn-save btn-outline-blue" onClick={saveForm}>
-          <Save size={15} /> Save Draft
+          <Save size={15} /> Save
         </button>
         <div className="footer-step-indicator">
           <span className="step-text">STEP 1 OF 17</span>
           <div className="step-progress-line">
             <div className="progress-segment active" />
-            <div className="progress-segment" />
-            <div className="progress-segment" />
-            <div className="progress-segment" />
+            <div className="progress-segment" /><div className="progress-segment" /><div className="progress-segment" />
           </div>
         </div>
         <button type="button" className="btn btn-primary" onClick={handleNext} disabled={!isSaved}>
-          Enrollment &amp; Baseline <ArrowRight size={15} />
+          Birth &amp; Resuscitation <ArrowRight size={15} />
         </button>
       </div>
 
@@ -945,6 +1045,9 @@ function ScreeningForm() {
           </div>
         </div>
       )}
+
+      {/* ── PRINT REPORT — invisible on screen, visible on print only ── */}
+      <PrintSummary formData={formData} />
     </>
   );
 }

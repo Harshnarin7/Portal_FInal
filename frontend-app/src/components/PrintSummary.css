@@ -1,0 +1,289 @@
+/* ================================================================
+   PrintSummary.css
+   ON SCREEN  — .pr-root hidden, #print-portal hidden.
+   ON PRINT   — hide #root entirely; show only #print-portal.
+   ================================================================ */
+
+/* ── Hidden on screen ── */
+#print-portal {
+  display: none;
+}
+
+/* ════════════════════════════════════════════════════════════
+   @media print
+════════════════════════════════════════════════════════════ */
+@media print {
+
+  /* Hide the React app root — safe because the report
+     is in #print-portal which is a sibling, not a child */
+  #root {
+    display: none !important;
+  }
+
+  /* Show the portal container */
+  #print-portal {
+    display: block !important;
+  }
+
+  /* Report root */
+  .pr-root {
+    display: block !important;
+    font-family: "Times New Roman", Georgia, serif;
+    font-size: 9.5pt;
+    color: #000;
+    background: #fff;
+    padding: 14mm 16mm 12mm 16mm;
+    box-sizing: border-box;
+    width: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  /* ── HEADER ── */
+  .pr-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 5px;
+  }
+
+  .pr-header-left { flex: 1; }
+
+  .pr-study-title {
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+  }
+
+  .pr-study-full {
+    font-size: 7.5pt;
+    font-style: italic;
+    color: #333;
+    margin-top: 2px;
+    max-width: 310px;
+    line-height: 1.3;
+  }
+
+  .pr-study-meta {
+    font-size: 7pt;
+    color: #555;
+    margin-top: 3px;
+    letter-spacing: 0.03em;
+  }
+
+  .pr-header-right {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .pr-doc-label {
+    font-size: 7.5pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #333;
+    margin-bottom: 4px;
+  }
+
+  .pr-meta-table {
+    border-collapse: collapse;
+    border: 1px solid #aaa;
+    min-width: 185px;
+  }
+
+  .pr-meta-table td {
+    padding: 2px 6px;
+    border-bottom: 0.5px solid #ccc;
+    font-size: 7.5pt;
+    vertical-align: middle;
+  }
+
+  .pr-meta-table tr:last-child td { border-bottom: none; }
+
+  .pr-meta-key {
+    color: #555;
+    white-space: nowrap;
+    padding-right: 8px;
+  }
+
+  .pr-meta-val  { font-weight: bold; text-align: right; }
+  .pr-meta-id   { font-size: 10pt; letter-spacing: 0.05em; }
+
+  /* Rule */
+  .pr-rule {
+    border: none;
+    border-top: 2px solid #000;
+    margin: 4px 0 6px;
+  }
+
+  /* ── OUTCOME BOX ── */
+  .pr-outcome {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 2px solid #000;
+    padding: 5px 12px;
+    margin-bottom: 7px;
+    page-break-inside: avoid;
+  }
+
+  .pr-outcome-label {
+    font-size: 7.5pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #444;
+  }
+
+  .pr-outcome-value {
+    font-size: 15pt;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+  }
+
+  .pr-outcome-eligible        { border-width: 2.5px; }
+  .pr-outcome-not-eligible    { border-style: dashed; }
+  .pr-outcome-screen-failure  { border-style: dashed; }
+  .pr-outcome-consent-refused { border-style: dotted; }
+  .pr-outcome-pending         { border-color: #888; border-style: dotted; }
+
+  /* ── TWO-COLUMN BODY ── */
+  .pr-body {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .pr-col { flex: 1; min-width: 0; }
+
+  /* ── Section ── */
+  .pr-section {
+    margin-bottom: 7px;
+    page-break-inside: avoid;
+  }
+
+  .pr-section-hd {
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1.5px solid #000;
+    padding-bottom: 1px;
+    margin-bottom: 2px;
+  }
+
+  /* ── Data table ── */
+  .pr-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .pr-td-label {
+    font-size: 7.5pt;
+    color: #444;
+    padding: 1.5px 0;
+    width: 43%;
+    vertical-align: top;
+    border-bottom: 0.3px solid #ddd;
+  }
+
+  .pr-td-value {
+    font-size: 8pt;
+    font-weight: bold;
+    padding: 1.5px 0 1.5px 4px;
+    vertical-align: top;
+    border-bottom: 0.3px solid #ddd;
+    word-break: break-word;
+  }
+
+  .pr-table tr:last-child td { border-bottom: none; }
+
+  /* ── Exclusion table ── */
+  .pr-exc-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .pr-exc-th-label,
+  .pr-exc-th-yn {
+    font-size: 7pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid #000;
+    padding: 1.5px 3px;
+    text-align: left;
+    color: #333;
+  }
+
+  .pr-exc-th-yn { text-align: center; width: 40px; }
+
+  .pr-exc-label {
+    font-size: 7.5pt;
+    padding: 1.5px 3px;
+    border-bottom: 0.3px solid #ddd;
+    vertical-align: middle;
+  }
+
+  .pr-exc-yn {
+    font-size: 7.5pt;
+    font-weight: bold;
+    text-align: center;
+    padding: 1.5px 3px;
+    border-bottom: 0.3px solid #ddd;
+    vertical-align: middle;
+    width: 40px;
+  }
+
+  .pr-exc-yes { border: 1.5px solid #000; font-weight: bold; }
+  .pr-exc-no  { color: #555; }
+
+  .pr-exc-detail {
+    font-size: 7pt;
+    font-style: italic;
+    color: #444;
+    padding: 1px 3px 1.5px 10px;
+    border-bottom: 0.3px solid #ddd;
+  }
+
+  /* ── Signature area ── */
+  .pr-sig-area {
+    display: flex;
+    gap: 20px;
+    margin-top: 10px;
+    page-break-inside: avoid;
+  }
+
+  .pr-sig-block { flex: 1; }
+
+  .pr-sig-line {
+    border-bottom: 1px solid #000;
+    height: 20px;
+    margin-bottom: 2px;
+  }
+
+  .pr-sig-cap {
+    font-size: 7pt;
+    color: #444;
+    text-align: center;
+  }
+
+  /* ── Document footer ── */
+  .pr-footer {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #bbb;
+    margin-top: 7px;
+    padding-top: 2px;
+    font-size: 6.5pt;
+    color: #666;
+  }
+
+} /* end @media print */
