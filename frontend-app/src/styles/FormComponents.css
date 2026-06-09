@@ -145,3 +145,4 @@
 @media (max-width: 1024px) { .rx-grid { grid-template-columns: 1fr 1fr; } .iso-grid, .jensen-options, .rop-guideline-wrapper { grid-template-columns: 1fr; } .icrop-grid { grid-template-columns: 1fr; } .nec-grid, .bpd-grid { grid-template-columns: 1fr; } .mri-grid { grid-column: 1fr; } .full-width { grid-column: span 1; } }
 @media (max-width: 768px) { .rx-grid { grid-template-columns: 1fr; } .address-row { flex-direction: column; } .id-row { grid-template-columns: 1fr; } .id-cell { border-right: none; border-bottom: 1px solid #ccc; } .id-cell:last-child { border-bottom: none; } }
 @media (max-width: 600px) { .rx-grid { grid-template-columns: 1fr; } .iso-grid { grid-template-columns: 1fr; } }
+

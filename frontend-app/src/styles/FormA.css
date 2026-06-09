@@ -329,3 +329,363 @@
     size: A4 portrait;
   }
 }
+/* ============================================================
+   FormC.css — Additive styles for Form C specific components
+   Add @import or paste into your existing FormA.css / global.css
+   All other layout classes (card-section, form-grid-2, etc.)
+   are already defined in FormA.css — do NOT redefine them here.
+   ============================================================ */
+
+/* ── Single column grid (for full-width address field) ── */
+.form-grid-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   DISORDER CHECKBOX CARDS
+════════════════════════════════════════════════════════════ */
+.disorder-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.disorder-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  min-height: 44px;
+}
+
+.disorder-card:hover:not(.disorder-card--disabled) {
+  border-color: #93c5fd;
+  background: #f0f9ff;
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.1);
+}
+
+.disorder-card--selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.disorder-card--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f8fafc;
+}
+
+.disorder-card__check {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #3b82f6;
+  flex-shrink: 0;
+  background: #ffffff;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.disorder-card--selected .disorder-card__check {
+  border-color: #3b82f6;
+  background: #dbeafe;
+}
+
+.disorder-card__label {
+  line-height: 1.3;
+}
+
+/* ════════════════════════════════════════════════════════════
+   OBSTETRIC PROBLEM SUB-CARDS
+════════════════════════════════════════════════════════════ */
+.obstetric-subcard {
+  border: 1px solid #e9edf5;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  background: #fafbff;
+}
+
+.obstetric-subcard:last-child {
+  margin-bottom: 0;
+}
+
+.obstetric-subcard__title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e9edf5;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PRINT — Form C specific overrides
+════════════════════════════════════════════════════════════ */
+@media print {
+  .obstetric-subcard {
+    break-inside: avoid;
+    border: 1px solid #e2e8f0 !important;
+    background: transparent !important;
+  }
+
+  .disorder-card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .disorder-card {
+    border: 1px solid #e2e8f0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .disorder-card--selected {
+    background: #f0f7ff !important;
+    border-color: #3b82f6 !important;
+  }
+}
+/* ============================================================
+   FormC.css Addendum — Segmented Controls & Multi-Column Layouts
+   ============================================================ */
+
+/* Single-column full-width layouts for address components */
+.form-grid-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SEGMENTED TOGGLE CONTROLS
+════════════════════════════════════════════════════════════ */
+.segmented-toggle-group {
+  display: flex;
+  width: 100%;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 4px;
+  border: 1.5px solid #cbd5e1;
+  gap: 4px;
+  box-sizing: border-box;
+  margin-top: 4px;
+  transition: all 0.15s ease-in-out;
+}
+
+.segmented-toggle-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  text-align: center;
+  white-space: nowrap;
+  user-select: none;
+  font-family: inherit;
+}
+
+.segmented-toggle-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.segmented-toggle-btn.selected {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+}
+
+/* ── Disabled/Read-Only State Styles ── */
+.segmented-toggle-group.disabled {
+  opacity: 0.7;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
+.segmented-toggle-group.disabled .segmented-toggle-btn {
+  pointer-events: none;
+  cursor: not-allowed;
+  color: #94a3b8;
+}
+
+.segmented-toggle-group.disabled .segmented-toggle-btn.selected {
+  background: #cbd5e1;
+  color: #475569;
+  box-shadow: none;
+}
+
+/* Soft highlight on active editable controls inside editing-mode */
+.screening-form.editing-mode .segmented-toggle-group:not(.disabled) {
+  border-color: #4a9eff;
+  background: #f0f7ff;
+}
+
+/* ════════════════════════════════════════════════════════════
+   DISORDER CHECKBOX CARDS
+════════════════════════════════════════════════════════════ */
+.disorder-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.disorder-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  min-height: 44px;
+}
+
+.disorder-card:hover:not(.disorder-card--disabled) {
+  border-color: #93c5fd;
+  background: #f0f9ff;
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.1);
+}
+
+.disorder-card--selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.disorder-card--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f8fafc;
+}
+
+.disorder-card__check {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #3b82f6;
+  flex-shrink: 0;
+  background: #ffffff;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.disorder-card--selected .disorder-card__check {
+  border-color: #3b82f6;
+  background: #dbeafe;
+}
+
+.disorder-card__label {
+  line-height: 1.3;
+}
+
+/* ════════════════════════════════════════════════════════════
+   OBSTETRIC SUB-CARDS
+════════════════════════════════════════════════════════════ */
+.obstetric-subcard {
+  border: 1px solid #e9edf5;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 16px;
+  background: #fafbff;
+}
+
+.obstetric-subcard:last-child {
+  margin-bottom: 0;
+}
+
+.obstetric-subcard__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e9edf5;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PRINT OPTIMIZATION
+════════════════════════════════════════════════════════════ */
+@media print {
+  .obstetric-subcard {
+    break-inside: avoid;
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+  }
+
+  .segmented-toggle-group {
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+  }
+
+  .segmented-toggle-btn {
+    border-right: 1px solid #cbd5e1 !important;
+  }
+
+  .segmented-toggle-btn:last-child {
+    border-right: none !important;
+  }
+
+  .segmented-toggle-btn.selected {
+    background: #cbd5e1 !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .disorder-card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .disorder-card {
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+  }
+
+  .disorder-card--selected {
+    background: #f1f5f9 !important;
+  }
+}

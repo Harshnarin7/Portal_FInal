@@ -1,0 +1,414 @@
+/* ============================================================
+   FormC.css — Modern EMR High-Density Clinical Layout Styles
+   ============================================================ */
+
+/* ── Uniform Spacing Between All Rows ── */
+.form-grid-1,
+.form-grid-2,
+.form-grid-3,
+.form-grid-5 {
+  display: grid;
+  gap: 16px 20px !important;     /* 16px vertical gap between elements, 20px horizontal gap */
+  margin-bottom: 20px !important; /* Strict 20px spacing between consecutive grid rows */
+}
+
+.form-grid-1:last-child,
+.form-grid-2:last-child,
+.form-grid-3:last-child,
+.form-grid-5:last-child {
+  margin-bottom: 0 !important;
+}
+
+.form-grid-1 { grid-template-columns: 1fr; }
+.form-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.form-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.form-grid-5 { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 768px) {
+  .form-grid-2, .form-grid-3, .form-grid-5 {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+}
+
+/* ── Consistent Label Spacing ── */
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px !important; /* Consistent gap between labels and inputs */
+  line-height: 1.4;
+}
+
+/* ── Strict Equal-Height Layout Engine for All Controls ── */
+.emr-input,
+.emr-select,
+.readonly-input,
+.form-input,
+.react-datepicker-wrapper input,
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="email"],
+.form-group select,
+.emr-toggle-group {
+  height: 42px !important;       /* Forces exactly identical height across all inputs and toggles */
+  box-sizing: border-box !important;
+}
+
+/* ── Standard Input and Datepicker Formatting ── */
+.emr-input,
+.emr-select,
+.readonly-input,
+.form-input,
+.react-datepicker-wrapper input,
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="email"],
+.form-group select {
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 6px !important;
+  padding: 0 12px !important;    /* Internal vertical alignment managed automatically by height */
+  font-size: 13px !important;
+  width: 100% !important;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.emr-input:focus,
+.emr-select:focus,
+.react-datepicker-wrapper input:focus,
+.form-group input:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+  outline: none;
+}
+
+.react-datepicker-wrapper,
+.react-datepicker__input-container {
+  display: block !important;
+  width: 100% !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   EMR SEGMENTED CONTROLS (WITH ALIGNED DIVIDERS)
+════════════════════════════════════════════════════════════ */
+.emr-toggle-group {
+  display: grid;
+  grid-auto-flow: column;       /* Force options strictly on a single row */
+  grid-auto-columns: 1fr;       /* Force equal-width scaling */
+  width: 100%;
+  background: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 3px;
+  gap: 0;                       /* Flush gap for beautiful divider line execution */
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  align-items: stretch;         /* Forces toggle buttons to fill the 42px height container */
+  margin-top: 0 !important;
+}
+
+.emr-toggle-btn {
+  position: relative;           /* Positioning context for vertical dividers */
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;                 /* Fill height of group */
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+/* Elegant vertical separator line between consecutive buttons */
+.emr-toggle-btn + .emr-toggle-btn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;                     /* Centers divider vertically */
+  height: 50%;                  /* Standard medical EMR divider height */
+  width: 1px;
+  background: #cbd5e1;
+  transition: opacity 0.15s ease;
+}
+
+/* Dynamically hide separator line when adjacent to any selected active button */
+.emr-toggle-btn.selected + .emr-toggle-btn::before,
+.emr-toggle-btn + .emr-toggle-btn.selected::before {
+  opacity: 0;
+}
+
+.emr-toggle-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* YES - Active State (Clinical Emerald Green) */
+.emr-toggle-btn.selected.yes-active {
+  background: #16a34a !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.25) !important;
+}
+
+/* NO - Active State (Clinical Warning Rose/Red) */
+.emr-toggle-btn.selected.no-active {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.25) !important;
+}
+
+/* Categorical values (Clinical Blue) */
+.emr-toggle-btn.selected.other-active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   EMR SPECIFY / OTHER ABNORMALITY PANEL
+════════════════════════════════════════════════════════════ */
+.emr-specify-panel {
+  background: #f8fafc;
+  border-left: 3.5px solid #2563eb; 
+  border-radius: 4px;
+  padding: 14px 18px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  animation: fadeInSpecify 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+@keyframes fadeInSpecify {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ════════════════════════════════════════════════════════════
+   EMR MINIMALIST ADDRESS LAYOUT
+════════════════════════════════════════════════════════════ */
+.emr-address-section {
+  background: #fafbff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.01);
+}
+
+.emr-address-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 8px;
+}
+
+.emr-address-preview {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f1f5f9;
+  border-left: 3px solid #64748b;
+  font-size: 12px;
+  color: #475569;
+  font-family: monospace;
+  border-radius: 0 4px 4px 0;
+}
+
+.preview-tag {
+  font-weight: 700;
+  color: #64748b;
+}
+
+/* ════════════════════════════════════════════════════════════
+   DISORDER CHECKBOX GRID
+════════════════════════════════════════════════════════════ */
+.disorder-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.disorder-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  min-height: 42px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.01);
+}
+
+.disorder-card:hover:not(.disorder-card--disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.disorder-card--selected {
+  border-color: #2563eb;
+  background: #f0f6ff;
+  color: #1e40af;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.1);
+}
+
+.disorder-card--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+}
+
+.disorder-card__check {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #2563eb;
+  flex-shrink: 0;
+  background: #ffffff;
+}
+
+.disorder-card--selected .disorder-card__check {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+/* ── Obstetric Subcard Layout alignments ── */
+.obstetric-subcard {
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 14px;
+  background: #fafbff;
+}
+
+.obstetric-subcard:last-child {
+  margin-bottom: 0;
+}
+
+.obstetric-subcard__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid #cbd5e1;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PRINT MEDIA OUTPUTS
+════════════════════════════════════════════════════════════ */
+@media print {
+  .obstetric-subcard, .emr-address-section, .emr-specify-panel, .emr-infection-panel {
+    break-inside: avoid;
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .emr-toggle-btn.selected.yes-active {
+    background: #16a34a !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .emr-toggle-btn.selected.no-active {
+    background: #dc2626 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .emr-toggle-btn.selected.other-active {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .rx-horizontal-btn.active {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .disorder-card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .disorder-card {
+    border: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+  }
+}
+.rx-horizontal-group {
+  display: flex;
+  flex-wrap: nowrap; /* Prevent wrapping */
+  gap: 10px;
+  width: 100%;
+}
+
+.rx-horizontal-btn {
+  flex: 1; /* Equal width buttons */
+  min-width: 0;
+  height: 42px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.rx-horizontal-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.rx-note {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
