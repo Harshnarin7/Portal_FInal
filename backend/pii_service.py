@@ -38,6 +38,13 @@ MATERNAL_PII_FIELDS = (
     "contact_mother",
     "contact_husband",
     "address",
+    "email_address",
+    "house",
+    "city",
+    "district",
+    "state",
+    "pincode",
+    "landmark",
 )
 
 POSTNATAL_PII_FIELDS = ("baby_name",)
@@ -219,12 +226,13 @@ def split_and_store_pii(
     screening_id: str | None = None,
     site_name: str | None = None,
 ) -> dict:
-    """Move PII fields into participant_pii; null them in the clinical payload."""
+    """Move PII fields into participant_pii; remove them from the clinical payload."""
     pii_values = {}
     for key in pii_keys:
-        if key in payload and payload[key] not in (None, ""):
-            pii_values[key] = payload[key]
-        payload[key] = None
+        if key in payload:
+            if payload[key] not in (None, ""):
+                pii_values[key] = payload[key]
+            del payload[key]  # Remove entirely — don't pass to model constructor
 
     if pii_values:
         mapped = dict(pii_values)

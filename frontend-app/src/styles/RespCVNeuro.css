@@ -1,0 +1,1376 @@
+/* ============================================================
+   RespCVNeuro.css
+   Place in: src/styles/RespCVNeuro.css
+   ============================================================ */
+
+/* ── Tokens (scoped to .rcn-page) ───────────────────────────── */
+.rcn-page {
+  --rcn-blue:       #0F4C81;
+  --rcn-blue-mid:   #1A5F9E;
+  --rcn-blue-pale:  #EFF6FF;
+  --rcn-blue-light: #DBEAFE;
+  --rcn-success:    #10B981;
+  --rcn-warning:    #F59E0B;
+  --rcn-danger:     #EF4444;
+  --rcn-bg:         #F8FAFC;
+  --rcn-white:      #ffffff;
+  --rcn-border:     #E2E8F0;
+  --rcn-shadow:     0 2px 16px rgba(15, 23, 42, 0.07);
+  --rcn-radius:     16px;
+  --rcn-radius-sm:  10px;
+  --rcn-t1:         #0F172A;
+  --rcn-t2:         #475569;
+  --rcn-t3:         #64748B;
+  --rcn-t4:         #94A3B8;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--rcn-bg);
+  padding-bottom: 16px;
+}
+
+/* Prevent text cursor / caret appearing on non-input elements */
+.rcn-page h1,
+.rcn-page h2,
+.rcn-page h3,
+.rcn-page p,
+.rcn-page span,
+.rcn-page label,
+.rcn-page div:not([contenteditable]) {
+  caret-color: transparent;
+}
+/* Restore caret only on actual inputs */
+.rcn-page input,
+.rcn-page textarea,
+.rcn-page select {
+  caret-color: auto;
+}
+
+/* ── Patient Context Bar ──────────────────────────────────── */
+.rcn-context-bar {
+  background: #0F4C81;
+  padding: 0 28px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 0;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.2);
+}
+
+.rcn-context-trial {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 20px;
+  border-right: 1px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+.rcn-context-trial-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.rcn-context-trial-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.rcn-context-trial-name {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rcn-context-trial-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.rcn-context-fields {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rcn-context-fields::-webkit-scrollbar { display: none; }
+
+.rcn-context-field {
+  display: flex;
+  flex-direction: column;
+  padding: 0 18px;
+  border-right: 1px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+.rcn-context-field--last {
+  border-right: none;
+}
+
+.rcn-context-field-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.rcn-context-field-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.rcn-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.rcn-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 5px #10B981;
+  flex-shrink: 0;
+}
+
+.rcn-support-chip {
+  display: inline-block;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.rcn-edit-btn {
+  margin-left: 16px;
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,0.35);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rcn-edit-btn:hover { background: rgba(255,255,255,0.15); }
+.rcn-edit-btn--active {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.6);
+}
+
+/* ── Day Timeline ──────────────────────────────────────────── */
+.rcn-timeline-wrap {
+  background: #fff;
+  border-bottom: 1px solid #E2E8F0;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rcn-timeline-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  padding: 14px 0;
+}
+
+.rcn-timeline {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 10px 0;
+  scrollbar-width: none;
+  flex: 1;
+  /* prevent pills from stretching */
+  align-content: flex-start;
+}
+.rcn-timeline::-webkit-scrollbar { display: none; }
+
+.rcn-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 48px;          /* fixed width — never stretches */
+  flex: 0 0 48px;       /* no grow, no shrink */
+  height: 58px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 5px 4px;
+  transition: background 0.15s;
+}
+
+.rcn-day:hover:not(.rcn-day--future):not(.rcn-day--active) {
+  background: #EFF6FF;
+}
+
+.rcn-day--active {
+  background: #0F4C81;
+  box-shadow: 0 3px 12px rgba(15,76,129,0.3);
+}
+
+.rcn-day--future {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.rcn-day-d {
+  font-size: 9px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.04em;
+}
+.rcn-day--active .rcn-day-d { color: rgba(255,255,255,0.65); }
+
+.rcn-day-num {
+  font-size: 15px;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1;
+}
+.rcn-day--active .rcn-day-num { color: #fff; }
+.rcn-day--done .rcn-day-num   { color: #0F172A; }
+
+.rcn-day-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #10B981;
+}
+.rcn-day--active .rcn-day-dot { background: rgba(255,255,255,0.8); }
+.rcn-day--future .rcn-day-dot { background: #E2E8F0; }
+
+.rcn-day-date {
+  font-size: 8px;
+  font-weight: 600;
+  color: #94A3B8;
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+}
+.rcn-day--active .rcn-day-date { color: rgba(255,255,255,0.6); }
+.rcn-day--done   .rcn-day-date { color: #64748B; }
+
+/* ── Daily Summary Card ────────────────────────────────────── */
+.rcn-summary {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--rcn-radius);
+  box-shadow: var(--rcn-shadow);
+  padding: 22px 28px;
+  margin: 20px 24px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  cursor: default;
+  user-select: none;
+}
+
+.rcn-summary-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rcn-summary-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0F172A;
+  margin: 0;
+  letter-spacing: -0.2px;
+  cursor: default;
+  user-select: none;
+  caret-color: transparent;
+}
+
+.rcn-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #64748B;
+  font-weight: 500;
+}
+.rcn-summary-meta svg { color: #94A3B8; flex-shrink: 0; }
+
+.rcn-summary-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 28px;
+  flex-shrink: 0;
+}
+
+.rcn-summary-sections {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.rcn-summary-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 76px;
+}
+
+.rcn-summary-section-emoji { font-size: 24px; line-height: 1; }
+
+.rcn-summary-section-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.rcn-summary-section-count {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0F172A;
+}
+.rcn-summary-section-total {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94A3B8;
+}
+
+.rcn-summary-section-bar {
+  width: 76px;
+  height: 3px;
+  background: #E2E8F0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.rcn-summary-section-bar-fill {
+  height: 100%;
+  background: #0F4C81;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.rcn-summary-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.rcn-summary-ring-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* Progress ring */
+.rcn-ring {
+  position: relative;
+  width: 58px;
+  height: 58px;
+}
+.rcn-ring-bg {
+  fill: none;
+  stroke: #E2E8F0;
+  stroke-width: 5;
+}
+.rcn-ring-fill {
+  fill: none;
+  stroke: #0F4C81;
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease;
+}
+.rcn-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+/* ── Section Area ──────────────────────────────────────────── */
+.rcn-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px 0;
+}
+
+/* ── Section Card ──────────────────────────────────────────── */
+.rcn-card {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--rcn-radius);
+  box-shadow: var(--rcn-shadow);
+  overflow: hidden;
+}
+
+.rcn-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.rcn-card-header:hover { background: #F8FAFC; }
+
+.rcn-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rcn-card-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #EFF6FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.rcn-card-emoji { font-size: 20px; line-height: 1; }
+.rcn-card-icon  { color: #0F4C81; }
+
+.rcn-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0;
+}
+
+.rcn-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rcn-card-prog-bar {
+  width: 100px;
+  height: 4px;
+  background: #E2E8F0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.rcn-card-prog-fill {
+  height: 100%;
+  background: #0F4C81;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.rcn-card-prog-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8;
+  white-space: nowrap;
+}
+
+.rcn-chevron {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #F8FAFC;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94A3B8;
+  transition: transform 0.2s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.rcn-chevron-open {
+  transform: rotate(180deg);
+  background: #EFF6FF;
+  color: #0F4C81;
+}
+
+.rcn-card-divider {
+  height: 1px;
+  background: #E2E8F0;
+  margin: 0 24px;
+}
+
+.rcn-card-body {
+  padding: 22px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ── Field Group ───────────────────────────────────────────── */
+.rcn-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rcn-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748B;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  display: block;
+}
+.rcn-field-sub {
+  font-size: 10px;
+  font-weight: 500;
+  color: #94A3B8;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 5px;
+}
+
+/* ── Mode Pills ────────────────────────────────────────────── */
+.rcn-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rcn-pill {
+  padding: 7px 18px;
+  border-radius: 100px;
+  border: 1.5px solid #E2E8F0;
+  background: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.13s;
+  white-space: nowrap;
+  width: auto;          /* never stretch full width */
+  display: inline-flex;
+  align-items: center;
+}
+.rcn-pill:hover:not(:disabled) {
+  border-color: #0F4C81;
+  color: #0F4C81;
+  background: #EFF6FF;
+}
+.rcn-pill--on {
+  background: #0F4C81;
+  border-color: #0F4C81;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(15,76,129,0.22);
+}
+.rcn-pill:disabled { opacity: 0.5; cursor: default; }
+
+/* Drug variant */
+.rcn-pill--drug:hover:not(:disabled) {
+  border-color: #F59E0B;
+  color: #F59E0B;
+  background: #FFFBEB;
+}
+.rcn-pill--drug-on {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #fff;
+}
+
+/* ── Number Inputs ─────────────────────────────────────────── */
+.rcn-inputs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.rcn-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rcn-num-input {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.rcn-num-input:focus-within {
+  border-color: #0F4C81;
+  box-shadow: 0 0 0 3px rgba(15,76,129,0.1);
+}
+.rcn-num-input input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: 'Inter', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0F172A;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.rcn-num-input input::placeholder { color: #CBD5E1; font-weight: 500; font-size: 16px; }
+.rcn-num-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8;
+  padding: 0 14px 0 0;
+  white-space: nowrap;
+}
+
+/* ── Yes/No Rows ───────────────────────────────────────────── */
+.rcn-yn-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.rcn-yn-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #F1F5F9;
+}
+.rcn-yn-row:last-child { border-bottom: none; }
+
+.rcn-yn-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #0F172A;
+  flex: 1;
+  padding-right: 14px;
+}
+
+.rcn-yn {
+  display: flex;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1.5px solid #E2E8F0;
+  flex-shrink: 0;
+}
+
+.rcn-yn-btn {
+  padding: 6px 18px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.13s;
+  color: #64748B;
+  letter-spacing: 0.04em;
+}
+.rcn-yn-btn + .rcn-yn-btn { border-left: 1.5px solid #E2E8F0; }
+.rcn-yn-btn:hover:not(:disabled) { background: #F8FAFC; }
+.rcn-yn-btn:disabled { cursor: default; }
+
+.rcn-yn-active-yes {
+  background: #10B981 !important;
+  color: #fff !important;
+}
+.rcn-yn-active-no {
+  background: #EF4444 !important;
+  color: #fff !important;
+}
+
+/* ── Subsection (conditional) ──────────────────────────────── */
+.rcn-subsection {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.rcn-subsection-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748B;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* ── IVH Grade Cards ───────────────────────────────────────── */
+.rcn-grade-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.rcn-grade-card {
+  border: 2px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  background: #fff;
+  transition: all 0.13s;
+  user-select: none;
+}
+.rcn-grade-card:hover:not(.rcn-grade-card--disabled) {
+  border-color: #0F4C81;
+  background: #EFF6FF;
+}
+.rcn-grade-card--on {
+  border-color: #0F4C81;
+  background: #0F4C81;
+  box-shadow: 0 3px 12px rgba(15,76,129,0.25);
+}
+.rcn-grade-card--disabled { cursor: default; }
+
+.rcn-grade-roman {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0F172A;
+}
+.rcn-grade-card--on .rcn-grade-roman { color: #fff; }
+
+.rcn-grade-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94A3B8;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.rcn-grade-card--on .rcn-grade-label { color: rgba(255,255,255,0.7); }
+
+/* ── Loading ───────────────────────────────────────────────── */
+.rcn-loading {
+  text-align: center;
+  padding: 48px 24px;
+  color: #64748B;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ── Readonly overlay ──────────────────────────────────────── */
+.rcn-readonly .rcn-pill:not(.rcn-pill--on),
+.rcn-readonly .rcn-grade-card:not(.rcn-grade-card--on) {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .rcn-context-bar { height: auto; flex-wrap: wrap; padding: 10px 16px; gap: 8px; }
+  .rcn-context-fields { flex-wrap: wrap; gap: 6px; }
+  .rcn-context-field { padding: 0 10px; }
+  .rcn-summary { flex-direction: column; align-items: flex-start; margin: 16px 16px 0; padding: 18px 20px; }
+  .rcn-summary-right { flex-wrap: wrap; gap: 16px; }
+  .rcn-sections { padding: 14px 16px 0; }
+  .rcn-card-body { padding: 18px 18px 22px; }
+  .rcn-inputs-row { grid-template-columns: 1fr; }
+  .rcn-card-prog-bar { width: 60px; }
+}
+
+@media (max-width: 540px) {
+  .rcn-grade-grid { grid-template-columns: repeat(2, 1fr); }
+  .rcn-summary-sections { gap: 12px; flex-wrap: wrap; }
+  .rcn-card-prog-bar { display: none; }
+}
+
+/* ══════════════════════════════════════════════════════
+   REVIEW & SUBMIT WORKFLOW
+══════════════════════════════════════════════════════ */
+
+/* ── Day pill status variants ──────────────────────────────── */
+.rcn-day--submitted .rcn-day-dot {
+  background: #10B981;
+  box-shadow: 0 0 0 2px rgba(16,185,129,0.3);
+}
+.rcn-day--submitted .rcn-day-num { color: #10B981; }
+.rcn-day--submitted { border: 1.5px solid rgba(16,185,129,0.4); }
+
+.rcn-day--pending .rcn-day-dot {
+  background: #F59E0B;
+  box-shadow: 0 0 0 2px rgba(245,158,11,0.3);
+}
+.rcn-day--pending .rcn-day-num { color: #B45309; }
+.rcn-day--pending { border: 1.5px solid rgba(245,158,11,0.35); }
+
+/* Keep active style on top of status variants */
+.rcn-day--active.rcn-day--submitted,
+.rcn-day--active.rcn-day--pending {
+  border-color: transparent;
+  box-shadow: 0 3px 12px rgba(15,76,129,0.3);
+}
+
+/* ── Status Banners ────────────────────────────────────────── */
+.rcn-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  border-radius: 12px;
+  border: 1.5px solid;
+  font-size: 13px;
+}
+
+.rcn-status-banner--submitted {
+  background: #F0FDF4;
+  border-color: #86EFAC;
+  color: #166534;
+}
+.rcn-status-banner--submitted svg { color: #16A34A; flex-shrink: 0; }
+
+.rcn-status-banner--pending {
+  background: #FFFBEB;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+.rcn-status-banner--pending svg { color: #D97706; flex-shrink: 0; }
+
+.rcn-status-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.rcn-status-banner-text strong { font-weight: 700; font-size: 13px; }
+.rcn-status-banner-text span   { font-size: 12px; opacity: 0.85; }
+
+.rcn-status-banner-badge {
+  background: #F59E0B;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Submit button in footer ───────────────────────────────── */
+.btn-submit-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #059669, #047857);
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 3px 12px rgba(5,150,105,0.35);
+  white-space: nowrap;
+}
+.btn-submit-day:hover {
+  background: linear-gradient(135deg, #047857, #065F46);
+  box-shadow: 0 5px 16px rgba(5,150,105,0.45);
+  transform: translateY(-1px);
+}
+.btn-submit-day:active { transform: translateY(0); }
+
+/* ── Locked badge in footer ────────────────────────────────── */
+.rcn-locked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  background: #F1F5F9;
+  border: 1.5px solid #CBD5E1;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Modal Overlay ─────────────────────────────────────────── */
+.rcn-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.rcn-modal {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(15,23,42,0.2);
+  width: 100%;
+  max-width: 440px;
+  overflow: hidden;
+  animation: rcn-modal-in 0.2s ease;
+}
+
+@keyframes rcn-modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.rcn-modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.rcn-modal-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #ECFDF5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #059669;
+  flex-shrink: 0;
+}
+
+.rcn-modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0F172A;
+  margin: 0 0 3px;
+}
+
+.rcn-modal-subtitle {
+  font-size: 12px;
+  color: #64748B;
+  margin: 0;
+}
+
+.rcn-modal-close {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: #F8FAFC;
+  color: #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.rcn-modal-close:hover { background: #E2E8F0; color: #475569; }
+
+.rcn-modal-body { padding: 20px 22px; }
+
+.rcn-modal-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.rcn-modal-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+.rcn-modal-check--ok   { background: #F0FDF4; color: #166534; }
+.rcn-modal-check--ok svg { color: #16A34A; flex-shrink: 0; }
+.rcn-modal-check--warn { background: #FFFBEB; color: #92400E; }
+.rcn-modal-check--warn svg { color: #D97706; flex-shrink: 0; }
+.rcn-modal-check--info { background: #F8FAFC; color: #475569; }
+.rcn-modal-check--info svg { color: #64748B; flex-shrink: 0; }
+
+.rcn-modal-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #9A3412;
+  line-height: 1.5;
+}
+.rcn-modal-warning svg { color: #EA580C; flex-shrink: 0; margin-top: 1px; }
+
+.rcn-modal-footer {
+  display: flex;
+  gap: 10px;
+  padding: 16px 22px 20px;
+  border-top: 1px solid #E2E8F0;
+}
+
+.rcn-modal-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.rcn-modal-btn:disabled { opacity: 0.55; cursor: default; }
+
+.rcn-modal-btn--cancel {
+  background: #F1F5F9;
+  color: #475569;
+  border: 1.5px solid #E2E8F0;
+}
+.rcn-modal-btn--cancel:hover:not(:disabled) { background: #E2E8F0; }
+
+.rcn-modal-btn--submit {
+  background: linear-gradient(135deg, #059669, #047857);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(5,150,105,0.3);
+}
+.rcn-modal-btn--submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857, #065F46);
+  box-shadow: 0 5px 14px rgba(5,150,105,0.4);
+}
+
+/* ── Submit button disabled state ─────────────────────────── */
+.btn-submit-day:disabled {
+  background: #E2E8F0;
+  color: #94A3B8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-submit-day:disabled:hover {
+  background: #E2E8F0;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ══════════════════════════════════════════════════════
+   WORKFLOW FEATURES: Copy Day / Discharge / Status
+══════════════════════════════════════════════════════ */
+
+/* ── Timeline legend ───────────────────────────────────────── */
+.rcn-timeline-wrap {
+  flex-wrap: wrap;
+  gap: 0;
+  padding-bottom: 0;
+}
+
+.rcn-timeline-legend {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 0 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-top: 1px solid #F1F5F9;
+  margin-top: 4px;
+}
+.rcn-timeline-legend::-webkit-scrollbar { display: none; }
+
+.rcn-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748B;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.rcn-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Day pill status color overrides ──────────────────────── */
+.rcn-day--complete  { border: 1.5px solid rgba(16,185,129,0.4) !important; }
+.rcn-day--draft,
+.rcn-day--partial   { border: 1.5px solid rgba(245,158,11,0.4) !important; }
+.rcn-day--late      { border: 1.5px solid rgba(239,68,68,0.4)  !important; }
+.rcn-day--submitted { border: 1.5px solid rgba(15,76,129,0.4)  !important; }
+.rcn-day--discharged {
+  opacity: 0.3;
+  cursor: not-allowed !important;
+  border: 1.5px dashed #CBD5E1 !important;
+}
+
+/* ── Copy Previous Day button ─────────────────────────────── */
+.rcn-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #BFDBFE;
+  background: #EFF6FF;
+  color: #1D4ED8;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rcn-copy-btn:hover {
+  background: #DBEAFE;
+  border-color: #93C5FD;
+}
+
+/* ── Copy Modal grid ──────────────────────────────────────── */
+.rcn-copy-hint {
+  font-size: 13px;
+  color: #475569;
+  margin: 0 0 14px;
+  font-weight: 500;
+}
+
+.rcn-copy-day-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.rcn-copy-day-btn {
+  padding: 10px 6px;
+  border-radius: 10px;
+  border: 1.5px solid #E2E8F0;
+  background: #fff;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: all 0.13s;
+  text-align: center;
+}
+.rcn-copy-day-btn:hover { border-color: #0F4C81; background: #EFF6FF; }
+.rcn-copy-day-btn--on {
+  border-color: #0F4C81;
+  background: #0F4C81;
+}
+.rcn-copy-day-num {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0F172A;
+}
+.rcn-copy-day-btn--on .rcn-copy-day-num { color: #fff; }
+
+.rcn-copy-empty {
+  text-align: center;
+  padding: 24px;
+  color: #94A3B8;
+  font-size: 13px;
+}
+
+/* ── Discharge banner ─────────────────────────────────────── */
+.rcn-status-banner--discharged {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+  color: #475569;
+}
+
+/* ── Fix Edit button not stretching ───────────────────────── */
+.rcn-context-bar {
+  flex-wrap: nowrap;
+}
+.rcn-context-fields {
+  flex: 1;
+  min-width: 0;
+}
+.rcn-edit-btn {
+  flex: 0 0 auto;
+  width: auto !important;
+}
+
+/* ── Legend compact on one row ────────────────────────────── */
+.rcn-timeline-legend {
+  padding: 5px 0 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Discharge button ─────────────────────────────────────── */
+.rcn-btn-discharge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1.5px solid #FCA5A5;
+  background: #FEF2F2;
+  color: #DC2626;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.rcn-btn-discharge:hover {
+  background: #FEE2E2;
+  border-color: #EF4444;
+}
+
+.rcn-discharge-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FEF2F2;
+  border: 1.5px solid #FCA5A5;
+  border-radius: 9px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #DC2626;
+  white-space: nowrap;
+}
+.rcn-discharge-yes {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  background: #EF4444;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rcn-discharge-yes:hover { background: #DC2626; }
+.rcn-discharge-no {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Summary card final alignment fix ────────────────────── */
+.rcn-summary {
+  align-items: stretch !important;
+}
+.rcn-summary-left {
+  justify-content: center;
+}
+.rcn-summary-right {
+  align-items: center !important;
+  border-left: 1px solid #E2E8F0;
+  padding-left: 28px;
+}
+.rcn-summary-ring-wrap {
+  align-self: center;
+}
+
+/* ── Discharge day pill emoji fix ─────────────────────────── */
+.rcn-day--discharged .rcn-day-date {
+  font-size: 10px;  /* keep consistent with normal date size */
+}
+
+/* ── Status dot color for Discharged ──────────────────────── */
+.rcn-status-badge--discharged .rcn-status-dot,
+.rcn-status-dot--discharged {
+  background: #94A3B8 !important;
+  box-shadow: 0 0 5px #94A3B8 !important;
+}
+
+/* ── Discharged day pills — small home emoji ──────────────── */
+.rcn-day--discharged .rcn-day-date {
+  font-size: 9px;
+  line-height: 1;
+}
+.rcn-day--discharged .rcn-day-num {
+  color: #94A3B8;
+}
+.rcn-day--discharged .rcn-day-d {
+  color: #CBD5E1;
+}
+
+/* ══ CONTEXT BAR ALIGNMENT OVERRIDE ══════════════════════════ */
+.rcn-context-bar {
+  padding: 0 24px !important;
+  height: 64px !important;
+  align-items: stretch !important;
+}
+.rcn-context-trial {
+  padding: 0 20px 0 0 !important;
+  border-right: 1px solid rgba(255,255,255,0.18) !important;
+  align-items: center;
+}
+.rcn-context-fields {
+  align-items: stretch !important;
+}
+.rcn-context-field {
+  flex: 1 !important;
+  min-width: 0 !important;
+  padding: 0 20px !important;
+  justify-content: center !important;
+  border-right: 1px solid rgba(255,255,255,0.18) !important;
+}
+.rcn-context-field--last {
+  border-right: none !important;
+}
+.rcn-context-field-label {
+  font-size: 9px !important;
+  margin-bottom: 3px !important;
+  white-space: nowrap;
+}
+.rcn-context-field-value {
+  font-size: 14px !important;
+  white-space: nowrap;
+}

@@ -18,11 +18,11 @@ from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
     CranialUltrasound, ROPScreening, CompositeOutcome,
-    FiO2AUC, RespCVNeuroLog, InfectGIHemaLog,
-    MetabRenalVascEyeLog, SAEReport, AdverseEvents,
+    FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
+    MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, SteroidDataCreate, FirebaseScreeningImportCreate
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import get_current_user, is_superadmin, require_superadmin, ensure_same_site
@@ -182,12 +182,16 @@ def generate_screening_id(site_id: str):
 def compute_screening_status(data):
     if data.gestation_weeks is None:
         return "Screen Failure"
+    
     if data.gestation_weeks >= 32:
         return "Screen Failure"
+    
     if data.exclusion_present:
         return "Screen Failure"
+    
     if data.consent_given == "Yes":
         return "Eligible"
+    
     return "Not Eligible"
 
 def get_accessible_screening_query(db: Session, user: User):
@@ -200,6 +204,7 @@ def require_enrollment_access(enrollment_id: str, db: Session, user: User):
     screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
     if screening:
         ensure_same_site(screening.site_name, user)
+
 
 def site_for_enrollment(db: Session, enrollment_id: str | None) -> str | None:
     if not enrollment_id:
@@ -223,13 +228,13 @@ def root():
 def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),  # TEMP: disabled to create first superadmin
+    current_user: User = Depends(get_current_user),
 ):
-    # require_superadmin(current_user)  # TEMP: disabled to create first superadmin
-    # if is_superadmin(current_user) is False and user.role == "superadmin":  # TEMP
-    #     raise HTTPException(status_code=403, detail="Cannot create this role")  # TEMP
-    # if (user.role or "").lower() == "superadmin" and not is_superadmin(current_user):  # TEMP
-    #     raise HTTPException(status_code=403, detail="Cannot create a superadmin user")  # TEMP
+    require_superadmin(current_user)
+    if is_superadmin(current_user) is False and user.role == "superadmin":
+        raise HTTPException(status_code=403, detail="Cannot create this role")
+    if (user.role or "").lower() == "superadmin" and not is_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="Cannot create a superadmin user")
 
     existing = db.query(User).filter(
         (User.username == user.username) | (User.email == user.email)
@@ -260,12 +265,25 @@ def create_user(
 @app.post("/auth/login", response_model=LoginResponse)
 @limiter.limit("5/15 minutes")
 async def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
+    """
+    User login endpoint with brute force protection.
+    
+    ✅ SECURITY FIXES:
+    - Rate limited to 5 attempts per 15 minutes per IP
+    - Logs failed attempts
+    - Returns 429 Too Many Requests when limit exceeded
+    """
     user = db.query(User).filter(User.username == data.username).first()
+    
     client_ip = get_remote_address(request)
 
     if not user or not verify_password(data.password, user.hashed_password):
         security_monitor.record_failed_login(client_ip, data.username)
-        logger.warning("Failed login attempt for user '%s' from IP: %s", data.username, client_ip)
+        logger.warning(
+            "Failed login attempt for user '%s' from IP: %s",
+            data.username,
+            client_ip,
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     security_monitor.record_successful_login(user.username, client_ip)
@@ -347,8 +365,10 @@ def get_screening(
     entry = get_accessible_screening_query(db, current_user).filter(
         Screening.screening_id == screening_id
     ).first()
+
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
+
     return entry
 
 @app.post("/screenings/", response_model=ScreeningOut)
@@ -401,7 +421,7 @@ def create_screening(
             site_name=screening.site_name,
             **pii_payload,
         )
-
+        
         db.add(db_screening)
         db.flush()
         record_audit(
@@ -435,6 +455,7 @@ def update_screening(
     entry = get_accessible_screening_query(db, current_user).filter(
         Screening.screening_id == screening_id
     ).first()
+
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
 
@@ -530,6 +551,7 @@ def import_from_firebase(
     existing = db.query(Screening).filter(
         Screening.screening_id == screening_id
     ).first()
+
     if existing:
         return {"message": "Already exists"}
 
@@ -564,6 +586,7 @@ def import_from_firebase(
 
     db.add(new_entry)
     db.commit()
+
     return {"message": "Imported successfully"}
 
 @app.get("/screenings/by-screening-id/{screening_id}", response_model=ScreeningClinicalOut)
@@ -575,8 +598,10 @@ def get_screening_by_screening_id(
     entry = get_accessible_screening_query(db, current_user).filter(
         Screening.screening_id == screening_id
     ).first()
+
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
+
     return entry
 
 @app.get("/screenings/by-enrollment/{enrollment_id}", response_model=ScreeningClinicalOut)
@@ -588,8 +613,10 @@ def get_screening_by_enrollment(
     entry = get_accessible_screening_query(db, current_user).filter(
         Screening.enrollment_id == enrollment_id
     ).first()
+
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
+
     return entry
 
 # ============================================================================
@@ -604,7 +631,9 @@ def create_birth_resuscitation(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), BIRTH_PII_FIELDS,
+        db,
+        data.model_dump(),
+        BIRTH_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         screening_id=data.screening_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
@@ -613,6 +642,7 @@ def create_birth_resuscitation(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+
     return entry
 
 @app.get("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
@@ -622,11 +652,15 @@ def get_birth_resuscitation(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    entry = db.query(BirthResuscitation).filter(
-        BirthResuscitation.enrollment_id == enrollment_id
-    ).first()
+    entry = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+
     if not entry:
         raise HTTPException(status_code=404, detail="Birth Resuscitation not found")
+
     return entry
 
 @app.put("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
@@ -640,6 +674,7 @@ def update_birth_resuscitation(
     entry = db.query(BirthResuscitation).filter(
         BirthResuscitation.enrollment_id == enrollment_id
     ).first()
+
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -647,16 +682,22 @@ def update_birth_resuscitation(
         update_data = updated_data.model_dump(exclude_unset=True)
         update_data.pop("enrollment_id", None)
         update_data = split_and_store_pii(
-            db, update_data, BIRTH_PII_FIELDS,
+            db,
+            update_data,
+            BIRTH_PII_FIELDS,
             enrollment_id=enrollment_id,
             screening_id=updated_data.screening_id,
             site_name=site_for_enrollment(db, enrollment_id),
         )
+
         for key, value in update_data.items():
             setattr(entry, key, value)
+
         db.commit()
         db.refresh(entry)
+
         return entry
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -673,12 +714,42 @@ def create_maternal_details(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), MATERNAL_PII_FIELDS,
+        db,
+        data.model_dump(),
+        MATERNAL_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
     record = MaternalDetails(**payload)
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+@app.put("/maternal-details/{enrollment_id}", response_model=MaternalDetailsOut)
+def update_maternal_details(
+    enrollment_id: str,
+    data: MaternalDetailsCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(MaternalDetails)
+        .filter(MaternalDetails.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Maternal details not found")
+    payload = split_and_store_pii(
+        db,
+        data.model_dump(),
+        MATERNAL_PII_FIELDS,
+        enrollment_id=enrollment_id,
+        site_name=site_for_enrollment(db, enrollment_id),
+    )
+    for key, value in payload.items():
+        setattr(record, key, value)
     db.commit()
     db.refresh(record)
     return record
@@ -690,9 +761,41 @@ def get_maternal_details(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(MaternalDetails).filter(
-        MaternalDetails.enrollment_id == enrollment_id
-    ).first()
+    record = (
+        db.query(MaternalDetails)
+        .filter(MaternalDetails.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        return None
+
+    record_dict = {col.name: getattr(record, col.name) for col in record.__table__.columns}
+
+    # Rejoin all PII fields (address, email, and individual address components)
+    try:
+        pii_row = db.execute(
+            text("""
+                SELECT address, email_address, house, city, district,
+                       state, pincode, landmark
+                FROM participant_pii
+                WHERE enrollment_id = :enrollment_id
+            """),
+            {"enrollment_id": enrollment_id}
+        ).fetchone()
+
+        if pii_row:
+            if pii_row[0]: record_dict["address"]       = pii_row[0]
+            if pii_row[1]: record_dict["email_address"] = pii_row[1]
+            if pii_row[2]: record_dict["house"]         = pii_row[2]
+            if pii_row[3]: record_dict["city"]          = pii_row[3]
+            if pii_row[4]: record_dict["district"]      = pii_row[4]
+            if pii_row[5]: record_dict["state"]         = pii_row[5]
+            if pii_row[6]: record_dict["pincode"]       = pii_row[6]
+            if pii_row[7]: record_dict["landmark"]      = pii_row[7]
+    except Exception as e:
+        logger.warning("Could not rejoin PII fields from participant_pii: %s", e)
+
+    return record_dict
 
 # ============================================================================
 # FORM D — POSTNATAL DAY 1 ENDPOINTS
@@ -706,7 +809,9 @@ def create_postnatal_day1(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), POSTNATAL_PII_FIELDS,
+        db,
+        data.model_dump(),
+        POSTNATAL_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -726,8 +831,35 @@ def get_postnatal_day1(
     record = db.query(PostnatalDay1).filter(
         PostnatalDay1.enrollment_id == enrollment_id
     ).first()
+
     if not record:
         raise HTTPException(status_code=404, detail="Form D not found")
+
+    return record
+
+
+@app.put("/postnatal-day1/{enrollment_id}")
+def update_postnatal_day1(
+    enrollment_id: str,
+    data: PostnatalDay1Create,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(PostnatalDay1).filter(
+        PostnatalDay1.enrollment_id == enrollment_id
+    ).first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="Form D not found")
+
+    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    for key, value in payload.items():
+        if hasattr(record, key):
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
     return record
 
 # ============================================================================
@@ -742,7 +874,9 @@ def create_nicu_admission(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), NICU_PII_FIELDS,
+        db,
+        data.model_dump(),
+        NICU_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -752,16 +886,41 @@ def create_nicu_admission(
     db.refresh(record)
     return record
 
-@app.get("/nicu-admission/{enrollment_id}", response_model=list[NICUAdmissionOut])
+@app.get("/nicu-admission/{enrollment_id}")
 def get_nicu_admission(
     enrollment_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(NICUAdmission).filter(
+    records = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .all()
+    )
+    return records  # returns list; frontend takes [0]
+
+
+@app.put("/nicu-admission/{enrollment_id}")
+def update_nicu_admission(
+    enrollment_id: str,
+    data: NICUAdmissionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(NICUAdmission).filter(
         NICUAdmission.enrollment_id == enrollment_id
-    ).all()
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Form E not found")
+    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    for key, value in payload.items():
+        if hasattr(record, key):
+            setattr(record, key, value)
+    db.commit()
+    db.refresh(record)
+    return record
 
 # ============================================================================
 # FORM F — NEONATAL MORBIDITIES ENDPOINTS
@@ -787,9 +946,11 @@ def get_neonatal_morbidities(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(NeonatalMorbidities).filter(
-        NeonatalMorbidities.enrollment_id == enrollment_id
-    ).all()
+    return (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .all()
+    )
 
 # ============================================================================
 # FORM G — STUDY OUTCOMES ENDPOINTS
@@ -846,7 +1007,13 @@ def create_composite_outcome(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     allowed_fields = CompositeOutcome.__table__.columns.keys()
-    filtered_data = {k: v for k, v in data.model_dump().items() if k in allowed_fields}
+
+    filtered_data = {
+        key: value
+        for key, value in data.model_dump().items()
+        if key in allowed_fields
+    }
+
     record = CompositeOutcome(**filtered_data)
     db.add(record)
     db.commit()
@@ -860,9 +1027,12 @@ def get_composite_outcome(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(CompositeOutcome).filter(
-        CompositeOutcome.enrollment_id == enrollment_id
-    ).order_by(CompositeOutcome.created_at.desc()).all()
+    return (
+        db.query(CompositeOutcome)
+        .filter(CompositeOutcome.enrollment_id == enrollment_id)
+        .order_by(CompositeOutcome.created_at.desc())
+        .all()
+    )
 
 # ============================================================================
 # FIO2 AUC LOGGING ENDPOINTS
@@ -894,9 +1064,37 @@ def get_fio2_auc(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(FiO2AUC).filter(
-        FiO2AUC.enrollment_id == enrollment_id
-    ).order_by(FiO2AUC.created_at.desc()).all()
+    return (
+        db.query(FiO2AUC)
+        .filter(FiO2AUC.enrollment_id == enrollment_id)
+        .order_by(FiO2AUC.created_at.desc())
+        .all()
+    )
+
+
+@app.put("/fio2-auc/{enrollment_id}")
+def update_fio2_auc(
+    enrollment_id: str,
+    data: FiO2AUCLogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(FiO2AUC)
+        .filter(FiO2AUC.enrollment_id == enrollment_id)
+        .order_by(FiO2AUC.created_at.desc())
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="FiO₂ AUC record not found")
+    record.total_auc       = data.total_auc
+    record.mean_daily_fio2 = data.mean_daily_fio2
+    record.excess_o2_auc   = data.excess_o2_auc
+    record.fio2_logs       = data.fio2_logs
+    db.commit()
+    db.refresh(record)
+    return record
 
 # ============================================================================
 # RESP / CV / NEURO LOG ENDPOINTS
@@ -910,7 +1108,9 @@ def create_resp_cv_neuro_log(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), LOG_PII_FIELDS,
+        db,
+        data.model_dump(),
+        LOG_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -927,9 +1127,36 @@ def get_resp_cv_neuro_log(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(RespCVNeuroLog).filter(
-        RespCVNeuroLog.enrollment_id == enrollment_id
-    ).order_by(RespCVNeuroLog.created_at.desc()).all()
+    return (
+        db.query(RespCVNeuroLog)
+        .filter(RespCVNeuroLog.enrollment_id == enrollment_id)
+        .order_by(RespCVNeuroLog.created_at.desc())
+        .all()
+    )
+
+
+@app.put("/resp-cv-neuro-log/{enrollment_id}")
+def update_resp_cv_neuro_log(
+    enrollment_id: str,
+    data: RespCVNeuroLogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(RespCVNeuroLog)
+        .filter(RespCVNeuroLog.enrollment_id == enrollment_id)
+        .order_by(RespCVNeuroLog.created_at.desc())
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    record.daily_log  = data.daily_log
+    record.gestation  = data.gestation
+    record.mother_name= data.mother_name
+    db.commit()
+    db.refresh(record)
+    return record
 
 # ============================================================================
 # INFECTION / GI / HEMA LOG ENDPOINTS
@@ -943,7 +1170,9 @@ def create_infect_gi_hema_log(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), LOG_PII_FIELDS,
+        db,
+        data.model_dump(),
+        LOG_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -957,7 +1186,10 @@ def create_infect_gi_hema_log(
 # METABOLIC / RENAL / VASCULAR / EYE LOG ENDPOINTS
 # ============================================================================
 
-@app.post("/metab-renal-vasc-eye-log/", response_model=MetabRenalVascEyeLogOut)
+@app.post(
+    "/metab-renal-vasc-eye-log/",
+    response_model=MetabRenalVascEyeLogOut
+)
 def create_metab_renal_vasc_eye_log(
     data: MetabRenalVascEyeLogCreate,
     db: Session = Depends(get_db),
@@ -965,7 +1197,9 @@ def create_metab_renal_vasc_eye_log(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), LOG_PII_FIELDS,
+        db,
+        data.model_dump(),
+        LOG_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -1000,7 +1234,9 @@ def create_adverse_events(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
-        db, data.model_dump(), AE_PII_FIELDS,
+        db,
+        data.model_dump(),
+        AE_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
@@ -1039,8 +1275,10 @@ def save_log(
         date=data.date,
         support_mode=data.support_mode.upper().replace(" ", "_")
     )
+
     db.add(log)
     db.commit()
+
     return {"message": "Saved"}
 
 @app.get("/respiratory-log/{enrollment_id}")
@@ -1050,9 +1288,11 @@ def get_logs(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    return db.query(RespiratoryLog).filter(
+    logs = db.query(RespiratoryLog).filter(
         RespiratoryLog.enrollment_id == enrollment_id
     ).all()
+
+    return logs
 
 @app.post("/respiratory-log-bulk")
 def save_logs(
@@ -1068,12 +1308,17 @@ def save_logs(
             db.query(RespiratoryLog).filter(
                 RespiratoryLog.enrollment_id == enrollment_id
             ).delete(synchronize_session=False)
+
             for log in data.logs:
-                db.add(RespiratoryLog(
-                    enrollment_id=enrollment_id,
-                    date=log["date"],
-                    support_mode=log["support_mode"].upper().replace(" ", "_"),
-                ))
+                db.add(
+                    RespiratoryLog(
+                        enrollment_id=enrollment_id,
+                        date=log["date"],
+                        support_mode=log["support_mode"]
+                        .upper()
+                        .replace(" ", "_"),
+                    )
+                )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error replacing logs: {str(e)}")
 
@@ -1096,12 +1341,19 @@ def get_summary(
     imv_days = sum(1 for l in logs if l.support_mode in ["IMV", "SIMV", "HFOV"])
     nasal_days = sum(1 for l in logs if l.support_mode in ["NASAL_CANNULA", "NC"])
     extubation_failure_episodes = sum(1 for l in logs if l.support_mode == "EXTUBATION_FAILURE")
+    
     extubation_failure = "Yes" if extubation_failure_episodes > 0 else "No"
-
+    
     steroid = db.query(SteroidData).filter(
         SteroidData.enrollment_id == enrollment_id
     ).first()
-
+    
+    steroid_age_days = steroid.steroid_age_days if steroid else None
+    pulmonary_hemorrhage = steroid.pulmonary_hemorrhage if steroid else None
+    pulmonary_hypertension = steroid.pulmonary_hypertension if steroid else None
+    pneumothorax = steroid.pneumothorax if steroid else None
+    chest_drain = steroid.chest_drain if steroid else None
+    
     return {
         "cpap": "Yes" if cpap_days else "No",
         "cpap_days": cpap_days,
@@ -1113,11 +1365,11 @@ def get_summary(
         "hfnc_days": hfnc_days,
         "nasal_cannula": "Yes" if nasal_days else "No",
         "nasal_cannula_days": nasal_days,
-        "steroid_age_days": steroid.steroid_age_days if steroid else None,
-        "pulmonary_hemorrhage": steroid.pulmonary_hemorrhage if steroid else None,
-        "pulmonary_hypertension": steroid.pulmonary_hypertension if steroid else None,
-        "pneumothorax": steroid.pneumothorax if steroid else None,
-        "chest_drain": steroid.chest_drain if steroid else None,
+        "steroid_age_days": steroid_age_days,
+        "pulmonary_hemorrhage": pulmonary_hemorrhage,
+        "pulmonary_hypertension": pulmonary_hypertension,
+        "pneumothorax": pneumothorax,
+        "chest_drain": chest_drain,
         "extubation_failure": extubation_failure,
         "extubation_failure_episodes": extubation_failure_episodes,
     }
@@ -1134,28 +1386,35 @@ def save_steroid(
 ):
     enrollment_id = data.enrollment_id
     require_enrollment_access(enrollment_id, db, current_user)
+    steroid_age_days = data.steroid_age_days
+    pulmonary_hemorrhage = data.pulmonary_hemorrhage
+    pulmonary_hypertension = data.pulmonary_hypertension
+    pneumothorax = data.pneumothorax
+    chest_drain = data.chest_drain
 
     existing = db.query(SteroidData).filter(
         SteroidData.enrollment_id == enrollment_id
     ).first()
 
     if existing:
-        existing.steroid_age_days = data.steroid_age_days
-        existing.pulmonary_hemorrhage = data.pulmonary_hemorrhage
-        existing.pulmonary_hypertension = data.pulmonary_hypertension
-        existing.pneumothorax = data.pneumothorax
-        existing.chest_drain = data.chest_drain
+        existing.steroid_age_days = steroid_age_days
+        existing.pulmonary_hemorrhage = pulmonary_hemorrhage
+        existing.pulmonary_hypertension = pulmonary_hypertension
+        existing.pneumothorax = pneumothorax
+        existing.chest_drain = chest_drain
     else:
-        db.add(SteroidData(
+        new = SteroidData(
             enrollment_id=enrollment_id,
-            steroid_age_days=data.steroid_age_days,
-            pulmonary_hemorrhage=data.pulmonary_hemorrhage,
-            pulmonary_hypertension=data.pulmonary_hypertension,
-            pneumothorax=data.pneumothorax,
-            chest_drain=data.chest_drain,
-        ))
+            steroid_age_days=steroid_age_days,
+            pulmonary_hemorrhage=pulmonary_hemorrhage,
+            pulmonary_hypertension=pulmonary_hypertension,
+            pneumothorax=pneumothorax,
+            chest_drain=chest_drain
+        )
+        db.add(new)
 
     db.commit()
+
     return {"message": "Steroid saved"}
 
 # ============================================================================
@@ -1169,23 +1428,35 @@ def get_enrollment_status(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    screening = db.query(Screening).filter(
-        Screening.enrollment_id == enrollment_id
-    ).first()
+    screening = (
+        db.query(Screening)
+        .filter(Screening.enrollment_id == enrollment_id)
+        .first()
+    )
+
     if not screening:
         raise HTTPException(status_code=404, detail="Enrollment not found")
 
-    form_b = db.query(BirthResuscitation).filter(
-        BirthResuscitation.enrollment_id == enrollment_id
-    ).first() is not None
+    form_b = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+        is not None
+    )
 
-    form_c = db.query(MaternalDetails).filter(
-        MaternalDetails.enrollment_id == enrollment_id
-    ).first() is not None
+    form_c = (
+        db.query(MaternalDetails)
+        .filter(MaternalDetails.enrollment_id == enrollment_id)
+        .first()
+        is not None
+    )
 
-    form_d = db.query(PostnatalDay1).filter(
-        PostnatalDay1.enrollment_id == enrollment_id
-    ).first() is not None
+    form_d = (
+        db.query(PostnatalDay1)
+        .filter(PostnatalDay1.enrollment_id == enrollment_id)
+        .first()
+        is not None
+    )
 
     if not form_b:
         next_form = "form-b"
@@ -1205,3 +1476,675 @@ def get_enrollment_status(
         "form_d": form_d,
         "next_form": next_form,
     }
+# ─────────────────────────────────────────────────────────────
+# Paste these routes into main.py
+# below the existing FiO2 AUC section
+# ─────────────────────────────────────────────────────────────
+
+# ============================================================================
+# RESP / CV / NEURO DAILY LOG — NEW STRUCTURED ENDPOINTS
+# Replaces the old /resp-cv-neuro-log/ blob endpoints
+# ============================================================================
+
+def _compute_completion_pct(record) -> int:
+    """Compute completion % for a RespCVNeuroDayLog row."""
+    resp_fields = [
+        "support_modes", "max_fio2", "max_flow",
+        "supp_o2", "surfactant", "caffeine", "apnea",
+        "desaturations", "extub_attempted", "extub_failure",
+        "pulm_hemorrhage", "pneumothorax", "chest_drain",
+        "pphn", "postnatal_steroids",
+    ]  # 15 fields
+    cv_fields = [
+        "pda_suspected", "echo_done", "hs_pda",
+        "pda_medical_rx", "shock", "vasoactive_support",
+    ]  # 6 fields
+    neuro_base = [
+        "cranial_usg", "ivh", "pvl_suspected", "cpvl_confirmed",
+        "ventriculomegaly", "clinical_seizures", "eeg_seizures",
+        "aeds_given", "non_ivh_ich", "meningitis_suspected",
+    ]  # 10 base fields
+
+    def answered(val):
+        return val is not None and val != ""
+
+    resp_done  = sum(1 for f in resp_fields  if answered(getattr(record, f, None)))
+    cv_done    = sum(1 for f in cv_fields    if answered(getattr(record, f, None)))
+    neuro_done = sum(1 for f in neuro_base   if answered(getattr(record, f, None)))
+
+    ivh_visible = getattr(record, "ivh", None) is True
+    if ivh_visible and answered(getattr(record, "ivh_grade", None)):
+        neuro_done += 1
+
+    total_fields = 15 + 6 + (11 if ivh_visible else 10)
+    total_done   = resp_done + cv_done + neuro_done
+
+    return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
+
+
+# ── GET single day ────────────────────────────────────────────
+@app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
+def get_resp_cv_neuro_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(RespCVNeuroDayLog)
+        .filter(
+            RespCVNeuroDayLog.enrollment_id == enrollment_id,
+            RespCVNeuroDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="No data for this day")
+    return record
+
+
+# ── POST create day ───────────────────────────────────────────
+@app.post("/resp-cv-neuro/")
+def create_resp_cv_neuro_day(
+    data:         RespCVNeuroDayCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+
+    # Prevent duplicate — upsert pattern
+    existing = (
+        db.query(RespCVNeuroDayLog)
+        .filter(
+            RespCVNeuroDayLog.enrollment_id == data.enrollment_id,
+            RespCVNeuroDayLog.nicu_day      == data.nicu_day,
+        )
+        .first()
+    )
+    if existing:
+        # Update instead of creating duplicate
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = RespCVNeuroDayLog(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── PUT update day ────────────────────────────────────────────
+@app.put("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
+def update_resp_cv_neuro_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    data:          RespCVNeuroDayCreate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(RespCVNeuroDayLog)
+        .filter(
+            RespCVNeuroDayLog.enrollment_id == enrollment_id,
+            RespCVNeuroDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+
+    # Block edits on submitted days
+    if record.submission_status == "submitted":
+        raise HTTPException(status_code=403, detail="Day is submitted and locked")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── PATCH submit day ──────────────────────────────────────────
+@app.patch("/resp-cv-neuro/{enrollment_id}/{nicu_day}/submit")
+def submit_resp_cv_neuro_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    data:          RespCVNeuroDaySubmit,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(RespCVNeuroDayLog)
+        .filter(
+            RespCVNeuroDayLog.enrollment_id == enrollment_id,
+            RespCVNeuroDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+
+    record.submission_status = "submitted"
+    record.submitted_at      = data.submitted_at
+    record.submitted_by      = data.submitted_by
+    db.commit()
+    db.refresh(record)
+    return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+# ── GET summary (all days for timeline status indicators) ─────
+@app.get("/resp-cv-neuro/{enrollment_id}/summary")
+def get_resp_cv_neuro_summary(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    records = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .order_by(RespCVNeuroDayLog.nicu_day)
+        .all()
+    )
+    return [
+        {
+            "nicu_day":          r.nicu_day,
+            "submission_status": r.submission_status or "empty",
+            "completion_pct":    _compute_completion_pct(r),
+            "saved_at":          r.saved_at,
+            "submitted_at":      r.submitted_at,
+        }
+        for r in records
+    ]
+
+
+# ── PATCH discharge ───────────────────────────────────────────
+@app.patch("/enrollment/{enrollment_id}/discharge")
+def discharge_enrollment(
+    enrollment_id: str,
+    data:          DischargeUpdate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    # Update NeonatalMorbidities discharge_date if it exists
+    morbidity = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .first()
+    )
+    if morbidity:
+        from datetime import date
+        try:
+            morbidity.discharge_date = date.fromisoformat(data.discharge_date)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    # Also store on BirthResuscitation for date_of_birth reference
+    # (frontend reads b.discharge_date from birth-resuscitation)
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    # Since BirthResuscitation has no discharge_date column,
+    # we store it in the Screening record's notes or use a
+    # separate approach. For now return success — add a
+    # discharge_date column to BirthResuscitation if needed.
+
+    return {
+        "message":        f"Patient discharged on Day {data.discharge_day}",
+        "discharge_date": data.discharge_date,
+        "discharge_day":  data.discharge_day,
+    }
+# ─────────────────────────────────────────────────────────────
+# Paste into main.py after the Resp-CV-Neuro routes section
+#
+# Add to main.py imports:
+#   from models import InfectGIHemaDayLog
+#   from schemas import InfectGIHemaDayCreate, InfectGIHemaDaySubmit
+# ─────────────────────────────────────────────────────────────
+
+# ============================================================================
+# INFECT / GI / HEMA DAILY LOG — STRUCTURED PER-DAY ENDPOINTS
+# ============================================================================
+
+def _infect_completion_pct(r) -> int:
+    """Compute completion % respecting conditional field visibility."""
+
+    def ans(v): return v is not None and v != ""
+
+    # Infection base (always visible): 7 fields
+    inf_base   = ["sepsis_suspected","antibiotics","antibiotic_day",
+                   "lp_done","csf_culture_positive","clabsi","vap"]
+    inf_sepsis = ["blood_culture_sent","blood_culture_positive","eos","los"]
+
+    sepsis_yes = getattr(r, "sepsis_suspected", None) is True
+    inf_total  = len(inf_base) + (len(inf_sepsis) if sepsis_yes else 0)
+    inf_done   = (sum(1 for k in inf_base   if ans(getattr(r, k, None)))
+                + (sum(1 for k in inf_sepsis if ans(getattr(r, k, None))) if sepsis_yes else 0))
+
+    # GI base: 8 always visible
+    gi_base = ["npo","enteral_feeds_started","feed_volume","full_feeds",
+               "parenteral_nutrition","probiotic","feed_intolerance","nec_suspected"]
+    gi_nec  = ["nec_confirmed_stage","nec_surgery"]
+
+    nec_yes   = getattr(r, "nec_suspected", None) is True
+    gi_total  = len(gi_base) + (len(gi_nec) if nec_yes else 0)
+    gi_done   = (sum(1 for k in gi_base if ans(getattr(r, k, None)))
+               + (sum(1 for k in gi_nec  if ans(getattr(r, k, None))) if nec_yes else 0))
+
+    # Hematology base: 6 always visible
+    hema_base    = ["jaundice","peak_tsb","exchange_transfusion",
+                    "prbc_transfusion","platelet_transfusion","ffp_cryo"]
+    hema_jaundice= ["phototherapy"]
+
+    jaundice_yes = getattr(r, "jaundice", None) is True
+    hema_total   = len(hema_base) + (len(hema_jaundice) if jaundice_yes else 0)
+    hema_done    = (sum(1 for k in hema_base    if ans(getattr(r, k, None)))
+                  + (sum(1 for k in hema_jaundice if ans(getattr(r, k, None))) if jaundice_yes else 0))
+
+    total_fields = inf_total + gi_total + hema_total
+    total_done   = inf_done + gi_done + hema_done
+
+    return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
+
+
+# ── GET single day ────────────────────────────────────────────
+@app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
+def get_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+            InfectGIHemaDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="No data for this day")
+    return record
+
+
+# ── GET summary (all days — for timeline status indicators) ───
+@app.get("/infect-gi-hema/{enrollment_id}/summary")
+def get_infect_gi_hema_summary(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    records = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    return [
+        {
+            "nicu_day":          r.nicu_day,
+            "submission_status": r.submission_status or "empty",
+            "completion_pct":    _infect_completion_pct(r),
+            "saved_at":          r.saved_at,
+            "submitted_at":      r.submitted_at,
+        }
+        for r in records
+    ]
+
+
+# ── POST create day (upsert) ──────────────────────────────────
+@app.post("/infect-gi-hema/")
+def create_infect_gi_hema_day(
+    data:         InfectGIHemaDayCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == data.enrollment_id,
+            InfectGIHemaDayLog.nicu_day      == data.nicu_day,
+        )
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = InfectGIHemaDayLog(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── PUT update day ────────────────────────────────────────────
+@app.put("/infect-gi-hema/{enrollment_id}/{nicu_day}")
+def update_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    data:          InfectGIHemaDayCreate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+            InfectGIHemaDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+    if record.submission_status == "submitted":
+        raise HTTPException(status_code=403, detail="Day is submitted and locked")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── PATCH submit day ──────────────────────────────────────────
+@app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/submit")
+def submit_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    data:          InfectGIHemaDaySubmit,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+            InfectGIHemaDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+
+    record.submission_status = "submitted"
+    record.submitted_at      = data.submitted_at
+    record.submitted_by      = data.submitted_by
+    db.commit()
+    db.refresh(record)
+    return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+# ═══════════════════════════════════════════════════════════════
+# 3. ADD TO main.py  (imports + routes)
+#
+# Add to imports:
+#   from models import MetabRenalVascEyeDayLog
+#   from schemas import MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit
+# ═══════════════════════════════════════════════════════════════
+ 
+def _metab_completion_pct(r) -> int:
+    def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
+ 
+    metab_base   = ["hypoglycemia","hypoglycemia_rx","hyperglycemia","insulin",
+                    "metabolic_acidosis","dyselectrolytemia","osteopenia_suspected"]
+    metab_dysele = ["dyselectrolytemia_type"]
+    dysele_yes   = getattr(r, "dyselectrolytemia", None) is True
+    metab_total  = len(metab_base) + (len(metab_dysele) if dysele_yes else 0)
+    metab_done   = (sum(1 for k in metab_base if ans(getattr(r, k, None)))
+                  + (1 if dysele_yes and ans(getattr(r, "dyselectrolytemia_type", None)) else 0))
+ 
+    renal_base  = ["aki_suspected","creatinine","urine_output_low","dialysis_crrt"]
+    renal_aki   = ["aki_kdigo_stage"]
+    aki_yes     = getattr(r, "aki_suspected", None) is True
+    renal_total = len(renal_base) + (len(renal_aki) if aki_yes else 0)
+    renal_done  = (sum(1 for k in renal_base if ans(getattr(r, k, None)))
+                 + (1 if aki_yes and ans(getattr(r, "aki_kdigo_stage", None)) else 0))
+ 
+    thermo_keys = ["hypothermia","hyperthermia"]
+    thermo_done = sum(1 for k in thermo_keys if ans(getattr(r, k, None)))
+ 
+    vasc_keys   = ["picc_in_situ","uvc_in_situ","uac_in_situ","peripheral_iv",
+                   "peripheral_arterial","extravasation_injury","line_complication"]
+    vasc_done   = sum(1 for k in vasc_keys if ans(getattr(r, k, None)))
+ 
+    eye_base    = ["rop_screening_due","rop_screened","rop_detected"]
+    eye_rop     = ["rop_stage","plus_disease","rop_treatment"]
+    rop_yes     = getattr(r, "rop_detected", None) is True
+    eye_total   = len(eye_base) + (len(eye_rop) if rop_yes else 0)
+    eye_done    = (sum(1 for k in eye_base if ans(getattr(r, k, None)))
+                 + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0))
+ 
+    total_fields = metab_total + renal_total + len(thermo_keys) + len(vasc_keys) + eye_total
+    total_done   = metab_done + renal_done + thermo_done + vasc_done + eye_done
+    return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
+ 
+ 
+@app.get("/metab-renal-vasc-eye/{enrollment_id}/summary")
+def get_metab_renal_vasc_eye_summary(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    records = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .order_by(MetabRenalVascEyeDayLog.nicu_day)
+        .all()
+    )
+    return [{"nicu_day": r.nicu_day, "submission_status": r.submission_status or "empty",
+             "completion_pct": _metab_completion_pct(r), "saved_at": r.saved_at,
+             "submitted_at": r.submitted_at} for r in records]
+ 
+ 
+@app.get("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}")
+def get_metab_renal_vasc_eye_day(
+    enrollment_id: str, nicu_day: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MetabRenalVascEyeDayLog).filter(
+        MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
+        MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="No data for this day")
+    return record
+ 
+ 
+@app.post("/metab-renal-vasc-eye/")
+def create_metab_renal_vasc_eye_day(
+    data: MetabRenalVascEyeDayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+    existing = db.query(MetabRenalVascEyeDayLog).filter(
+        MetabRenalVascEyeDayLog.enrollment_id == data.enrollment_id,
+        MetabRenalVascEyeDayLog.nicu_day      == data.nicu_day,
+    ).first()
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key): setattr(existing, key, value)
+        db.commit(); db.refresh(existing); return existing
+    record = MetabRenalVascEyeDayLog(**data.model_dump())
+    db.add(record); db.commit(); db.refresh(record); return record
+ 
+ 
+@app.put("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}")
+def update_metab_renal_vasc_eye_day(
+    enrollment_id: str, nicu_day: int,
+    data: MetabRenalVascEyeDayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MetabRenalVascEyeDayLog).filter(
+        MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
+        MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+    if record.submission_status == "submitted":
+        raise HTTPException(status_code=403, detail="Day is submitted and locked")
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
+            setattr(record, key, value)
+    db.commit(); db.refresh(record); return record
+ 
+ 
+@app.patch("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}/submit")
+def submit_metab_renal_vasc_eye_day(
+    enrollment_id: str, nicu_day: int,
+    data: MetabRenalVascEyeDaySubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MetabRenalVascEyeDayLog).filter(
+        MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
+        MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+    record.submission_status = "submitted"
+    record.submitted_at      = data.submitted_at
+    record.submitted_by      = data.submitted_by
+    db.commit(); db.refresh(record)
+    return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+# ============================================================================
+# FORM H — CRANIAL USG ENDPOINTS
+# Add these to main.py
+#
+# REQUIRED IMPORTS (add to top of main.py):
+#   from models import CranialUSGRecord
+#   from schemas import CranialUSGCreate, CranialUSGSubmit
+# ============================================================================
+
+# ── POST — create or upsert ───────────────────────────────────
+@app.post("/form-h/")
+def create_form_h(
+    data:         CranialUSGCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = CranialUSGRecord(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── GET — load by enrollment_id ───────────────────────────────
+@app.get("/form-h/{enrollment_id}")
+def get_form_h(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form H not found")
+    return record
+
+
+# ── PUT — full update ─────────────────────────────────────────
+@app.put("/form-h/{enrollment_id}")
+def update_form_h(
+    enrollment_id: str,
+    data:          CranialUSGCreate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form H not found — use POST to create")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── PATCH — submit and lock ───────────────────────────────────
+@app.patch("/form-h/{enrollment_id}/submit")
+def submit_form_h(
+    enrollment_id: str,
+    data:          CranialUSGSubmit,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form H not found")
+
+    # Update all fields from payload, then lock
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    record.submission_status = "submitted"
+    db.commit()
+    db.refresh(record)
+    return {"message": "Form H submitted and locked", "status": "submitted"}

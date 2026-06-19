@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, JSON, Time
 from datetime import datetime, timezone
-
+from sqlalchemy import UniqueConstraint
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -72,6 +72,13 @@ class ParticipantPII(Base):
     mother_contact = Column(String(15), nullable=True)
     husband_contact = Column(String(15), nullable=True)
     address = Column(String, nullable=True)
+    email_address = Column(String, nullable=True)
+    house = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    district = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    landmark = Column(String, nullable=True)
     baby_name = Column(String, nullable=True)
     contact_mother = Column(String(15), nullable=True)
     contact_husband = Column(String(15), nullable=True)
@@ -246,10 +253,13 @@ class MaternalDetails(Base):
     edd = Column(String)
     conception = Column(String)
     artificial_type = Column(String)
+    artificial_other = Column(String)
 
     antenatal_steroids = Column(String)
     steroid_drug = Column(String)
     steroid_doses = Column(String)
+    steroid_courses = Column(String)
+    lddi_known = Column(String)
     lddi_hours = Column(String)
     antenatal_mgso4 = Column(String)
     gestation_at_steroids = Column(String)
@@ -308,6 +318,8 @@ class MaternalDetails(Base):
     maternal_fever = Column(String)
     fetal_tachycardia = Column(String)
     maternal_tlc_high = Column(String)
+    maternal_tachycardia = Column(String)
+    maternal_abdominal_tenderness = Column(String)
     foul_smelling_liquor = Column(String)
     maternal_uti = Column(String)
     maternal_diarrhea = Column(String)
@@ -364,12 +376,16 @@ class PostnatalDay1(Base):
     fio2_percent = Column(Float, nullable=True)
     surfactant_method = Column(String, nullable=True)
     lisa_catheter = Column(String, nullable=True)
+    lisa_catheter_type = Column(String, nullable=True)
     device_assistance = Column(Boolean, nullable=True)
     device_type = Column(String, nullable=True)
+    device_type_other = Column(String, nullable=True)
     surfactant_brand = Column(String, nullable=True)
+    surfactant_brand_other = Column(String, nullable=True)
     surfactant_dose = Column(Float, nullable=True)
     adverse_effects = Column(Boolean, nullable=True)
     adverse_type = Column(String, nullable=True)
+    adverse_type_other = Column(String, nullable=True)
     mode_of_support = Column(String, nullable=True)
 
     # EARLY RESPIRATORY SUPPORT
@@ -378,6 +394,11 @@ class PostnatalDay1(Base):
     max_fio2_1hr = Column(Float, nullable=True)
     caffeine = Column(Boolean, nullable=True)
     caffeine_dose = Column(Float, nullable=True)
+    caffeine_loading = Column(Boolean, nullable=True)
+    caffeine_loading_abs = Column(Float, nullable=True)
+    caffeine_maint_abs = Column(Float, nullable=True)
+    caffeine_date = Column(Date, nullable=True)
+    caffeine_time = Column(String, nullable=True)
     intubation_after_resus = Column(Boolean, nullable=True)
     immediate_kmc = Column(Boolean, nullable=True)
 
@@ -400,6 +421,7 @@ class NICUAdmission(Base):
     admission_datetime = Column(DateTime)
     age_at_admission_hours = Column(Float)
 
+    temp_dr = Column(Float)
     temp_skin = Column(Float)
     temp_axillary = Column(Float)
 
@@ -414,9 +436,17 @@ class NICUAdmission(Base):
     tube_accident_type = Column(String)
 
     transport_mode_resp = Column(String)
+    transport_cpap = Column(Float)
+    transport_pip  = Column(Float)
+    transport_peep = Column(Float)
+    transport_map  = Column(Float)
     transport_fio2 = Column(Float)
 
     nicu_mode_resp = Column(String)
+    nicu_cpap = Column(Float)
+    nicu_pip  = Column(Float)
+    nicu_peep = Column(Float)
+    nicu_map  = Column(Float)
     nicu_fio2 = Column(Float)
 
     completed_by = Column(String)
@@ -1034,3 +1064,247 @@ class SteroidData(Base):
     pulmonary_hypertension = Column(String)
     pneumothorax = Column(String)
     chest_drain = Column(String)
+# ─────────────────────────────────────────────────────────────
+# Add this class to models.py
+# Replaces the old RespCVNeuroLog JSON blob with per-day,
+# per-field structured columns matching the new frontend.
+# ─────────────────────────────────────────────────────────────
+
+class RespCVNeuroDayLog(Base):
+    __tablename__ = "resp_cv_neuro_day_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    nicu_day      = Column(Integer, nullable=False, index=True)  # 1, 2, 3 …
+
+    # ── RESPIRATORY ──────────────────────────────────────────
+    support_modes      = Column(String, nullable=True)   # "NC, HFNC, CPAP"
+    max_fio2           = Column(Float,  nullable=True)   # %
+    max_flow           = Column(Float,  nullable=True)   # L/min
+
+    supp_o2            = Column(Boolean, nullable=True)
+    surfactant         = Column(Boolean, nullable=True)
+    caffeine           = Column(Boolean, nullable=True)
+    apnea              = Column(Boolean, nullable=True)
+    desaturations      = Column(Boolean, nullable=True)
+    extub_attempted    = Column(Boolean, nullable=True)
+    extub_failure      = Column(Boolean, nullable=True)
+    pulm_hemorrhage    = Column(Boolean, nullable=True)
+    pneumothorax       = Column(Boolean, nullable=True)
+    chest_drain        = Column(Boolean, nullable=True)
+    pphn               = Column(Boolean, nullable=True)
+    postnatal_steroids = Column(Boolean, nullable=True)
+
+    # ── CARDIOVASCULAR ───────────────────────────────────────
+    pda_suspected      = Column(Boolean, nullable=True)
+    echo_done          = Column(Boolean, nullable=True)
+    hs_pda             = Column(Boolean, nullable=True)
+    pda_medical_rx     = Column(Boolean, nullable=True)
+    shock              = Column(Boolean, nullable=True)
+    vasoactive_support = Column(Boolean, nullable=True)
+    vasoactive_drugs   = Column(String,  nullable=True)  # "Dopamine, Dobutamine"
+
+    # ── NEUROLOGICAL ─────────────────────────────────────────
+    cranial_usg          = Column(Boolean, nullable=True)
+    ivh                  = Column(Boolean, nullable=True)
+    ivh_grade            = Column(String,  nullable=True)  # "I","II","III","IV"
+    pvl_suspected        = Column(Boolean, nullable=True)
+    cpvl_confirmed       = Column(Boolean, nullable=True)
+    ventriculomegaly     = Column(Boolean, nullable=True)
+    clinical_seizures    = Column(Boolean, nullable=True)
+    eeg_seizures         = Column(Boolean, nullable=True)
+    aeds_given           = Column(Boolean, nullable=True)
+    non_ivh_ich          = Column(Boolean, nullable=True)
+    meningitis_suspected = Column(Boolean, nullable=True)
+
+    # ── SUBMISSION WORKFLOW ───────────────────────────────────
+    submission_status = Column(String,  nullable=True, default="empty")
+    # "empty" | "draft" | "complete" | "submitted" | "late"
+    saved_at    = Column(DateTime, nullable=True)
+    saved_by    = Column(String,   nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    submitted_by = Column(String,   nullable=True)
+
+    created_at  = Column(DateTime, default=utcnow)
+    updated_at  = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        # one row per enrollment+day
+        __import__('sqlalchemy').UniqueConstraint(
+            'enrollment_id', 'nicu_day', name='uq_resp_cv_neuro_enrollment_day'
+        ),
+    )
+# ─────────────────────────────────────────────────────────────
+# Add this class to models.py
+# Place after the existing RespCVNeuroDayLog class
+# ─────────────────────────────────────────────────────────────
+from sqlalchemy import UniqueConstraint
+
+class InfectGIHemaDayLog(Base):
+    __tablename__ = "infect_gi_hema_day_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    nicu_day      = Column(Integer, nullable=False, index=True)
+
+    # ── INFECTION ────────────────────────────────────────────
+    sepsis_suspected        = Column(Boolean, nullable=True)
+    blood_culture_sent      = Column(Boolean, nullable=True)
+    blood_culture_positive  = Column(Boolean, nullable=True)
+    eos                     = Column(Boolean, nullable=True)
+    los                     = Column(Boolean, nullable=True)
+    antibiotics             = Column(Boolean, nullable=True)
+    antibiotic_day          = Column(Boolean, nullable=True)
+    lp_done                 = Column(Boolean, nullable=True)
+    csf_culture_positive    = Column(Boolean, nullable=True)
+    clabsi                  = Column(Boolean, nullable=True)
+    vap                     = Column(Boolean, nullable=True)
+
+    # ── GASTROINTESTINAL ─────────────────────────────────────
+    npo                     = Column(Boolean, nullable=True)
+    enteral_feeds_started   = Column(Boolean, nullable=True)
+    feed_volume             = Column(Float,   nullable=True)   # ml/kg/day
+    full_feeds              = Column(Boolean, nullable=True)
+    parenteral_nutrition    = Column(Boolean, nullable=True)
+    probiotic               = Column(Boolean, nullable=True)
+    feed_intolerance        = Column(Boolean, nullable=True)
+    nec_suspected           = Column(Boolean, nullable=True)
+    nec_confirmed_stage     = Column(String,  nullable=True)   # "Stage I/II/III"
+    nec_surgery             = Column(Boolean, nullable=True)
+
+    # ── HEMATOLOGY ───────────────────────────────────────────
+    jaundice                = Column(Boolean, nullable=True)
+    phototherapy            = Column(Boolean, nullable=True)
+    peak_tsb                = Column(Float,   nullable=True)   # mg/dL
+    exchange_transfusion    = Column(Boolean, nullable=True)
+    prbc_transfusion        = Column(Boolean, nullable=True)
+    platelet_transfusion    = Column(Boolean, nullable=True)
+    ffp_cryo                = Column(Boolean, nullable=True)
+
+    # ── SUBMISSION WORKFLOW ───────────────────────────────────
+    submission_status = Column(String,   nullable=True, default="empty")
+    saved_at          = Column(DateTime, nullable=True)
+    saved_by          = Column(String,   nullable=True)
+    submitted_at      = Column(DateTime, nullable=True)
+    submitted_by      = Column(String,   nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'enrollment_id', 'nicu_day',
+            name='uq_infect_gi_hema_enrollment_day'
+        ),
+    )
+class MetabRenalVascEyeDayLog(Base):
+    __tablename__ = "metab_renal_vasc_eye_day_logs"
+ 
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    nicu_day      = Column(Integer, nullable=False, index=True)
+ 
+    # ── METABOLIC ────────────────────────────────────────────
+    hypoglycemia           = Column(Boolean, nullable=True)
+    hypoglycemia_rx        = Column(Boolean, nullable=True)
+    hyperglycemia          = Column(Boolean, nullable=True)
+    insulin                = Column(Boolean, nullable=True)
+    metabolic_acidosis     = Column(Boolean, nullable=True)
+    dyselectrolytemia      = Column(Boolean, nullable=True)
+    dyselectrolytemia_type = Column(String,  nullable=True)  # "Na,K,Ca"
+    osteopenia_suspected   = Column(Boolean, nullable=True)
+ 
+    # ── RENAL ─────────────────────────────────────────────────
+    aki_suspected          = Column(Boolean, nullable=True)
+    aki_kdigo_stage        = Column(String,  nullable=True)  # "Stage 1/2/3"
+    creatinine             = Column(Float,   nullable=True)  # mg/dL
+    urine_output_low       = Column(Boolean, nullable=True)
+    dialysis_crrt          = Column(Boolean, nullable=True)
+ 
+    # ── THERMOREGULATION ─────────────────────────────────────
+    hypothermia            = Column(Boolean, nullable=True)
+    hyperthermia           = Column(Boolean, nullable=True)
+ 
+    # ── VASCULAR ACCESS ───────────────────────────────────────
+    picc_in_situ           = Column(Boolean, nullable=True)
+    uvc_in_situ            = Column(Boolean, nullable=True)
+    uac_in_situ            = Column(Boolean, nullable=True)
+    peripheral_iv          = Column(Boolean, nullable=True)
+    peripheral_arterial    = Column(Boolean, nullable=True)
+    extravasation_injury   = Column(Boolean, nullable=True)
+    line_complication      = Column(Boolean, nullable=True)
+ 
+    # ── OPHTHALMOLOGY ─────────────────────────────────────────
+    rop_screening_due      = Column(Boolean, nullable=True)
+    rop_screened           = Column(Boolean, nullable=True)
+    rop_detected           = Column(Boolean, nullable=True)
+    rop_stage              = Column(String,  nullable=True)  # "Stage 1"–"Stage 5"
+    plus_disease           = Column(Boolean, nullable=True)
+    rop_treatment          = Column(Boolean, nullable=True)
+ 
+    # ── WORKFLOW ──────────────────────────────────────────────
+    submission_status = Column(String,   nullable=True, default="empty")
+    saved_at          = Column(DateTime, nullable=True)
+    saved_by          = Column(String,   nullable=True)
+    submitted_at      = Column(DateTime, nullable=True)
+    submitted_by      = Column(String,   nullable=True)
+ 
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+ 
+    __table_args__ = (
+        UniqueConstraint(
+            'enrollment_id', 'nicu_day',
+            name='uq_metab_renal_vasc_eye_enrollment_day'
+        ),
+    )
+ 
+# ============================================================================
+# FORM H — CranialUSGRecord MODEL
+# Add this class to models.py
+# ============================================================================
+
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON
+from sqlalchemy import UniqueConstraint
+
+class CranialUSGRecord(Base):
+    __tablename__ = "cranial_usg_records"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, unique=True, index=True, nullable=False)
+
+    # ── Scan entries — stored as JSON array ──────────────────
+    # Each element: { _id, scanNumber, scanDate, sonographer,
+    #   ivhGradeRight, ivhGradeLeft, cpvlGradeRight, cpvlGradeLeft,
+    #   findings, dol, pma }
+    scan_entries  = Column(JSON, nullable=True, default=list)
+
+    # ── Post-hemorrhagic complications ───────────────────────
+    phvd                   = Column(Boolean, nullable=True)
+    phvd_diagnosis_date    = Column(String,  nullable=True)
+    vp_shunt               = Column(Boolean, nullable=True)
+    vp_shunt_insertion_date= Column(String,  nullable=True)
+
+    # ── Other findings ───────────────────────────────────────
+    ventriculomegaly       = Column(Boolean, nullable=True)
+    subependymal_cyst      = Column(Boolean, nullable=True)
+    choroid_plexus_cyst    = Column(Boolean, nullable=True)
+    cerebellar_hemorrhage  = Column(Boolean, nullable=True)
+    subdural_hemorrhage    = Column(Boolean, nullable=True)
+    other_finding          = Column(Boolean, nullable=True)
+    other_finding_text     = Column(String,  nullable=True)
+
+    # ── Auto-calculated composite ─────────────────────────────
+    brain_injury_composite = Column(Boolean, nullable=True)
+
+    # ── Schedule & workflow ───────────────────────────────────
+    schedule_key      = Column(String,   nullable=True)  # "lt28" | "w28_31"
+    submission_status = Column(String,   nullable=True, default="draft")
+    saved_at          = Column(String,   nullable=True)
+    saved_by          = Column(String,   nullable=True)
+    submitted_at      = Column(String,   nullable=True)
+    submitted_by      = Column(String,   nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+ 

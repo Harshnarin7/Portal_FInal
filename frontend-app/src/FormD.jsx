@@ -1,1151 +1,1171 @@
-import React, { useState, useEffect } from "react";
-import { useParams,useLocation, useNavigate } from "react-router-dom";
-import "./ScreeningForm.css";
-import { usePatient } from "./context/PatientContext";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import "./styles/global.css";
-import "./styles/FormComponents.css";
-import FormLayout from "./components/FormLayout";
+import "./styles/FormC.css";
+import "./styles/FormD.css";
+import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import {
+  ArrowLeft, ArrowRight, Save, Home,
+  User, Baby, Wind, Droplets, CheckSquare,
+  CheckCircle, AlertTriangle, XCircle, AlertCircle,
+} from "lucide-react";
 
-export default function FormD() {
-   const { enrollmentId } = useParams(); 
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
-  const { updatePatientData } = usePatient();
-  const [errors, setErrors] = useState({});
+/* ══════════════════════════════════════════════════════
+   VALIDATION ENGINE
+══════════════════════════════════════════════════════ */
 
-  const [formData, setFormData] = useState({
-    // IDENTIFICATION
-    enrollment_id: "",
-    gestation_weeks: "",
-    gestation_days: "",
-    annual_number: "",
-    baby_name: "",
-    baby_uid: "",
-    birth_weight: "",
+const RULES = {
+  // required toggles (Golden Hour)
+  plastic_wrap:          { required: true, type: "toggle" },
+  et_intubation:         { required: true, type: "toggle" },
+  labored_breathing:     { required: true, type: "toggle" },
+  remained_intubated:    { required: (fd) => fd.et_intubation === "Yes", type: "toggle" },
 
-    // GOLDEN HOUR
-    plastic_wrap: "",
-    remained_intubated: "",
-    et_intubation: "",
-    labored_breathing: "",
+  // Surfactant
+  surfactant_required:   { required: true, type: "toggle" },
+  surfactant_indication: { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
+  surfactant_method:     { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
+  surfactant_brand:      { required: (fd) => fd.surfactant_required === "Yes", type: "pill" },
+  surfactant_brand_other:{ required: (fd) => fd.surfactant_brand === "Other", type: "text",
+    validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
+  surfactant_dose: {
+    required: (fd) => fd.surfactant_required === "Yes", type: "number",
+    validate: v => {
+      const n = Number(v);
+      if (!v) return "Required";
+      if (n <= 0) return "Dose must be greater than 0";
+      if (n < 50) return { msg: "Below recommended range (50–200 mg/kg)", level: "warn" };
+      if (n > 200) return { msg: "Above recommended range (50–200 mg/kg)", level: "warn" };
+      return null;
+    },
+  },
+  cpap_cm: {
+    required: (fd) => fd.surfactant_required === "Yes", type: "number",
+    validate: v => {
+      const n = Number(v);
+      if (!v) return "Required";
+      if (n > 20) return "Maximum value is 20 cmH₂O";
+      if (n < 4)  return { msg: "Low MAP — typical range 4–12 cmH₂O", level: "warn" };
+      if (n > 12) return { msg: "High MAP — typical range 4–12 cmH₂O", level: "warn" };
+      return null;
+    },
+  },
+  fio2_percent: {
+    required: (fd) => fd.surfactant_required === "Yes", type: "number",
+    validate: v => {
+      if (!v && v !== 0) return "Required";
+      const n = Number(v);
+      if (n < 0 || n > 100) return "Value must be between 0 and 100";
+      return null;
+    },
+  },
+  adverse_effects:  { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
+  adverse_type:     { required: (fd) => fd.adverse_effects === "Yes", type: "pill" },
+  adverse_type_other:{ required: (fd) => fd.adverse_type === "Other", type: "text",
+    validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
 
-    // SURFACTANT
-    surfactant_required: "",
-    surfactant_brand_other: "",
-    surfactant_indication: "",
-    cpap_cm: "",
-    fio2_percent: "",
-    surfactant_method: "",
-    lisa_catheter: "",
-    device_assistance: "",
-    device_type: "",
-    surfactant_brand: "",
-    surfactant_dose: "",
-    adverse_effects: "",
-    adverse_type: "",
-    adverse_type_other: "",
-    mode_of_support: [],
+  // LISA — catheter type now has 3 options per CRF: Infant feeding tube / LISA catheter / Other
+  lisa_catheter_type: { required: (fd) => fd.surfactant_method === "LISA", type: "toggle" },
+  device_assistance:  { required: (fd) => fd.surfactant_method === "LISA", type: "toggle" },
+  device_type:        { required: (fd) => fd.device_assistance === "Yes", type: "toggle" },
+  device_type_other:  { required: (fd) => fd.device_type === "Other", type: "text",
+    validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
 
-    // EARLY RESPIRATORY SUPPORT
-    early_cpap: "",
-    humidified_gas: "",
-    max_fio2_1hr: "",
-    caffeine: "",
-    caffeine_dose: "",
-    intubation_after_resus: "",
-    immediate_kmc: "",
-    device_type_other: "",
-    caffeine_loading: "",
-caffeine_loading_abs: "",
-caffeine_maint_abs: "",
-caffeine_date: "",
-caffeine_time: "",
+  // Respiratory
+  early_cpap:            { required: true, type: "toggle" },
+  humidified_gas:        { required: true, type: "toggle" },
+  intubation_after_resus:{ required: true, type: "toggle" },
+  max_fio2_1hr: {
+    required: true, type: "number",
+    validate: v => {
+      if (!v && v !== 0) return "Required";
+      const n = Number(v);
+      if (n < 0 || n > 100) return "Value must be between 0 and 100";
+      return null;
+    },
+  },
 
-    // COMPLETION
-    completed_by: "",
-    designation: "",
-    
-    date: "",
-  });
+  // Caffeine
+  caffeine_loading: { required: true, type: "toggle" },
+  caffeine_loading_abs: {
+    required: (fd) => fd.caffeine_loading === "Yes", type: "number",
+    validate: v => {
+      if (!v) return "Required";
+      const n = Number(v);
+      if (n <= 0) return "Dose must be greater than 0";
+      if (n > 1000) return { msg: "Dose seems very high — please verify", level: "warn" };
+      return null;
+    },
+  },
+  caffeine_maint_abs: {
+    required: false, type: "number",
+    validate: v => {
+      if (!v) return null;
+      const n = Number(v);
+      if (n <= 0) return "Dose must be greater than 0";
+      if (n > 1000) return { msg: "Dose seems very high — please verify", level: "warn" };
+      return null;
+    },
+  },
+  caffeine_date: {
+    required: false, type: "date",
+    validate: v => {
+      if (!v) return null;
+      if (new Date(v) > new Date()) return "Future date not allowed";
+      return null;
+    },
+  },
+  date: {
+    required: false, type: "date",
+    validate: v => {
+      if (!v) return null;
+      if (new Date(v) > new Date()) return "Future date not allowed";
+      return null;
+    },
+  },
 
- 
+  // Completion
+  completed_by: { required: true, type: "select" },
+};
 
-  const handleChange = (e) => {
-  const { name, value } = e.target;
+/* Returns: null | { level: "error"|"warn"|"ok", msg: string } */
+function validateField(name, value, formData) {
+  const rule = RULES[name];
+  if (!rule) return null;
 
-  setFormData((prev) => {
-    let updated = { ...prev, [name]: value };
+  const isRequired = typeof rule.required === "function"
+    ? rule.required(formData) : rule.required;
 
-    // 🔥 EXISTING LOGIC (KEEP)
-    if (name === "et_intubation" && value === "No") {
-      updated.remained_intubated = "";
-    }
+  // Not applicable
+  if (!isRequired && (value === "" || value === null || value === undefined)) return null;
 
-    return updated;
-  });
-
-  // 🔥 VALIDATION PART (NEW)
-  setErrors((prev) => {
-    let errorMsg = "";
-
-    if (name === "caffeine_loading_abs" || name === "caffeine_maint_abs") {
-      if (value === "") {
-        errorMsg = "This field is required";
-      } else if (Number(value) <= 0) {
-        errorMsg = "Dose must be greater than 0";
-      } else if (Number(value) > 1000) {
-        errorMsg = "Dose seems too high";
-      }
-    }
-
-   if (name === "surfactant_dose") {
-  if (value === "") {
-    errorMsg = "This field is required";
-  } else if (Number(value) <= 0) {
-    errorMsg = "Dose must be greater than 0";
-  } else if (Number(value) < 50 || Number(value) > 200) {
-    errorMsg = "⚠ Outside recommended range (50–200 mg/kg)";
+  // Required check
+  if (isRequired && (value === "" || value === null || value === undefined)) {
+    if (rule.type === "toggle" || rule.type === "pill")
+      return { level: "error", msg: "Please select an option" };
+    return { level: "error", msg: "Required" };
   }
+
+  // Custom validate
+  if (rule.validate && value !== "" && value !== null) {
+    const result = rule.validate(value, formData);
+    if (!result) return { level: "ok", msg: "" };
+    if (typeof result === "string") return { level: "error", msg: result };
+    return { level: result.level, msg: result.msg };
+  }
+
+  return { level: "ok", msg: "" };
 }
 
-    return {
-      ...prev,
-      [name]: errorMsg,
-    };
-  });
-};
-  const yesNoToBool = (v) => {
-  if (v === "Yes") return true;
-  if (v === "No") return false;
-  return null;
-};
-
-const handleModeChange = (e) => {
-  const { value, checked } = e.target;
-
-  setFormData(prev => {
-    let updated = prev.mode_of_support || [];
-
-    if (checked) {
-      updated = [...updated, value];
-    } else {
-      updated = updated.filter(item => item !== value);
-    }
-
-    return {
-      ...prev,
-      mode_of_support: updated
-    };
-  });
-};
-
-const num = (v) => {
-  if (v === "" || v === undefined) return null;
-  return Number(v);
-};
-
-useEffect(() => {
-  const fetchData = async () => {
-    if (!enrollmentId) return;
-
-    try {
-      const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
-      const b = res?.data || {};
-
-      console.log("🔥 Form B Data:", b);
-
-      const motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
-
-      setFormData(prev => ({
-        ...prev,
-
-        enrollment_id: b?.enrollment_id || enrollmentId,
-
-        gestation_weeks: b?.gestation_weeks || "",
-        gestation_days: b?.gestation_days || "",
-        birth_weight: b?.birth_weight || "",
-        baby_uid: b?.baby_uid || "",
-
-        baby_name: motherName ? `Baby of ${motherName}` : ""
-      }));
-
-    } catch (err) {
-      console.log("❌ No Form B data found", err);
-    }
-  };
-
-  fetchData();
-}, [enrollmentId]);
-
-
-useEffect(() => {
-  if (formData.enrollment_id) return;
-
-  const id =
-    location.state?.enrollmentId ||
-    localStorage.getItem("current_enrollment_id");
-
-  if (!id) return;
-
-  api.get(`/birth-resuscitation/${id}`)
-    .then(res => {
-      const b = res.data || {};
-
-      setFormData(prev => ({
-        ...prev,
-        enrollment_id: id,
-        dob: b?.date_of_birth || "",
-        gestation:
-          b?.gestation_weeks && b?.gestation_days
-            ? `${b.gestation_weeks} weeks ${b.gestation_days} days`
-            : ""
-      }));
-    });
-}, []);
- 
-
-  const handleSubmit = async (e) => {
-  e.preventDefault();
-
-  const payload = {
-    enrollment_id: formData.enrollment_id,
-
-    gestation_weeks: num(formData.gestation_weeks),
-    gestation_days: num(formData.gestation_days),
-
-    annual_number: formData.annual_number,
-    baby_name: formData.baby_name,
-    baby_uid: formData.baby_uid,
-    birth_weight: num(formData.birth_weight),
-
-    plastic_wrap: yesNoToBool(formData.plastic_wrap),
-    remained_intubated: yesNoToBool(formData.remained_intubated),
-    et_intubation: yesNoToBool(formData.et_intubation),
-    labored_breathing: yesNoToBool(formData.labored_breathing),
-
-    surfactant_required: yesNoToBool(formData.surfactant_required),
-    surfactant_indication: formData.surfactant_indication,
-    cpap_cm: num(formData.cpap_cm),
-    fio2_percent: num(formData.fio2_percent),
-    surfactant_method: formData.surfactant_method,
-
-    surfactant_brand: formData.surfactant_brand,
-    surfactant_dose: num(formData.surfactant_dose),
-    adverse_effects: yesNoToBool(formData.adverse_effects),
-    adverse_type: formData.adverse_type,
-
-    early_cpap: yesNoToBool(formData.early_cpap),
-    humidified_gas: yesNoToBool(formData.humidified_gas),
-    max_fio2_1hr: num(formData.max_fio2_1hr),
-    surfactant_brand_other: formData.surfactant_brand_other,
-lisa_catheter_type: formData.lisa_catheter_type,
-device_assistance: yesNoToBool(formData.device_assistance),
-device_type:
-  formData.device_type === "Other"
-    ? formData.device_type_other
-    : formData.device_type,
-adverse_type_other: formData.adverse_type_other,
-mode_of_support: formData.mode_of_support.join(", "),
-
-    caffeine: yesNoToBool(formData.caffeine),
-    caffeine_dose: num(formData.caffeine_dose),
-    caffeine_loading: yesNoToBool(formData.caffeine_loading),
-caffeine_loading_abs: num(formData.caffeine_loading_abs),
-caffeine_maint_abs: num(formData.caffeine_maint_abs),
-caffeine_date: formData.caffeine_date || null,
-caffeine_time: formData.caffeine_time || null,
-
-    intubation_after_resus: yesNoToBool(formData.intubation_after_resus),
-    immediate_kmc: yesNoToBool(formData.immediate_kmc),
-
-    completed_by: formData.completed_by,
-    designation: formData.designation,
-    
-    completion_date: formData.date || null,
-  };
-
-  try {
-    await api.post("/postnatal-day1/", payload);
-    updatePatientData({
-  completed_by: formData.completed_by,
-  designation: formData.designation
-});
-    markFormCompleted("form_d");
-    alert("✅ Form D submitted successfully!");
-   
-    navigate(`/form-e/${formData.enrollment_id}`);
-  } catch (err) {
-    console.error(err.response?.data || err);
-    alert("❌ Error submitting Form D");
+function validateForm(formData) {
+  const errs = {};
+  for (const name of Object.keys(RULES)) {
+    const result = validateField(name, formData[name], formData);
+    if (result && result.level === "error") errs[name] = result.msg;
   }
-};
+  return errs;
+}
 
-const gestationalAgeDisplay =
-  formData.gestation_weeks && formData.gestation_days
-    ? `${formData.gestation_weeks} weeks and ${formData.gestation_days} days`
-    : "";
+/* ── Status-aware field wrapper ── */
+function FieldWrap({ name, formData, touched, children, label, required }) {
+  const result = touched[name] ? validateField(name, formData[name], formData) : null;
+  const level  = result?.level;
+  let wrapClass = "fv-wrap";
+  if (level === "ok")    wrapClass += " fv-ok";
+  if (level === "warn")  wrapClass += " fv-warn";
+  if (level === "error") wrapClass += " fv-error";
 
-const nurses = [
-  "Geetika",
-        "Navkiran Kaur",
-        "Priyanka Thakur",
-        "Seemran Kaur",
-        "Tanvi Saini",
-        "Yashvi Jolly",
-        "Mannat Guliani",
-        "Shalini Dhiman"
-];
-
-const getDesignation = (name) => {
-  if (name === "Mannat Guliani") {
-    return "Project Research Scientist III (Medical)";
-  }
-  if (name === "Shalini Dhiman") {
-    return "Project Research Scientist III (Non-Medical)";
-  }
-  return name ? "Project Nurse III" : "";
-};
-
-const handleCompletedByChange = (e) => {
-  const name = e.target.value;
-
-  setFormData((prev) => ({
-    ...prev,
-    completed_by: name,
-    designation: getDesignation(name)
-  }));
-};
   return (
-    
-    <form className="screening-form form-d-container" onSubmit={handleSubmit}>
-       <div className="form-a-header">
-  <div className="form-a-header-main"><h2>
-        Form D — Day 1 of Postnatal Life
-      </h2></div></div>
-
-
-
-      {/* ================= IDENTIFICATION ================= */}
-<div className="form-section soft-blue">
-  <h3>Identification</h3>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Enrollment ID</label>
-      <input
-  name="enrollment_id"
-  value={formData.enrollment_id}
-  readOnly
-/>
-
+    <div className={`form-group ${wrapClass}`}>
+      {label && (
+        <label>
+          {label}
+          {required && <span className="required"> *</span>}
+          {level === "ok"    && <CheckCircle   size={12} className="fv-icon fv-icon-ok"   />}
+          {level === "warn"  && <AlertTriangle size={12} className="fv-icon fv-icon-warn" />}
+          {level === "error" && <XCircle       size={12} className="fv-icon fv-icon-err"  />}
+        </label>
+      )}
+      {children}
+      {result?.msg && (
+        <div className={`fv-msg fv-msg-${level}`}>{result.msg}</div>
+      )}
     </div>
+  );
+}
 
-    <div className="form-group">
-  <label>Gestational Age</label>
-  <input
-    value={gestationalAgeDisplay}
-    readOnly
-  />
-</div>
-  </div>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Annual Number (REDCap)</label>
-      <input
-        name="annual_number"
-        value={formData.annual_number || ""}
-        onChange={handleChange}
-        placeholder="Optional"
-      />
-    </div>
-
-    <div className="form-group">
-      <label>Baby of (Mother's Name)<span className="required">*</span></label>
-      <input
-  type="text"
-  name="baby_name"
-  value={formData.baby_name || ""}readOnly
-  
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // Allow only alphabets and spaces
-    if (/^[A-Za-z\s]*$/.test(value)) {
-      setFormData({
-        ...formData,
-        baby_name: value,
-      });
-    }
-  }}
-  
-  required
-/>
-    </div>
-  </div>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Baby's UID</label>
-      <input
-  type="text"
-  name="baby_uid"
-  value={formData.baby_uid || ""}
-  inputMode="numeric"
-  maxLength={12}
-  placeholder="Enter Baby UID (max 12 digits)"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // Allow only digits up to 12
-    if (/^\d{0,12}$/.test(value)) {
-      setFormData({
-        ...formData,
-        baby_uid: value,
-      });
-    }
-  }}
-  readOnly
-  
-/>
-    </div>
-
-    <div className="form-group">
-      <label>Birth Weight (grams)<span className="required">*</span></label>
-      <input
-  type="number"
-  name="birth_weight"
-  value={formData.birth_weight || ""} readOnly
-  min="300"
-  max="6000"
-  placeholder="300 - 6000 grams"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // Allow only numbers
-    if (/^\d*$/.test(value)) {
-      setFormData({
-        ...formData,
-        birth_weight: value,
-      });
-    }
-  }}
-  required
-/>
-    </div>
-  </div>
-</div>
-
-
-{/* ================= GOLDEN HOUR ================= */}
-<div className="form-section soft-blue">
-  <h3>Golden Hour (First Hour of Life)</h3>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Plastic wrap / bag at birth<span className="required">*</span></label>
-      <select
-        name="plastic_wrap"
-        value={formData.plastic_wrap || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-    
-
-    <div className="form-group">
-      <label>ET intubation for resuscitation<span className="required">*</span></label>
-      <select
-        name="et_intubation"
-        value={formData.et_intubation || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-    
-  </div>
-
-  <div className="form-row">
-    {formData.et_intubation === "Yes" && (
-    <div className="form-group">
-      <label>Remained intubated after resuscitation<span className="required">*</span></label>
-      <select
-        name="remained_intubated"
-        value={formData.remained_intubated || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-    )}
-
-    <div className="form-group">
-      <label>Labored breathing after resuscitation<span className="required">*</span></label>
-      <select
-        name="labored_breathing"
-        value={formData.labored_breathing || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-  </div>
-</div>
-
-{/* ================= SURFACTANT ADMINISTRATION ================= */}
-<div className="form-section soft-blue">
-  <h3>Surfactant Administration</h3>
-
-  <div className="pn-adverse-card">
-
-  <div className="form-group">
-    <label>Surfactant Administered<span className="required">*</span></label>
-    <select
-      name="surfactant_required"
-      value={formData.surfactant_required || ""}
-      onChange={handleChange}
-      required
-    >
-      <option value="">-- Select --</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  {/* IF SURFACTANT REQUIRED = YES */}
-  {formData.surfactant_required === "Yes" && (
+/* ── Toggle (same as before, with validation awareness) ── */
+function Toggle({ name, value, options, onChange, disabled, formData, touched }) {
+  const result = touched?.[name] ? validateField(name, value, formData) : null;
+  const isWide = options.length > 3;
+  return (
     <>
-      <div className="form-group">
-        <label>Indication<span className="required">*</span></label>
-        <select
-          name="surfactant_indication"
-          value={formData.surfactant_indication || ""}
-          onChange={handleChange}
-          required
-        >
-          <option value="">-- Select --</option>
-          <option>FiO2 & pressure based</option>
-          <option>LUS based</option>
-          <option>Both</option>
-        </select>
+      <div className={`emr-toggle-group${isWide ? " wide-toggle" : ""}${disabled ? " disabled" : ""}${result?.level === "error" ? " toggle-error" : ""}${result?.level === "ok" ? " toggle-ok" : ""}`}>
+        {options.map(opt => {
+          const v = typeof opt === "object" ? opt.value : opt;
+          const l = typeof opt === "object" ? opt.label  : opt;
+          const active = value === v;
+          const sv = String(v).toLowerCase();
+          let cls = "emr-toggle-btn";
+          if (active) {
+            cls += " selected";
+            if (sv === "yes" || v === true)  cls += " yes-active";
+            else if (sv === "no" || v === false) cls += " no-active";
+            else cls += " other-active";
+          }
+          return (
+            <button key={String(v)} type="button" disabled={disabled} className={cls}
+              onClick={() => !disabled && onChange(name, v)}>
+              {l}
+            </button>
+          );
+        })}
       </div>
-
-      <div className="form-group">
-  <label className="form-label">Mode</label>
-
-  <div className="mode-container">
-    {["CPAP", "IMV", "NIMV"].map((mode) => (
-      <label key={mode} className="mode-option">
-        <input
-          type="checkbox"
-          value={mode}
-          checked={formData.mode_of_support?.includes(mode)}
-          onChange={handleModeChange}
-        />
-        <span>{mode}</span>
-      </label>
-    ))}
-  </div>
-</div>
-
-      <div className="form-row">
-        <div className="form-group">
-          <label>MAP (cmH₂O)<span className="required">*</span></label>
-          <input
-  type="number"
-  name="cpap_cm"
-  value={formData.cpap_cm || ""}
-  min="0"
-  max="20"
-  step="1"
-  placeholder="0 - 20"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // ✅ Allow empty
-    if (value === "") {
-      setFormData({ ...formData, cpap_cm: "" });
-      return;
-    }
-
-    // ✅ Allow only digits
-    if (!/^\d+$/.test(value)) return;
-
-    const numValue = Number(value);
-
-    // 🚫 Block out of range
-    if (numValue < 0 || numValue > 20) return;
-
-    setFormData({
-      ...formData,
-      cpap_cm: value, // keep string while typing
-    });
-  }}
-  onBlur={(e) => {
-    let value = Number(e.target.value);
-
-    // ✅ Clamp final value
-    if (value > 20) value = 20;
-    if (value < 0) value = 0;
-
-    setFormData({
-      ...formData,
-      cpap_cm: value,
-    });
-  }}
-  required
-/>
-        </div>
-
-        <div className="form-group">
-          <label>FiO₂ at administration (%)<span className="required">*</span></label>
-          <input
-  type="number"
-  name="fio2_percent"
-  value={formData.fio2_percent || ""}
-  min="0"
-  max="100"
-  step="1"
-  placeholder="0 - 100"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // ✅ Allow empty (user deleting)
-    if (value === "") {
-      setFormData({ ...formData, fio2_percent: "" });
-      return;
-    }
-
-    // ✅ Allow typing numbers freely first
-    if (!/^\d+$/.test(value)) return;
-
-    const numValue = Number(value);
-
-    // ✅ Only block if OUTSIDE range
-    if (numValue < 0 || numValue > 100) return;
-
-    setFormData({
-      ...formData,
-      fio2_percent: value, // keep as string while typing
-    });
-  }}
-  onBlur={(e) => {
-    // ✅ Final cleanup after typing
-    let value = Number(e.target.value);
-
-    if (value > 100) value = 100;
-    if (value < 0) value = 0;
-
-    setFormData({
-      ...formData,
-      fio2_percent: value,
-    });
-  }}
-  required
-/>
-        </div>
-      </div>
-
-      <div className="form-group">
-        <label>Method<span className="required">*</span></label>
-        <select
-          name="surfactant_method"
-          value={formData.surfactant_method || ""}
-          onChange={handleChange}
-          required
-        >
-          <option value="">-- Select --</option>
-          <option>InSurE</option>
-          <option>LISA</option>
-          <option>Remained intubated</option>
-        </select>
-      </div>
-
-      {/* LISA DETAILS */}
-      {formData.surfactant_method === "LISA" && (
-        <>
-          <div className="form-group">
-            <label>Catheter type<span className="required">*</span></label>
-            <select
-              name="lisa_catheter_type"
-              value={formData.lisa_catheter_type || ""}
-              onChange={handleChange}
-              required
-            >
-              <option value="">-- Select --</option>
-              <option>Feeding tube</option>
-              <option>LISA catheter</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Device assistance<span className="required">*</span></label>
-            <select
-              name="device_assistance"
-              value={formData.device_assistance || ""}
-              onChange={handleChange}
-              required
-            >
-              <option value="">-- Select --</option>
-              <option>Yes</option>
-              <option>No</option>
-            </select>
-          </div>
-
-          {formData.device_assistance === "Yes" && (
-            <div className="form-group">
-              <label>Device type<span className="required">*</span></label>
-              <select
-                name="device_type"
-                value={formData.device_type || ""}
-                onChange={handleChange}
-                required
-              >
-                <option value="">-- Select --</option>
-                <option>FOL</option>
-                <option>VL</option>
-                <option>Magill</option>
-                <option>Other</option>
-              </select>
-              {formData.device_type === "Other" && (
-  <div className="form-group" style={{ marginTop: "10px" }}>
-    <label>Specify Device Type<span className="required">*</span></label>
-    <input
-      type="text"
-      name="device_type_other"
-      value={formData.device_type_other || ""}
-      onChange={(e) => {
-        const value = e.target.value;
-
-        // ✅ ONLY TEXT VALIDATION
-        if (/^[A-Za-z\s]*$/.test(value)) {
-          setFormData(prev => ({
-            ...prev,
-            device_type_other: value
-          }));
-        }
-      }}
-      placeholder="Enter device type"
-      required
-    />
-  </div>
-)}
-            </div>
-          )}
-        </>
-      )}
-
-      
-        <div className="form-group">
-          <label>Brand<span className="required">*</span></label>
-          <select
-            name="surfactant_brand"
-            value={formData.surfactant_brand || ""}
-            onChange={handleChange}
-            required
-          >
-            <option value="">-- Select --</option>
-            <option>Survanta</option>
-            <option>Curosurf</option>
-            <option>Neosurf</option>
-            <option>Other</option>
-          </select>
-          <div style={{ marginTop: "20px" }}>
-          {formData.surfactant_brand === "Other" && (
-  <div className="form-group">
-    <label>Specify Brand<span className="required">*</span></label>
-    <input
-      type="text"
-      name="surfactant_brand_other"
-      value={formData.surfactant_brand_other || ""}
-      onChange={(e) => {
-        const value = e.target.value;
-
-        // ✅ allow only alphabets + spaces
-        if (/^[A-Za-z\s]*$/.test(value)) {
-          setFormData({
-            ...formData,
-            surfactant_brand_other: value
-          });
-        }
-      }}
-      placeholder="Enter brand name"
-      required
-    />
-  </div>
-)}</div>
-        </div>
-
-        <div className="form-group">
-          <label>Dose (mg/kg)<span className="required">*</span></label>
-          <input
-  type="number"
-  name="surfactant_dose"
-  value={formData.surfactant_dose || ""}
-  onChange={handleChange}
-  className={errors.surfactant_dose ? "error-input" : ""}
-/>
-
-{errors.surfactant_dose && (
-  <div className="error-text">{errors.surfactant_dose}</div>
-)}
-        </div>
-      
-
-      <div className="form-group">
-        <label>Adverse effects<span className="required">*</span></label>
-        <select
-          name="adverse_effects"
-          value={formData.adverse_effects || ""}
-          onChange={handleChange}
-          required
-        >
-          <option value="">-- Select --</option>
-          <option>Yes</option>
-          <option>No</option>
-        </select>
-      </div>
-
-      {formData.adverse_effects === "Yes" && (
-        <div className="form-group">
-          <label>Type<span className="required">*</span></label>
-          <select
-            name="adverse_type"
-            value={formData.adverse_type || ""}
-            onChange={handleChange}
-            required
-          >
-            <option value="">-- Select --</option>
-            <option>Bradycardia</option>
-            <option>Desaturation</option>
-            <option>Regurgitation</option>
-            <option>Other</option>
-          </select>
-           <div style={{ marginTop: "20px" }}>
-          {formData.adverse_type === "Other" && (
-  <div className="form-group">
-    <label>Specify Adverse Effect<span className="required">*</span></label>
-    <input
-      type="text"
-      name="adverse_type_other"
-      value={formData.adverse_type_other || ""}
-      onChange={(e) => {
-        const value = e.target.value;
-
-        // ✅ allow only alphabets + spaces
-        if (/^[A-Za-z\s]*$/.test(value)) {
-          setFormData({
-            ...formData,
-            adverse_type_other: value
-          });
-        }
-      }}
-      placeholder="Enter adverse effect"
-      required
-    />
-  </div>
-)}</div>
-        </div>
-      )}
+      {result?.level === "error" && <div className="fv-msg fv-msg-error">{result.msg}</div>}
     </>
-  )}
-</div></div>
-{/* ================= EARLY RESPIRATORY SUPPORT ================= */}
-<div className="form-section soft-blue">
-  <h3>Early Respiratory Support</h3>
+  );
+}
 
-  {/* Row 1 */}
-  <div className="form-row">
-    <div className="form-group">
-      <label>Early / DR-CPAP<span className="required">*</span></label>
-      <select
-        name="early_cpap"
-        value={formData.early_cpap || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
+const UnitInput = ({ name, value, onChange, onBlur, readOnly, unit, error, warn, className="" }) => {
+  /* Spinner buttons are ~28px wide on most browsers.
+     Add enough right padding so the unit label never overlaps them. */
+  const unitWidth = unit === "cmH₂O" ? 72 : unit === "mg/kg" ? 64 : unit === "mg" ? 42 : 40;
+  return (
+    <div style={{ position: "relative" }}>
+      <input type="number" name={name} value={value || ""} readOnly={readOnly}
+        onChange={onChange} onBlur={onBlur}
+        className={`emr-input${error ? " fv-input-error" : warn ? " fv-input-warn" : value ? " fv-input-ok" : ""} ${className}`}
+        style={{ paddingRight: unitWidth }} />
+      <span style={{
+        position: "absolute", right: 32, top: "50%", transform: "translateY(-50%)",
+        fontSize: 11, color: "#94a3b8", fontWeight: 600, pointerEvents: "none",
+        userSelect: "none",
+      }}>{unit}</span>
     </div>
+  );
+};
 
-    <div className="form-group">
-      <label>Humidified gas with CPAP<span className="required">*</span></label>
-      <select
-        name="humidified_gas"
-        value={formData.humidified_gas || ""}
-        onChange={handleChange}
-        required
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-  </div>
+export default function FormD() {
+  const { enrollmentId } = useParams();
+  const location  = useLocation();
+  const navigate  = useNavigate();
+  const { markFormCompleted } = useFormProgress();
+  const { updatePatientData } = usePatient();
 
-  {/* Row 2 */}
-  <div className="form-row">
-    <div className="form-group">
-      <label>Maximum FiO₂ in first hour (%)<span className="required">*</span></label>
-      <input
-  type="number"
-  name="max_fio2_1hr"
-  value={formData.max_fio2_1hr || ""}
-  min="0"
-  max="100"
-  placeholder="0 - 100"
-  onChange={(e) => {
-    const value = e.target.value;
+  const [isSaved,   setIsSaved]   = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [message,   setMessage]   = useState("");
+  const [touched,   setTouched]   = useState({});
+  const [submitErrors, setSubmitErrors] = useState([]);
+  const firstErrRef = useRef(null);
 
-    // ✅ Allow empty (user deleting)
-    if (value === "") {
-      setFormData({ ...formData, max_fio2_1hr: "" });
+  const isFieldEditable = !isSaved || isEditing;
+
+  const [formData, setFormData] = useState({
+    enrollment_id: "", gestation_weeks: "", gestation_days: "",
+    annual_number: "", baby_name: "", baby_uid: "", birth_weight: "",
+    plastic_wrap: "", remained_intubated: "", et_intubation: "", labored_breathing: "",
+    surfactant_required: "", surfactant_brand_other: "", surfactant_indication: "",
+    cpap_cm: "", fio2_percent: "", surfactant_method: "",
+    lisa_catheter: "", device_assistance: "", device_type: "",
+    surfactant_brand: "", surfactant_dose: "", adverse_effects: "",
+    adverse_type: "", adverse_type_other: "", mode_of_support: [],
+    early_cpap: "", humidified_gas: "", max_fio2_1hr: "",
+    caffeine: "", caffeine_dose: "", intubation_after_resus: "",
+    immediate_kmc: "", device_type_other: "",
+    caffeine_loading: "", caffeine_loading_abs: "", caffeine_maint_abs: "",
+    caffeine_date: "", caffeine_time: "",
+    completed_by: "", designation: "", date: "",
+  });
+
+  const touch = (name) => setTouched(p => ({ ...p, [name]: true }));
+
+  /* ── handleChange: mark touched, update state ── */
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    touch(name);
+    setFormData(prev => {
+      let updated = { ...prev, [name]: value };
+      if (name === "et_intubation" && value === "No") updated.remained_intubated = "";
+      return updated;
+    });
+  };
+
+  const handleToggle = (name, value) => {
+    touch(name);
+    setFormData(prev => {
+      let updated = { ...prev, [name]: value };
+      if (name === "et_intubation" && value === "No") updated.remained_intubated = "";
+      return updated;
+    });
+  };
+
+  const yesNoToBool = (v) => {
+    if (v === "Yes") return true;
+    if (v === "No")  return false;
+    return null;
+  };
+
+  const handleModeChange = (mode) => {
+    setFormData(prev => ({
+      ...prev,
+      mode_of_support: prev.mode_of_support?.includes(mode)
+        ? prev.mode_of_support.filter(i => i !== mode)
+        : [...(prev.mode_of_support || []), mode],
+    }));
+  };
+
+  const num = (v) => (v === "" || v === undefined) ? null : Number(v);
+
+  /* ── Phase 1: load Form B identification + PII name
+     Phase 2: load saved postnatal-day1 record and restore ALL fields ── */
+  useEffect(() => {
+    if (!enrollmentId) return;
+    const loadData = async () => {
+      try {
+        // ── Form B: identification fields (readonly) ──
+        const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
+        const b = res?.data || {};
+        let motherName = "";
+        const screeningId = localStorage.getItem("current_screening_id");
+        if (screeningId) {
+          try {
+            const piiRes = await api.get(`/pii/screening/${screeningId}`);
+            const pii = piiRes.data || {};
+            const first = pii.mother_first_name || pii.mother_name_first || "";
+            const last  = pii.mother_surname    || pii.mother_name_surname || "";
+            motherName  = `${first} ${last}`.trim();
+          } catch (_) {}
+        }
+        if (!motherName)
+          motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
+
+        // Set identification fields from Form B first
+        setFormData(prev => ({
+          ...prev,
+          enrollment_id:   b?.enrollment_id || enrollmentId,
+          gestation_weeks: b?.gestation_weeks || "",
+          gestation_days:  b?.gestation_days  || "",
+          birth_weight:    b?.birth_weight    || "",
+          baby_uid:        b?.baby_uid        || "",
+          baby_name:       motherName ? `Baby of ${motherName}` : "",
+        }));
+      } catch (err) { console.log("❌ No Form B data found", err); }
+
+      // ── Form D: load saved postnatal-day1 record ──
+      try {
+        const dRes = await api.get(`/postnatal-day1/${enrollmentId}`);
+        const d = dRes?.data || {};
+
+        /* Helper: DB stores booleans as true/false, UI toggles expect "Yes"/"No" */
+        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
+
+        /* mode_of_support is saved as "CPAP, IMV" string — restore as array */
+        const modeArray = d.mode_of_support
+          ? d.mode_of_support.split(",").map(s => s.trim()).filter(Boolean)
+          : [];
+
+        setFormData(prev => ({
+          ...prev,
+          // ── Identification (from Form B already set, but override if present) ──
+          annual_number:   d.annual_number   || prev.annual_number,
+          baby_name:       d.baby_name       || prev.baby_name,
+
+          // ── Golden Hour ── (bool → "Yes"/"No")
+          plastic_wrap:       fromBool(d.plastic_wrap),
+          et_intubation:      fromBool(d.et_intubation),
+          remained_intubated: fromBool(d.remained_intubated),
+          labored_breathing:  fromBool(d.labored_breathing),
+
+          // ── Surfactant ──
+          surfactant_required:   fromBool(d.surfactant_required),
+          surfactant_indication: d.surfactant_indication || "",
+          cpap_cm:               d.cpap_cm       != null ? String(d.cpap_cm)       : "",
+          fio2_percent:          d.fio2_percent  != null ? String(d.fio2_percent)  : "",
+          surfactant_method:     d.surfactant_method    || "",
+          surfactant_brand:      d.surfactant_brand     || "",
+          surfactant_brand_other:d.surfactant_brand_other || "",
+          surfactant_dose:       d.surfactant_dose != null ? String(d.surfactant_dose) : "",
+          mode_of_support:       modeArray,
+
+          // ── LISA ──
+          lisa_catheter_type: d.lisa_catheter_type || "",
+          device_assistance:  fromBool(d.device_assistance),
+          // device_type was saved as the final resolved value; restore it
+          device_type:        d.device_type || "",
+          device_type_other:  d.device_type_other || "",
+
+          // ── Adverse Effects ──
+          adverse_effects:    fromBool(d.adverse_effects),
+          adverse_type:       d.adverse_type       || "",
+          adverse_type_other: d.adverse_type_other || "",
+
+          // ── Early Respiratory Support ──
+          early_cpap:             fromBool(d.early_cpap),
+          humidified_gas:         fromBool(d.humidified_gas),
+          max_fio2_1hr:           d.max_fio2_1hr != null ? String(d.max_fio2_1hr) : "",
+          intubation_after_resus: fromBool(d.intubation_after_resus),
+          immediate_kmc:          fromBool(d.immediate_kmc),
+
+          // ── Caffeine ──
+          caffeine:            fromBool(d.caffeine),
+          caffeine_dose:       d.caffeine_dose != null ? String(d.caffeine_dose) : "",
+          caffeine_loading:    fromBool(d.caffeine_loading),
+          caffeine_loading_abs:d.caffeine_loading_abs != null ? String(d.caffeine_loading_abs) : "",
+          caffeine_maint_abs:  d.caffeine_maint_abs  != null ? String(d.caffeine_maint_abs)  : "",
+          caffeine_date:       d.caffeine_date || "",
+          caffeine_time:       d.caffeine_time || "",
+
+          // ── Completion ──
+          completed_by: d.completed_by || "",
+          designation:  d.designation  || "",
+          date:         d.completion_date || "",
+        }));
+
+        setIsSaved(true);
+      } catch (err) {
+        // 404 = no saved record yet — that's fine, form starts blank
+        if (err?.response?.status !== 404)
+          console.log("❌ Error loading Form D data", err);
+      }
+    };
+    loadData();
+  }, [enrollmentId]);
+
+  useEffect(() => {
+    if (formData.enrollment_id) return;
+    const id = location.state?.enrollmentId || localStorage.getItem("current_enrollment_id");
+    if (!id) return;
+    api.get(`/birth-resuscitation/${id}`).then(res => {
+      const b = res.data || {};
+      setFormData(prev => ({
+        ...prev, enrollment_id: id,
+        dob: b?.date_of_birth || "",
+        gestation: b?.gestation_weeks && b?.gestation_days
+          ? `${b.gestation_weeks} weeks ${b.gestation_days} days` : "",
+      }));
+    });
+  }, []);
+
+  /* ── Save logic: unchanged payload ── */
+  const handleSubmit = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+
+    // Touch all fields to show all errors
+    const allTouched = Object.fromEntries(Object.keys(RULES).map(k => [k, true]));
+    setTouched(allTouched);
+
+    // Validate
+    const errs = validateForm(formData);
+    const errList = Object.entries(errs).map(([k, msg]) => ({ field: k, msg }));
+    if (errList.length > 0) {
+      setSubmitErrors(errList);
+      setTimeout(() => {
+        if (firstErrRef.current)
+          firstErrRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        else window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 100);
       return;
     }
+    setSubmitErrors([]);
 
-    // ✅ Allow only digits
-    if (!/^\d+$/.test(value)) return;
+    const payload = {
+      enrollment_id:      formData.enrollment_id,
+      gestation_weeks:    num(formData.gestation_weeks),
+      gestation_days:     num(formData.gestation_days),
+      annual_number:      formData.annual_number,
+      baby_name:          formData.baby_name,
+      baby_uid:           formData.baby_uid,
+      birth_weight:       num(formData.birth_weight),
+      plastic_wrap:       yesNoToBool(formData.plastic_wrap),
+      remained_intubated: yesNoToBool(formData.remained_intubated),
+      et_intubation:      yesNoToBool(formData.et_intubation),
+      labored_breathing:  yesNoToBool(formData.labored_breathing),
+      surfactant_required:   yesNoToBool(formData.surfactant_required),
+      surfactant_indication: formData.surfactant_indication,
+      cpap_cm:     num(formData.cpap_cm),
+      fio2_percent: num(formData.fio2_percent),
+      surfactant_method: formData.surfactant_method,
+      surfactant_brand:  formData.surfactant_brand,
+      surfactant_dose:   num(formData.surfactant_dose),
+      adverse_effects:   yesNoToBool(formData.adverse_effects),
+      adverse_type:      formData.adverse_type,
+      early_cpap:        yesNoToBool(formData.early_cpap),
+      humidified_gas:    yesNoToBool(formData.humidified_gas),
+      max_fio2_1hr:      num(formData.max_fio2_1hr),
+      surfactant_brand_other: formData.surfactant_brand_other,
+      lisa_catheter_type: formData.lisa_catheter_type,
+      device_assistance:  yesNoToBool(formData.device_assistance),
+      device_type: formData.device_type === "Other" ? formData.device_type_other : formData.device_type,
+      adverse_type_other:  formData.adverse_type_other,
+      mode_of_support:     formData.mode_of_support.join(", "),
+      caffeine:            yesNoToBool(formData.caffeine),
+      caffeine_dose:       num(formData.caffeine_dose),
+      caffeine_loading:    yesNoToBool(formData.caffeine_loading),
+      caffeine_loading_abs: num(formData.caffeine_loading_abs),
+      caffeine_maint_abs:   num(formData.caffeine_maint_abs),
+      caffeine_date:        formData.caffeine_date || null,
+      caffeine_time:        formData.caffeine_time || null,
+      intubation_after_resus: yesNoToBool(formData.intubation_after_resus),
+      immediate_kmc:          yesNoToBool(formData.immediate_kmc),
+      completed_by:  formData.completed_by,
+      designation:   formData.designation,
+      completion_date: formData.date || null,
+    };
+    try {
+      if (isSaved) {
+        await api.put(`/postnatal-day1/${formData.enrollment_id}`, payload);
+      } else {
+        await api.post("/postnatal-day1/", payload);
+      }
+      updatePatientData({ completed_by: formData.completed_by, designation: formData.designation });
+      markFormCompleted("form_d");
+      setMessage("✅ Form D saved successfully");
+      setIsSaved(true); setIsEditing(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => setMessage(""), 3000);
+    } catch (err) {
+      console.error(err.response?.data || err);
+      setMessage("❌ Error submitting Form D");
+    }
+  };
 
-    const numValue = Number(value);
+  const handleNext = async () => {
+    await handleSubmit({ preventDefault: () => {} });
+    navigate(`/form-e/${formData.enrollment_id}`);
+  };
 
-    // 🚫 Block out-of-range values
-    if (numValue < 0 || numValue > 100) return;
+  const gestationalAgeDisplay =
+    formData.gestation_weeks && formData.gestation_days
+      ? `${formData.gestation_weeks}w ${formData.gestation_days}d` : "—";
 
-    setFormData({
-      ...formData,
-      max_fio2_1hr: value,
-    });
-  }}
-  onBlur={(e) => {
-    let value = Number(e.target.value);
+  const nurses = [
+    "Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
+    "Tanvi Saini", "Yashvi Jolly", "Mannat Guliani", "Shalini Dhiman",
+  ];
+  const getDesignation = (name) => {
+    if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
+    if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
+    return name ? "Project Nurse III" : "";
+  };
+  const handleCompletedByChange = (e) => {
+    const name = e.target.value;
+    touch("completed_by");
+    setFormData(prev => ({ ...prev, completed_by: name, designation: getDesignation(name) }));
+  };
 
-    // ✅ Clamp final value
-    if (value > 100) value = 100;
-    if (value < 0) value = 0;
+  // Shorthand for getting validation result for a field
+  const vr = (name) => touched[name] ? validateField(name, formData[name], formData) : null;
+  const isRequired = (name) => {
+    const rule = RULES[name];
+    if (!rule) return false;
+    return typeof rule.required === "function" ? rule.required(formData) : rule.required;
+  };
 
-    setFormData({
-      ...formData,
-      max_fio2_1hr: value,
-    });
-  }}
-  required
-/>
-    </div>
+  // Compute overall form validity for save button state
+  const formErrors = validateForm(formData);
+  const hasErrors  = Object.keys(formErrors).length > 0;
 
-    <div className="form-group">
-      <label>Required intubation after resuscitation<span className="required">*</span></label>
-      <select
-        name="intubation_after_resus"
-        value={formData.intubation_after_resus || ""}
-        onChange={handleChange}
-        required
+  /* Field label names for error summary */
+  const FIELD_LABELS = {
+    plastic_wrap: "Plastic Wrap", et_intubation: "ET Intubation",
+    labored_breathing: "Labored Breathing", remained_intubated: "Remained Intubated",
+    surfactant_required: "Surfactant Administered", surfactant_indication: "Surfactant Indication",
+    surfactant_method: "Surfactant Method", surfactant_brand: "Surfactant Brand",
+    surfactant_brand_other: "Brand Name", surfactant_dose: "Surfactant Dose",
+    cpap_cm: "MAP", fio2_percent: "FiO₂ at Administration",
+    adverse_effects: "Adverse Effects", adverse_type: "Adverse Effect Type",
+    adverse_type_other: "Adverse Effect — Specify",
+    lisa_catheter_type: "LISA Catheter Type", device_assistance: "Device Assistance",
+    device_type: "Device Type", device_type_other: "Device Type — Specify",
+    early_cpap: "Early / DR-CPAP", humidified_gas: "Humidified Gas",
+    intubation_after_resus: "Intubation After Resuscitation",
+    max_fio2_1hr: "Maximum FiO₂ in First Hour",
+    caffeine_loading: "Loading Dose of Caffeine",
+    caffeine_loading_abs: "Caffeine Loading Dose",
+    completed_by: "Completed By",
+  };
+
+  /* ════════════════ RENDER ════════════════ */
+  return (
+    <>
+      {isSaved && isEditing && (
+        <div className="editing-mode-banner">
+          <span className="editing-mode-dot" />
+          Editing Mode Active — changes will be saved when you click Save
+        </div>
+      )}
+
+      {/* ── Error Summary (on save attempt) ── */}
+      {submitErrors.length > 0 && (
+        <div className="fv-summary" ref={firstErrRef}>
+          <div className="fv-summary__title">
+            <AlertCircle size={16} /> Please correct the following issues:
+          </div>
+          <ul className="fv-summary__list">
+            {submitErrors.map(({ field, msg }) => (
+              <li key={field}>
+                <strong>{FIELD_LABELS[field] || field}:</strong> {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <form
+        className={`screening-form${isSaved && !isEditing ? " readonly" : ""}${isSaved && isEditing ? " editing-mode" : ""}`}
+        onSubmit={handleSubmit}
       >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </div>
-  </div>
+        <fieldset>
+          <div className="form-inner">
 
-  {/* ================= LOADING DOSE ================= */}
-  <div className="form-group">
-    <label>Loading dose of Caffeine<span className="required">*</span></label>
-    <select
-      name="caffeine_loading"
-      value={formData.caffeine_loading || ""}
-      onChange={handleChange}
-      required
-    >
-      <option value="">-- Select --</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
+            {/* HEADER */}
+            <div className="form-header-action-row">
+              <div className="form-header-title-area">
+                <div className="form-breadcrumb"><Home size={12} /> FORM D</div>
+                <h2 className="form-main-title">Postnatal Day 1</h2>
+                <p className="form-main-subtitle">Day 1 of Postnatal Life — Early Clinical Assessment</p>
+              </div>
+              <div className="form-header-meta-area">
+                {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
+                {isSaved && (
+                  <button type="button"
+                    className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
+                    onClick={() => setIsEditing(p => !p)}>
+                    {isEditing ? "✓ Done Editing" : "Edit Form"}
+                  </button>
+                )}
+                <div className="screening-id-badge">
+                  <span className="id-label">Enrollment ID</span>
+                  <span className="id-val">{formData.enrollment_id || "—"}</span>
+                </div>
+              </div>
+            </div>
 
-  {formData.caffeine_loading === "Yes" && (
-    <div className="followup-box">
-      <div className="form-row">
-        <div className="form-group">
-          <label>Absolute Dose (mg)<span className="required">*</span></label>
-          <input
-  type="number"
-  name="caffeine_loading_abs"
-  value={formData.caffeine_loading_abs || ""}
-  onChange={handleChange}
-  className={errors.caffeine_loading_abs ? "error-input" : ""}
-/>
+            {/* ═══ CARD 1 — IDENTIFICATION ═══ */}
+            <div className="form-section card-section">
+              <div className="form-section-header">
+                <div className="section-title-left"><User size={18} className="section-header-icon" /><h3>Patient Identification</h3></div>
+              </div>
+              <div className="form-section-body">
+                <div className="form-grid-2">
+                  <div className="form-group">
+                    <label>Enrollment ID</label>
+                    <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
+                  </div>
+                  <div className="form-group">
+                    <label>Gestational Age</label>
+                    <input value={gestationalAgeDisplay} readOnly className="readonly-input" />
+                  </div>
+                </div>
+                <div className="form-grid-2">
+                  <div className="form-group">
+                    <label>Baby of (Mother's Name)</label>
+                    <input value={formData.baby_name || ""} readOnly className="readonly-input" />
+                  </div>
+                  <div className="form-group">
+                    <label>Baby's UID</label>
+                    <input value={formData.baby_uid || ""} readOnly className="readonly-input" />
+                  </div>
+                </div>
+                <div className="form-grid-2">
+                  <div className="form-group">
+                    <label>Birth Weight</label>
+                    <div style={{ position:"relative" }}>
+                      <input value={formData.birth_weight || ""} readOnly className="readonly-input" style={{ paddingRight:52 }} />
+                      <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#64748b",fontWeight:600 }}>grams</span>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Annual Number (REDCap)</label>
+                    <input name="annual_number" value={formData.annual_number || ""}
+                      onChange={handleChange} placeholder="Optional"
+                      readOnly={!isFieldEditable} className="emr-input" />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-{errors.caffeine_loading_abs && (
-  <div className="error-text">{errors.caffeine_loading_abs}</div>
-)}
+            {/* ═══ CARD 2 — GOLDEN HOUR ═══ */}
+            <div className="form-section card-section">
+              <div className="form-section-header">
+                <div className="section-title-left"><Baby size={18} className="section-header-icon" /><h3>Golden Hour</h3></div>
+              </div>
+              <div className="form-section-body">
+                <div className="form-grid-2">
+                  <FieldWrap name="plastic_wrap" formData={formData} touched={touched}
+                    label="Plastic wrap / bag at birth" required={isRequired("plastic_wrap")}>
+                    <Toggle name="plastic_wrap" value={formData.plastic_wrap}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                  <FieldWrap name="et_intubation" formData={formData} touched={touched}
+                    label="ET intubation for resuscitation" required={isRequired("et_intubation")}>
+                    <Toggle name="et_intubation" value={formData.et_intubation}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                </div>
+                <div className="form-grid-2">
+                  {formData.et_intubation === "Yes" && (
+                    <FieldWrap name="remained_intubated" formData={formData} touched={touched}
+                      label="Remained intubated after resuscitation" required={isRequired("remained_intubated")}>
+                      <Toggle name="remained_intubated" value={formData.remained_intubated}
+                        options={["Yes","No"]} onChange={handleToggle}
+                        disabled={!isFieldEditable} formData={formData} touched={touched} />
+                    </FieldWrap>
+                  )}
+                  <FieldWrap name="labored_breathing" formData={formData} touched={touched}
+                    label="Labored breathing after resuscitation" required={isRequired("labored_breathing")}>
+                    <Toggle name="labored_breathing" value={formData.labored_breathing}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                </div>
+              </div>
+            </div>
+
+            {/* ═══ CARD 3 — SURFACTANT ═══ */}
+            <div className="form-section card-section">
+              <div className="form-section-header">
+                <div className="section-title-left"><Droplets size={18} className="section-header-icon" /><h3>Surfactant Administration</h3></div>
+              </div>
+              <div className="form-section-body">
+                <div className="form-grid-2">
+                  <FieldWrap name="surfactant_required" formData={formData} touched={touched}
+                    label="Surfactant Administered" required>
+                    <Toggle name="surfactant_required" value={formData.surfactant_required}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                  <div />
+                </div>
+
+                {formData.surfactant_required === "Yes" && (
+                  <div className="followup-box">
+
+                    {/* ── Row 1: Indication ── */}
+                    <div className="obstetric-subcard">
+                      <div className="obstetric-subcard__title">Indication</div>
+                      <FieldWrap name="surfactant_indication" formData={formData} touched={touched}
+                        label="Indication for surfactant" required={isRequired("surfactant_indication")}>
+                        <Toggle name="surfactant_indication" value={formData.surfactant_indication}
+                          options={[
+                            { label: "FiO₂ & pressure based", value: "FiO2 & pressure based" },
+                            { label: "LUS based",              value: "LUS based" },
+                            { label: "Both",                   value: "Both" },
+                          ]}
+                          onChange={handleToggle} disabled={!isFieldEditable} formData={formData} touched={touched} />
+                      </FieldWrap>
+                    </div>
+
+                    {/* ── Row 2: Pressure + FiO₂ (side by side like CRF) ── */}
+                    <div className="obstetric-subcard">
+                      <div className="obstetric-subcard__title">Administration Parameters</div>
+                      <div className="form-grid-2">
+                        <FieldWrap name="cpap_cm" formData={formData} touched={touched}
+                          label="Pressure (MAP/CPAP)" required={isRequired("cpap_cm")}>
+                          <UnitInput name="cpap_cm" value={formData.cpap_cm} unit="cmH₂O"
+                            readOnly={!isFieldEditable}
+                            error={vr("cpap_cm")?.level === "error"}
+                            warn={vr("cpap_cm")?.level === "warn"}
+                            onChange={e => {
+                              touch("cpap_cm");
+                              const v = e.target.value;
+                              if (v === "" || (/^\d+$/.test(v) && Number(v) <= 20))
+                                setFormData(p => ({ ...p, cpap_cm: v }));
+                            }}
+                            onBlur={e => {
+                              touch("cpap_cm");
+                              let v = Number(e.target.value);
+                              if (v > 20) v = 20; if (v < 0) v = 0;
+                              setFormData(p => ({ ...p, cpap_cm: v }));
+                            }} />
+                        </FieldWrap>
+                        <FieldWrap name="fio2_percent" formData={formData} touched={touched}
+                          label="FiO₂ at administration" required={isRequired("fio2_percent")}>
+                          <UnitInput name="fio2_percent" value={formData.fio2_percent} unit="%"
+                            readOnly={!isFieldEditable}
+                            error={vr("fio2_percent")?.level === "error"}
+                            warn={vr("fio2_percent")?.level === "warn"}
+                            onChange={e => {
+                              touch("fio2_percent");
+                              const v = e.target.value;
+                              if (v === "" || (/^\d+$/.test(v) && Number(v) <= 100))
+                                setFormData(p => ({ ...p, fio2_percent: v }));
+                            }}
+                            onBlur={e => {
+                              touch("fio2_percent");
+                              let v = Number(e.target.value);
+                              if (v > 100) v = 100; if (v < 0) v = 0;
+                              setFormData(p => ({ ...p, fio2_percent: v }));
+                            }} />
+                        </FieldWrap>
+                      </div>
+                    </div>
+
+                    {/* ── Row 3: Brand + Dose (side by side like CRF) ── */}
+                    <div className="obstetric-subcard">
+                      <div className="obstetric-subcard__title">Surfactant Details</div>
+                      <div className="form-grid-2">
+                        <FieldWrap name="surfactant_brand" formData={formData} touched={touched}
+                          label="Brand" required={isRequired("surfactant_brand")}>
+                          <div className="rx-horizontal-group">
+                            {["Survanta","Curosurf","Neosurf","Other"].map(brand => (
+                              <button key={brand} type="button"
+                                className={`rx-horizontal-btn${formData.surfactant_brand === brand ? " active" : ""}`}
+                                onClick={() => { if (!isFieldEditable) return; touch("surfactant_brand"); setFormData(p => ({ ...p, surfactant_brand: brand })); }}
+                                disabled={!isFieldEditable}>{brand}</button>
+                            ))}
+                          </div>
+                          {formData.surfactant_brand === "Other" && (
+                            <div style={{ marginTop:8 }}>
+                              <FieldWrap name="surfactant_brand_other" formData={formData} touched={touched}
+                                label="Specify brand" required={isRequired("surfactant_brand_other")}>
+                                <input type="text" name="surfactant_brand_other"
+                                  value={formData.surfactant_brand_other || ""}
+                                  readOnly={!isFieldEditable}
+                                  className={`emr-input${vr("surfactant_brand_other")?.level === "error" ? " fv-input-error" : vr("surfactant_brand_other")?.level === "ok" ? " fv-input-ok" : ""}`}
+                                  onChange={e => { touch("surfactant_brand_other"); const v = e.target.value; if (/^[A-Za-z\s]*$/.test(v)) setFormData(p => ({ ...p, surfactant_brand_other: v })); }}
+                                  placeholder="Enter brand name" />
+                              </FieldWrap>
+                            </div>
+                          )}
+                        </FieldWrap>
+                        <FieldWrap name="surfactant_dose" formData={formData} touched={touched}
+                          label="Dose" required={isRequired("surfactant_dose")}>
+                          <UnitInput name="surfactant_dose" value={formData.surfactant_dose} unit="mg/kg"
+                            readOnly={!isFieldEditable}
+                            error={vr("surfactant_dose")?.level === "error"}
+                            warn={vr("surfactant_dose")?.level === "warn"}
+                            onChange={e => { touch("surfactant_dose"); handleChange(e); }} />
+                        </FieldWrap>
+                      </div>
+                    </div>
+
+                    {/* ── Row 4: Method of administration ── */}
+                    <div className="obstetric-subcard">
+                      <div className="obstetric-subcard__title">Method of Administration</div>
+                      <FieldWrap name="surfactant_method" formData={formData} touched={touched}
+                        label="Method" required={isRequired("surfactant_method")}>
+                        <Toggle name="surfactant_method" value={formData.surfactant_method}
+                          options={["InSurE","LISA","Remained intubated"]}
+                          onChange={handleToggle} disabled={!isFieldEditable} formData={formData} touched={touched} />
+                      </FieldWrap>
+                    </div>
+
+                    {/* ── Row 5: If LISA — Catheter type (from CRF: Infant feeding tube / LISA catheter / Other) ── */}
+                    {formData.surfactant_method === "LISA" && (
+                      <div className="obstetric-subcard">
+                        <div className="obstetric-subcard__title">LISA Details</div>
+                        <FieldWrap name="lisa_catheter_type" formData={formData} touched={touched}
+                          label="If LISA — Catheter type" required={isRequired("lisa_catheter_type")}>
+                          <Toggle name="lisa_catheter_type" value={formData.lisa_catheter_type}
+                            options={["Infant feeding tube","LISA catheter","Other"]}
+                            onChange={handleToggle} disabled={!isFieldEditable} formData={formData} touched={touched} />
+                        </FieldWrap>
+
+                        {/* ── Row 6: Device assistance + Type (FOL / VL / Magill / Other) ── */}
+                        <div style={{ marginTop:14 }}>
+                          <FieldWrap name="device_assistance" formData={formData} touched={touched}
+                            label="Device assistance" required={isRequired("device_assistance")}>
+                            <Toggle name="device_assistance" value={formData.device_assistance}
+                              options={["Yes","No"]}
+                              onChange={handleToggle} disabled={!isFieldEditable} formData={formData} touched={touched} />
+                          </FieldWrap>
+                          {formData.device_assistance === "Yes" && (
+                            <div style={{ marginTop:10 }}>
+                              <FieldWrap name="device_type" formData={formData} touched={touched}
+                                label="Type" required={isRequired("device_type")}>
+                                <Toggle name="device_type" value={formData.device_type}
+                                  options={["FOL","VL","Magill","Other"]}
+                                  onChange={handleToggle} disabled={!isFieldEditable} formData={formData} touched={touched} />
+                              </FieldWrap>
+                              {formData.device_type === "Other" && (
+                                <div style={{ marginTop:8 }}>
+                                  <FieldWrap name="device_type_other" formData={formData} touched={touched}
+                                    label="Specify device type" required={isRequired("device_type_other")}>
+                                    <input type="text" name="device_type_other"
+                                      value={formData.device_type_other || ""}
+                                      readOnly={!isFieldEditable}
+                                      className={`emr-input${vr("device_type_other")?.level === "error" ? " fv-input-error" : vr("device_type_other")?.level === "ok" ? " fv-input-ok" : ""}`}
+                                      onChange={e => { touch("device_type_other"); const v = e.target.value; if (/^[A-Za-z\s]*$/.test(v)) setFormData(p => ({ ...p, device_type_other: v })); }}
+                                      placeholder="Enter device type" />
+                                  </FieldWrap>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Row 7: Adverse Effects — matches CRF exactly ── */}
+                    <div className="obstetric-subcard">
+                      <div className="obstetric-subcard__title">Adverse Effects</div>
+                      <FieldWrap name="adverse_effects" formData={formData} touched={touched}
+                        label="Adverse effects" required={isRequired("adverse_effects")}>
+                        <Toggle name="adverse_effects" value={formData.adverse_effects}
+                          options={["Yes","No"]} onChange={handleToggle}
+                          disabled={!isFieldEditable} formData={formData} touched={touched} />
+                      </FieldWrap>
+                      {formData.adverse_effects === "Yes" && (
+                        <div style={{ marginTop:12 }}>
+                          <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:8 }}>
+                            Type <span style={{ fontSize:11, fontWeight:400, color:"#94a3b8" }}>(select all that apply)</span>
+                            {isRequired("adverse_type") && <span className="required"> *</span>}
+                          </div>
+                          {/* CRF adverse types: Bradycardia, Desaturation, Regurgitation of surfactant,
+                              Asymmetric surfactant instillation, Other */}
+                          <div className="rx-horizontal-group" style={{ flexWrap:"wrap", gap: 8 }}>
+                            {[
+                              "Bradycardia",
+                              "Desaturation",
+                              "Regurgitation of surfactant",
+                              "Asymmetric surfactant instillation",
+                              "Other",
+                            ].map(type => (
+                              <button key={type} type="button"
+                                className={`rx-horizontal-btn${formData.adverse_type === type ? " active" : ""}`}
+                                style={{ whiteSpace: "normal", textAlign: "center", minWidth: 80, height: "auto", minHeight: 36, lineHeight: 1.3, padding: "6px 14px" }}
+                                onClick={() => { if (!isFieldEditable) return; touch("adverse_type"); setFormData(p => ({ ...p, adverse_type: type })); }}
+                                disabled={!isFieldEditable}>{type}</button>
+                            ))}
+                          </div>
+                          {touched.adverse_type && vr("adverse_type")?.level === "error" && (
+                            <div className="fv-msg fv-msg-error">{vr("adverse_type").msg}</div>
+                          )}
+                          {formData.adverse_type === "Other" && (
+                            <div style={{ marginTop:10 }}>
+                              <FieldWrap name="adverse_type_other" formData={formData} touched={touched}
+                                label="Specify adverse effect" required={isRequired("adverse_type_other")}>
+                                <input type="text" name="adverse_type_other"
+                                  value={formData.adverse_type_other || ""}
+                                  readOnly={!isFieldEditable}
+                                  className={`emr-input${vr("adverse_type_other")?.level === "error" ? " fv-input-error" : vr("adverse_type_other")?.level === "ok" ? " fv-input-ok" : ""}`}
+                                  onChange={e => { touch("adverse_type_other"); const v = e.target.value; if (/^[A-Za-z\s]*$/.test(v)) setFormData(p => ({ ...p, adverse_type_other: v })); }}
+                                  placeholder="Enter adverse effect" />
+                              </FieldWrap>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ═══ CARD 4 — EARLY RESPIRATORY SUPPORT ═══ */}
+            <div className="form-section card-section">
+              <div className="form-section-header">
+                <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>Early Respiratory Support</h3></div>
+              </div>
+              <div className="form-section-body">
+                <div className="form-grid-2">
+                  <FieldWrap name="early_cpap" formData={formData} touched={touched}
+                    label="Early / DR-CPAP" required>
+                    <Toggle name="early_cpap" value={formData.early_cpap}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                  <FieldWrap name="humidified_gas" formData={formData} touched={touched}
+                    label="Humidified gas with CPAP" required>
+                    <Toggle name="humidified_gas" value={formData.humidified_gas}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                </div>
+                <div className="form-grid-2">
+                  <FieldWrap name="max_fio2_1hr" formData={formData} touched={touched}
+                    label="Maximum FiO₂ in first hour" required>
+                    <UnitInput name="max_fio2_1hr" value={formData.max_fio2_1hr} unit="%"
+                      readOnly={!isFieldEditable}
+                      error={vr("max_fio2_1hr")?.level === "error"}
+                      warn={vr("max_fio2_1hr")?.level === "warn"}
+                      onChange={e => {
+                        touch("max_fio2_1hr");
+                        const v = e.target.value;
+                        if (v === "" || (/^\d+$/.test(v) && Number(v) <= 100))
+                          setFormData(p => ({ ...p, max_fio2_1hr: v }));
+                      }}
+                      onBlur={e => {
+                        touch("max_fio2_1hr");
+                        let v = Number(e.target.value);
+                        if (v > 100) v = 100; if (v < 0) v = 0;
+                        setFormData(p => ({ ...p, max_fio2_1hr: v }));
+                      }} />
+                  </FieldWrap>
+                  <FieldWrap name="intubation_after_resus" formData={formData} touched={touched}
+                    label="Required intubation after resuscitation" required>
+                    <Toggle name="intubation_after_resus" value={formData.intubation_after_resus}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} formData={formData} touched={touched} />
+                  </FieldWrap>
+                </div>
+
+                {/* Caffeine Card */}
+                <div className="obstetric-subcard" style={{ marginTop:16 }}>
+                  <div className="obstetric-subcard__title">Caffeine Therapy</div>
+                  <div className="form-grid-2">
+                    <FieldWrap name="caffeine_loading" formData={formData} touched={touched}
+                      label="Loading Dose of Caffeine" required>
+                      <Toggle name="caffeine_loading" value={formData.caffeine_loading}
+                        options={["Yes","No"]} onChange={handleToggle}
+                        disabled={!isFieldEditable} formData={formData} touched={touched} />
+                    </FieldWrap>
+                    <div />
+                  </div>
+                  {formData.caffeine_loading === "Yes" && (
+                    <div className="form-grid-2" style={{ marginTop:12 }}>
+                      <FieldWrap name="caffeine_loading_abs" formData={formData} touched={touched}
+                        label="Absolute Loading Dose" required={isRequired("caffeine_loading_abs")}>
+                        <UnitInput name="caffeine_loading_abs" value={formData.caffeine_loading_abs} unit="mg"
+                          readOnly={!isFieldEditable}
+                          error={vr("caffeine_loading_abs")?.level === "error"}
+                          warn={vr("caffeine_loading_abs")?.level === "warn"}
+                          onChange={e => { touch("caffeine_loading_abs"); handleChange(e); }} />
+                      </FieldWrap>
+                      <div className="form-group">
+                        <label>Loading Dose <span className="auto-tag">AUTO</span></label>
+                        <div style={{ position:"relative" }}>
+                          <input value={
+                              formData.caffeine_loading_abs && formData.birth_weight
+                                ? (formData.caffeine_loading_abs / (formData.birth_weight / 1000)).toFixed(2) : ""
+                            } readOnly className="readonly-input" style={{ paddingRight:52 }} />
+                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Maintenance Dose */}
+                  <div style={{ borderTop:"1px solid #e2e8f0", marginTop:16, paddingTop:16 }}>
+                    <div style={{ fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:"#94a3b8",marginBottom:12 }}>
+                      Maintenance Dose
+                    </div>
+                    <div className="form-grid-2">
+                      <FieldWrap name="caffeine_maint_abs" formData={formData} touched={touched}
+                        label="Absolute Maintenance Dose" required={false}>
+                        <UnitInput name="caffeine_maint_abs" value={formData.caffeine_maint_abs} unit="mg"
+                          readOnly={!isFieldEditable}
+                          error={vr("caffeine_maint_abs")?.level === "error"}
+                          warn={vr("caffeine_maint_abs")?.level === "warn"}
+                          onChange={e => { touch("caffeine_maint_abs"); handleChange(e); }} />
+                      </FieldWrap>
+                      <div className="form-group">
+                        <label>Maintenance Dose <span className="auto-tag">AUTO</span></label>
+                        <div style={{ position:"relative" }}>
+                          <input value={
+                              formData.caffeine_maint_abs && formData.birth_weight
+                                ? (formData.caffeine_maint_abs / (formData.birth_weight / 1000)).toFixed(2) : ""
+                            } readOnly className="readonly-input" style={{ paddingRight:52 }} />
+                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="form-grid-2" style={{ marginTop:12 }}>
+                      <FieldWrap name="caffeine_date" formData={formData} touched={touched} label="Date of Administration">
+                        <DatePicker
+                          selected={formData.caffeine_date ? new Date(formData.caffeine_date) : null}
+                          onChange={date => {
+                            touch("caffeine_date");
+                            setFormData(p => ({ ...p, caffeine_date: date ? date.toISOString().split("T")[0] : "" }));
+                          }}
+                          maxDate={new Date()}
+                          dateFormat="dd-MM-yyyy" placeholderText="Select date"
+                          readOnly={!isFieldEditable} />
+                      </FieldWrap>
+                      <div className="form-group">
+                        <label>Time</label>
+                        <input type="time" name="caffeine_time"
+                          value={formData.caffeine_time || ""}
+                          onChange={handleChange} readOnly={!isFieldEditable}
+                          className="emr-input" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ═══ CARD 5 — COMPLETION ═══ */}
+            <div className="form-section card-section">
+              <div className="form-section-header">
+                <div className="section-title-left"><CheckSquare size={18} className="section-header-icon" /><h3>Completion Details</h3></div>
+              </div>
+              <div className="form-section-body">
+                <div className="form-grid-2">
+                  <FieldWrap name="completed_by" formData={formData} touched={touched}
+                    label="Completed by" required>
+                    <select name="completed_by" value={formData.completed_by || ""}
+                      onChange={handleCompletedByChange} disabled={!isFieldEditable}
+                      className={`emr-select${vr("completed_by")?.level === "error" ? " fv-input-error" : vr("completed_by")?.level === "ok" ? " fv-input-ok" : ""}`}
+                      required>
+                      <option value="">-- Select Nurse --</option>
+                      {nurses.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </FieldWrap>
+                  <div className="form-group">
+                    <label>Designation</label>
+                    <input name="designation" value={formData.designation || ""}
+                      readOnly className="readonly-input" placeholder="Auto-filled" />
+                  </div>
+                </div>
+                <div className="form-grid-2">
+                  <FieldWrap name="date" formData={formData} touched={touched} label="Completion Date">
+                    <DatePicker
+                      selected={formData.date ? new Date(formData.date) : null}
+                      onChange={date => {
+                        touch("date");
+                        setFormData(p => ({ ...p, date: date ? date.toISOString().split("T")[0] : "" }));
+                      }}
+                      maxDate={new Date()}
+                      dateFormat="dd-MM-yyyy" placeholderText="Select date"
+                      readOnly={!isFieldEditable} />
+                  </FieldWrap>
+                  <div />
+                </div>
+              </div>
+            </div>
+
+            {message && (
+              <div className={`form-message${message.startsWith("✅") ? " form-message--success" : " form-message--error"}`}>
+                {message}
+              </div>
+            )}
+          </div>
+        </fieldset>
+      </form>
+
+      {/* STICKY FOOTER */}
+      <div className="form-navigation">
+        <button type="button" className="btn btn-secondary btn-outline" onClick={() => navigate(-1)}>
+          <ArrowLeft size={15} /> Maternal Details
+        </button>
+        <button type="button"
+          className={`btn btn-save btn-outline-blue${hasErrors && Object.keys(touched).length > 0 ? " btn-disabled-hint" : ""}`}
+          onClick={handleSubmit}
+          title={hasErrors ? "Complete required fields to save" : "Save form"}>
+          <Save size={15} /> Save
+        </button>
+        <div className="footer-step-indicator">
+          <span className="step-text">STEP 4 OF 17</span>
+          <div className="step-progress-line">
+            <div className="progress-segment active" />
+            <div className="progress-segment active" />
+            <div className="progress-segment active" />
+            <div className="progress-segment active" />
+            <div className="progress-segment" />
+          </div>
         </div>
-
-        <div className="form-group">
-          <label>Dose (mg/kg)</label>
-          <input
-            value={
-              formData.caffeine_loading_abs && formData.birth_weight
-                ? (formData.caffeine_loading_abs / (formData.birth_weight / 1000)).toFixed(2)
-                : ""
-            }
-            readOnly
-          />
-        </div>
+        <button type="button" className="btn btn-primary" onClick={handleNext} disabled={!isSaved}>
+          NICU Admission <ArrowRight size={15} />
+        </button>
       </div>
-    </div>
-  )}
-
-  {/* ================= MAINTENANCE DOSE (SUBSECTION) ================= */}
-  <div className="sub-section">
-    <h4>Maintenance Dose of Caffeine</h4>
-
-    <div className="form-row">
-      <div className="form-group">
-        <label>Absolute Dose (mg)</label>
-        <input
-  type="number"
-  name="caffeine_maint_abs"
-  value={formData.caffeine_maint_abs || ""}
-  onChange={handleChange}
-  className={errors.caffeine_maint_abs ? "error-input" : ""}
-/>
-
-{errors.caffeine_maint_abs && (
-  <div className="error-text">{errors.caffeine_maint_abs}</div>
-)}
-      </div>
-
-      <div className="form-group">
-        <label>Dose (mg/kg)</label>
-        <input
-          value={
-            formData.caffeine_maint_abs && formData.birth_weight
-              ? (formData.caffeine_maint_abs / (formData.birth_weight / 1000)).toFixed(2)
-              : ""
-          }
-          readOnly
-        />
-      </div>
-    </div>
-
-    <div className="form-row">
-      <div className="form-group">
-        <label>Date</label>
-        <DatePicker
-          selected={
-            formData.caffeine_date
-              ? new Date(formData.caffeine_date)
-              : null
-          }
-          onChange={(date) =>
-            setFormData((prev) => ({
-              ...prev,
-              caffeine_date: date
-                ? date.toISOString().split("T")[0]
-                : ""
-            }))
-          }
-          dateFormat="dd-MM-yyyy"
-          placeholderText="Select date"
-        />
-      </div>
-
-      <div className="form-group">
-        <label>Time</label>
-        <input
-          type="time"
-          name="caffeine_time"
-          value={formData.caffeine_time || ""}
-          onChange={handleChange}
-        />
-      </div>
-    </div>
-  </div>
-</div>
-{/* ================= COMPLETION DETAILS ================= */}
-<div className="form-section soft-blue">
-  <h3>Completion Details</h3>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Completed by<span className="required">*</span></label>
-     <select
-  name="completed_by"
-  value={formData.completed_by || ""}
-  onChange={handleCompletedByChange}
-  required
->
-  <option value="">-- Select Nurse --</option>
-  {nurses.map((nurse) => (
-    <option key={nurse} value={nurse}>
-      {nurse}
-    </option>
-  ))}
-</select>
-    </div>
-
-    <div className="form-group">
-      <label>Designation<span className="required">*</span></label>
-     <input
-  name="designation"
-  value={formData.designation || ""}
-  readOnly
-  placeholder="Auto-filled"
-/>
-    </div>
-  </div>
-
-  <div className="form-row">
-    
-
-    <div className="form-group">
-      <label>Date</label>
-      <DatePicker
-  selected={
-    formData.date ? new Date(formData.date) : null
-  }
-  onChange={(date) =>
-    setFormData((prev) => ({
-      ...prev,
-      date: date
-        ? date.toISOString().split("T")[0]
-        : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Select date"
-/>
-    </div>
-  </div>
-</div>
-
-      {/* STEP 2 will start here */}
-
-      <button className="submit-btn" type="submit">
-        Save Form D
-      </button>
-    </form>
-    
+    </>
   );
 }

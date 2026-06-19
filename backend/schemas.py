@@ -2,6 +2,8 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, List, Dict
 from datetime import datetime, date, time
 
+
+
 # =============================================================================
 # ✅ FIX C4: NEW SCHEMAS FOR DICT ENDPOINTS
 # =============================================================================
@@ -222,6 +224,13 @@ class ParticipantPIICreate(BaseModel):
     mother_contact: Optional[str] = None
     husband_contact: Optional[str] = None
     address: Optional[str] = None
+    email_address: Optional[str] = None
+    house: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    landmark: Optional[str] = None
     baby_name: Optional[str] = None
     contact_mother: Optional[str] = None
     contact_husband: Optional[str] = None
@@ -437,13 +446,21 @@ class MaternalDetailsCreate(BaseModel):
     contact_mother: Optional[str] = None
     contact_husband: Optional[str] = None
     address: Optional[str] = None
+    # Individual address fields (stored in participant_pii)
+    house: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    landmark: Optional[str] = None
+    email_address: Optional[str] = None
 
     gravida: Optional[int] = None
     parity: Optional[int] = None
     abortions: Optional[int] = None
     live: Optional[int] = None
     still: Optional[int] = None
-    booked: Optional[bool] = None
+    booked: Optional[str] = None  # "Booked"/"Unbooked"/"Not known" — stored as String
     anc_visits: Optional[int] = None
     multiple: Optional[str] = None
 
@@ -451,14 +468,18 @@ class MaternalDetailsCreate(BaseModel):
     edd: Optional[str] = None
     conception: Optional[str] = None
     artificial_type: Optional[str] = None
+    artificial_other: Optional[str] = None
 
-    antenatal_steroids: Optional[bool] = None
+    # These are stored as String in the DB model — send raw "Yes"/"No"/"Not known"
+    antenatal_steroids: Optional[str] = None
     steroid_date: Optional[date] = None
     steroid_drug: Optional[str] = None
-    steroid_doses: Optional[int] = None
-    lddi_hours: Optional[int] = None
-    antenatal_mgso4: Optional[bool] = None
-    gestation_at_steroids: Optional[int] = None
+    steroid_doses: Optional[str] = None
+    steroid_courses: Optional[str] = None
+    lddi_known: Optional[str] = None
+    lddi_hours: Optional[str] = None
+    antenatal_mgso4: Optional[str] = None
+    gestation_at_steroids: Optional[str] = None
     mgso4_date: Optional[date] = None
     mgso4_gestation_weeks: Optional[int] = None
     mgso4_gestation_days: Optional[int] = None
@@ -477,52 +498,54 @@ class MaternalDetailsCreate(BaseModel):
     severe_anemia: Optional[bool] = None
     other_medical_disorder: Optional[str] = None
 
-    hdp: Optional[bool] = None
+    # All below stored as Column(String) in DB — send raw "Yes"/"No"/"Not known"
+    hdp: Optional[str] = None
     hdp_type: Optional[str] = None
-    gdm: Optional[bool] = None
+    gdm: Optional[str] = None
     gdm_rx: Optional[str] = None
     liquor: Optional[str] = None
-    fgr: Optional[bool] = None
+    fgr: Optional[str] = None
     fgr_centile: Optional[str] = None
     doppler: Optional[str] = None
     doppler_other: Optional[str] = None
 
-    placental_abnormality: Optional[bool] = None
+    placental_abnormality: Optional[str] = None
     placental_type: Optional[str] = None
     placental_other: Optional[str] = None
-    retroplacental_collection: Optional[bool] = None
+    retroplacental_collection: Optional[str] = None
 
-    aph: Optional[bool] = None
+    aph: Optional[str] = None
     aph_type: Optional[str] = None
     aph_other: Optional[str] = None
     isoimmunization: Optional[str] = None
-    pprom: Optional[bool] = None
-    pprom_duration: Optional[int] = None
-    preterm_labor: Optional[bool] = None
-    triple_i: Optional[bool] = None
+    pprom: Optional[str] = None
+    pprom_duration: Optional[str] = None
+    preterm_labor: Optional[str] = None
+    triple_i: Optional[str] = None
 
-    maternal_fever: Optional[bool] = None
-    fetal_tachycardia: Optional[bool] = None
-    maternal_tlc_high: Optional[bool] = None
-    foul_smelling_liquor: Optional[bool] = None
-    maternal_uti: Optional[bool] = None
-    maternal_diarrhea: Optional[bool] = None
+    maternal_fever: Optional[str] = None
+    fetal_tachycardia: Optional[str] = None
+    maternal_tlc_high: Optional[str] = None
+    maternal_tachycardia: Optional[str] = None
+    maternal_abdominal_tenderness: Optional[str] = None
+    foul_smelling_liquor: Optional[str] = None
+    maternal_uti: Optional[str] = None
+    maternal_diarrhea: Optional[str] = None
 
-    msl: Optional[bool] = None
-    non_reactive_nst: Optional[bool] = None
-    reduced_fm: Optional[bool] = None
-    prolonged_labor: Optional[bool] = None
+    msl: Optional[str] = None
+    non_reactive_nst: Optional[str] = None
+    reduced_fm: Optional[str] = None
+    prolonged_labor: Optional[str] = None
 
-    cord_accident: Optional[bool] = None
+    cord_accident: Optional[str] = None
     cord_accident_type: Optional[str] = None
 
-    fetal_bradycardia: Optional[bool] = None
-    fetal_tachycardia_intrapartum: Optional[bool] = None
+    fetal_bradycardia: Optional[str] = None
+    fetal_tachycardia_intrapartum: Optional[str] = None
 
-    duration_rom: Optional[int] = None
-    
+    duration_rom: Optional[str] = None
 
-    uterotonic: Optional[bool] = None
+    uterotonic: Optional[str] = None
     uterotonic_timing: Optional[str] = None
 
 
@@ -574,6 +597,16 @@ class PostnatalDay1Create(BaseModel):
     intubation_after_resus: bool | None = None
     immediate_kmc: bool | None = None
 
+    surfactant_brand_other: str | None = None
+    lisa_catheter_type: str | None = None
+    adverse_type_other: str | None = None
+    device_type_other: str | None = None
+    caffeine_loading: bool | None = None
+    caffeine_loading_abs: float | None = None
+    caffeine_maint_abs: float | None = None
+    caffeine_date: date | None = None
+    caffeine_time: str | None = None
+
     completed_by: str | None = None
     designation: str | None = None
     signature: str | None = None
@@ -597,6 +630,7 @@ class NICUAdmissionCreate(BaseModel):
     admission_datetime: Optional[datetime] = None
     age_at_admission_hours: Optional[float] = None
 
+    temp_dr: Optional[float] = None
     temp_skin: Optional[float] = None
     temp_axillary: Optional[float] = None
 
@@ -611,9 +645,17 @@ class NICUAdmissionCreate(BaseModel):
     tube_accident_type: Optional[str] = None
 
     transport_mode_resp: Optional[str] = None
+    transport_cpap: Optional[float] = None
+    transport_pip:  Optional[float] = None
+    transport_peep: Optional[float] = None
+    transport_map:  Optional[float] = None
     transport_fio2: Optional[float] = None
 
     nicu_mode_resp: Optional[str] = None
+    nicu_cpap: Optional[float] = None
+    nicu_pip:  Optional[float] = None
+    nicu_peep: Optional[float] = None
+    nicu_map:  Optional[float] = None
     nicu_fio2: Optional[float] = None
 
     completed_by: Optional[str] = None
@@ -1195,6 +1237,251 @@ class SAEListCreate(BaseModel):
 class SAEListOut(SAEListCreate):
     id: int
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+class RespCVNeuroDayCreate(BaseModel):
+    enrollment_id: str
+    nicu_day:      int
+
+    # Respiratory
+    support_modes:      Optional[str]   = None
+    max_fio2:           Optional[float] = None
+    max_flow:           Optional[float] = None
+    supp_o2:            Optional[bool]  = None
+    surfactant:         Optional[bool]  = None
+    caffeine:           Optional[bool]  = None
+    apnea:              Optional[bool]  = None
+    desaturations:      Optional[bool]  = None
+    extub_attempted:    Optional[bool]  = None
+    extub_failure:      Optional[bool]  = None
+    pulm_hemorrhage:    Optional[bool]  = None
+    pneumothorax:       Optional[bool]  = None
+    chest_drain:        Optional[bool]  = None
+    pphn:               Optional[bool]  = None
+    postnatal_steroids: Optional[bool]  = None
+
+    # Cardiovascular
+    pda_suspected:      Optional[bool]  = None
+    echo_done:          Optional[bool]  = None
+    hs_pda:             Optional[bool]  = None
+    pda_medical_rx:     Optional[bool]  = None
+    shock:              Optional[bool]  = None
+    vasoactive_support: Optional[bool]  = None
+    vasoactive_drugs:   Optional[str]   = None
+
+    # Neurological
+    cranial_usg:          Optional[bool] = None
+    ivh:                  Optional[bool] = None
+    ivh_grade:            Optional[str]  = None
+    pvl_suspected:        Optional[bool] = None
+    cpvl_confirmed:       Optional[bool] = None
+    ventriculomegaly:     Optional[bool] = None
+    clinical_seizures:    Optional[bool] = None
+    eeg_seizures:         Optional[bool] = None
+    aeds_given:           Optional[bool] = None
+    non_ivh_ich:          Optional[bool] = None
+    meningitis_suspected: Optional[bool] = None
+
+    # Workflow
+    submission_status: Optional[str]      = "draft"
+    saved_at:          Optional[datetime] = None
+    saved_by:          Optional[str]      = None
+
+
+class RespCVNeuroDaySubmit(BaseModel):
+    submission_status: str        # "submitted"
+    submitted_at:      datetime
+    submitted_by:      str
+
+
+class RespCVNeuroDayOut(RespCVNeuroDayCreate):
+    id:           int
+    submitted_at: Optional[datetime] = None
+    submitted_by: Optional[str]      = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RespCVNeuroDaySummary(BaseModel):
+    nicu_day:          int
+    submission_status: Optional[str]      = "empty"
+    completion_pct:    Optional[int]      = 0
+    saved_at:          Optional[datetime] = None
+    submitted_at:      Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DischargeUpdate(BaseModel):
+    discharge_date: str   # "YYYY-MM-DD"
+    discharge_day:  int
+# ─────────────────────────────────────────────────────────────
+# Add these to schemas.py
+# ─────────────────────────────────────────────────────────────
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+
+class InfectGIHemaDayCreate(BaseModel):
+    enrollment_id: str
+    nicu_day:      int
+
+    # Infection
+    sepsis_suspected:       Optional[bool]  = None
+    blood_culture_sent:     Optional[bool]  = None
+    blood_culture_positive: Optional[bool]  = None
+    eos:                    Optional[bool]  = None
+    los:                    Optional[bool]  = None
+    antibiotics:            Optional[bool]  = None
+    antibiotic_day:         Optional[bool]  = None
+    lp_done:                Optional[bool]  = None
+    csf_culture_positive:   Optional[bool]  = None
+    clabsi:                 Optional[bool]  = None
+    vap:                    Optional[bool]  = None
+
+    # GI
+    npo:                    Optional[bool]  = None
+    enteral_feeds_started:  Optional[bool]  = None
+    feed_volume:            Optional[float] = None
+    full_feeds:             Optional[bool]  = None
+    parenteral_nutrition:   Optional[bool]  = None
+    probiotic:              Optional[bool]  = None
+    feed_intolerance:       Optional[bool]  = None
+    nec_suspected:          Optional[bool]  = None
+    nec_confirmed_stage:    Optional[str]   = None
+    nec_surgery:            Optional[bool]  = None
+
+    # Hematology
+    jaundice:               Optional[bool]  = None
+    phototherapy:           Optional[bool]  = None
+    peak_tsb:               Optional[float] = None
+    exchange_transfusion:   Optional[bool]  = None
+    prbc_transfusion:       Optional[bool]  = None
+    platelet_transfusion:   Optional[bool]  = None
+    ffp_cryo:               Optional[bool]  = None
+
+    # Workflow
+    submission_status:      Optional[str]      = "draft"
+    saved_at:               Optional[datetime] = None
+    saved_by:               Optional[str]      = None
+
+
+class InfectGIHemaDaySubmit(BaseModel):
+    submission_status: str
+    submitted_at:      datetime
+    submitted_by:      str
+
+
+class InfectGIHemaDayOut(InfectGIHemaDayCreate):
+    id:           int
+    submitted_at: Optional[datetime] = None
+    submitted_by: Optional[str]      = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+# ═══════════════════════════════════════════════════════════════
+# 2. ADD TO schemas.py
+# ═══════════════════════════════════════════════════════════════
+ 
+class MetabRenalVascEyeDayCreate(BaseModel):
+    enrollment_id: str
+    nicu_day:      int
+    hypoglycemia:           Optional[bool]  = None
+    hypoglycemia_rx:        Optional[bool]  = None
+    hyperglycemia:          Optional[bool]  = None
+    insulin:                Optional[bool]  = None
+    metabolic_acidosis:     Optional[bool]  = None
+    dyselectrolytemia:      Optional[bool]  = None
+    dyselectrolytemia_type: Optional[str]   = None
+    osteopenia_suspected:   Optional[bool]  = None
+    aki_suspected:          Optional[bool]  = None
+    aki_kdigo_stage:        Optional[str]   = None
+    creatinine:             Optional[float] = None
+    urine_output_low:       Optional[bool]  = None
+    dialysis_crrt:          Optional[bool]  = None
+    hypothermia:            Optional[bool]  = None
+    hyperthermia:           Optional[bool]  = None
+    picc_in_situ:           Optional[bool]  = None
+    uvc_in_situ:            Optional[bool]  = None
+    uac_in_situ:            Optional[bool]  = None
+    peripheral_iv:          Optional[bool]  = None
+    peripheral_arterial:    Optional[bool]  = None
+    extravasation_injury:   Optional[bool]  = None
+    line_complication:      Optional[bool]  = None
+    rop_screening_due:      Optional[bool]  = None
+    rop_screened:           Optional[bool]  = None
+    rop_detected:           Optional[bool]  = None
+    rop_stage:              Optional[str]   = None
+    plus_disease:           Optional[bool]  = None
+    rop_treatment:          Optional[bool]  = None
+    submission_status:      Optional[str]      = "draft"
+    saved_at:               Optional[datetime] = None
+    saved_by:               Optional[str]      = None
+
+class MetabRenalVascEyeDaySubmit(BaseModel):
+    submission_status: str
+    submitted_at:      datetime
+    submitted_by:      str
+
+class MetabRenalVascEyeDayOut(MetabRenalVascEyeDayCreate):
+    id:           int
+    submitted_at: Optional[datetime] = None
+    submitted_by: Optional[str]      = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
+    class Config:
+        from_attributes = True
+# ============================================================================
+# FORM H — Pydantic schemas
+# Add these to schemas.py
+# ============================================================================
+
+from pydantic import BaseModel
+from typing import Optional, List, Any
+from datetime import datetime
+
+
+class CranialUSGCreate(BaseModel):
+    enrollment_id:           str
+    scan_entries:            Optional[List[Any]]  = []
+    phvd:                    Optional[bool]       = None
+    phvd_diagnosis_date:     Optional[str]        = None
+    vp_shunt:                Optional[bool]       = None
+    vp_shunt_insertion_date: Optional[str]        = None
+    ventriculomegaly:        Optional[bool]       = None
+    subependymal_cyst:       Optional[bool]       = None
+    choroid_plexus_cyst:     Optional[bool]       = None
+    cerebellar_hemorrhage:   Optional[bool]       = None
+    subdural_hemorrhage:     Optional[bool]       = None
+    other_finding:           Optional[bool]       = None
+    other_finding_text:      Optional[str]        = None
+    brain_injury_composite:  Optional[bool]       = None
+    schedule_key:            Optional[str]        = None
+    submission_status:       Optional[str]        = "draft"
+    saved_at:                Optional[str]        = None
+    saved_by:                Optional[str]        = None
+
+
+class CranialUSGSubmit(CranialUSGCreate):
+    submission_status: str = "submitted"
+    submitted_at:      Optional[str] = None
+    submitted_by:      Optional[str] = None
+
+
+class CranialUSGOut(CranialUSGCreate):
+    id:           int
+    submitted_at: Optional[str] = None
+    submitted_by: Optional[str] = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
 
     class Config:
         from_attributes = True
