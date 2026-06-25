@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL database ──────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portal_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portaldev123}
+      POSTGRES_DB: portal_trial_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal_user -d portal_trial_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI backend ──────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://portal_user:${POSTGRES_PASSWORD:-portaldev123}@db:5432/portal_trial_db
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── React frontend (dev only — in prod, build and serve via nginx/S3) ───
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend-app:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    command: sh -c "npm install && npm start"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

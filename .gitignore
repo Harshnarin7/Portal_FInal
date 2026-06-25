@@ -2,6 +2,14 @@
 .env
 backend/.env
 *.env.local
+frontend-app/.env
+frontend-app/.env.local
+frontend-app/.env.production
+
+# Database files — NEVER commit SQLite or any DB dump
+*.db
+*.sqlite
+*.sqlite3
 
 # Python
 __pycache__/

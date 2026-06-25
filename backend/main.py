@@ -79,10 +79,6 @@ limiter = Limiter(
 # DATABASE CONNECTION & INITIALIZATION
 # ============================================================================
 
-with engine.connect() as conn:
-    db_name = conn.execute(text("SELECT current_database()")).scalar()
-    print("✅ CONNECTED DB:", db_name)
-
 Base.metadata.create_all(bind=engine)
 
 # ============================================================================
@@ -98,6 +94,21 @@ app.include_router(audit_router.router)
 
 @app.on_event("startup")
 def on_startup_migrations():
+    # ── DB connectivity check with retry (safe for AWS RDS cold start) ──
+    import time
+    for attempt in range(1, 6):
+        try:
+            with engine.connect() as conn:
+                db_name = conn.execute(text("SELECT current_database()")).scalar()
+                logger.info("✅ CONNECTED DB: %s", db_name)
+            break
+        except Exception as exc:
+            logger.warning("DB not ready (attempt %s/5): %s", attempt, exc)
+            if attempt == 5:
+                logger.error("❌ Could not connect to DB after 5 attempts — startup continuing anyway")
+            else:
+                time.sleep(3)
+
     try:
         apply_schema_patches(engine)
     except Exception as exc:
@@ -219,6 +230,17 @@ def site_for_enrollment(db: Session, enrollment_id: str | None) -> str | None:
 @app.get("/")
 def root():
     return {"message": "PORTAL Trial API is running!"}
+
+# Health check endpoint — required by AWS ALB, ECS, and Elastic Beanstalk
+@app.get("/health")
+def health_check():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "connected"}
+    except Exception as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content={"status": "error", "db": str(exc)})
 
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS

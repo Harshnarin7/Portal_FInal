@@ -4,7 +4,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import "./ScreeningForm.css"; // reuse same CSS for consistent look
 import api from "./api/axios";
 
-const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:9000";
 
 function EditScreening() {
   const { id } = useParams();
