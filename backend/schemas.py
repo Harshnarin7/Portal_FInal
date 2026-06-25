@@ -430,7 +430,7 @@ class BirthResuscitationOut(BirthResuscitationCreate):
     created_at: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
   
 
@@ -554,7 +554,7 @@ class MaternalDetailsOut(MaternalDetailsCreate):
     created_at: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # =========================
@@ -954,7 +954,7 @@ class ROPScreeningOut(ROPScreeningCreate):
     created_at: datetime
 
     class Config:
-        orm_mode = True  
+        from_attributes = True  
 
 
 class CompositeOutcomeCreate(BaseModel):
