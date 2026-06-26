@@ -1485,3 +1485,121 @@ class CranialUSGOut(CranialUSGCreate):
 
     class Config:
         from_attributes = True
+
+# ============================================================================
+# FORM K — MRI Brain Assessment Schemas
+# ============================================================================
+class MRIBrainCreate(BaseModel):
+    enrollment_id:    str
+
+    # K.1 Identification
+    dob:              Optional[str]  = None
+    gestation_weeks:  Optional[int]  = None
+    gestation_days:   Optional[int]  = None
+    mri_date:         Optional[str]  = None
+    pma_weeks:        Optional[int]  = None
+    pma_days:         Optional[int]  = None
+    selected_for_mri: Optional[bool] = None
+
+    # K.2 MRI Details
+    scanner:          Optional[str]  = None
+    sedation:         Optional[bool] = None
+    sedation_agent:   Optional[str]  = None
+    sequences:        Optional[List[str]] = []
+
+    # K.3 Findings
+    myelination:      Optional[str]  = None
+    bg_thalamus:      Optional[Dict] = None
+    plic:             Optional[Dict] = None
+    white_matter:     Optional[Dict] = None
+    corpus_callosum:  Optional[Dict] = None
+    cerebellum:       Optional[Dict] = None
+    atrophy:          Optional[Dict] = None
+    hemorrhage_swi:   Optional[Dict] = None
+
+    # K.4 Overall
+    overall_mri:      Optional[str]  = None
+    mri_summary:      Optional[str]  = None
+    radiologist_name: Optional[str]  = None
+    radiologist_date: Optional[str]  = None
+
+    # Footer
+    completed_by:     Optional[str]  = None
+    designation:      Optional[str]  = None
+    completion_date:  Optional[str]  = None
+
+    # Workflow
+    submission_status: Optional[str] = "draft"
+    saved_at:          Optional[str] = None
+    saved_by:          Optional[str] = None
+
+
+class MRIBrainSubmit(MRIBrainCreate):
+    submission_status: str = "submitted"
+    submitted_at:      Optional[str] = None
+    submitted_by:      Optional[str] = None
+
+
+class MRIBrainOut(MRIBrainCreate):
+    id:           int
+    submitted_at: Optional[str]      = None
+    submitted_by: Optional[str]      = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# FORM L — Blender Data & Study Summary Schemas
+# ============================================================================
+class BlenderSummaryCreate(BaseModel):
+    enrollment_id:  str
+
+    # L.1 Identification
+    dob:             Optional[str]   = None
+    gestation_weeks: Optional[int]   = None
+    gestation_days:  Optional[int]   = None
+    pma_weeks:       Optional[int]   = None
+    pma_days:        Optional[int]   = None
+    mother_name:     Optional[str]   = None
+    baby_name:       Optional[str]   = None
+
+    # L.2 Blender Details
+    initial_fio2:        Optional[float]      = None
+    exit_fio2:           Optional[float]      = None
+    max_fio2_first_hour: Optional[float]      = None
+    fio2_per_minute:     Optional[List]       = []  # 11-element list [min_0 … min_10]
+
+    # L.3 Composite Outcomes  ("yes" | "no" | "na" | None)
+    composite_outcome_1: Optional[str] = None
+    composite_outcome_2: Optional[str] = None
+    mri_abnormality:     Optional[str] = None
+
+    # Footer
+    completed_by:    Optional[str] = None
+    designation:     Optional[str] = None
+    completion_date: Optional[str] = None
+
+    # Workflow
+    submission_status: Optional[str] = "draft"
+    saved_at:          Optional[str] = None
+    saved_by:          Optional[str] = None
+
+
+class BlenderSummarySubmit(BlenderSummaryCreate):
+    submission_status: str = "submitted"
+    submitted_at:      Optional[str] = None
+    submitted_by:      Optional[str] = None
+
+
+class BlenderSummaryOut(BlenderSummaryCreate):
+    id:           int
+    submitted_at: Optional[str]      = None
+    submitted_by: Optional[str]      = None
+    created_at:   Optional[datetime] = None
+    updated_at:   Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

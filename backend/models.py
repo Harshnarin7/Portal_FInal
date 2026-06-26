@@ -1308,3 +1308,107 @@ class CranialUSGRecord(Base):
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
  
+
+# ============================================================================
+# FORM K — MRI Brain Assessment
+# ============================================================================
+class MRIBrainAssessment(Base):
+    __tablename__ = "mri_brain_assessments"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, unique=True, index=True, nullable=False)
+
+    # K.1 Identification
+    dob             = Column(String,  nullable=True)
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+    mri_date        = Column(String,  nullable=True)
+    pma_weeks       = Column(Integer, nullable=True)
+    pma_days        = Column(Integer, nullable=True)
+
+    # K.1 Subset selection
+    selected_for_mri = Column(Boolean, nullable=True)
+
+    # K.2 MRI Details
+    scanner       = Column(String,  nullable=True)   # "3T Philips" | "Equivalent 3T"
+    sedation      = Column(Boolean, nullable=True)
+    sedation_agent = Column(String, nullable=True)
+    sequences     = Column(JSON,    nullable=True, default=list)  # ["DWI","T2",...]
+
+    # K.3 Findings — stored as JSON objects
+    # Each: { present: bool, type: [], site: [], location: [], details: "" }
+    myelination     = Column(String,  nullable=True)   # "Appropriate for age" | "Delayed"
+    bg_thalamus     = Column(JSON,    nullable=True)
+    plic            = Column(JSON,    nullable=True)
+    white_matter    = Column(JSON,    nullable=True)
+    corpus_callosum = Column(JSON,    nullable=True)
+    cerebellum      = Column(JSON,    nullable=True)
+    atrophy         = Column(JSON,    nullable=True)
+    hemorrhage_swi  = Column(JSON,    nullable=True)
+
+    # K.4 Overall result
+    overall_mri      = Column(String, nullable=True)   # "Normal" | "Abnormal"
+    mri_summary      = Column(String, nullable=True)
+    radiologist_name = Column(String, nullable=True)
+    radiologist_date = Column(String, nullable=True)
+
+    # Footer
+    completed_by    = Column(String,  nullable=True)
+    designation     = Column(String,  nullable=True)
+    completion_date = Column(String,  nullable=True)
+
+    # Workflow
+    submission_status = Column(String,   nullable=True, default="draft")
+    saved_at          = Column(String,   nullable=True)
+    saved_by          = Column(String,   nullable=True)
+    submitted_at      = Column(String,   nullable=True)
+    submitted_by      = Column(String,   nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ============================================================================
+# FORM L — Blender Data and Study Summary
+# ============================================================================
+class BlenderStudySummary(Base):
+    __tablename__ = "blender_study_summaries"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, unique=True, index=True, nullable=False)
+
+    # L.1 Identification
+    dob             = Column(String,  nullable=True)
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+    pma_weeks       = Column(Integer, nullable=True)
+    pma_days        = Column(Integer, nullable=True)
+    mother_name     = Column(String,  nullable=True)
+    baby_name       = Column(String,  nullable=True)
+
+    # L.2 Blender Details
+    initial_fio2          = Column(Float,   nullable=True)   # %
+    exit_fio2             = Column(Float,   nullable=True)   # %
+    max_fio2_first_hour   = Column(Float,   nullable=True)   # %
+    fio2_per_minute       = Column(JSON,    nullable=True, default=list)  # [val_0, val_1, ... val_10]
+
+    # L.3 Composite Outcomes
+    # True = Yes, False = No, None = not set, "na" = N/A
+    composite_outcome_1 = Column(String, nullable=True)  # stored as "yes"/"no"/"na"
+    composite_outcome_2 = Column(String, nullable=True)
+    mri_abnormality     = Column(String, nullable=True)
+
+    # Footer
+    completed_by    = Column(String,  nullable=True)
+    designation     = Column(String,  nullable=True)
+    completion_date = Column(String,  nullable=True)
+
+    # Workflow
+    submission_status = Column(String,   nullable=True, default="draft")
+    saved_at          = Column(String,   nullable=True)
+    saved_by          = Column(String,   nullable=True)
+    submitted_at      = Column(String,   nullable=True)
+    submitted_by      = Column(String,   nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

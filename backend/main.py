@@ -20,9 +20,9 @@ from models import (
     CranialUltrasound, ROPScreening, CompositeOutcome,
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
     MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, CranialUSGRecord, SAEReport, AdverseEvents,
-    SAEList, User
+    SAEList, User, MRIBrainAssessment, BlenderStudySummary
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import get_current_user, is_superadmin, require_superadmin, ensure_same_site
@@ -2170,3 +2170,203 @@ def submit_form_h(
     db.commit()
     db.refresh(record)
     return {"message": "Form H submitted and locked", "status": "submitted"}
+
+
+# ============================================================================
+# FORM K — MRI Brain Assessment Endpoints
+# ============================================================================
+
+@app.post("/form-k", response_model=MRIBrainOut)
+def create_form_k(
+    data:         MRIBrainCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(MRIBrainAssessment)
+        .filter(MRIBrainAssessment.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = MRIBrainAssessment(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/form-k/{enrollment_id}", response_model=MRIBrainOut)
+def get_form_k(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(MRIBrainAssessment)
+        .filter(MRIBrainAssessment.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form K not found")
+    return record
+
+
+@app.put("/form-k/{enrollment_id}", response_model=MRIBrainOut)
+def update_form_k(
+    enrollment_id: str,
+    data:          MRIBrainCreate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(MRIBrainAssessment)
+        .filter(MRIBrainAssessment.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form K not found — use POST to create")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.patch("/form-k/{enrollment_id}/submit")
+def submit_form_k(
+    enrollment_id: str,
+    data:          MRIBrainSubmit,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(MRIBrainAssessment)
+        .filter(MRIBrainAssessment.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form K not found")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    record.submission_status = "submitted"
+    db.commit()
+    db.refresh(record)
+    return {"message": "Form K submitted and locked", "status": "submitted"}
+
+
+# ============================================================================
+# FORM L — Blender Data & Study Summary Endpoints
+# ============================================================================
+
+@app.post("/form-l", response_model=BlenderSummaryOut)
+def create_form_l(
+    data:         BlenderSummaryCreate,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(BlenderStudySummary)
+        .filter(BlenderStudySummary.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = BlenderStudySummary(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/form-l/{enrollment_id}", response_model=BlenderSummaryOut)
+def get_form_l(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(BlenderStudySummary)
+        .filter(BlenderStudySummary.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form L not found")
+    return record
+
+
+@app.put("/form-l/{enrollment_id}", response_model=BlenderSummaryOut)
+def update_form_l(
+    enrollment_id: str,
+    data:          BlenderSummaryCreate,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(BlenderStudySummary)
+        .filter(BlenderStudySummary.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form L not found — use POST to create")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.patch("/form-l/{enrollment_id}/submit")
+def submit_form_l(
+    enrollment_id: str,
+    data:          BlenderSummarySubmit,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(BlenderStudySummary)
+        .filter(BlenderStudySummary.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Form L not found")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
+    record.submission_status = "submitted"
+    db.commit()
+    db.refresh(record)
+    return {"message": "Form L submitted and locked", "status": "submitted"}

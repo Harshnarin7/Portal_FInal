@@ -33,6 +33,7 @@ import ViewEntries from "./ViewEntries";
 import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
 import Login from "./Login";
+import LandingPage from "./LandingPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import FloatingLogout from "./components/FloatingLogout";
@@ -46,6 +47,9 @@ function AppContent() {
   const { resetProgress } = useFormProgress();
   const location = useLocation();
 
+  const isLandingPage = location.pathname === "/";
+  const isLoginPage   = location.pathname === "/login";
+
   const isFormPage =
     location.pathname.includes("/form-") ||
     location.pathname.includes("/fio2-") ||
@@ -58,8 +62,8 @@ function AppContent() {
   return (
     <div className={`app-container ${isFormPage ? "form-page-layout" : ""}`}>
 
-      {/* ===== HEADER ===== */}
-      {!isFormPage && (
+      {/* ===== HEADER — hidden on landing page and form pages only ===== */}
+      {!isFormPage && !isLandingPage && (
         <header className="app-header">
           <div className="header-inner">
 
@@ -96,12 +100,20 @@ function AppContent() {
             </div>
 
           </div>
+          {/* Research Staff Login button in header */}
+          {!token && (
+            <div className="header-login-bar">
+              <a href="/login" className="header-login-btn">
+                🔐 Research Staff Login
+              </a>
+            </div>
+          )}
           <div className="header-glow-bar"></div>
         </header>
       )}
 
-        {/* ===== NAVBAR ===== */}
-        {token && !isFormPage && (
+        {/* ===== NAVBAR — hidden on landing page and login page ===== */}
+        {token && !isFormPage && !isLandingPage && !isLoginPage && (
           <nav className="nav-bar">
             <div className="nav-links">
               <NavLink
@@ -150,7 +162,8 @@ function AppContent() {
                 <main className="app-main">
                   <div className="content-wrapper">
                     <Routes>
-                      <Route path="/" element={<Navigate to="/dashboard" />} />
+                      <Route path="/" element={<LandingPage />} />
+                      <Route path="/home" element={<Navigate to="/dashboard" />} />
                       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
@@ -180,7 +193,7 @@ function AppContent() {
         </PatientProvider>
 
         {/* ===== FOOTER ===== */}
-        {!isFormPage && (
+        {!isFormPage && !isLandingPage && (
           <footer className="app-footer">
             <p>© 2025 PORTAL Trial | Developed for Clinical Research Data Entry</p>
           </footer>

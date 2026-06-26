@@ -48,6 +48,7 @@ const BLANK_FORM = {
   relationship_to_participant:"", relationship_other:"",
   reason_for_consent_refusal:"", reason_for_consent_refusal_other:"",
   reason_not_approached_other:"",
+  video_pis_shown: "",
 };
 
 /* ════════════════════════════════════════════
@@ -169,6 +170,7 @@ function ScreeningForm() {
         reason_for_consent_refusal_other: d.reason_for_consent_refusal_other || "",
         reason_not_approached:            d.reason_not_approached            || "",
         reason_not_approached_other:      d.reason_not_approached_other      || "",
+        video_pis_shown:                  d.video_pis_shown                  || "",
       }));
 
       if (d.screening_id)  localStorage.setItem("current_screening_id",  d.screening_id);
@@ -320,6 +322,7 @@ function ScreeningForm() {
     if (!formData.decision_forego_resus) m.push("Forego Resuscitation");
     if (!formData.insufficient_time)     m.push("Insufficient Time");
     if (!formData.iufd)                  m.push("IUFD");
+    if (!formData.video_pis_shown)       m.push("Video PIS Shown");
     return m;
   };
 
@@ -363,6 +366,7 @@ function ScreeningForm() {
       relationship_to_participant: formData.relationship_to_participant || null,
       relationship_other:        formData.relationship_other        || null,
       reason_not_approached:     formData.reason_not_approached     || null,
+      video_pis_shown:           formData.video_pis_shown           || null,
     };
 
     try {
@@ -413,7 +417,7 @@ function ScreeningForm() {
   const handleNext = async () => {
     const success = await saveForm();
     if (!success) return;
-    if (formData.consent_given !== "Yes") {
+    if (formData.consent_given !== "Yes" && formData.consent_given !== "Trial run") {
       localStorage.setItem("enrollment_locked", "true");
       window.dispatchEvent(new Event("storage"));
       const msgs = { No:"consent was refused.", "Not approached":"consent was not taken." };
@@ -499,7 +503,7 @@ function ScreeningForm() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Gestation in weeks clearly known?<span className="required">*</span></label>
+                    <label>Gestation in weeks clearly mentioned?<span className="required">*</span></label>
                     <select name="gestation_known" value={formData.gestation_known} onChange={handleChange}>
                       <option value="">-- Select --</option>
                       <option value="Yes">Yes</option>
@@ -896,26 +900,34 @@ function ScreeningForm() {
                             <option value="">-- Select --</option>
                             <option value="Yes">Yes</option>
                             <option value="No">No</option>
+                            <option value="Trial run">Trial run</option>
                             <option value="Not approached">Not approached</option>
                           </select>
                         </div>
-                        <div />
+                        <div className="form-group">
+                          <label>Video PIS shown?<span className="required">*</span></label>
+                          <select name="video_pis_shown" value={formData.video_pis_shown} onChange={handleChange}>
+                            <option value="">-- Select --</option>
+                            <option value="Yes">Yes</option>
+                            <option value="No">No</option>
+                          </select>
+                        </div>
                       </div>
-                      {(formData.consent_given === "Yes" || formData.consent_given === "No") && (
+                      {(formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") && (
                         <>
                           <div className="form-grid-2">
                             <div className="form-group">
-                              <label>Relationship to Participant<span className="required">*</span></label>
+                              <label>Consent obtained from:<span className="required">*</span></label>
                               <select name="relationship_to_participant"
                                 value={formData.relationship_to_participant || ""} onChange={handleChange}>
                                 <option value="">-- Select --</option>
-                                <option value="Mother">Pregnant Woman</option>
-                                <option value="Father">Husband</option>
+                                <option value="Mother">Mother</option>
+                                <option value="Husband">Husband</option>
                                 <option value="Other">Other</option>
                               </select>
                             </div>
                             <div className="form-group">
-                              <label>Consent Taken By<span className="required">*</span></label>
+                              <label>Consent Obtained By<span className="required">*</span></label>
                               <select name="consent_taken_by" value={formData.consent_taken_by || ""}
                                 onChange={handleChange} disabled={!formData.site_name}>
                                 <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
@@ -944,9 +956,10 @@ function ScreeningForm() {
                             <select name="reason_for_consent_refusal"
                               value={formData.reason_for_consent_refusal || ""} onChange={handleChange}>
                               <option value="">-- Select --</option>
-                              <option>Fear of adverse effects</option>
-                              <option>Family pressure</option>
-                              <option>Other</option>
+                              <option value="Fear of adverse effects">Fear of adverse effects</option>
+                              <option value="Family pressure">Family pressure</option>
+                              <option value="Not known">Not known</option>
+                              <option value="Other">Other</option>
                             </select>
                           </div>
                           {formData.reason_for_consent_refusal === "Other" ? (
