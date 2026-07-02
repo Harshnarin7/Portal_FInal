@@ -1,0 +1,178 @@
+/* NotesBox.css — PORTAL Trial shared notes component */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Wrapper ── */
+.nb-wrap {
+  margin-top: 8px;
+  border-radius: 12px;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.nb-wrap--focused {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+.nb-wrap--filled {
+  border-color: #c7d2fe;
+  background: #fefeff;
+}
+
+/* ── Header ── */
+.nb-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  background: #f8f8ff;
+  border-bottom: 1px solid #e5e7eb;
+}
+.nb-header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Icon box */
+.nb-icon-box {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #4f46e5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #c7d2fe;
+}
+.nb-wrap--filled .nb-icon-box {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+/* Title + badge */
+.nb-title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+.nb-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e1b4b;
+  letter-spacing: -0.01em;
+}
+.nb-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 20px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+}
+.nb-subtitle {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Clear button */
+.nb-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: all 0.12s;
+  margin-top: 2px;
+}
+.nb-clear-btn:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+/* ── Body ── */
+.nb-body { padding: 12px 14px 10px; }
+
+.nb-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #111827;
+  background: #fafafa;
+  line-height: 1.6;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.nb-textarea:focus {
+  border-color: #6366f1;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+}
+.nb-textarea::placeholder {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* ── Footer ── */
+.nb-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.nb-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: #f3f4f6;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.nb-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: #6366f1;
+  transition: width 0.2s ease, background 0.2s;
+}
+.nb-progress-fill--warn  { background: #f59e0b; }
+.nb-progress-fill--limit { background: #ef4444; }
+
+.nb-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9ca3af;
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: right;
+}
+.nb-count--warn  { color: #d97706; }
+.nb-count--limit { color: #dc2626; }

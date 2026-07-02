@@ -19,6 +19,8 @@ import FormG from "./FormG";
 import FormH from "./FormH";
 import FormI from "./FormI";
 import FormJ from "./FormJ";
+import FormK from "./FormK";
+import FormL from "./FormL";
 
 import FiO2AUC from "./FiO2AUC";
 import RespCVNeuroLog from "./RespCVNeuroLog";
@@ -124,18 +126,18 @@ function AppContent() {
               </NavLink>
 
               <NavLink
-                to="/form-a"
-                className="nav-btn primary"
-                onClick={() => {
-                  localStorage.removeItem("current_screening_id");
-                  localStorage.removeItem("current_enrollment_id");
-                  localStorage.removeItem("enrollment_locked");
-                  window.dispatchEvent(new Event("storage"));
-                  window.location.href = "/form-a";
-                }}
-              >
-                <Plus size={16} /> <span>New Entry</span>
-              </NavLink>
+  to="/form-a"
+  className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
+  onClick={() => {
+    localStorage.removeItem("current_screening_id");
+    localStorage.removeItem("current_enrollment_id");
+    localStorage.removeItem("enrollment_locked");
+    window.dispatchEvent(new Event("storage"));
+    window.location.href = "/form-a";
+  }}
+>
+  <Plus size={16} /> <span>New Entry</span>
+</NavLink>
 
               <NavLink
                 to="/entries"
@@ -177,6 +179,8 @@ function AppContent() {
                       <Route path="/form-h/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_h"><FormH /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-i/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_i"><FormI /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-j/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_j"><FormJ /></FormLayout></ProtectedRoute>} />
+                      <Route path="/form-k/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_k"><FormK /></FormLayout></ProtectedRoute>} />
+                      <Route path="/form-l/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_l"><FormL /></FormLayout></ProtectedRoute>} />
                       <Route path="/fio2-auc/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="fio2_auc"><FiO2AUC /></FormLayout></ProtectedRoute>} />
                       <Route path="/vs6-1/:enrollmentId?" element={<ProtectedRoute><FormLayout currentForm="vs6_1"><RespCVNeuroLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/infect-gi-hema-log/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="infect_gi_hema"><InfectGIHemaLog /></FormLayout></ProtectedRoute>} />

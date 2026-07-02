@@ -1,148 +1,165 @@
-// src/Sidebar.jsx  (or src/components/Sidebar.jsx)
+// Sidebar.jsx — PORTAL Trial EDC — Light Theme, CRF v1.22 + Form K & L
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   ClipboardCheck, Baby, UserRoundCheck, CalendarDays, Hospital,
-  Stethoscope, TrendingUp, BarChart3, Activity, Eye,
   FileHeart, HeartPulse, Microscope, TestTube2,
-  ShieldAlert, ClipboardList, FileText, Check, Lock,
+  Activity, Eye, Stethoscope, TrendingUp, BarChart3,
+  Building2, Cpu, ShieldAlert, ClipboardList, FileText,
+  LayoutDashboard, LogOut, Check, Lock, ChevronRight,
 } from 'lucide-react';
 import { useFormProgress } from './context/FormProgressContext';
+import { useAuth } from './context/AuthContext';
 import './Sidebar.css';
 
-const ALL_SECTIONS = [
+/* All forms unlock after A+B are done */
+const PREREQS = {
+  form_a:               [],
+  form_b:               ['form_a'],
+  form_c:               ['form_a', 'form_b'],
+  form_d:               ['form_a', 'form_b'],
+  form_e:               ['form_a', 'form_b'],
+  fio2_auc:             ['form_a', 'form_b'],
+  vs6_1:                ['form_a', 'form_b'],
+  infect_gi_hema:       ['form_a', 'form_b'],
+  metab_renal_vasc_eye: ['form_a', 'form_b'],
+  form_f:               ['form_a', 'form_b'],
+  form_g:               ['form_a', 'form_b'],
+  form_h:               ['form_a', 'form_b'],
+  form_i:               ['form_a', 'form_b'],
+  form_j:               ['form_a', 'form_b'],
+  form_k:               ['form_a', 'form_b'],
+  form_l:               ['form_a', 'form_b'],
+  form_y_sae:           ['form_a', 'form_b'],
+  adverse_events:       ['form_a', 'form_b'],
+  sae_list:             ['form_a', 'form_b'],
+};
+
+/* CRF v1.22 exact order */
+const SECTIONS = [
   {
+    key: 'core',
     title: 'Core Forms',
     items: [
-      { id: 'form_a', label: 'Screening',             path: '/form-a',  icon: ClipboardCheck },
-      { id: 'form_b', label: 'Birth & Resuscitation', path: '/form-b',  icon: Baby },
-      { id: 'form_c', label: 'Maternal Details',      path: '/form-c',  icon: UserRoundCheck },
+      { id: 'form_a', label: 'Form A', sub: 'Screening',             path: '/form-a', Icon: ClipboardCheck },
+      { id: 'form_b', label: 'Form B', sub: 'Birth & Resuscitation', path: '/form-b', Icon: Baby           },
+      { id: 'form_c', label: 'Form C', sub: 'Maternal Details',      path: '/form-c', Icon: UserRoundCheck },
+      { id: 'form_d', label: 'Form D', sub: 'Day 1 Postnatal Life',  path: '/form-d', Icon: CalendarDays   },
+      { id: 'form_e', label: 'Form E', sub: 'NICU Admission',        path: '/form-e', Icon: Hospital       },
     ],
   },
   {
-    title: 'Clinical',
-    items: [
-      { id: 'form_d', label: 'Postnatal Day 1', path: '/form-d', icon: CalendarDays },
-      { id: 'form_e', label: 'NICU Admission',  path: '/form-e', icon: Hospital },
-      { id: 'form_f', label: 'Morbidities',     path: '/form-f', icon: Stethoscope },
-    ],
-  },
-  {
-    title: 'Outcomes',
-    items: [
-      { id: 'form_j', label: 'Composite Outcome', path: '/form-j', icon: TrendingUp },
-      { id: 'form_g', label: 'Outcomes',          path: '/form-g', icon: BarChart3 },
-      { id: 'form_h', label: 'Cranial USG',       path: '/form-h', icon: Activity },
-      { id: 'form_i', label: 'ROP Screening',     path: '/form-i', icon: Eye },
-    ],
-  },
-  {
+    key: 'helpers',
     title: 'Monitoring Logs',
     items: [
-      { id: 'fio2_auc',             label: 'FiO2 AUC',           path: '/fio2-auc',               icon: FileHeart },
-      { id: 'vs6_1',                label: 'Resp / CV / Neuro',  path: '/vs6-1',                  icon: HeartPulse },
-      { id: 'infect_gi_hema',       label: 'Infect / GI / Hema', path: '/infect-gi-hema-log',     icon: Microscope },
-      { id: 'metab_renal_vasc_eye', label: 'Metab / Renal / Eye',path: '/metab-renal-vasc-eye-log',icon: TestTube2 },
+      { id: 'fio2_auc',             label: 'Helper 1', sub: 'FiO₂ AUC Logging',   path: '/fio2-auc',                Icon: FileHeart  },
+      { id: 'vs6_1',                label: 'Helper 2', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
+      { id: 'infect_gi_hema',       label: 'Helper 3', sub: 'Infect / GI / Hema',  path: '/infect-gi-hema-log',      Icon: Microscope },
+      { id: 'metab_renal_vasc_eye', label: 'Helper 4', sub: 'Metab / Renal / Eye', path: '/metab-renal-vasc-eye-log',Icon: TestTube2  },
     ],
   },
   {
+    key: 'assessment',
+    title: 'Clinical Assessment',
+    items: [
+      { id: 'form_f', label: 'Form F', sub: 'Cranial Ultrasonography', path: '/form-f', Icon: Activity    },
+      { id: 'form_g', label: 'Form G', sub: 'ROP Screening Record',    path: '/form-g', Icon: Eye         },
+      { id: 'form_h', label: 'Form H', sub: 'Neonatal Morbidities',    path: '/form-h', Icon: Stethoscope },
+    ],
+  },
+  {
+    key: 'outcomes',
+    title: 'Outcome Forms',
+    items: [
+      { id: 'form_i', label: 'Form I', sub: 'Study Outcome Assessment',   path: '/form-i', Icon: TrendingUp },
+      { id: 'form_j', label: 'Form J', sub: 'External Hospital Outcomes', path: '/form-j', Icon: Building2  },
+      { id: 'form_k', label: 'Form K', sub: 'MRI Brain Assessment',       path: '/form-k', Icon: Cpu        },
+      { id: 'form_l', label: 'Form L', sub: 'Blender Data & Summary',     path: '/form-l', Icon: BarChart3  },
+    ],
+  },
+  {
+    key: 'safety',
     title: 'Safety',
     items: [
-      { id: 'form_y_sae',     label: 'SAE Form',       path: '/form-y-sae',    icon: ShieldAlert },
-      { id: 'adverse_events', label: 'Adverse Events', path: '/adverse-events',icon: ClipboardList },
-      { id: 'sae_list',       label: 'SAE Listing',    path: '/sae-list',      icon: FileText },
+      { id: 'form_y_sae',     label: 'Form Y', sub: 'SAE Reporting',  path: '/form-y-sae',     Icon: ShieldAlert   },
+      { id: 'adverse_events', label: 'AE',     sub: 'Adverse Events', path: '/adverse-events', Icon: ClipboardList },
+      { id: 'sae_list',       label: 'SAE',    sub: 'SAE Listing',    path: '/sae-list',       Icon: FileText      },
     ],
   },
 ];
 
-// Forms that must be done before others unlock
-const REQUIRED_FORMS = ['form_a', 'form_b'];
+const TOTAL_FORMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
+const ROLE_LABELS = {
+  superadmin:'Super Admin', admin:'Admin', pi:'Principal Investigator',
+  scientist:'Scientist', nurse:'Research Nurse', deo:'Data Entry Operator', monitor:'Monitor',
+};
 
-export default function Sidebar() {
-  const { completedForms = [], isProgressLoaded } = useFormProgress();
+export default function Sidebar({ currentForm }) {
+  const { completedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  /* ══════════════════════════════════════════
-     BUG FIX — Sidebar reads localStorage once
-     at mount, then NEVER updates when the form
-     saves and writes new IDs.
-
-     Fix: use state + listen to both the storage
-     event (cross-tab) AND a custom
-     "localStorageUpdate" event (same-tab) that
-     we dispatch from saveForm().
-  ══════════════════════════════════════════ */
   const readIds = () => ({
-    screeningId:  localStorage.getItem("current_screening_id"),
-    enrollmentId: localStorage.getItem("current_enrollment_id"),
+    screeningId:  localStorage.getItem('current_screening_id'),
+    enrollmentId: localStorage.getItem('current_enrollment_id'),
   });
-
   const [ids, setIds] = useState(readIds);
 
   useEffect(() => {
     const sync = () => setIds(readIds());
-    // "storage" fires for cross-tab changes
-    window.addEventListener("storage", sync);
-    // "focus" catches returning to tab
-    window.addEventListener("focus", sync);
-    return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("focus", sync);
-    };
+    window.addEventListener('storage', sync);
+    window.addEventListener('focus', sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', sync); };
   }, []);
-
-  const { screeningId, enrollmentId } = ids;
-
-  const [isEnrollmentLocked, setIsEnrollmentLocked] = useState(
-    localStorage.getItem("enrollment_locked") === "true"
-  );
 
   useEffect(() => {
-    const checkLock = () =>
-      setIsEnrollmentLocked(localStorage.getItem("enrollment_locked") === "true");
-    window.addEventListener("storage", checkLock);
-    return () => window.removeEventListener("storage", checkLock);
+    const { enrollmentId } = ids;
+    if (enrollmentId && enrollmentId !== 'undefined' && enrollmentId !== 'null') {
+      fetchProgress(enrollmentId);
+    }
+  }, [ids.enrollmentId]); // eslint-disable-line
+
+  const [enrollmentLocked, setEnrollmentLocked] = useState(
+    localStorage.getItem('enrollment_locked') === 'true'
+  );
+  useEffect(() => {
+    const check = () => setEnrollmentLocked(localStorage.getItem('enrollment_locked') === 'true');
+    window.addEventListener('storage', check);
+    return () => window.removeEventListener('storage', check);
   }, []);
 
-  const isUnlocked = REQUIRED_FORMS.every(id => completedForms.includes(id));
-
-  /* Build the correct path for each form including the ID param */
   const getPath = (form) => {
-    if (form.id === 'form_a' && screeningId &&
-        screeningId !== "undefined" && screeningId !== "null") {
-      return `/form-a/${screeningId}`;
-    }
-    if (form.id === 'form_b' && screeningId &&
-        screeningId !== "undefined" && screeningId !== "null") {
-      return `/form-b/${screeningId}`;
-    }
-    if (enrollmentId && enrollmentId !== "undefined" && enrollmentId !== "null") {
-      return `${form.path}/${enrollmentId}`;
-    }
-    return form.path;
+    const sid = ids.screeningId  && ids.screeningId  !== 'undefined' ? ids.screeningId  : null;
+    const eid = ids.enrollmentId && ids.enrollmentId !== 'undefined' ? ids.enrollmentId : null;
+    if (form.id === 'form_a') return sid ? `/form-a/${sid}` : '/form-a';
+    if (form.id === 'form_b') return sid ? `/form-b/${sid}` : '/form-b';
+    return eid ? `${form.path}/${eid}` : form.path;
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    window.location.href = '/login';
+  const isUnlocked = (formId) => {
+    if (enrollmentLocked) return false;
+    return (PREREQS[formId] || []).every(p => completedForms.includes(p));
   };
 
-  const progressPct = Math.round((completedForms.length / 17) * 100);
+  const progressPct = TOTAL_FORMS > 0 ? Math.round((completedForms.length / TOTAL_FORMS) * 100) : 0;
 
   return (
     <aside className="sidebar">
 
-      {/* ── HEADER ── */}
       <div className="sidebar-header">
-        <div className="sidebar-brand">
+        <div className="sidebar-brand" onClick={() => navigate('/dashboard')} title="Dashboard">
           <div className="sidebar-logo-box">
             <img src="/portal-logo.png" alt="PORTAL" className="sidebar-logo-img" />
           </div>
-          <div className="sidebar-header-title">PORTAL TRIAL</div>
+          <div>
+            <div className="sidebar-header-title">PORTAL Trial</div>
+            <div className="sidebar-header-sub">Clinical EDC · CRF v1.22</div>
+          </div>
         </div>
         <div className="sidebar-progress">
           <div className="progress-label">
-            <span>Overall Progress</span>
-            <span>{completedForms.length} / 17</span>
+            <span>Case Progress</span>
+            <span>{completedForms.length} / {TOTAL_FORMS} forms</span>
           </div>
           <div className="progress-bar-bg">
             <div className="progress-bar-fill" style={{ width: `${progressPct}%` }} />
@@ -150,79 +167,99 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* ── NAV ── */}
       <nav className="sidebar-nav">
+        <NavLink to="/dashboard"
+          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+          <LayoutDashboard size={14} strokeWidth={2} />
+          <span>Dashboard</span>
+        </NavLink>
+        <div className="sidebar-sep" />
+
         {!isProgressLoaded ? (
-          <div className="sidebar-loading">Loading…</div>
-        ) : (
-          ALL_SECTIONS.map(section => (
-            <div key={section.title} className="sidebar-section">
-              <div className="sidebar-section-title">{section.title}</div>
+          <div className="sidebar-loading">
+            <div className="sb-dots"><span/><span/><span/></div>
+            <span>Loading…</span>
+          </div>
+        ) : SECTIONS.map(section => {
+          const done  = section.items.filter(i => completedForms.includes(i.id)).length;
+          const total = section.items.length;
+          return (
+            <div key={section.key} className="sidebar-section">
+              <div className="sidebar-section-header">
+                <span className="sidebar-section-title">{section.title}</span>
+                <span className={`sidebar-section-badge ${done === total ? 'all-done' : ''}`}>
+                  {done}/{total}
+                </span>
+              </div>
+
               {section.items.map(form => {
                 const completed = completedForms.includes(form.id);
-                const locked    = isEnrollmentLocked ||
-                  (!REQUIRED_FORMS.includes(form.id) && !isUnlocked);
-                const Icon      = form.icon;
+                const unlocked  = isUnlocked(form.id);
+                const locked    = !unlocked;
+                const isCurrent = currentForm === form.id;
+                const { Icon }  = form;
                 const path      = getPath(form);
+                const stateClass = locked ? 'state-locked' : completed ? 'state-done' : isCurrent ? 'state-active' : 'state-open';
 
                 return (
-                  <NavLink
-                    key={form.id}
-                    to={locked ? '#' : path}
+                  <NavLink key={form.id} to={locked ? '#' : path}
                     onClick={e => {
                       if (locked) {
                         e.preventDefault();
-                        alert(isEnrollmentLocked
-                          ? 'Participant cannot be enrolled — consent was not given.'
-                          : 'Complete Screening and Birth & Resuscitation forms first.');
+                        const missing = (PREREQS[form.id] || [])
+                          .filter(p => !completedForms.includes(p))
+                          .map(p => p === 'form_a' ? 'Form A (Screening)' : 'Form B (Birth & Resuscitation)')
+                          .join(' and ');
+                        alert(enrollmentLocked
+                          ? 'Enrollment locked — consent not given.'
+                          : `Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
                       }
                     }}
                     className={({ isActive }) =>
-                      `sidebar-item${isActive ? ' active' : ''}${locked ? ' locked' : ''}`
+                      `sidebar-item ${stateClass}${isActive && !locked ? ' nav-active' : ''}`
                     }
                   >
-                    <div className="icon-box">
-                      <Icon size={16} strokeWidth={2.5} />
+                    {isCurrent && !locked && <div className="item-accent" />}
+                    <div className={`item-icon ${stateClass}`}>
+                      {locked    ? <Lock  size={12} strokeWidth={2.5} /> :
+                       completed ? <Check size={12} strokeWidth={3}   /> :
+                                   <Icon  size={12} strokeWidth={2}   />}
                     </div>
-                    <span className="label">{form.label}</span>
-                    <span className="status-indicator">
-                      {locked
-                        ? <Lock size={12} />
-                        : completed
-                          ? <Check size={14} className="status-check" />
-                          : null}
-                    </span>
+                    <div className="item-text">
+                      <span className="item-label">{form.label}</span>
+                      <span className="item-sub">{form.sub}</span>
+                    </div>
+                    <div className="item-right">
+                      {completed ? (
+                        <span className="item-badge done">✓</span>
+                      ) : locked ? (
+                        <Lock size={10} strokeWidth={2.5} className="item-lock-icon" />
+                      ) : isCurrent ? (
+                        <span className="item-badge active">Active</span>
+                      ) : (
+                        <ChevronRight size={12} className="item-chevron" />
+                      )}
+                    </div>
                   </NavLink>
                 );
               })}
             </div>
-          ))
-        )}
+          );
+        })}
       </nav>
 
-      {/* ── FOOTER ── */}
       <div className="sidebar-footer">
-        <div className="user-profile">
-          <div className="avatar">RN</div>
-          <div className="user-info">
-            <span className="user-name">Nurse Administrator</span>
-            <span className="user-role">PGIMER Site</span>
+        <div className="sidebar-user">
+          <div className="sidebar-avatar">{(user?.name || 'U')[0].toUpperCase()}</div>
+          <div className="sidebar-user-info">
+            <span className="sidebar-user-name">{user?.name || 'User'}</span>
+            <span className="sidebar-user-role">
+              {ROLE_LABELS[user?.role] || user?.role || 'Staff'}
+              {user?.site ? ` · ${user.site}` : ''}
+            </span>
           </div>
-          <button
-            onClick={handleLogout}
-            title="Log out"
-            style={{
-              marginLeft:'auto', border:'none', background:'transparent',
-              cursor:'pointer', color:'var(--text-muted)', padding:'6px',
-              borderRadius:'6px', display:'flex', alignItems:'center',
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
+          <button className="sidebar-logout" onClick={() => { localStorage.clear(); window.location.href = '/login'; }} title="Log out">
+            <LogOut size={14} strokeWidth={2} />
           </button>
         </div>
       </div>
