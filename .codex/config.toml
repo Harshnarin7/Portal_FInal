@@ -1,0 +1,7 @@
+[mcp_servers.Locofy]
+command = 'C:\Users\Hp\AppData\Roaming\npm\locofy-mcp.cmd'
+
+[mcp_servers.Locofy.env]
+PERSONAL_ACCESS_TOKEN = "lpat_v1_OjqWEpzs74GUZ5rr-q0U9AssI0EWNw2mHFgip1_yIiCFxiZ4-H87V5W14LsJ-qFWHGN1GAwCO_wV9V2OSHI-X-lTf4RCR5-7VdKHrKWqTahyMGo6EiRNzYnpyLMUevAjpFNPNu4="
+PROJECT_ID = "3FGRxCEAKuYeJhiU4H5wD2UuTRJ"
+IDE_SOURCE = "claude_code"

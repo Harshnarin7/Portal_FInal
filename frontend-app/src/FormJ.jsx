@@ -116,10 +116,13 @@ useEffect(() => {
     .then(res => {
       const data = res.data;
 
+      const hasGestation = data.gestation_weeks != null || data.gestation_days != null;
       setFormData(prev => ({
         ...prev,
         dob: data.date_of_birth || "",
-        gestation_at_birth: `${data.gestation_weeks} weeks ${data.gestation_days} days`
+        gestation_at_birth: hasGestation
+          ? `${data.gestation_weeks ?? 0} weeks ${data.gestation_days ?? 0} days`
+          : prev.gestation_at_birth
       }));
     })
     .catch(err => {
@@ -131,8 +134,8 @@ useEffect(() => {
   if (!patientData) return;
 
   const gestationFormatted =
-  patientData.gestation_weeks !== null &&
-  patientData.gestation_days !== null
+  patientData.gestation_weeks != null &&
+  patientData.gestation_days != null
     ? `${patientData.gestation_weeks} weeks ${patientData.gestation_days} days`
     : "";
 
@@ -1133,7 +1136,7 @@ return(
 
 <div className="form-a-header">
 <div className="form-a-header-main">
-<h2>Form G — Composite Outcome Assessment</h2>
+<h2>Form J — Composite Outcome Assessment</h2>
 </div>
 </div>
 

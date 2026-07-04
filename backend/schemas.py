@@ -404,8 +404,8 @@ class BirthResuscitationCreate(BaseModel):
     @field_validator("baby_uid")
     @classmethod
     def validate_baby_uid(cls, v):
-        if v is None:
-            return v
+        if not v:
+            return None
         if not v.isdigit():
             raise ValueError("Baby UID must contain digits only")
         if len(v) > 12:
@@ -416,8 +416,8 @@ class BirthResuscitationCreate(BaseModel):
     @field_validator("contact_mother", "contact_husband")
     @classmethod
     def validate_contact(cls, v):
-        if v is None:
-            return v
+        if not v:
+            return None
         if not v.isdigit():
             raise ValueError("Contact must contain digits only")
         if len(v) != 10:

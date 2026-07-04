@@ -1,0 +1,123 @@
+/* Final cascade: Form A/B are the visual contract for every clinical form. */
+:root {
+  --portal-blue: #0284c7; --portal-blue-dark: #0369a1;
+  --portal-ink: #0f172a; --portal-muted: #64748b;
+  --portal-border: #e2e8f0; --portal-canvas: #f8fafc;
+  --portal-card: #fff; --portal-radius: 16px;
+  --portal-focus: 0 0 0 3px rgba(2,132,199,.16);
+}
+html { scroll-behavior: smooth; }
+body { color: var(--portal-ink); background: var(--portal-canvas); }
+
+.form-a-container, .form-container, .form-wrapper, .rcn-page, .fh-page, .fio2-page {
+  width: 100%; max-width: none; margin: 0; padding: 0;
+  background: transparent; box-shadow: none;
+}
+.form-a-header, .form-a-header-main, .form-header, .fh-header, .fio2-header {
+  background: transparent !important; border: 0 !important;
+  border-bottom: 1px solid var(--portal-border) !important;
+  border-radius: 0 !important; box-shadow: none !important;
+  color: var(--portal-ink) !important; padding: 0 0 24px !important;
+  margin: 0 0 32px !important;
+}
+.form-a-header { padding: 0 !important; }
+.form-a-header-main h2, .form-header h2, .fh-header h2, .fio2-header h2 {
+  color: var(--portal-ink) !important; font-size: clamp(1.65rem,3vw,2rem) !important;
+  font-weight: 900 !important; letter-spacing: -.025em; line-height: 1.15; margin: 0;
+}
+
+.form-section:not(.card-section), .soft-blue, .soft-green, .soft-yellow,
+.soft-pink, .card, .rcn-card, .fh-card, .ae-section {
+  background: var(--portal-card) !important;
+  border: 1px solid var(--portal-border) !important;
+  border-radius: var(--portal-radius) !important;
+  box-shadow: 0 1px 3px rgba(15,23,42,.06) !important;
+}
+.form-section:not(.card-section) { padding: 24px !important; margin-bottom: 24px !important; }
+.form-section:not(.card-section) > h3 {
+  color: #1e3a5f !important; font-size: 15px !important; font-weight: 750 !important;
+  letter-spacing: -.01em !important; text-transform: none !important;
+  margin: -24px -24px 24px !important; padding: 16px 24px !important;
+  background: #f8fafc !important; border-bottom: 1px solid var(--portal-border) !important;
+  border-radius: 16px 16px 0 0;
+}
+.card { margin-bottom: 16px; overflow: hidden; }
+.card-header-row, .rcn-card-header, .fh-card-header {
+  min-height: 56px; padding: 16px 20px !important;
+  background: #f8fafc !important; border-bottom: 1px solid var(--portal-border) !important;
+}
+.card-body, .rcn-card-body, .fh-card-body { padding: 20px !important; }
+
+.form-layout-content input:not([type="checkbox"]):not([type="radio"]),
+.form-layout-content select, .form-layout-content textarea,
+.rcn-input, .rcn-num-input input, .fh-input {
+  min-height: 48px; border: 1.5px solid var(--portal-border) !important;
+  border-radius: 10px !important; background-color: #fff; color: var(--portal-ink);
+  font: 500 14px/1.4 Inter,system-ui,sans-serif;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.form-layout-content textarea { min-height: 96px; padding: 12px 14px; }
+.form-layout-content input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.form-layout-content select:focus-visible, .form-layout-content textarea:focus-visible,
+.form-layout-content button:focus-visible, .form-layout-content [tabindex]:focus-visible {
+  outline: none !important; border-color: var(--portal-blue) !important;
+  box-shadow: var(--portal-focus) !important;
+}
+.form-layout-content input:disabled, .form-layout-content input[readonly],
+.form-layout-content select:disabled, .form-layout-content textarea:disabled {
+  background: #f1f5f9 !important; color: var(--portal-muted) !important;
+  cursor: not-allowed; opacity: 1;
+}
+.form-layout-content label, .rcn-field-label, .fh-label {
+  color: var(--portal-ink); font-size: 13px; font-weight: 650;
+}
+.field-note, .helper-text, .rcn-field-sub { color: var(--portal-muted) !important; font-size: 12px !important; }
+.rcn-status-select { width: min(220px,100%); padding: 0 38px 0 14px; }
+.error-text, .field-error { color: #dc2626 !important; font-size: 12px !important; font-weight: 600; }
+.input-error, [aria-invalid="true"] { border-color: #ef4444 !important; background: #fff7f7 !important; }
+
+.emr-toggle-btn, .rx-horizontal-btn, .yn-btn, .rcn-yn-btn, .rcn-pill,
+.stage-pill, .mode-option, .checkbox-item { min-height: 42px; border-radius: 10px !important; }
+.form-layout-content input[type="checkbox"], .form-layout-content input[type="radio"] {
+  width: 18px; height: 18px; accent-color: var(--portal-blue);
+}
+
+.form-layout-content table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  border: 1px solid var(--portal-border); border-radius: 12px;
+  overflow: hidden; background: #fff;
+}
+.form-layout-content th {
+  background: #f0f9ff !important; color: #0369a1 !important;
+  font-size: 11px !important; font-weight: 750 !important;
+  letter-spacing: .045em; text-transform: uppercase;
+}
+.form-layout-content th, .form-layout-content td { padding: 11px 12px; border-bottom: 1px solid #edf2f7; }
+.form-layout-content tr:last-child td { border-bottom: 0; }
+
+.rcn-context-bar, .rcn-summary, .rcn-timeline-wrap, .fh-context-bar {
+  background: #fff !important; border: 1px solid var(--portal-border) !important;
+  border-radius: 14px !important; box-shadow: 0 1px 3px rgba(15,23,42,.05) !important;
+}
+.rcn-card-title, .fh-card-title { color: #1e3a5f !important; font-size: 15px !important; }
+.rcn-card-icon-wrap, .fh-card-icon { background: #e0f2fe !important; color: var(--portal-blue-dark) !important; }
+.rcn-loading {
+  min-height: 180px; display: grid; place-items: center;
+  border: 1px dashed #bae6fd; border-radius: 14px;
+  background: linear-gradient(90deg,#f8fafc 25%,#f0f9ff 50%,#f8fafc 75%);
+  background-size: 200% 100%; animation: portal-shimmer 1.5s infinite linear;
+  color: #0369a1; font-weight: 650;
+}
+@keyframes portal-shimmer { to { background-position: -200% 0; } }
+.form-message--error, .msg-error { background:#fef2f2 !important; border-color:#fecaca !important; color:#b91c1c !important; }
+.form-message--success, .msg-success { background:#f0fdf4 !important; border-color:#bbf7d0 !important; color:#15803d !important; }
+
+@media (max-width: 768px) {
+  .form-section:not(.card-section) { padding: 18px !important; }
+  .form-section:not(.card-section) > h3 { margin:-18px -18px 18px !important; padding:14px 18px !important; }
+  .form-layout-content table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .rcn-context-fields { overflow-x:auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}

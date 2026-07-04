@@ -1,0 +1,98 @@
+/* ================================================================
+   FormC.css — Toggle fix scoped to .screening-form only
+   ================================================================ */
+
+/* Container */
+.screening-form .fc-toggle-group {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  width: fit-content !important;
+  max-width: 100%;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+}
+
+/* Buttons — fixed natural width, never grow */
+.screening-form .fc-toggle-btn {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 72px;
+  max-width: none;
+  height: 36px;
+  padding: 0 22px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: none !important;
+  border-radius: 0 !important;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+  white-space: nowrap;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+}
+
+/* Divider — left border on every button except the first */
+.screening-form .fc-toggle-btn.fc-divider {
+  border-left: 1.5px solid #e2e8f0!important;
+}
+
+/* Hover on inactive */
+.screening-form .fc-toggle-btn:hover:not(.fc-active):not(:disabled) {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+/* YES */
+.screening-form .fc-toggle-btn.fc-active.fc-yes {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+.screening-form .fc-toggle-btn.fc-active.fc-yes + .fc-toggle-btn {
+  border-left-color: #16a34a !important;
+}
+
+/* NO */
+.screening-form .fc-toggle-btn.fc-active.fc-no {
+  background: #dc2626 !important;
+  color: #fff !important;
+}
+.screening-form .fc-toggle-btn.fc-active.fc-no + .fc-toggle-btn {
+  border-left-color: #dc2626 !important;
+}
+
+/* OTHER (Not known / Twin / etc.) */
+.screening-form .fc-toggle-btn.fc-active.fc-other {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+.screening-form .fc-toggle-btn.fc-active.fc-other + .fc-toggle-btn {
+  border-left-color: #2563eb !important;
+}
+
+/* Container border reflects active state */
+.screening-form .fc-toggle-group:has(.fc-yes)   { border-color: #16a34a !important; }
+.screening-form .fc-toggle-group:has(.fc-no)     { border-color: #dc2626 !important; }
+.screening-form .fc-toggle-group:has(.fc-other)  { border-color: #2563eb !important; }
+
+/* Disabled */
+.screening-form .fc-toggle-group.fc-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Error */
+.screening-form .fc-toggle-group.fc-toggle-error {
+  border-color: #fca5a5 !important;
+}

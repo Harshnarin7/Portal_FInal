@@ -187,15 +187,15 @@ export default function BirthResuscitationForm() {
   const handleIntv = (type,time,val) =>
     setFormData(p=>({...p,interventions:{...p.interventions,[type]:{...p.interventions[type],[time]:val}}}));
 
-  /* ── Build payload ── */
+   /* ── Build payload ── */
   const buildPayload = useCallback(() => ({
     screening_id:        formData.screening_id,
     enrollment_id:       formData.enrollment_id,
     mother_name_first:   formData.mother_name_first,
     mother_name_surname: formData.mother_name_surname,
     maternal_uid:        formData.maternal_uid,
-    contact_mother:      formData.contact_mother,
-    contact_husband:     formData.contact_husband,
+    contact_mother:      formData.contact_mother || null,
+    contact_husband:     formData.contact_husband || null,
     baby_uid:            formData.baby_uid || null,
     baby_admission_no:   formData.baby_admission_no || null,
     gestation_weeks:     num(formData.gestation_weeks),
@@ -205,8 +205,9 @@ export default function BirthResuscitationForm() {
       ? new Date(formData.date_of_birth).toISOString().split("T")[0] : null,
     time_of_birth:       formData.time_of_birth || null,
     gender:              formData.gender,
-    indication_for_delivery: formData.indication_for_delivery==="Other"
-      ? formData.indication_for_delivery_other : formData.indication_for_delivery,
+    indication_for_delivery: (formData.indication_for_delivery || []).includes("Other")
+      ? [...(formData.indication_for_delivery || []).filter(v => v !== "Other"), formData.indication_for_delivery_other].filter(Boolean).join(", ")
+      : (formData.indication_for_delivery || []).join(", "),
     delivery_mode:       formData.delivery_mode,
     labor_type:          formData.labor_type,
     maternal_complication: formData.maternal_complication || null,

@@ -102,6 +102,30 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder = "0" }) {
   );
 }
 
+function CultureStatusRow({ sent, positive, onChange, disabled }) {
+  const value = sent !== true ? "" : positive === true ? "Positive" : positive === false ? "Negative" : "Awaited";
+  return (
+    <div className="rcn-yn-row">
+      <label className="rcn-yn-label" htmlFor="blood-culture-status">Blood Culture Result</label>
+      <select id="blood-culture-status" className="rcn-status-select" value={value}
+        disabled={disabled}
+        onChange={e => {
+          const next = e.target.value;
+          onChange({
+            sent: next !== "",
+            positive: next === "Positive" ? true : next === "Negative" ? false : null,
+          });
+        }}>
+        <option value="">Select result</option>
+        <option value="Positive">Positive</option>
+        <option value="Negative">Negative</option>
+        <option value="Awaited">Awaited</option>
+      </select>
+      <span className="rcn-field-sub">Awaited results remain editable on the original NICU day.</span>
+    </div>
+  );
+}
+
 function TextRow({ label, value, onChange, disabled, placeholder = "Enter value" }) {
   return (
     <div className="rcn-yn-row">
@@ -821,8 +845,9 @@ export default function InfectGIHemaLog() {
                 <div className="rcn-subsection">
                   <div className="rcn-subsection-title">If Sepsis Suspected</div>
                   <div className="rcn-yn-list">
-                    <YNRow label="Blood Culture Sent"     value={infData.blood_culture_sent}     onChange={v => setInf("blood_culture_sent", v)}     disabled={!isFieldEditable} />
-                    <YNRow label="Blood Culture Positive" value={infData.blood_culture_positive} onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable} />
+                    <CultureStatusRow sent={infData.blood_culture_sent} positive={infData.blood_culture_positive}
+                      onChange={({ sent, positive }) => setInfData(p => ({ ...p, blood_culture_sent: sent, blood_culture_positive: positive }))}
+                      disabled={!isFieldEditable} />
                     <YNRow label="EOS (≤72h)"             value={infData.eos}                    onChange={v => setInf("eos", v)}                    disabled={!isFieldEditable} />
                     <YNRow label="LOS (>72h)"             value={infData.los}                    onChange={v => setInf("los", v)}                    disabled={!isFieldEditable} />
                   </div>

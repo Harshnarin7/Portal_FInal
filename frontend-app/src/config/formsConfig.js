@@ -10,6 +10,9 @@ export const FORMS_CONFIG = [
   { key: "form_i", label: "Form I – ROP Screening", route: "/form-i" },
   { key: "form_j", label: "Form J – Composite Outcome", route: "/form-j" },
 
+  { key: "form_k", label: "Form K - MRI Brain Assessment", route: "/form-k" },
+  { key: "form_l", label: "Form L - Study Completion", route: "/form-l" },
+
   // Helper forms
   { key: "fio2_auc", label: "Helper – FiO₂ AUC", route: "/fio2-auc" },
   { key: "vs6_1", label: "Helper – Resp / CV / Neuro", route: "/vs6-1" },

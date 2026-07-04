@@ -1,0 +1,392 @@
+{
+  "file": "C:\\Users\\Hp\\Portal_trial-main\\CRF_source.docx",
+  "comment_count": 18,
+  "comments": [
+    {
+      "id": "9",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T17:23:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN:\nAurangabad – 11 digits\nDibrugarh - Serial number/Year\nGMCH Chandigarh – 9-11 digits\nIOG Chennai – 4-6 digits",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Maternal UID (CR number)"
+            },
+            {
+              "where": "end",
+              "text": "____________________"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T16:42:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN:\nThis field should appear as MRD number for mother in Aurangabad – 4/5/6 digits\n11 digit admission number assigned to mother in Dibrugarh\nCan be autofilled from maternal UID for GMCH Chd and IOG Chennai\nMandatory field for PGI – 10 digits",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "____________________"
+            },
+            {
+              "where": "end",
+              "text": "____________________"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "16",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T17:13:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN:\nThis field should appear as MRD number for baby in Aurangabad – 4/5/6 digits\nDibrugarh – admission number only assigned to baby if admitted in the NICU (11 digits)\n9-11 digit number for GMCH Chandigarh generated 2 mins after birth if baby survives\nMandatory field for PGI – 10 digits\nIOG Chennai – same as UID 4-6 digits",
+      "anchors": []
+    },
+    {
+      "id": "18",
+      "author": "Mannat Guliani",
+      "date": "2026-06-09T11:19:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: This REDCap should only appear for PGI in all forms",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Baby’s Annual Number (REDCap): ________"
+            },
+            {
+              "where": "end",
+              "text": "Baby’s Annual Number (REDCap): ________"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "19",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T17:25:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN:\nNo Annual number for Aurangabad\nDelivery room Logbook serial number – Dibrugarh\nPGI – 4 digits\nSNCU – 4 digit number in IOG Chennai",
+      "anchors": []
+    },
+    {
+      "id": "30",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T18:16:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Address Format at other sites:\nDibrugarh - C/O, village, Post Office, Police Station, District\nAurangabad, GMCH Chd – Pick address from Aadhar card",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Address: House No/Street: _____________________________Village/VPO:___________City/Tehsil:__________________ Police station/District: ______________ State:____________________ Nearest Landmark: ______"
+            },
+            {
+              "where": "end",
+              "text": "Address: House No/Street: _____________________________Village/VPO:___________City/Tehsil:__________________ Police station/District: ______________ State:____________________ Nearest Landmark: ______"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "73",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T12:52:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Should have a + button to add more than one weight",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Weight (all measured weights of the day chronologically)"
+            },
+            {
+              "where": "end",
+              "text": "Weight (all measured weights of the day chronologically)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "85",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T11:12:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Positive\nNegative\nAwaited  Should be editable such that the user can go back and enter the result to the first day awaited for entered",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Blood culture"
+            },
+            {
+              "where": "end",
+              "text": "Blood culture"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "88",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T13:27:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: With + options to enter value of each feed volume and then should be auto calculated to get total volume of the feed per day, and then divided by the weight of the day to get an average for the day.\nIf weight is less than 1 kg , divide by 1, if more, than value",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Feed volume (ml/kg/d)"
+            },
+            {
+              "where": "end",
+              "text": "Feed volume (ml/kg/d)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "91",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T13:31:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Value/Not tested",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Max TSB (mg/dL)"
+            },
+            {
+              "where": "end",
+              "text": "Max TSB (mg/dL)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "93",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T20:17:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Dropdown options\nValue\nNot low\nNot tested",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Lowest glucose reading (if <45 mg/dL)"
+            },
+            {
+              "where": "end",
+              "text": "Lowest glucose reading (if <45 mg/dL)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "94",
+      "author": "Mannat Guliani",
+      "date": "2026-05-30T20:17:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Dropdown options\nValue\nNot high\nNot tested",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Highest glucose reading (if >180 mg/dL)"
+            },
+            {
+              "where": "end",
+              "text": "Highest glucose reading (if >180 mg/dL)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "95",
+      "author": "Mannat Guliani",
+      "date": "2026-06-04T13:18:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Dropdown options\nValue\nIn range\nNot tested\nWith a + button to add more than one value in one day (if needed)",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Sodium value (< 135 or > 142)"
+            },
+            {
+              "where": "end",
+              "text": "Sodium value (< 135 or > 142)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "97",
+      "author": "Mannat Guliani",
+      "date": "2026-06-04T13:18:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN:Dropdown options\nValue\nIn range\nNot tested\nWith a + button to add more than one value in one day (if needed)",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Potassium value (<3.5 or > 6)"
+            },
+            {
+              "where": "end",
+              "text": "Potassium value (<3.5 or > 6)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "99",
+      "author": "Mannat Guliani",
+      "date": "2026-06-09T14:44:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Dropdown options\nValue\nIn range\nNot tested\nWith a + button to add more than one value in one day (if needed)",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Ionized Calcium value (<0.9 or > 1.2)"
+            },
+            {
+              "where": "end",
+              "text": "Ionized Calcium value (<0.9 or > 1.2)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "104",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T12:57:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Should have three blocks to enter urine output for each shift and then it should be totalled automatically.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Urine output  (8am  2pm + 2pm  8 pm + 8pm  8 am) = Total"
+            },
+            {
+              "where": "end",
+              "text": "Urine output  (8am  2pm + 2pm  8 pm + 8pm  8 am) = Total"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "105",
+      "author": "Mannat Guliani",
+      "date": "2026-06-15T13:10:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: With + buttons to add more than one value\nOption - either to enter a value < 36.5 or > 37.5, or Temp normal",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Urine output  (8am  2pm + 2pm  8 pm + 8pm  8 am) = Total"
+            },
+            {
+              "where": "end",
+              "text": "Urine output  (8am  2pm + 2pm  8 pm + 8pm  8 am) = Total"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "130",
+      "author": "Mannat Guliani",
+      "date": "2026-06-17T13:04:00Z",
+      "initials": "MG",
+      "resolved": false,
+      "text": "HN: Have + symbol for adding details for more episodes of infection",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "H11. INFECTION"
+            },
+            {
+              "where": "end",
+              "text": "H11. INFECTION"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

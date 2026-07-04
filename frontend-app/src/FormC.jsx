@@ -2,15 +2,17 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/FormA.css";
+import "./styles/FormC1.css";
 import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import NotesBox from "./components/NotesBox";
-import {
-  ArrowLeft, ArrowRight, Save, Home, User, Heart,
-  Activity, Shield, AlertTriangle, Zap,
-} from "lucide-react";
+import NotesBox      from "./components/NotesBox";
+import OfflineBanner from "./components/OfflineBanner";
+import FormNavBar    from "./components/FormNavBar";
+import FormModals    from "./components/FormModals";
+import useFormSession from "./hooks/useFormSession";
+import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap } from "lucide-react";
 
 const STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
@@ -24,38 +26,44 @@ const STATES = [
   "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry",
 ];
 
-/* ── Segmented toggle (unchanged) ── */
+/* ── Toggle component — matches YesNoToggle (Form A/B) exactly ── */
 function Toggle({ name, value, options, onChange, disabled, error }) {
   const isActive = (opt) => {
     const v = typeof opt === "object" ? opt.value : opt;
     if (value === v) return true;
-    if (v === "Yes"  && value === true)  return true;
-    if (v === "No"   && value === false) return true;
+    if (v === "Yes" && value === true)  return true;
+    if (v === "No"  && value === false) return true;
     return String(value) === String(v);
   };
-  const isWide = options.length > 3;
+
   return (
     <>
-      <div className={`emr-toggle-group${isWide ? " wide-toggle" : ""}${disabled ? " disabled" : ""}${error ? " toggle-error" : ""}`}>
-        {options.map(opt => {
-          const v = typeof opt === "object" ? opt.value : opt;
-          const l = typeof opt === "object" ? opt.label : opt;
-          const active = isActive(opt);
-          const sv = String(v).toLowerCase();
-          let cls = "emr-toggle-btn";
-          if (active) {
-            cls += " selected";
-            if (sv === "yes" || v === true)  cls += " yes-active";
-            else if (sv === "no" || v === false) cls += " no-active";
-            else cls += " other-active";
-          }
-          return (
-            <button key={String(v)} type="button" disabled={disabled} className={cls}
-              onClick={() => !disabled && onChange(name, v)}>
-              {l}
-            </button>
-          );
-        })}
+      <div style={{ display: "block", lineHeight: 0 }}>
+        <div className={`fc-toggle-group${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
+          {options.map((opt, idx) => {
+            const v = typeof opt === "object" ? opt.value : opt;
+            const l = typeof opt === "object" ? opt.label : opt;
+            const active = isActive(opt);
+            const sv = String(v).toLowerCase();
+            let activeCls = "";
+            if (active) {
+              if (sv === "yes" || v === true)        activeCls = " fc-yes";
+              else if (sv === "no" || v === false)   activeCls = " fc-no";
+              else                                    activeCls = " fc-other";
+            }
+            return (
+              <button
+                key={String(v)}
+                type="button"
+                disabled={disabled}
+                className={`fc-toggle-btn${active ? " fc-active" + activeCls : ""}${idx > 0 ? " fc-divider" : ""}`}
+                onClick={() => !disabled && onChange(name, v)}
+              >
+                {l}
+              </button>
+            );
+          })}
+        </div>
       </div>
       {error && <div className="field-error">{error}</div>}
     </>
@@ -79,14 +87,7 @@ export default function FormC() {
   const [isFormCLoaded,  setIsFormCLoaded]  = useState(false);
   const [errors,         setErrors]         = useState({});
   const [touched,        setTouched]        = useState({});
-  const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
-  const [lastSaved,      setLastSaved]      = useState(null);
-  const [isDirty,        setIsDirty]        = useState(false);
-  const [isOnline,       setIsOnline]       = useState(navigator.onLine);
-  const [showMissingModal, setShowMissingModal] = useState(false);
-  const [missingList,    setMissingList]    = useState([]);
-  const autoSaveTimer   = useRef(null);
-  const isInitialRender = useRef(true);
+  // session state managed by useFormSession hook
   const disordersLoadedFromDb = useRef(false);
   const isFieldEditable = !isSaved || isEditing;
 
@@ -136,6 +137,16 @@ export default function FormC() {
   });
 
   const set = patch => setFormData(p => ({ ...p, ...patch }));
+
+  /* ── useFormSession: auto-save, offline, beforeunload, modals ── */
+  const session = useFormSession({
+    formKey:      "form_c",
+    isLoaded:     isFormCLoaded,
+    recordId:     formData.enrollment_id,
+    buildPayload: useCallback(() => buildPayload(), [formData, isFormCLoaded]), // eslint-disable-line
+    endpoint:     "/maternal-details",
+    enabled:      !!(formData.enrollment_id),
+  });
 
   /* ── Auto-calc address ── */
   useEffect(() => {
@@ -195,39 +206,6 @@ export default function FormC() {
       });
     }
   }, [formData.no_known_medical_disorder]);
-
-  /* ── Online / Offline ── */
-  useEffect(() => {
-    const on  = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener("online",  on);
-    window.addEventListener("offline", off);
-    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
-  }, []);
-
-  /* ── Beforeunload ── */
-  useEffect(() => {
-    const h = e => { if (!isDirty) return; e.preventDefault(); e.returnValue = ""; };
-    window.addEventListener("beforeunload", h);
-    return () => window.removeEventListener("beforeunload", h);
-  }, [isDirty]);
-
-  /* ── Mark dirty ── */
-  useEffect(() => {
-    if (!isFormCLoaded && !isSaved) return;
-    if (isInitialRender.current) { isInitialRender.current = false; return; }
-    setIsDirty(true);
-  }, [formData]); // eslint-disable-line
-
-  /* ── Last saved ticker ── */
-  const relT = d => {
-    if (!d) return null;
-    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diff < 10) return "just now";
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    return `${Math.floor(diff/3600)}h ago`;
-  };
 
   /* ── Fetch data ── */
   useEffect(() => {
@@ -360,7 +338,7 @@ export default function FormC() {
       case "pincode": if (!value) return ""; return /^\d{6}$/.test(value) ? "" : "6-digit PIN";
       case "email_address": if (!value) return ""; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? "" : "Invalid email";
       case "gravida": if (!value) return "Required"; if (Number(value)<1) return "Must be ≥ 1"; return "";
-      case "parity": if (!value && value!=="0") return "Required"; if (d.gravida && Number(value)>=Number(d.gravida)) return "Must be < Gravida"; return "";
+      case "parity": if (!value && value!=="0") return "Required"; if (data.gravida && Number(value)>Number(data.gravida)) return "Cannot exceed Gravida"; return "";
       case "abortions": return (value===""||value===undefined) ? "Required" : "";
       case "live": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
       case "still": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
@@ -398,7 +376,7 @@ export default function FormC() {
       case "pprom": return value ? "" : "Required";
       case "pprom_duration": if (d.pprom!=="Yes") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hrs"; return "";
       case "preterm_labor": return value ? "" : "Required";
-      case "triple_i": return value ? "" : "Required";
+      case "triple_i": return ""; // auto-calculated — never error
       case "maternal_fever": return value ? "" : "Required";
       case "fetal_tachycardia": return value ? "" : "Required";
       case "maternal_tlc_high": return value ? "" : "Required";
@@ -413,7 +391,7 @@ export default function FormC() {
       case "fetal_bradycardia": return value ? "" : "Required";
       case "fetal_tachycardia_intrapartum": return value ? "" : "Required";
       case "prolonged_labor": return value ? "" : "Required";
-      case "duration_rom": if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hrs"; return "";
+      case "duration_rom": if (d.pprom!=="Yes") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hrs"; return "";
       case "cord_accident": return value ? "" : "Required";
       case "cord_accident_type": return (d.cord_accident==="Yes"&&!value) ? "Required" : "";
       case "uterotonic": return value ? "" : "Required";
@@ -465,15 +443,24 @@ export default function FormC() {
   /* ── Validate all ── */
   const validate = (data = formData) => {
     const e = {};
+
+    // C1 — Identification
     if (!data.mother_age||Number(data.mother_age)<15||Number(data.mother_age)>55) e.mother_age = "Age must be 15–55";
     if (!data.house?.trim()) e.house = "House / Street required";
     if (!data.city?.trim())  e.city  = "Village / City required";
     if (!data.state)         e.state = "State required";
     if (data.pincode && !/^\d{6}$/.test(data.pincode)) e.pincode = "6-digit PIN";
     if (data.email_address && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email_address)) e.email_address = "Invalid email";
-    ["gravida","parity","abortions","live","still"].forEach(f => { if (data[f]===""||data[f]===undefined||data[f]===null) e[f] = "Required"; });
+
+    // C2 — Obstetric history (GPAL)
+    ["gravida","parity","abortions","live","still"].forEach(f => {
+      if (data[f]===""||data[f]===undefined||data[f]===null) e[f] = "Required";
+    });
     if (data.gravida!==""&&Number(data.gravida)<1) e.gravida = "Must be ≥ 1";
-    if (data.parity!==""&&data.gravida!==""&&Number(data.parity)>=Number(data.gravida)) e.parity = "Must be < Gravida";
+    // parity can be 0 to gravida (current pregnancy counts in gravida)
+    if (data.parity!==""&&data.gravida!==""&&Number(data.parity)>Number(data.gravida))
+      e.parity = "Cannot exceed Gravida";
+
     if (!data.booked) e.booked = "Required";
     if (data.anc_visits===""||data.anc_visits===null) e.anc_visits = "Required";
     if (!data.conception) e.conception = "Required";
@@ -481,57 +468,83 @@ export default function FormC() {
       if (!data.artificial_type) e.artificial_type = "Required";
       if (data.artificial_type==="Other"&&!data.artificial_other?.trim()) e.artificial_other = "Required";
     }
+
+    // C2 — Antenatal treatment
     if (!data.antenatal_steroids) e.antenatal_steroids = "Required";
     if (data.antenatal_steroids==="Yes") {
-      if (!data.steroid_drug) e.steroid_drug = "Required";
-      if (!data.steroid_doses) e.steroid_doses = "Required";
+      if (!data.steroid_drug)    e.steroid_drug    = "Required";
+      if (!data.steroid_doses)   e.steroid_doses   = "Required";
       if (!data.steroid_courses) e.steroid_courses = "Required";
-      if (!data.lddi_known) e.lddi_known = "Required";
-      if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null)) e.lddi_hours = "Required";
+      if (!data.lddi_known)      e.lddi_known      = "Required";
+      if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null))
+        e.lddi_hours = "Required";
     }
     if (!data.antenatal_mgso4) e.antenatal_mgso4 = "Required";
     if (data.antenatal_mgso4==="Yes"&&!data.mgso4_date) e.mgso4_date = "Required";
-    const anyDisorder = ["chronic_hypertension","hepatitis","heart_disease","renal_disease","vdrl_positive","seizure_disorder","asthma","hypothyroidism","hyperthyroidism","tb","malaria","hiv","severe_anemia","other_medical_checkbox"].some(f => data[f]);
-    if (!data.no_known_medical_disorder&&!anyDisorder) e.medical_disorders = "Select at least one disorder";
+
+    // C3 — Medical disorders (at least one must be selected)
+    const anyDisorder = ["chronic_hypertension","hepatitis","heart_disease","renal_disease",
+      "vdrl_positive","seizure_disorder","asthma","hypothyroidism","hyperthyroidism",
+      "tb","malaria","hiv","severe_anemia","other_medical_checkbox"].some(f => data[f]);
+    if (!data.no_known_medical_disorder&&!anyDisorder) e.medical_disorders = "Select at least one disorder or tick 'No known disorder'";
     if (data.other_medical_checkbox&&!data.other_medical_disorder?.trim()) e.other_medical_disorder = "Required";
+
+    // C4 — Obstetric problems
     if (!data.hdp) e.hdp = "Required";
     if (data.hdp==="Yes"&&!data.hdp_type) e.hdp_type = "Required";
     if (!data.gdm) e.gdm = "Required";
     if (data.gdm==="Yes"&&data.gdm_rx.length===0) e.gdm_rx = "Select at least one";
     if (!data.liquor) e.liquor = "Required";
     if (!data.fgr) e.fgr = "Required";
-    if (data.fgr==="Yes"&&(!data.fgr_centile||Number(data.fgr_centile)<1||Number(data.fgr_centile)>100)) e.fgr_centile = "1–100";
+    if (data.fgr==="Yes"&&(!data.fgr_centile||Number(data.fgr_centile)<1||Number(data.fgr_centile)>100))
+      e.fgr_centile = "Enter centile 1–100";
     if (!data.doppler) e.doppler = "Required";
     if (data.doppler==="Other"&&!data.doppler_other?.trim()) e.doppler_other = "Required";
     if (!data.placental_abnormality) e.placental_abnormality = "Required";
-    if (data.placental_abnormality==="Yes"&&!data.placental_type) e.placental_type = "Required";
+    if (data.placental_abnormality==="Yes") {
+      if (!data.placental_type) e.placental_type = "Required";
+      if ((data.placental_type==="Others"||data.placental_type==="Other")&&!data.placental_other?.trim())
+        e.placental_other = "Required";
+    }
     if (!data.retroplacental_collection) e.retroplacental_collection = "Required";
     if (!data.isoimmunization) e.isoimmunization = "Required";
     if (!data.aph) e.aph = "Required";
-    if (data.aph==="Yes"&&!data.aph_type) e.aph_type = "Required";
+    if (data.aph==="Yes") {
+      if (!data.aph_type) e.aph_type = "Required";
+      if (data.aph_type==="Other"&&!data.aph_other?.trim()) e.aph_other = "Required";
+    }
+
+    // C5 — Evidence of infection
     if (!data.pprom) e.pprom = "Required";
-    if (data.pprom==="Yes"&&(data.pprom_duration===""||data.pprom_duration===null)) e.pprom_duration = "Required";
+    // Duration only required when pPROM = Yes
+    if (data.pprom==="Yes"&&(data.pprom_duration===""||data.pprom_duration===null))
+      e.pprom_duration = "Required";
     if (!data.preterm_labor) e.preterm_labor = "Required";
-    if (!data.triple_i) e.triple_i = "Required";
-    if (!data.maternal_fever) e.maternal_fever = "Required";
-    if (!data.fetal_tachycardia) e.fetal_tachycardia = "Required";
-    if (!data.maternal_tlc_high) e.maternal_tlc_high = "Required";
-    if (!data.maternal_tachycardia) e.maternal_tachycardia = "Required";
-    if (!data.maternal_abdominal_tenderness) e.maternal_abdominal_tenderness = "Required";
-    if (!data.foul_smelling_liquor) e.foul_smelling_liquor = "Required";
-    if (!data.maternal_uti) e.maternal_uti = "Required";
-    if (!data.maternal_diarrhea) e.maternal_diarrhea = "Required";
+    // triple_i is AUTO-CALCULATED — never validate, never show error
+    if (!data.maternal_fever)               e.maternal_fever               = "Required";
+    if (!data.fetal_tachycardia)            e.fetal_tachycardia            = "Required";
+    if (!data.maternal_tlc_high)            e.maternal_tlc_high            = "Required";
+    if (!data.maternal_tachycardia)         e.maternal_tachycardia         = "Required";
+    if (!data.maternal_abdominal_tenderness)e.maternal_abdominal_tenderness= "Required";
+    if (!data.foul_smelling_liquor)         e.foul_smelling_liquor         = "Required";
+    if (!data.maternal_uti)                 e.maternal_uti                 = "Required";
+    if (!data.maternal_diarrhea)            e.maternal_diarrhea            = "Required";
+
+    // C6 — Intrapartum events
     if (!data.msl) e.msl = "Required";
     if (!data.non_reactive_nst) e.non_reactive_nst = "Required";
     if (!data.reduced_fm) e.reduced_fm = "Required";
     if (!data.fetal_bradycardia) e.fetal_bradycardia = "Required";
     if (!data.fetal_tachycardia_intrapartum) e.fetal_tachycardia_intrapartum = "Required";
     if (!data.prolonged_labor) e.prolonged_labor = "Required";
-    if (data.duration_rom===""||data.duration_rom===null) e.duration_rom = "Required";
+    // duration_rom only required when pPROM = Yes (ROM = Rupture of Membranes)
+    if (data.pprom==="Yes"&&(data.duration_rom===""||data.duration_rom===null))
+      e.duration_rom = "Duration of ROM required when pPROM = Yes";
     if (!data.cord_accident) e.cord_accident = "Required";
     if (data.cord_accident==="Yes"&&!data.cord_accident_type) e.cord_accident_type = "Required";
     if (!data.uterotonic) e.uterotonic = "Required";
     if (data.uterotonic==="Yes"&&!data.uterotonic_timing) e.uterotonic_timing = "Required";
+
     return e;
   };
 
@@ -611,8 +624,7 @@ export default function FormC() {
       const allFields = Object.keys(errs);
       setTouched(allFields.reduce((a, f) => ({ ...a, [f]: true }), {}));
       const list = Object.entries(errs).map(([f, msg]) => ({ label: msg || f, fieldName: f }));
-      setMissingList(list);
-      setShowMissingModal(true);
+      session.showMissing(list);
       return false;
     }
     try {
@@ -624,7 +636,6 @@ export default function FormC() {
       }
       setMessage("✅ Form C saved successfully");
       setIsSaved(true); setIsEditing(false);
-      setLastSaved(new Date()); setIsDirty(false);
       markFormCompleted("form_c");
       window.scrollTo({ top:0, behavior:"smooth" });
       setTimeout(() => setMessage(""), 3000);
@@ -633,34 +644,7 @@ export default function FormC() {
       setMessage("❌ Save failed — " + (err?.response?.data?.detail || err.message));
       return false;
     }
-  }, [formData, isFormCLoaded, buildPayload, markFormCompleted]); // eslint-disable-line
-
-  /* ── Auto-save ── */
-  const autoSave = useCallback(async () => {
-    if (!formData.enrollment_id || !navigator.onLine) return;
-    setAutoSaveStatus("saving");
-    try {
-      if (isFormCLoaded) {
-        await api.put(`/maternal-details/${formData.enrollment_id}`, buildPayload());
-      } else {
-        await api.post("/maternal-details/", buildPayload());
-        setIsFormCLoaded(true);
-      }
-      setAutoSaveStatus("saved");
-      setLastSaved(new Date()); setIsDirty(false);
-      setTimeout(() => setAutoSaveStatus("idle"), 2500);
-    } catch {
-      setAutoSaveStatus("error");
-      setTimeout(() => setAutoSaveStatus("idle"), 3000);
-    }
-  }, [formData, buildPayload, isFormCLoaded]);
-
-  useEffect(() => {
-    if (!isFormCLoaded && !isSaved) return;
-    clearInterval(autoSaveTimer.current);
-    autoSaveTimer.current = setInterval(autoSave, 10000);
-    return () => clearInterval(autoSaveTimer.current);
-  }, [autoSave, isFormCLoaded, isSaved]);
+  }, [formData, isFormCLoaded, buildPayload, markFormCompleted, session]); // eslint-disable-line
 
   const handleNext     = async () => { const ok = await saveForm(); if (ok) navigate(`/form-d/${formData.enrollment_id}`); };
   const handlePrevious = () => navigate(-1);
@@ -678,9 +662,9 @@ export default function FormC() {
     c3: ["gravida","parity","abortions","live","still","booked","anc_visits","conception","artificial_type"].filter(f => touched[f]&&errors[f]).length,
     c4: ["antenatal_steroids","steroid_drug","steroid_doses","steroid_courses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
     c5: ["medical_disorders","other_medical_disorder"].filter(f => touched[f]&&errors[f]).length,
-    c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","placental_abnormality","retroplacental_collection","isoimmunization","aph","aph_type"].filter(f => touched[f]&&errors[f]).length,
-    c7: ["pprom","pprom_duration","preterm_labor","triple_i","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
-    c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","duration_rom","cord_accident","uterotonic"].filter(f => touched[f]&&errors[f]).length,
+    c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
+    c7: ["pprom","pprom_duration","preterm_labor","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
+    c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","duration_rom","cord_accident","cord_accident_type","uterotonic","uterotonic_timing"].filter(f => touched[f]&&errors[f]).length,
   };
 
   if (!enrollmentId) return (
@@ -704,16 +688,7 @@ export default function FormC() {
 
   return (
     <>
-      {/* Offline banner */}
-      {!isOnline && (
-        <div className="offline-banner">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="1" y1="1" x2="23" y2="23"/>
-            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
-          </svg>
-          You are offline — changes will auto-save when connection returns.
-        </div>
-      )}
+      <OfflineBanner isOnline={session.isOnline} offlineQueue={session.offlineQueue} />
 
       {isSaved && isEditing && (
         <div className="editing-mode-banner">
@@ -776,46 +751,31 @@ export default function FormC() {
                   </div>
                 </div>
 
-                <div className="form-grid-3">
-                  <div className="form-group">
-                    <label>Maternal UID <span className="field-note">(auto)</span></label>
-                    <input value={formData.maternal_uid||""} readOnly className="readonly-input"/>
-                  </div>
-                  <div className="form-group">
-                    <label>5. Mobile (M) <span className="field-note">(auto)</span></label>
-                    <input value={formData.contact_mother||""} readOnly className="readonly-input"/>
-                  </div>
-                  <div className="form-group">
-                    <label>5. Mobile (H) <span className="field-note">(auto)</span></label>
-                    <input value={formData.contact_husband||""} readOnly className="readonly-input"/>
-                  </div>
-                </div>
-
-                {/* 3. Address */}
+                {/* 3. Address — site-specific format */}
                 <div className="form-group" style={{marginBottom:4}}>
                   <label>3. Address<span className="required">*</span></label>
                 </div>
-                <div className="info-note" style={{fontSize:11,color:"#6b7280",marginBottom:10,padding:"6px 10px",background:"#f8f9fa",borderRadius:6,borderLeft:"3px solid #cbd5e1"}}>
-                  ℹ️ <strong>HN note:</strong> PGIMER — pick from Aadhar; Aurangabad/AMC — C/O, village, P.O., police station, district; Dibrugarh — same format
-                </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>House No. / Flat / Street<span className="required">*</span></label>
+                    <label>House No. / Flat / C/O<span className="required">*</span></label>
                     <input name="house" value={formData.house||""} onChange={handleChange} onBlur={handleBlur}
+                      placeholder="House No / Flat / C/O"
                       readOnly={!isFieldEditable} className={E("house")?"input-error":""}/>
                     <FieldError msg={E("house")}/>
                   </div>
                   <div className="form-group">
-                    <label>Village / City / Tehsil<span className="required">*</span></label>
+                    <label>Village / VPO / City / Tehsil<span className="required">*</span></label>
                     <input name="city" value={formData.city||""} onChange={handleChange} onBlur={handleBlur}
+                      placeholder="Village / VPO / City / Tehsil"
                       readOnly={!isFieldEditable} className={E("city")?"input-error":""}/>
                     <FieldError msg={E("city")}/>
                   </div>
                 </div>
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>Police Station / District</label>
+                    <label>Police Station / District <span className="field-note">(optional)</span></label>
                     <input name="district" value={formData.district||""} onChange={handleChange}
+                      placeholder="Police Station / District"
                       readOnly={!isFieldEditable}/>
                   </div>
                   <div className="form-group">
@@ -828,9 +788,10 @@ export default function FormC() {
                     <FieldError msg={E("state")}/>
                   </div>
                   <div className="form-group">
-                    <label>PIN Code</label>
+                    <label>PIN Code <span className="field-note">(optional)</span></label>
                     <input name="pincode" value={formData.pincode||""}
                       readOnly={!isFieldEditable} className={E("pincode")?"input-error":""}
+                      placeholder="6-digit PIN" inputMode="numeric"
                       onBlur={handleBlur}
                       onChange={ev => {
                         const v = ev.target.value.replace(/\D/g,"");
@@ -841,21 +802,32 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Nearest Landmark</label>
+                    <label>Nearest Landmark <span className="field-note">(optional)</span></label>
                     <input name="landmark" value={formData.landmark||""} onChange={handleChange}
+                      placeholder="Nearest landmark"
                       readOnly={!isFieldEditable}/>
                   </div>
                   <div className="form-group">
-                    <label>4. Email Address</label>
+                    <label>4. Email Address <span className="field-note">(optional)</span></label>
                     <input type="email" name="email_address" value={formData.email_address||""}
                       onChange={handleChange} onBlur={handleBlur} placeholder="patient@email.com"
                       readOnly={!isFieldEditable} className={E("email_address")?"input-error":""}/>
                     <FieldError msg={E("email_address")}/>
                   </div>
                 </div>
+                <div className="form-grid-2">
+                  <div className="form-group">
+                    <label>5. Mobile (Mother) <span className="field-note">(auto)</span></label>
+                    <input value={formData.contact_mother||""} readOnly className="readonly-input"/>
+                  </div>
+                  <div className="form-group">
+                    <label>5. Mobile (Husband) <span className="field-note">(auto)</span></label>
+                    <input value={formData.contact_husband||""} readOnly className="readonly-input"/>
+                  </div>
+                </div>
                 {formData.address && (
                   <div style={{fontSize:11,color:"#6b7280",marginTop:6,padding:"6px 10px",background:"#f8faff",borderRadius:6}}>
-                    <strong>System format:</strong> {formData.address}
+                    <strong>Full address:</strong> {formData.address}
                   </div>
                 )}
               </div>
@@ -1507,7 +1479,7 @@ export default function FormC() {
                         disabled={!isFieldEditable} error={E("prolonged_labor")}/>
                     </div>
                     <div className="form-group">
-                      <label>Duration of ROM (hrs)<span className="required">*</span></label>
+                      <label>Duration of ROM (hrs) <span className="field-note">(required if pPROM = Yes)</span></label>
                       <input type="number" name="duration_rom" value={formData.duration_rom||""}
                         onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99"
                         readOnly={!isFieldEditable} className={E("duration_rom")?"input-error":""}
@@ -1571,109 +1543,25 @@ export default function FormC() {
         </fieldset>
       </form>
 
-      {/* ── NAV BAR ── */}
-      <div className="form-navigation">
-        <button type="button" className="btn btn-secondary" onClick={handlePrevious}>
-          <ArrowLeft size={15}/> Birth &amp; Resuscitation
-        </button>
-        <button type="button" className="btn btn-save" onClick={saveForm}>
-          <Save size={15}/> Save
-        </button>
-        <button type="button" className="btn btn-draft" onClick={async () => {
-          // Save for Later — skips validation, saves whatever is filled
-          setMessage("");
-          try {
-            if (isFormCLoaded) {
-              await api.put(`/maternal-details/${formData.enrollment_id}`, buildPayload());
-            } else {
-              await api.post("/maternal-details/", buildPayload());
-              setIsFormCLoaded(true);
-            }
-            setLastSaved(new Date()); setIsDirty(false); setIsSaved(true);
-            setMessage("💾 Draft saved — return any time to complete");
-            setTimeout(() => setMessage(""), 3000);
-          } catch (err) {
-            setMessage("❌ Draft save failed — " + (err?.response?.data?.detail || err.message));
-          }
-        }}>
-          <Save size={15}/> Save for Later
-        </button>
+      {/* ── NAV BAR (shared component) ── */}
+      <FormNavBar
+        session={session}
+        onBack={handlePrevious}
+        onSave={saveForm}
+        onSaveDraft={session.saveDraft}
+        onNext={handleNext}
+        backLabel="Birth & Resuscitation"
+        nextLabel="Postnatal Day 1"
+        step={3} totalSteps={17}
+        isSaved={isSaved}
+      />
 
-        {/* Auto-save indicator */}
-        <div className="autosave-indicator">
-          {lastSaved && autoSaveStatus==="idle" && (
-            <span className="last-saved-txt">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              Saved {relT(lastSaved)}
-            </span>
-          )}
-          {isDirty && autoSaveStatus==="idle" && !lastSaved && (
-            <span className="unsaved-dot-pill"><span className="unsaved-dot"/>Unsaved changes</span>
-          )}
-          {autoSaveStatus==="saving" && (
-            <span className="autosave-pill autosave-pill--saving">
-              <span className="autosave-dot autosave-dot--spin"/>Auto-saving…
-            </span>
-          )}
-          {autoSaveStatus==="saved" && (
-            <span className="autosave-pill autosave-pill--saved">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              Auto-saved
-            </span>
-          )}
-          {autoSaveStatus==="error" && (
-            <span className="autosave-pill autosave-pill--error">Auto-save failed</span>
-          )}
-        </div>
-
-        <div className="footer-step-indicator">
-          <span className="step-text">STEP 3 OF 17</span>
-          <div className="step-progress-line">
-            <div className="progress-segment active"/>
-            <div className="progress-segment active"/>
-            <div className="progress-segment active"/>
-            <div className="progress-segment"/>
-          </div>
-        </div>
-        <button type="button" className="btn btn-primary" onClick={handleNext} disabled={!isSaved}>
-          Postnatal Day 1 <ArrowRight size={15}/>
-        </button>
-      </div>
-
-      {/* ── Missing fields modal ── */}
-      {showMissingModal && (
-        <div className="modal-overlay" onClick={() => setShowMissingModal(false)}>
-          <div className="mf-modal" onClick={e => e.stopPropagation()}>
-            <div className="mf-modal-header">
-              <div className="mf-modal-icon-wrap">
-                <AlertTriangle size={20} color="#f59e0b"/>
-              </div>
-              <div className="mf-modal-text">
-                <h3 className="mf-modal-title">Required fields missing</h3>
-                <p className="mf-modal-sub">{missingList.length} field{missingList.length!==1?"s":""} need attention</p>
-              </div>
-              <button className="mf-modal-close" onClick={() => setShowMissingModal(false)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div className="mf-modal-list">
-              {missingList.map((f,i) => (
-                <div key={i} className="mf-modal-item">
-                  <span className="mf-modal-num">{i+1}</span>
-                  <span className="mf-modal-label">{f.label}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mf-modal-footer">
-              <button className="mf-btn-secondary" onClick={() => setShowMissingModal(false)}>Dismiss</button>
-              <button className="mf-btn-primary" onClick={() => { setShowMissingModal(false); setTimeout(()=>scrollToFirstError(missingList),100); }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Go to first error
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── MODALS (shared component) ── */}
+      <FormModals
+        session={session}
+        onKeepEditing={() => session.setShowDraftModal(false)}
+        onGoToDashboard={() => { session.setShowDraftModal(false); navigate("/dashboard"); }}
+      />
     </>
   );
 }

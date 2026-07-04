@@ -42,6 +42,7 @@ import FloatingLogout from "./components/FloatingLogout";
 import FormLayout from "./layouts/FormLayout";
 
 import "./App.css";
+import "./styles/UnifiedForms.css";
 
 
 function AppContent() {
