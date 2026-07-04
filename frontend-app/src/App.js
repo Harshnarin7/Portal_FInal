@@ -34,6 +34,7 @@ import SeriousAdverseEventsList from "./SeriousAdverseEventsList";
 import ViewEntries from "./ViewEntries";
 import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
+import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
 import Login from "./Login";
 import LandingPage from "./LandingPage";
 
@@ -168,6 +169,7 @@ function AppContent() {
                       <Route path="/" element={<LandingPage />} />
                       <Route path="/home" element={<Navigate to="/dashboard" />} />
                       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                      <Route path="/trial-monitoring" element={<ProtectedRoute><TrialMonitoringDashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
                       <Route path="/form-a/:screeningId?" element={<ProtectedRoute><FormLayout currentForm="form_a"><ScreeningForm /></FormLayout></ProtectedRoute>} />

@@ -1,0 +1,147 @@
+/* TrialMonitoringDashboard.css — matches the dark navy/teal PORTAL theme */
+
+.tmd-root {
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background: #07111f;
+  background-image:
+    radial-gradient(ellipse 60% 40% at 0% 0%, rgba(14,124,123,0.10) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 100% 100%, rgba(11,31,58,0.5) 0%, transparent 70%);
+  color: #e2e8f0;
+  font-family: "Inter", system-ui, sans-serif;
+  padding: 24px;
+}
+
+.tmd-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.tmd-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tmd-subtitle {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.tmd-csv-btn {
+  background: rgba(14,124,123,0.18);
+  border: 1px solid rgba(14,124,123,0.4);
+  color: #14A8A7;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tmd-csv-btn:hover {
+  background: rgba(14,124,123,0.28);
+}
+
+.tmd-card {
+  background: rgba(13,31,54,0.6);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 18px;
+  overflow-x: auto;
+}
+
+.tmd-state {
+  padding: 24px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+.tmd-error {
+  color: #ef4444;
+}
+
+.tmd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.tmd-table thead th {
+  text-align: right;
+  padding: 8px 10px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+  white-space: nowrap;
+}
+.tmd-table thead th.tmd-label-cell {
+  text-align: left;
+}
+
+.tmd-row td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.tmd-label-cell {
+  text-align: left;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.tmd-num {
+  text-align: right;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tmd-overall {
+  font-weight: 700;
+  color: #fff;
+}
+
+.tmd-dash {
+  color: #475569;
+  margin-right: 6px;
+}
+
+.tmd-depth-0 .tmd-label-cell {
+  font-weight: 600;
+}
+
+/* Row-type accent colors, per spec:
+   Awaiting assessment -> muted grey
+   Lost to follow-up    -> amber
+   Died                 -> neutral dark (not red) */
+.tmd-row-awaiting .tmd-label-cell,
+.tmd-row-awaiting .tmd-num {
+  color: #64748b;
+}
+
+.tmd-row-ltfu .tmd-label-cell,
+.tmd-row-ltfu .tmd-num {
+  color: #E8A020;
+}
+
+.tmd-row-died .tmd-label-cell,
+.tmd-row-died .tmd-num {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.tmd-footnote {
+  margin-top: 12px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.tmd-timestamp {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #475569;
+}

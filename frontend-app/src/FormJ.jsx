@@ -1026,7 +1026,10 @@ const handleSubmit = async (e) => {
       composite_40: formData.composite_40,
       composite_44: formData.composite_44,
       composite_44_components: formData.composite_44_components,
-      overall_mri: formData.overall_mri
+      overall_mri: formData.overall_mri,
+      ltfu_reason_36: formData.ltfu_reason_36 || null,
+      ltfu_reason_40: formData.ltfu_reason_40 || null,
+      ltfu_reason_44: formData.ltfu_reason_44 || null
     };
 
     console.log(payload);
@@ -1429,6 +1432,20 @@ placeholder="Enter cause of death"
 {errors.death_36_cause && (
   <span className="error-text">{errors.death_36_cause}</span>
 )}
+</div>
+
+)}
+
+{!formData.assess_36_date && formData.death_before_36 !== "Yes" && (
+
+<div className="form-group">
+<label>Reason for missed follow-up</label>
+<input
+name="ltfu_reason_36"
+value={formData.ltfu_reason_36 || ""}
+onChange={handleChange}
+placeholder="Enter reason follow-up was missed"
+/>
 </div>
 
 )}
@@ -1892,6 +1909,20 @@ onChange={handleChange}
 </div>
 
 </>
+
+)}
+
+{!formData.assess_40_date && formData.death_36_40 !== "Yes" && (
+
+<div className="form-group">
+<label>Reason for missed follow-up</label>
+<input
+name="ltfu_reason_40"
+value={formData.ltfu_reason_40 || ""}
+onChange={handleChange}
+placeholder="Enter reason follow-up was missed"
+/>
+</div>
 
 )}
 
@@ -2635,6 +2666,20 @@ onChange={handleChange}
 </div>
 
 </>
+
+)}
+
+{!formData.assess_44_date && formData.death_40_44 !== "Yes" && (
+
+<div className="form-group">
+<label>Reason for missed follow-up</label>
+<input
+name="ltfu_reason_44"
+value={formData.ltfu_reason_44 || ""}
+onChange={handleChange}
+placeholder="Enter reason follow-up was missed"
+/>
+</div>
 
 )}
 

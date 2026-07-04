@@ -141,6 +141,11 @@ class Screening(Base):
     relationship_other = Column(String)
     reason_not_approached = Column(String)
 
+    # Issue #1 Fix 1: reason for consent refusal (was collected by
+    # ScreeningForm.jsx but silently dropped — no model/schema column existed)
+    reason_for_consent_refusal = Column(String, nullable=True)
+    reason_for_consent_refusal_other = Column(String, nullable=True)
+
     created_by = Column(String, nullable=True)
     updated_by = Column(String, nullable=True)
     updated_at = Column(DateTime, nullable=True)
@@ -774,6 +779,9 @@ class CompositeOutcome(Base):
     death_36_age_days = Column(Integer)
     death_36_cause = Column(String)
 
+    # Issue #1 Fix 3: reason for missed follow-up at 36 weeks PMA
+    ltfu_reason_36 = Column(String, nullable=True)
+
     resp_support_36 = Column(String)
     bpd_jensen_grade = Column(String)
 
@@ -794,6 +802,9 @@ class CompositeOutcome(Base):
     death_40_date = Column(Date)
     death_40_age_days = Column(Integer)
     death_40_cause = Column(String)
+
+    # Issue #1 Fix 3: reason for missed follow-up at 40 weeks PMA
+    ltfu_reason_40 = Column(String, nullable=True)
 
     rop_any = Column(Boolean)
     rop_stage = Column(String)
@@ -831,6 +842,9 @@ class CompositeOutcome(Base):
     death_44_date = Column(Date)
     death_44_age_days = Column(Integer)
     death_44_cause = Column(String)
+
+    # Issue #1 Fix 3: reason for missed follow-up at 44 weeks PMA
+    ltfu_reason_44 = Column(String, nullable=True)
 
     new_rop = Column(Boolean)
     additional_rop_rx = Column(Boolean)

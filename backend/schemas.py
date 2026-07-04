@@ -285,6 +285,8 @@ class ScreeningCreate(BaseModel):
     relationship_to_participant: Optional[str] = None
     relationship_other: Optional[str] = None
     reason_not_approached: Optional[str] = None
+    reason_for_consent_refusal: Optional[str] = None
+    reason_for_consent_refusal_other: Optional[str] = None
 
 
 class ScreeningClinicalOut(BaseModel):
@@ -320,6 +322,8 @@ class ScreeningClinicalOut(BaseModel):
     relationship_to_participant: Optional[str] = None
     relationship_other: Optional[str] = None
     reason_not_approached: Optional[str] = None
+    reason_for_consent_refusal: Optional[str] = None
+    reason_for_consent_refusal_other: Optional[str] = None
 
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
@@ -972,6 +976,7 @@ class CompositeOutcomeCreate(BaseModel):
     death_36_date: Optional[date] = None
     death_36_age_days: Optional[int] = None
     death_36_cause: Optional[str] = None
+    ltfu_reason_36: Optional[str] = None
 
     resp_support_36: Optional[str] = None
     bpd_jensen_grade: Optional[str] = None
@@ -992,6 +997,7 @@ class CompositeOutcomeCreate(BaseModel):
     death_40_date: Optional[date] = None
     death_40_age_days: Optional[int] = None
     death_40_cause: Optional[str] = None
+    ltfu_reason_40: Optional[str] = None
 
     rop_any: Optional[bool] = None
     rop_stage: Optional[str] = None
@@ -1028,6 +1034,7 @@ class CompositeOutcomeCreate(BaseModel):
     death_44_date: Optional[date] = None
     death_44_age_days: Optional[int] = None
     death_44_cause: Optional[str] = None
+    ltfu_reason_44: Optional[str] = None
 
     new_rop: Optional[bool] = None
     additional_rop_rx: Optional[bool] = None

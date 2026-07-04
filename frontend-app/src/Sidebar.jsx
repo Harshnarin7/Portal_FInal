@@ -173,6 +173,11 @@ export default function Sidebar({ currentForm }) {
           <LayoutDashboard size={14} strokeWidth={2} />
           <span>Dashboard</span>
         </NavLink>
+        <NavLink to="/trial-monitoring"
+          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+          <BarChart3 size={14} strokeWidth={2} />
+          <span>Trial Monitoring</span>
+        </NavLink>
         <div className="sidebar-sep" />
 
         {!isProgressLoaded ? (

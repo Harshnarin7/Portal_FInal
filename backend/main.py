@@ -30,6 +30,7 @@ from routers import enrollment
 from routers import pii as pii_router
 from routers import staff as staff_router
 from routers import audit as audit_router
+from routers import dashboard as dashboard_router
 from audit_service import (
     record_audit,
     row_snapshot,
@@ -90,6 +91,7 @@ app.include_router(enrollment.router)
 app.include_router(pii_router.router)
 app.include_router(staff_router.router)
 app.include_router(audit_router.router)
+app.include_router(dashboard_router.router)
 
 
 @app.on_event("startup")
@@ -665,6 +667,15 @@ def create_birth_resuscitation(
     db.commit()
     db.refresh(entry)
 
+    # Issue #1 Fix 2: write enrollment_id back to the screenings record on
+    # randomisation, so the screenings<->birth_resuscitation join used by the
+    # CONSORT dashboard resolves correctly.
+    if entry.randomised and entry.screening_id:
+        db.query(Screening).filter(
+            Screening.screening_id == entry.screening_id
+        ).update({"enrollment_id": entry.enrollment_id})
+        db.commit()
+
     return entry
 
 @app.get("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
@@ -717,6 +728,14 @@ def update_birth_resuscitation(
 
         db.commit()
         db.refresh(entry)
+
+        # Issue #1 Fix 2: keep screenings.enrollment_id in sync if this
+        # update is what randomises the baby (or edits a randomised record).
+        if entry.randomised and entry.screening_id:
+            db.query(Screening).filter(
+                Screening.screening_id == entry.screening_id
+            ).update({"enrollment_id": entry.enrollment_id})
+            db.commit()
 
         return entry
 
