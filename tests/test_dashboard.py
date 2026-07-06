@@ -269,19 +269,32 @@ class TestCONSORTEndpoint:
         assert box_2['overall'] >= 1
 
     def test_consort_site_filtering(self, client, site_user_token, db_session):
-        """Site user should see only their site"""
-        # Create screenings in different sites
+        """Site user should see ONLY their own site — not just 'PGIMER is
+        somewhere in the response', but genuinely excluded from GMCH data.
+        The original version of this test only asserted
+        'PGIMER' in data['sites'], which would also pass if the endpoint
+        leaked every site to every user (since PGIMER is in that full list
+        too). This version creates data at a second site and proves it is
+        actually absent from both `sites` and the box counts."""
         create_screening(db_session, 'SCR-PGIM-001', 'PGIMER', 'Eligible')
+        create_screening(db_session, 'SCR-PGIM-002', 'PGIMER', 'Eligible')
         create_screening(db_session, 'SCR-GMCH-001', 'GMCH', 'Eligible')
-        
+
         response = client.get(
             '/dashboard/consort',
             headers={'Authorization': f'Bearer {site_user_token}'}
         )
         data = response.json()
-        
-        # Site user should see their site in the response
-        assert 'PGIMER' in data['sites'] or len(data['sites']) == 0
+
+        # Exactly PGIMER, not "PGIMER plus everything else"
+        assert data['sites'] == ['PGIMER']
+
+        box_1 = next(r for r in data['rows'] if r['box'] == 1)
+        # by_site must not contain GMCH's key at all
+        assert 'GMCH' not in box_1['by_site']
+        # overall must reflect only the 2 PGIMER screenings, not all 3
+        assert box_1['overall'] == 2
+        assert box_1['by_site']['PGIMER'] == 2
 
     def test_consort_sub_rows_expansion(self, client, superadmin_token, db_session):
         """Boxes with sub-rows should be expandable"""

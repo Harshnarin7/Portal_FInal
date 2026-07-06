@@ -34,6 +34,14 @@ fi
 
 # ── 2. Build React frontend ──────────────────────────────────────────────────
 echo "📦  Building React frontend..."
+
+# Record exactly which commit is being deployed, so GET /version on the
+# running server can report it later — this is what makes "is portaltrial.in
+# actually running what I think it's running" answerable with one curl
+# instead of guessing from GitHub history.
+git rev-parse HEAD > backend/VERSION
+echo "📌  Deploying commit: $(cat backend/VERSION)"
+
 cd frontend-app
 npm ci --silent
 REACT_APP_API_URL="$REACT_APP_API_URL" npm run build

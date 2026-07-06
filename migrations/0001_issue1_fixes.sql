@@ -1,11 +1,19 @@
-"""
-Database migration script to ensure all schema is up-to-date for Issue #1 fixes.
-Run this on the PostgreSQL database:
-
-  psql -h <host> -U <user> -d <database> -f migrations/0001_issue1_fixes.sql
-
-This script is idempotent and safe to run multiple times.
-"""
+-- ============================================================================
+-- Database migration script for Issue #1 fixes and dashboard indexes.
+--
+-- NOTE: the two Issue #1 ALTER TABLE blocks below are redundant with
+-- backend/schema_patches.py, which already applies these same columns
+-- automatically on every backend startup. You do not need to run this file
+-- for Issue #1 alone. It's useful for the CREATE INDEX statements further
+-- down, which schema_patches.py does not add.
+--
+-- Run this on the PostgreSQL database:
+--   psql -h <host> -U <user> -d <database> -f migrations/0001_issue1_fixes.sql
+--
+-- This script is idempotent and safe to run multiple times, EXCEPT for the
+-- screening_datetime NOT NULL change near the bottom — read that section
+-- before running.
+-- ============================================================================
 
 -- ============================================================================
 -- Fix 1: reason_for_consent_refusal fields in screenings
@@ -103,9 +111,21 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created_at
 -- ============================================================================
 -- Verify screening_datetime is not null for timeliness queries
 -- ============================================================================
--- (Already exists in model but ensure it's there)
-ALTER TABLE screenings 
-ALTER COLUMN screening_datetime SET NOT NULL;
+-- CAUTION: this was unconditional in the original script. Running
+-- `ALTER COLUMN screening_datetime SET NOT NULL` against a table that
+-- already has any NULL values in that column (e.g. old rows entered before
+-- this field was required) will FAIL THE WHOLE MIGRATION with a Postgres
+-- constraint-violation error, and — if any of the ALTER TABLE / CREATE
+-- INDEX statements above haven't been committed yet in the same
+-- transaction/session — could leave things half-applied. Check first:
+--
+--   SELECT count(*) FROM screenings WHERE screening_datetime IS NULL;
+--
+-- If that returns 0, it is safe to run the ALTER COLUMN below. If it
+-- returns anything else, back-fill those rows (or decide how to handle
+-- them) before adding the constraint. Left commented out on purpose —
+-- uncomment only after confirming the count above is 0.
+-- ALTER TABLE screenings ALTER COLUMN screening_datetime SET NOT NULL;
 
 -- ============================================================================
 -- Grant permissions (if needed for separate analytics role)

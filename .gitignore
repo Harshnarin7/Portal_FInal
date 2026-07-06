@@ -1,3 +1,6 @@
+# Deploy-time artifact — written fresh by deploy.sh on every deploy
+backend/VERSION
+
 # Secrets
 .env
 backend/.env

@@ -244,6 +244,21 @@ def health_check():
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=503, content={"status": "error", "db": str(exc)})
 
+# Version endpoint — reports which git commit is actually running, so
+# deployment status can be checked with `curl https://api.<host>/version`
+# instead of guessing from GitHub history. deploy.sh writes VERSION at
+# deploy time; if it's missing (e.g. local dev, or an older deploy that
+# predates this file) this returns "unknown" rather than failing.
+@app.get("/version")
+def version_check():
+    version_file = os.path.join(os.path.dirname(__file__), "VERSION")
+    try:
+        with open(version_file) as f:
+            info = f.read().strip()
+        return {"deployed_commit": info or "unknown"}
+    except FileNotFoundError:
+        return {"deployed_commit": "unknown", "note": "VERSION file not found — deploy.sh may predate this endpoint, or this is a local/dev run"}
+
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS
 # ============================================================================
