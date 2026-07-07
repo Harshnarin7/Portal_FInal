@@ -1296,7 +1296,7 @@ export default function ScreeningForm() {
                   <div className="form-section-header">
                     <div className="section-title-left">
                       <CheckSquare size={15} className="section-header-icon"/>
-                      <h3>A5 · Proceed for Consent</h3>
+                      <h3>A5 · Consent</h3>
                     </div>
                   </div>
                   <div className="form-section-body">

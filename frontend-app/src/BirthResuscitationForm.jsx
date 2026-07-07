@@ -69,7 +69,10 @@ export default function BirthResuscitationForm() {
   const [lastSaved,        setLastSaved]        = useState(null);
   const [isDirty,          setIsDirty]          = useState(false);
   const [isOnline,         setIsOnline]         = useState(navigator.onLine);
+  const [offlineQueue,    setOfflineQueue]     = useState(false);
+  const [showDraftModal,  setShowDraftModal]   = useState(false);
   const autoSaveTimer   = useRef(null);
+  const lastSavedTimer = useRef(null);
   const isInitialRender = useRef(true);
   const formDataRef = useRef(null);
   const buildPayloadRef = useRef(null);
@@ -185,26 +188,48 @@ export default function BirthResuscitationForm() {
         chest_compression:{"1":v,"5":v,"10":v,"15":v,"20":v}}}));
   }, [formData.chest_compression]);
 
-  /* ── Online/offline ── */
+  /* ── Online / Offline detection ── */
   useEffect(() => {
-    const on=()=>setIsOnline(true), off=()=>setIsOnline(false);
-    window.addEventListener("online",on); window.addEventListener("offline",off);
-    return ()=>{window.removeEventListener("online",on); window.removeEventListener("offline",off);};
-  }, []);
+    const goOnline  = () => {
+      setIsOnline(true);
+      // If we had a queued save, trigger it now
+      setOfflineQueue(prev => { if (prev) { autoSave(); } return false; });
+    };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online",  goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online",  goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [autoSave]); // eslint-disable-line
 
-  /* ── beforeunload ── */
+  /* ── Unsaved changes — warn on tab close / navigate away ── */
   useEffect(() => {
-    const h=e=>{if(!isDirty)return;e.preventDefault();e.returnValue="";};
-    window.addEventListener("beforeunload",h);
-    return ()=>window.removeEventListener("beforeunload",h);
+    const handler = e => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  /* ── Mark dirty ── */
-  useEffect(()=>{
-    if(!isFormBLoaded)return;
-    if(isInitialRender.current){isInitialRender.current=false;return;}
+  /* ── Mark form dirty only after user edits (not on initial load) ── */
+  useEffect(() => {
+    if (!isFormBLoaded) return;
+    if (isInitialRender.current) { isInitialRender.current = false; return; }
     setIsDirty(true);
-  },[formData]); // eslint-disable-line
+  }, [formData]); // eslint-disable-line
+
+  /* ── Refresh "last saved X mins ago" every 30 seconds ── */
+  useEffect(() => {
+    lastSavedTimer.current = setInterval(() => {
+      // force re-render to update the relative time string
+      setLastSaved(prev => prev ? new Date(prev) : prev);
+    }, 30000);
+    return () => clearInterval(lastSavedTimer.current);
+  }, []);
 
   /* ── Relative time ── */
   const relT = d => {
@@ -223,90 +248,97 @@ export default function BirthResuscitationForm() {
   const handleIntv = (type,time,val) =>
     setFormData(p=>({...p,interventions:{...p.interventions,[type]:{...p.interventions[type],[time]:val}}}));
 
-   /* ── Build payload ── */
-  const buildPayload = useCallback(() => ({
-    screening_id:        formData.screening_id,
-    enrollment_id:       formData.enrollment_id,
-    mother_name_first:   formData.mother_name_first,
-    mother_name_surname: formData.mother_name_surname,
-    maternal_uid:        formData.maternal_uid,
-    contact_mother:      formData.contact_mother || null,
-    contact_husband:     formData.contact_husband || null,
-    baby_uid:            formData.baby_uid || null,
-    baby_admission_no:   formData.baby_admission_no || null,
-    baby_annual_no:      formData.baby_annual_no || null,
-    gestation_weeks:     num(formData.gestation_weeks),
-    gestation_days:      num(formData.gestation_days),
-    gestation_rand_weeks:optionalNum(formData.gestation_rand_weeks),
-    gestation_rand_days: optionalNum(formData.gestation_rand_days),
-    birth_weight:        num(formData.birth_weight),
-    intrauterine_centile:formData.intrauterine_centile || null,
-    date_of_birth:       formData.date_of_birth
-      ? new Date(formData.date_of_birth).toISOString().split("T")[0] : null,
-    time_of_birth:       formData.time_of_birth || null,
-    gender:              formData.gender,
-    indication_for_delivery: (formData.indication_for_delivery || []).join(", "),
-    indication_for_delivery_other: formData.indication_for_delivery_other || null,
-    indication_edf_detail: formData.indication_edf_detail || null,
-    fetal_indication_detail: formData.fetal_indication_detail || null,
-    obstetric_indication_detail: formData.obstetric_indication_detail || null,
-    delivery_mode:       formData.delivery_mode,
-    vaginal_delivery_type: formData.vaginal_delivery_type || null,
-    lscs_type:           formData.lscs_type || null,
-    maternal_complication: formData.maternal_complication || null,
-    poor_resp_efforts:   yn(formData.poor_resp_efforts),
-    poor_muscle_tone:    yn(formData.poor_muscle_tone),
-    hr_above_100:        yn(formData.hr_above_100),
-    initial_steps:       yn(formData.initial_steps),
-    required_resuscitation: yn(formData.required_resuscitation),
-    ppv_required:        yn(formData.ppv_required),
-    device_ppv:          formData.device_ppv || null,
-    sib_peep_with:       formData.sib_peep_with || null,
-    sib_peep_cmh2o:      optionalNum(formData.sib_peep_cmh2o),
-    tpiece_pip:          optionalNum(formData.tpiece_pip),
-    tpiece_peep:         optionalNum(formData.tpiece_peep),
-    tpiece_flow:         optionalNum(formData.tpiece_flow),
-    interface_used:      formData.interface_used || null,
-    intubation:          yn(formData.intubation),
-    chest_compression:   yn(formData.chest_compression),
-    ppv_duration:        num(formData.ppv_duration),
-    cc_duration:         num(formData.cc_duration),
-    adrenaline:          yn(formData.adrenaline),
-    adrenaline_dilution: formData.adrenaline_dilution || null,
-    adrenaline_route:    formData.adrenaline_route || null,
-    fluid_bolus:         yn(formData.fluid_bolus),
-    fluid_bolus_doses:   optionalNum(formData.fluid_bolus_doses),
-    fluid_bolus_cumulative: optionalNum(formData.fluid_bolus_cumulative),
-    placental_transfusion: yn(formData.placental_transfusion),
-    transfusion_method:  formData.transfusion_method || null,
-    cord_clamp_timestamp:formData.cord_clamp_timestamp || null,
-    cord_clamp_time:     num(formData.cord_clamp_time),
-    time_to_respiration: durationToSeconds(formData.time_to_respiration),
-    respiration_days:   optionalNum(formData.respiration_days),
-    respiration_hours:  optionalNum(formData.respiration_hours),
-    spo2_5min:           num(formData.spo2_5min),
-    time_to_spo2_80:     durationToSeconds(formData.time_to_spo2_80),
-    randomised:          yn(formData.randomised),
-    strata:              formData.strata || null,
-    randomisation_date:  formData.randomisation_date
-      ? new Date(formData.randomisation_date).toISOString().split("T")[0] : null,
-    enrollment_reason_not_randomized: formData.enrollment_reason_not_randomized || null,
-    enrollment_reason_not_randomized_other: formData.enrollment_reason_not_randomized_other || null,
-    resus_failure:       yn(formData.resus_failure),
-    cord_blood_done:     yn(formData.cord_blood_done),
-    cord_blood_within_1hr: yn(formData.cord_blood_within_1hr),
-    cord_blood_source:   formData.cord_blood_source || null,
-    cord_ph:             optionalNum(formData.cord_ph),
-    cord_sbe:            optionalNum(formData.cord_sbe),
-    cord_pco2:           optionalNum(formData.cord_pco2),
-    spo2_exit_trial_gas: num(formData.spo2_exit_trial_gas),
-    total_resus_time:    num(formData.total_resus_time),
-    reason_exit_trial_gas: formData.reason_exit_trial_gas==="Other"
-      ? formData.reason_exit_trial_gas_other : formData.reason_exit_trial_gas,
-    blender_stopped:     yn(formData.blender_stopped),
-    blender_stopped_description: formData.blender_stopped_description || null,
-    interventions:       formData.interventions,
-  }), [formData]);
+   /* ── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
+  const buildPayloadFrom = useCallback((fd, useDraftFallbacks) => {
+    return {
+      screening_id:        fd.screening_id || (useDraftFallbacks ? "DRAFT" : null),
+      enrollment_id:       fd.enrollment_id || (useDraftFallbacks ? "DRAFT" : null),
+      mother_name_first:   fd.mother_name_first || (useDraftFallbacks ? "DRAFT" : null),
+      mother_name_surname: fd.mother_name_surname || null,
+      maternal_uid:        fd.maternal_uid || null,
+      contact_mother:      fd.contact_mother || null,
+      contact_husband:     fd.contact_husband || null,
+      baby_uid:            fd.baby_uid || (useDraftFallbacks ? "DRAFT" : null),
+      baby_admission_no:   fd.baby_admission_no || null,
+      baby_annual_no:      fd.baby_annual_no || null,
+      gestation_weeks:     useDraftFallbacks ? (parseInt(fd.gestation_weeks) || 0) : (parseInt(fd.gestation_weeks) || null),
+      gestation_days:      useDraftFallbacks ? (parseInt(fd.gestation_days) || 0) : (parseInt(fd.gestation_days) || null),
+      gestation_rand_weeks: useDraftFallbacks ? (parseInt(fd.gestation_rand_weeks) || 0) : (optionalNum(fd.gestation_rand_weeks)),
+      gestation_rand_days: useDraftFallbacks ? (parseInt(fd.gestation_rand_days) || 0) : (optionalNum(fd.gestation_rand_days)),
+      birth_weight:        useDraftFallbacks ? (parseInt(fd.birth_weight) || 0) : (parseInt(fd.birth_weight) || null),
+      intrauterine_centile: fd.intrauterine_centile || null,
+      date_of_birth:       fd.date_of_birth
+        ? new Date(fd.date_of_birth).toISOString().split("T")[0] : (useDraftFallbacks ? new Date().toISOString().split("T")[0] : null),
+      time_of_birth:       fd.time_of_birth || (useDraftFallbacks ? "00:00:00" : null),
+      gender:              fd.gender || (useDraftFallbacks ? "Unknown" : null),
+      indication_for_delivery: (fd.indication_for_delivery || []).join(", ") || (useDraftFallbacks ? "" : null),
+      indication_for_delivery_other: fd.indication_for_delivery_other || null,
+      indication_edf_detail: fd.indication_edf_detail || null,
+      fetal_indication_detail: fd.fetal_indication_detail || null,
+      obstetric_indication_detail: fd.obstetric_indication_detail || null,
+      delivery_mode:       fd.delivery_mode || (useDraftFallbacks ? "Vaginal" : null),
+      vaginal_delivery_type: fd.vaginal_delivery_type || null,
+      lscs_type:           fd.lscs_type || null,
+      maternal_complication: fd.maternal_complication || null,
+      poor_resp_efforts:   yn(fd.poor_resp_efforts),
+      poor_muscle_tone:    yn(fd.poor_muscle_tone),
+      hr_above_100:        yn(fd.hr_above_100),
+      initial_steps:       yn(fd.initial_steps),
+      required_resuscitation: yn(fd.required_resuscitation),
+      ppv_required:        yn(fd.ppv_required),
+      device_ppv:          fd.device_ppv || null,
+      sib_peep_with:       fd.sib_peep_with || null,
+      sib_peep_cmh2o:      optionalNum(fd.sib_peep_cmh2o),
+      tpiece_pip:          optionalNum(fd.tpiece_pip),
+      tpiece_peep:         optionalNum(fd.tpiece_peep),
+      tpiece_flow:         optionalNum(fd.tpiece_flow),
+      interface_used:      fd.interface_used || null,
+      intubation:          yn(fd.intubation),
+      chest_compression:   yn(fd.chest_compression),
+      ppv_duration:        useDraftFallbacks ? (parseInt(fd.ppv_duration) || 0) : (parseInt(fd.ppv_duration) || null),
+      cc_duration:         useDraftFallbacks ? (parseInt(fd.cc_duration) || 0) : (parseInt(fd.cc_duration) || null),
+      adrenaline:          yn(fd.adrenaline),
+      adrenaline_dilution: fd.adrenaline_dilution || null,
+      adrenaline_route:    fd.adrenaline_route || null,
+      fluid_bolus:         yn(fd.fluid_bolus),
+      fluid_bolus_doses:   optionalNum(fd.fluid_bolus_doses),
+      fluid_bolus_cumulative: optionalNum(fd.fluid_bolus_cumulative),
+      placental_transfusion: yn(fd.placental_transfusion),
+      transfusion_method:  fd.transfusion_method || null,
+      cord_clamp_timestamp: fd.cord_clamp_timestamp || null,
+      cord_clamp_time:     useDraftFallbacks ? (parseInt(fd.cord_clamp_time) || 0) : (parseInt(fd.cord_clamp_time) || null),
+      time_to_respiration: durationToSeconds(fd.time_to_respiration),
+      respiration_days:   optionalNum(fd.respiration_days),
+      respiration_hours:  optionalNum(fd.respiration_hours),
+      spo2_5min:           useDraftFallbacks ? (parseInt(fd.spo2_5min) || 0) : (parseInt(fd.spo2_5min) || null),
+      time_to_spo2_80:     durationToSeconds(fd.time_to_spo2_80),
+      randomised:          yn(fd.randomised),
+      strata:              fd.strata || null,
+      randomisation_date:  fd.randomisation_date
+        ? new Date(fd.randomisation_date).toISOString().split("T")[0] : (useDraftFallbacks ? new Date().toISOString().split("T")[0] : null),
+      enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
+      enrollment_reason_not_randomized_other: fd.enrollment_reason_not_randomized_other || null,
+      resus_failure:       yn(fd.resus_failure),
+      cord_blood_done:     yn(fd.cord_blood_done),
+      cord_blood_within_1hr: yn(fd.cord_blood_within_1hr),
+      cord_blood_source:   fd.cord_blood_source || null,
+      cord_ph:             optionalNum(fd.cord_ph),
+      cord_sbe:            optionalNum(fd.cord_sbe),
+      cord_pco2:           optionalNum(fd.cord_pco2),
+      spo2_exit_trial_gas: useDraftFallbacks ? (parseInt(fd.spo2_exit_trial_gas) || 0) : (parseInt(fd.spo2_exit_trial_gas) || null),
+      total_resus_time:    useDraftFallbacks ? (parseInt(fd.total_resus_time) || 0) : (parseInt(fd.total_resus_time) || null),
+      reason_exit_trial_gas: fd.reason_exit_trial_gas==="Other"
+        ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
+      blender_stopped:     yn(fd.blender_stopped),
+      blender_stopped_description: fd.blender_stopped_description || null,
+      interventions:       fd.interventions || {},
+    };
+  }, []);
+
+  const buildPayload = useCallback(
+    (useDraftFallbacks = false) => buildPayloadFrom(formData, useDraftFallbacks),
+    [formData, buildPayloadFrom]
+  );
 
   formDataRef.current = formData;
   buildPayloadRef.current = buildPayload;
@@ -426,25 +458,32 @@ export default function BirthResuscitationForm() {
   };
 
   /* ── Save ── */
-  const saveForm = useCallback(async () => {
+  const saveForm = async () => {
     setMessage("");
     const missing = validate();
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
-    const payload = buildPayload();
+    const payload = buildPayload(false);
     try {
-      const res = isFormBLoaded
-        ? await api.put(`/birth-resuscitation/${payload.enrollment_id}`, payload)
+      const storedId = localStorage.getItem("current_enrollment_id");
+      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+
+      const res = existingId
+        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
         : await api.post("/birth-resuscitation/", payload);
-      setIsFormBLoaded(true);
-      localStorage.setItem("current_enrollment_id", payload.enrollment_id);
-      localStorage.setItem("current_screening_id",  payload.screening_id);
+
+      const eid = res.data.enrollment_id;
+      const sid = res.data.screening_id;
+      localStorage.setItem("current_enrollment_id", eid);
+      if (sid) localStorage.setItem("current_screening_id", sid);
       window.dispatchEvent(new Event("storage"));
+
+      setIsFormBLoaded(true);
       setMessage("✅ Form B saved successfully");
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date()); setIsDirty(false);
       markFormCompleted("form_b");
       updatePatientData({
-        enrollment_id:  payload.enrollment_id,
+        enrollment_id:  eid,
         gestation:      `${formData.gestation_weeks}+${formData.gestation_days}`,
         mother_name:    `${formData.mother_name_first} ${formData.mother_name_surname}`,
         birth_weight:   formData.birth_weight,
@@ -461,27 +500,90 @@ export default function BirthResuscitationForm() {
       setMessage(`❌ Save failed: ${msg}`);
       return false;
     }
-  }, [formData, isFormBLoaded, buildPayload, markFormCompleted, updatePatientData]); // eslint-disable-line
+  };
 
-  /* ── Auto-save ── */
+  /* ── Save Draft — no validation, saves whatever is filled ── */
+  const saveDraft = async () => {
+    const payload = buildPayload(true);
+
+    try {
+      const storedId   = localStorage.getItem("current_enrollment_id");
+      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+
+      const res = existingId
+        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
+        : await api.post("/birth-resuscitation/", payload);
+
+      const eid = res.data.enrollment_id;
+      const sid = res.data.screening_id;
+      localStorage.setItem("current_enrollment_id", eid);
+      if (sid) localStorage.setItem("current_screening_id", sid);
+      window.dispatchEvent(new Event("storage"));
+
+      setShowDraftModal(true);
+    } catch (err) {
+      /* Parse FastAPI 422 validation errors into readable text */
+      const detail = err?.response?.data?.detail;
+      let msg = "Draft save failed.";
+      if (Array.isArray(detail)) {
+        msg = "Draft save failed: " + detail
+          .map(e => `${e.loc?.slice(-1)[0] || "field"} — ${e.msg}`)
+          .join("; ");
+      } else if (typeof detail === "string") {
+        msg = `Draft save failed: ${detail}`;
+      } else if (err.message) {
+        msg = `Draft save failed: ${err.message}`;
+      }
+      setMessage(`❌ ${msg}`);
+    }
+  };
+
+  /* ── Auto-save every 10 seconds (silent, no modals, no validation) ── */
   const autoSave = useCallback(async () => {
-    if(!formDataRef.current?.screening_id||!navigator.onLine) return;
+    const fd = formDataRef.current;
+    const storedId = localStorage.getItem("current_enrollment_id");
+    const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+
+    /* Don't create a new DB row until the nurse has entered a baby_uid */
+    if (!existingId && !fd.baby_uid) return;
+
+    if (!navigator.onLine) {
+      setOfflineQueue(true);
+      return;
+    }
+
     setAutoSaveStatus("saving");
     try {
-      const p = buildPayloadRef.current();
-      if(isFormBLoadedRef.current) await api.put(`/birth-resuscitation/${p.enrollment_id}`,p);
-      else { await api.post("/birth-resuscitation/",p); setIsFormBLoaded(true); }
-      setAutoSaveStatus("saved"); setLastSaved(new Date()); setIsDirty(false);
-      setTimeout(()=>setAutoSaveStatus("idle"),2500);
-    } catch { setAutoSaveStatus("error"); setTimeout(()=>setAutoSaveStatus("idle"),3000); }
-  }, []);
+      const payload = buildPayloadFrom(fd, true);
 
-  useEffect(()=>{
-    if(!isFormBLoaded) return;
+      const res = existingId
+        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
+        : await api.post("/birth-resuscitation/", payload);
+
+      const newEid = res.data.enrollment_id;
+      const sid = res.data.screening_id;
+      if (newEid) localStorage.setItem("current_enrollment_id", newEid);
+      if (sid) localStorage.setItem("current_screening_id", sid);
+      window.dispatchEvent(new Event("storage"));
+
+      setAutoSaveStatus("saved");
+      setLastSaved(new Date());
+      setIsDirty(false);
+      setOfflineQueue(false);
+      setTimeout(() => setAutoSaveStatus("idle"), 2500);
+    } catch {
+      setAutoSaveStatus("error");
+      setTimeout(() => setAutoSaveStatus("idle"), 3000);
+    }
+  }, [buildPayloadFrom]);
+
+  /* ── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
+  useEffect(() => {
+    if (!isFormBLoaded) return;
     clearInterval(autoSaveTimer.current);
-    autoSaveTimer.current=setInterval(autoSave,10000);
-    return ()=>clearInterval(autoSaveTimer.current);
-  },[autoSave,isFormBLoaded]);
+    autoSaveTimer.current = setInterval(autoSave, 10000);
+    return () => clearInterval(autoSaveTimer.current);
+  }, [autoSave, isFormBLoaded]);
 
   /* ── Next ── */
   const handleNext = async () => {
@@ -560,7 +662,8 @@ export default function BirthResuscitationForm() {
       {!isOnline && (
         <div className="offline-banner">
           <Ic d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" s={14}/>
-          You are offline — changes will auto-save when connection returns.
+          You are offline. Changes will be saved automatically when your connection returns.
+          {offlineQueue && <strong> · Save queued.</strong>}
         </div>
       )}
       {isSaved && isEditing && (
@@ -1453,6 +1556,9 @@ export default function BirthResuscitationForm() {
         <button type="button" className="btn btn-save" onClick={saveForm}>
           <Save size={15}/> Save
         </button>
+        <button type="button" className="btn btn-draft" onClick={saveDraft}>
+          <Save size={15}/> Save for Later
+        </button>
 
         {/* Auto-save indicator */}
         <div className="autosave-indicator">
@@ -1526,6 +1632,29 @@ export default function BirthResuscitationForm() {
                 onClick={()=>{setShowMissingModal(false);setTimeout(()=>scrollToFirstError(missingFields),100);}}>
                 <Ic d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 8v4M12 16h.01" s={13}/>
                 Go to first error
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft saved modal */}
+      {showDraftModal && (
+        <div className="modal-overlay">
+          <div className="modal-box">
+            <div className="modal-icon">💾</div>
+            <div className="modal-title">Draft Saved</div>
+            <div className="modal-subtext">
+              Your progress has been saved. You can return to this form any time to complete it.
+            </div>
+            <div style={{display:"flex", gap:"10px", marginTop:"16px"}}>
+              <button className="modal-btn" style={{background:"#f1f5f9", color:"#374151", border:"1px solid #e2e8f0"}}
+                onClick={() => { setShowDraftModal(false); setIsSaved(true); }}>
+                Keep Editing
+              </button>
+              <button className="modal-btn"
+                onClick={() => { setShowDraftModal(false); navigate("/dashboard"); }}>
+                Go to Dashboard
               </button>
             </div>
           </div>
