@@ -79,7 +79,7 @@ NICU_ADMISSION_UNIQUE_PATCHES = [
     """
     WITH ranked_rows AS (
       SELECT id,
-             ROW_NUMBER() OVER (PARTITION BY enrollment_id ORDER BY created_at DESC NULLS LAST, id DESC) as rn
+             ROW_NUMBER() OVER (PARTITION BY enrollment_id ORDER BY id DESC) as rn
       FROM nicu_admission
       WHERE enrollment_id IS NOT NULL
     )
