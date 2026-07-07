@@ -160,8 +160,11 @@ export default function ScreeningForm() {
   });
   const formDataRef    = useRef(formData);
   const screeningIdRef = useRef(screeningId);
+  const autoSaveRef    = useRef(null);
+  const offlineQueueRef = useRef(false);
   formDataRef.current = formData;
   screeningIdRef.current = screeningId;
+  offlineQueueRef.current = offlineQueue;
 
   /* ─── Load ── */
   useEffect(() => {
@@ -270,8 +273,12 @@ export default function ScreeningForm() {
   useEffect(() => {
     const goOnline  = () => {
       setIsOnline(true);
-      // If we had a queued save, trigger it now
-      setOfflineQueue(prev => { if (prev) { autoSave(); } return false; });
+      // If we had a queued save, flush it now (autoSave read via ref to
+      // avoid referencing the const before it is initialized).
+      if (offlineQueueRef.current) {
+        setOfflineQueue(false);
+        autoSaveRef.current?.();
+      }
     };
     const goOffline = () => setIsOnline(false);
     window.addEventListener("online",  goOnline);
@@ -652,6 +659,8 @@ export default function ScreeningForm() {
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
   }, []);
+
+  autoSaveRef.current = autoSave;
 
   /* ─── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
