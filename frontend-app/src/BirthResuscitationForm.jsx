@@ -77,6 +77,8 @@ export default function BirthResuscitationForm() {
   const formDataRef = useRef(null);
   const buildPayloadRef = useRef(null);
   const isFormBLoadedRef = useRef(false);
+  const autoSaveRef = useRef(null);
+  const offlineQueueRef = useRef(false);
   const isFieldEditable = !isSaved || isEditing;
 
   const BLANK = {
@@ -192,8 +194,12 @@ export default function BirthResuscitationForm() {
   useEffect(() => {
     const goOnline  = () => {
       setIsOnline(true);
-      // If we had a queued save, trigger it now
-      setOfflineQueue(prev => { if (prev) { autoSave(); } return false; });
+      // If we had a queued save, flush it now (autoSave read via ref to
+      // avoid a temporal-dead-zone reference to the const defined below).
+      if (offlineQueueRef.current) {
+        setOfflineQueue(false);
+        autoSaveRef.current?.();
+      }
     };
     const goOffline = () => setIsOnline(false);
     window.addEventListener("online",  goOnline);
@@ -202,7 +208,7 @@ export default function BirthResuscitationForm() {
       window.removeEventListener("online",  goOnline);
       window.removeEventListener("offline", goOffline);
     };
-  }, [autoSave]); // eslint-disable-line
+  }, []);
 
   /* ── Unsaved changes — warn on tab close / navigate away ── */
   useEffect(() => {
@@ -343,6 +349,7 @@ export default function BirthResuscitationForm() {
   formDataRef.current = formData;
   buildPayloadRef.current = buildPayload;
   isFormBLoadedRef.current = isFormBLoaded;
+  offlineQueueRef.current = offlineQueue;
 
   /* ── Validate ── */
   const validate = () => {
@@ -576,6 +583,8 @@ export default function BirthResuscitationForm() {
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
   }, [buildPayloadFrom]);
+
+  autoSaveRef.current = autoSave;
 
   /* ── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
