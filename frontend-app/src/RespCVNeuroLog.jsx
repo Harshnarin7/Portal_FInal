@@ -518,14 +518,6 @@ export default function RespCVNeuroLog() {
     : 0;
   const canSubmit = completionPct === 100 && !isSubmitted;
 
-  // ── DEBUG (remove after verification) ────────────────────
-  console.log({
-    respiratoryCompleted: respAnswered,   respiratoryTotal: respTotal,
-    cardiovascularCompleted: cvAnswered,  cardiovascularTotal: cvTotal,
-    neurologicalCompleted: neuroAnswered, neurologicalTotal: neuroTotal,
-    totalAnswered, totalFields, completionPct,
-  });
-
   /* ── Helpers ── */
   const toggleMode = (mode) => {
     if (!isFieldEditable) return;
