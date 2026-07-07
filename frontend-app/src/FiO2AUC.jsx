@@ -216,8 +216,6 @@ export default function Fio2AUCForm() {
   const delRow        = (d, win, id) =>
     setDay(d, x => ({ [win]: x[win].length > 1 ? x[win].filter(r => r.id !== id) : x[win] }));
   const updateRow     = (d, win, id, field, value) => {
-    setDay(d, x => ({ [win]: x[win].map(r => r.id === id ? { ...r, [field]: value } : r) }));
-    // After update, check if this day just became complete → auto-expand next day
     setDays(prev => {
       const updated = prev.map(x => x.day === d
         ? { ...x, [win]: x[win].map(r => r.id === id ? { ...r, [field]: value } : r) }
@@ -227,7 +225,7 @@ export default function Fio2AUCForm() {
       if (!thisDay) return updated;
       const h1 = windowHours(thisDay.w1);
       const h2 = windowHours(thisDay.w2);
-      const justCompleted = h1 === 12 && h2 === 12;
+      const justCompleted = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
       if (!justCompleted) return updated;
       // Auto-collapse this day, expand the next
       return updated.map(x => {
@@ -242,14 +240,40 @@ export default function Fio2AUCForm() {
   const grandTotal   = days.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
   const meanFiO2     = ((grandTotal / 168) * 100).toFixed(1);
   const excessO2     = Math.max(0, grandTotal - 0.21 * 168).toFixed(2);
-  const daysComplete = days.filter(d =>
-    windowHours(d.w1) === 12 && windowHours(d.w2) === 12
-  ).length;
+  const daysComplete = days.filter(d => {
+    const h1 = windowHours(d.w1);
+    const h2 = windowHours(d.w2);
+    return Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
+  }).length;
 
   /* ── Save / Submit ── */
   const handleSubmit = async () => {
     try {
       if (!enrollmentId) { setMessage("❌ Enrollment ID missing"); return; }
+      
+      // Validate all entries before saving
+      for (const day of days) {
+        for (const win of ["w1", "w2"]) {
+          for (const row of day[win]) {
+            const fio2 = parseFloat(row.fio2);
+            const dur = parseFloat(row.dur);
+            if (row.fio2 && (isNaN(fio2) || fio2 < 0 || fio2 > 100)) {
+              setMessage(`❌ FiO₂ must be 0–100 (Day ${day.day}, ${win === "w1" ? "0–12h" : "12–24h"})`);
+              return;
+            }
+            if (row.dur && (isNaN(dur) || dur <= 0 || dur > 12)) {
+              setMessage(`❌ Duration must be 0–12 hours (Day ${day.day}, ${win === "w1" ? "0–12h" : "12–24h"})`);
+              return;
+            }
+          }
+          const windowHrs = windowHours(day[win]);
+          if (windowHrs > 12.01) {
+            setMessage(`❌ ${win === "w1" ? "0–12h" : "12–24h"} window exceeds 12 hours on Day ${day.day}`);
+            return;
+          }
+        }
+      }
+      
       const fio2_logs = days.flatMap(d => [
         { day: d.day, block: "0–12h",  entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
         { day: d.day, block: "12–24h", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },

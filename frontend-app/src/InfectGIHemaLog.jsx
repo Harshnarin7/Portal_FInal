@@ -357,7 +357,7 @@ export default function InfectGIHemaLog() {
      Hidden/conditional fields excluded from total
   ══════════════════════════════════════════════ */
 
-  // Infection base: 6 always visible
+  // Infection base: 7 always visible
   const INF_BASE    = ["sepsis_suspected","antibiotics","antibiotic_day","lp_done","csf_culture_positive","clabsi","vap"];
   const INF_SEPSIS  = ["blood_culture_sent","blood_culture_positive","eos","los"];
 
@@ -573,6 +573,12 @@ export default function InfectGIHemaLog() {
       setMessage("❌ Submission failed — please try again");
       setShowModal(false);
     } finally { setSubmitting(false); }
+  };
+
+  /* ── Next Form (save before navigate) ── */
+  const handleNext = async () => {
+    await handleSave();
+    navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
   };
 
   /* ── Copy from day ── */
@@ -858,7 +864,7 @@ export default function InfectGIHemaLog() {
                 <label className="rcn-field-label">Treatment &amp; Monitoring</label>
                 <div className="rcn-yn-list">
                   <YNRow label="Antibiotics"          value={infData.antibiotics}          onChange={v => setInf("antibiotics", v)}          disabled={!isFieldEditable} />
-                  <YNRow label="Antibiotic Day"        value={infData.antibiotic_day}       onChange={v => setInf("antibiotic_day", v)}       disabled={!isFieldEditable} />
+                  <NumRow label="Antibiotic Day"       value={infData.antibiotic_day}       onChange={v => setInf("antibiotic_day", v)}       disabled={!isFieldEditable} />
                   <YNRow label="LP Done"               value={infData.lp_done}              onChange={v => setInf("lp_done", v)}              disabled={!isFieldEditable} />
                   <YNRow label="CSF Culture Positive"  value={infData.csf_culture_positive} onChange={v => setInf("csf_culture_positive", v)} disabled={!isFieldEditable} />
                   <YNRow label="CLABSI"                value={infData.clabsi}               onChange={v => setInf("clabsi", v)}               disabled={!isFieldEditable} />
@@ -1002,7 +1008,7 @@ export default function InfectGIHemaLog() {
           </div>
         </div>
         <button type="button" className="btn btn-primary"
-          onClick={() => navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
+          onClick={handleNext} disabled={!isSaved}>
           Next Form <ArrowRight size={15} />
         </button>
       </div>
