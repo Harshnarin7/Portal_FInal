@@ -374,20 +374,35 @@ class BirthResuscitationCreate(BaseModel):
     birth_weight: Optional[float] = None
     date_of_birth: Optional[date] = None
     time_of_birth: Optional[time] = None
+    baby_admission_no: Optional[str] = None
+    baby_annual_no: Optional[str] = None
+    gestation_rand_weeks: Optional[int] = None
+    gestation_rand_days: Optional[int] = None
+    intrauterine_centile: Optional[str] = None
 
     indication_for_delivery: Optional[str] = None
     maternal_complication: Optional[str] = None
     delivery_mode: Optional[str] = None
-    labor_type: Optional[str] = None
+    vaginal_delivery_type: Optional[str] = None
+    lscs_type: Optional[str] = None
     gender: Optional[str] = None
 
     poor_resp_efforts: Optional[bool] = None
     poor_muscle_tone: Optional[bool] = None
+    hr_above_100: Optional[bool] = None
     required_resuscitation: Optional[bool] = None
     initial_steps: Optional[bool] = None
+    strata: Optional[str] = None
+    enrollment_reason_not_randomized: Optional[str] = None
 
     ppv_required: Optional[bool] = None
     device_ppv: Optional[str] = None
+    sib_peep_with: Optional[str] = None
+    sib_peep_cmh2o: Optional[float] = None
+    tpiece_pip: Optional[float] = None
+    tpiece_peep: Optional[float] = None
+    tpiece_flow: Optional[float] = None
+    interface_used: Optional[str] = None
     intubation: Optional[bool] = None
     chest_compression: Optional[bool] = None
 
@@ -395,12 +410,16 @@ class BirthResuscitationCreate(BaseModel):
     cc_duration: Optional[int] = None
 
     adrenaline: Optional[bool] = None
+    adrenaline_dilution: Optional[str] = None
+    adrenaline_route: Optional[str] = None
     med_doses: Optional[int] = None
+    adrenaline_cumulative: Optional[float] = None
     fluid_bolus: Optional[bool] = None
 
     placental_transfusion: Optional[bool] = None
     transfusion_method: Optional[str] = None
 
+    cord_clamp_timestamp: Optional[time] = None
     cord_clamp_time: Optional[int] = None
     time_to_respiration: Optional[int] = None
     time_to_spo2_80: Optional[int] = None
@@ -410,7 +429,13 @@ class BirthResuscitationCreate(BaseModel):
     randomisation_date: Optional[str] = None
 
     resus_failure: Optional[bool] = None
-    fio2_exit: Optional[float] = None
+    cord_blood_done: Optional[bool] = None
+    cord_blood_within_1hr: Optional[bool] = None
+    cord_blood_source: Optional[str] = None
+    cord_ph: Optional[float] = None
+    cord_sbe: Optional[float] = None
+    cord_pco2: Optional[float] = None
+    interventions: Optional[Dict[str, Dict[str, str]]] = None
     reason_exit_trial_gas: Optional[str] = None
     spo2_exit_trial_gas: Optional[float] = None
     total_resus_time: Optional[int] = None

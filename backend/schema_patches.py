@@ -33,6 +33,35 @@ COMPOSITE_OUTCOME_COLUMN_PATCHES = [
     "ALTER TABLE composite_outcomes ADD COLUMN IF NOT EXISTS ltfu_reason_44 TEXT",
 ]
 
+BIRTH_RESUSCITATION_COLUMN_PATCHES = [
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS baby_annual_no VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS gestation_rand_weeks INTEGER",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS gestation_rand_days INTEGER",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS intrauterine_centile VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS vaginal_delivery_type VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS lscs_type VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS hr_above_100 BOOLEAN",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS strata VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS enrollment_reason_not_randomized TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS sib_peep_with VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS sib_peep_cmh2o DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS tpiece_pip DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS tpiece_peep DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS tpiece_flow DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS interface_used VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS adrenaline_dilution VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS adrenaline_route VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS adrenaline_cumulative DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_clamp_timestamp TIME",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_blood_done BOOLEAN",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_blood_within_1hr BOOLEAN",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_blood_source VARCHAR",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_ph DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_sbe DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_pco2 DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS interventions JSON",
+]
+
 
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -41,4 +70,6 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in SCREENING_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in COMPOSITE_OUTCOME_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in BIRTH_RESUSCITATION_COLUMN_PATCHES:
             conn.execute(text(stmt))

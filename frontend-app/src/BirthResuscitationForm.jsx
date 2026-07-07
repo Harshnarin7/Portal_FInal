@@ -71,11 +71,14 @@ export default function BirthResuscitationForm() {
   const [isOnline,         setIsOnline]         = useState(navigator.onLine);
   const autoSaveTimer   = useRef(null);
   const isInitialRender = useRef(true);
+  const formDataRef = useRef(null);
+  const buildPayloadRef = useRef(null);
+  const isFormBLoadedRef = useRef(false);
   const isFieldEditable = !isSaved || isEditing;
 
   const BLANK = {
     /* B1 */
-    screening_id:"", enrollment_id:"",
+    screening_id:"", enrollment_id:"", screening_datetime:"",
     mother_name_first:"", mother_name_surname:"", maternal_uid:"",
     contact_mother:"", contact_husband:"",
     baby_uid:"", baby_admission_no:"", baby_annual_no:"",
@@ -127,19 +130,43 @@ export default function BirthResuscitationForm() {
   const times = ["1","5","10","15","20"];
   const yn  = v => v === "Yes";
   const num = v => v === "" ? 0 : Number(v);
+  const optionalNum = v => v === "" || v === null || v === undefined ? null : Number(v);
 
-  /* ── Gestation at randomization (auto-calc from screening GA + DOB) ── */
+  /* ── Gestation at randomization (screening GA + elapsed calendar days) ── */
   useEffect(() => {
-    if (!formData.date_of_birth || !formData.gestation_weeks) return;
-    // Days since screening (approximate — screening date not always stored)
-    // Use birth date vs today's date to compute offset from screening GA
+    if (!formData.date_of_birth || !formData.screening_datetime || !formData.gestation_weeks) return;
     const screeningGA = Number(formData.gestation_weeks) * 7 + Number(formData.gestation_days || 0);
-    // We don't have exact screening date, so randomization GA ≈ screening GA for now
-    // When screening_datetime is available, calculate: randGA = screeningGA + daysBetween
-    const randW = Math.floor(screeningGA / 7);
-    const randD = screeningGA % 7;
+    const screeningDay = new Date(formData.screening_datetime);
+    const birthDay = new Date(`${formData.date_of_birth}T00:00:00`);
+    screeningDay.setHours(0, 0, 0, 0);
+    birthDay.setHours(0, 0, 0, 0);
+    const elapsedDays = Math.max(0, Math.round((birthDay - screeningDay) / 86400000));
+    const randomisationGA = screeningGA + elapsedDays;
+    const randW = Math.floor(randomisationGA / 7);
+    const randD = randomisationGA % 7;
     set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
-  }, [formData.date_of_birth, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
+  }, [formData.date_of_birth, formData.screening_datetime, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
+
+  /* ── Cord-clamping time in seconds from birth ── */
+  useEffect(() => {
+    const toSeconds = value => {
+      const parts = String(value || "").split(":").map(Number);
+      if (parts.length < 2 || parts.some(Number.isNaN)) return null;
+      const [hours, minutes, seconds = 0] = parts;
+      if (hours > 23 || minutes > 59 || seconds > 59) return null;
+      return hours * 3600 + minutes * 60 + seconds;
+    };
+    const birth = toSeconds(formData.time_of_birth);
+    const clamp = toSeconds(formData.cord_clamp_timestamp);
+    if (birth === null || clamp === null) {
+      if (formData.cord_clamp_time !== "") set({ cord_clamp_time: "" });
+      return;
+    }
+    let elapsed = clamp - birth;
+    if (elapsed < 0) elapsed += 86400;
+    set({ cord_clamp_time: elapsed });
+    setErrors(p => ({...p, cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : ""}));
+  }, [formData.time_of_birth, formData.cord_clamp_timestamp]); // eslint-disable-line
 
   /* ── Sync chest_compression to intervention table ── */
   useEffect(() => {
@@ -198,9 +225,13 @@ export default function BirthResuscitationForm() {
     contact_husband:     formData.contact_husband || null,
     baby_uid:            formData.baby_uid || null,
     baby_admission_no:   formData.baby_admission_no || null,
+    baby_annual_no:      formData.baby_annual_no || null,
     gestation_weeks:     num(formData.gestation_weeks),
     gestation_days:      num(formData.gestation_days),
+    gestation_rand_weeks:optionalNum(formData.gestation_rand_weeks),
+    gestation_rand_days: optionalNum(formData.gestation_rand_days),
     birth_weight:        num(formData.birth_weight),
+    intrauterine_centile:formData.intrauterine_centile || null,
     date_of_birth:       formData.date_of_birth
       ? new Date(formData.date_of_birth).toISOString().split("T")[0] : null,
     time_of_birth:       formData.time_of_birth || null,
@@ -209,39 +240,61 @@ export default function BirthResuscitationForm() {
       ? [...(formData.indication_for_delivery || []).filter(v => v !== "Other"), formData.indication_for_delivery_other].filter(Boolean).join(", ")
       : (formData.indication_for_delivery || []).join(", "),
     delivery_mode:       formData.delivery_mode,
-    labor_type:          formData.labor_type,
+    vaginal_delivery_type: formData.vaginal_delivery_type || null,
+    lscs_type:           formData.lscs_type || null,
     maternal_complication: formData.maternal_complication || null,
     poor_resp_efforts:   yn(formData.poor_resp_efforts),
     poor_muscle_tone:    yn(formData.poor_muscle_tone),
+    hr_above_100:        yn(formData.hr_above_100),
     initial_steps:       yn(formData.initial_steps),
     required_resuscitation: yn(formData.required_resuscitation),
     ppv_required:        yn(formData.ppv_required),
     device_ppv:          formData.device_ppv || null,
+    sib_peep_with:       formData.sib_peep_with || null,
+    sib_peep_cmh2o:      optionalNum(formData.sib_peep_cmh2o),
+    tpiece_pip:          optionalNum(formData.tpiece_pip),
+    tpiece_peep:         optionalNum(formData.tpiece_peep),
+    tpiece_flow:         optionalNum(formData.tpiece_flow),
+    interface_used:      formData.interface_used || null,
     intubation:          yn(formData.intubation),
     chest_compression:   yn(formData.chest_compression),
     ppv_duration:        num(formData.ppv_duration),
     cc_duration:         num(formData.cc_duration),
     adrenaline:          yn(formData.adrenaline),
+    adrenaline_dilution: formData.adrenaline_dilution || null,
+    adrenaline_route:    formData.adrenaline_route || null,
     med_doses:           num(formData.med_doses),
+    adrenaline_cumulative: optionalNum(formData.adrenaline_cumulative),
     fluid_bolus:         yn(formData.fluid_bolus),
     placental_transfusion: yn(formData.placental_transfusion),
     transfusion_method:  formData.transfusion_method || null,
+    cord_clamp_timestamp:formData.cord_clamp_timestamp || null,
     cord_clamp_time:     num(formData.cord_clamp_time),
     time_to_respiration: num(formData.time_to_respiration),
     spo2_5min:           num(formData.spo2_5min),
     time_to_spo2_80:     num(formData.time_to_spo2_80),
     randomised:          yn(formData.randomised),
+    strata:              formData.strata || null,
     randomisation_date:  formData.randomisation_date
       ? new Date(formData.randomisation_date).toISOString().split("T")[0] : null,
     enrollment_reason_not_randomized: formData.enrollment_reason_not_randomized || null,
     resus_failure:       yn(formData.resus_failure),
-    fio2_exit:           num(formData.fio2_exit),
+    cord_blood_done:     yn(formData.cord_blood_done),
+    cord_blood_within_1hr: yn(formData.cord_blood_within_1hr),
+    cord_blood_source:   formData.cord_blood_source || null,
+    cord_ph:             optionalNum(formData.cord_ph),
+    cord_sbe:            optionalNum(formData.cord_sbe),
+    cord_pco2:           optionalNum(formData.cord_pco2),
     spo2_exit_trial_gas: num(formData.spo2_exit_trial_gas),
     total_resus_time:    num(formData.total_resus_time),
     reason_exit_trial_gas: formData.reason_exit_trial_gas==="Other"
       ? formData.reason_exit_trial_gas_other : formData.reason_exit_trial_gas,
     interventions:       formData.interventions,
   }), [formData]);
+
+  formDataRef.current = formData;
+  buildPayloadRef.current = buildPayload;
+  isFormBLoadedRef.current = isFormBLoaded;
 
   /* ── Validate ── */
   const validate = () => {
@@ -311,16 +364,16 @@ export default function BirthResuscitationForm() {
 
   /* ── Auto-save ── */
   const autoSave = useCallback(async () => {
-    if(!formData.screening_id||!navigator.onLine) return;
+    if(!formDataRef.current?.screening_id||!navigator.onLine) return;
     setAutoSaveStatus("saving");
     try {
-      const p = buildPayload();
-      if(isFormBLoaded) await api.put(`/birth-resuscitation/${p.enrollment_id}`,p);
+      const p = buildPayloadRef.current();
+      if(isFormBLoadedRef.current) await api.put(`/birth-resuscitation/${p.enrollment_id}`,p);
       else { await api.post("/birth-resuscitation/",p); setIsFormBLoaded(true); }
       setAutoSaveStatus("saved"); setLastSaved(new Date()); setIsDirty(false);
       setTimeout(()=>setAutoSaveStatus("idle"),2500);
     } catch { setAutoSaveStatus("error"); setTimeout(()=>setAutoSaveStatus("idle"),3000); }
-  }, [formData,buildPayload,isFormBLoaded]);
+  }, []);
 
   useEffect(()=>{
     if(!isFormBLoaded) return;
@@ -350,6 +403,7 @@ export default function BirthResuscitationForm() {
         setFormData(p=>({...p,...d,
           poor_resp_efforts: d.poor_resp_efforts===true?"Yes":d.poor_resp_efforts===false?"No":"",
           poor_muscle_tone:  d.poor_muscle_tone===true?"Yes":d.poor_muscle_tone===false?"No":"",
+          hr_above_100:      d.hr_above_100===true?"Yes":d.hr_above_100===false?"No":"",
           initial_steps:     d.initial_steps===true?"Yes":d.initial_steps===false?"No":"",
           required_resuscitation: d.required_resuscitation===true?"Yes":d.required_resuscitation===false?"No":"",
           ppv_required:      d.ppv_required===true?"Yes":d.ppv_required===false?"No":"",
@@ -360,6 +414,9 @@ export default function BirthResuscitationForm() {
           placental_transfusion: d.placental_transfusion===true?"Yes":d.placental_transfusion===false?"No":"",
           randomised:        d.randomised===true?"Yes":d.randomised===false?"No":"",
           resus_failure:     d.resus_failure===true?"Yes":d.resus_failure===false?"No":"",
+          cord_blood_done:   d.cord_blood_done===true?"Yes":d.cord_blood_done===false?"No":"",
+          cord_blood_within_1hr: d.cord_blood_within_1hr===true?"Yes":d.cord_blood_within_1hr===false?"No":"",
+          interventions:     d.interventions || p.interventions,
         }));
         setIsFormBLoaded(true); setIsSaved(true);
       }).catch(()=>{});
@@ -380,6 +437,7 @@ export default function BirthResuscitationForm() {
           mother_name_surname: pii.mother_surname||"",
           gestation_weeks:     d.gestation_weeks||"",
           gestation_days:      d.gestation_days||"",
+          screening_datetime: d.screening_datetime||"",
           contact_mother:  pii.mother_contact||pii.contact_mother||"",
           contact_husband: pii.husband_contact||pii.contact_husband||"",
         });
@@ -961,18 +1019,16 @@ export default function BirthResuscitationForm() {
                         </div>
                         <div className="form-group">
                           <label>43. Cord clamped at (HH:MM:SS)</label>
-                          <input type="text" name="cord_clamp_timestamp" value={formData.cord_clamp_timestamp||""}
-                            placeholder="HH:MM:SS" readOnly={!isFieldEditable}
-                            onChange={e=>set({cord_clamp_timestamp:e.target.value.replace(/[^0-9:]/g,"")})}/>
+                          <input type="time" step="1" name="cord_clamp_timestamp" value={formData.cord_clamp_timestamp||""}
+                            readOnly={!isFieldEditable} onChange={handleChange}/>
                         </div>
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
                           <label>44. Cord clamping time from birth (sec) <span className="field-note">auto filled</span></label>
                           <input type="text" name="cord_clamp_time" value={formData.cord_clamp_time||""}
-                            inputMode="numeric" maxLength={3} placeholder="0–300 sec" readOnly={!isFieldEditable}
-                            className={errors.cord_clamp_time?"input-error":""}
-                            onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)){set({cord_clamp_time:v});setErrors(p=>({...p,cord_clamp_time:Number(v)>300?"Must be ≤ 300 sec":""}));}}}/> 
+                            inputMode="numeric" maxLength={3} placeholder="Auto-calculated" readOnly
+                            className={errors.cord_clamp_time?"input-error":""}/>
                           {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
                         </div>
                         <div/>
