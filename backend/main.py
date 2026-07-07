@@ -958,11 +958,27 @@ def create_nicu_admission(
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
-    record = NICUAdmission(**payload)
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    return record
+    
+    # Check if record already exists (upsert pattern)
+    existing_record = db.query(NICUAdmission).filter(
+        NICUAdmission.enrollment_id == data.enrollment_id
+    ).first()
+    
+    if existing_record:
+        # Update existing record
+        for key, value in payload.items():
+            if hasattr(existing_record, key):
+                setattr(existing_record, key, value)
+        db.commit()
+        db.refresh(existing_record)
+        return existing_record
+    else:
+        # Create new record
+        record = NICUAdmission(**payload)
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
 
 @app.get("/nicu-admission/{enrollment_id}")
 def get_nicu_admission(
@@ -971,12 +987,14 @@ def get_nicu_admission(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    records = (
+    record = (
         db.query(NICUAdmission)
         .filter(NICUAdmission.enrollment_id == enrollment_id)
-        .all()
+        .first()
     )
-    return records  # returns list; frontend takes [0]
+    if not record:
+        raise HTTPException(status_code=404, detail="Form E not found")
+    return record
 
 
 @app.put("/nicu-admission/{enrollment_id}")
