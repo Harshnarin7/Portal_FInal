@@ -546,11 +546,11 @@ def update_screening(
             old_values=old_snapshot,
             new_values=row_snapshot(entry),
         )
-        db.commit()
-        db.refresh(entry)
-
         if not entry.screening_id:
             raise HTTPException(status_code=400, detail="Screening ID lost")
+
+        db.commit()
+        db.refresh(entry)
 
         return entry
 
