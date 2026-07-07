@@ -9,6 +9,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
+import { relativeTime } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Baby, Wind, Droplets, CheckSquare,
@@ -452,14 +453,7 @@ export default function FormD() {
   }, [isDirty]);
 
   /* ── Relative time helper ── */
-  const relT = d => {
-    if (!d) return null;
-    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diff < 10) return "just now";
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    return `${Math.floor(diff/3600)}h ago`;
-  };
+  const relT = relativeTime;
 
   // Track whether a DB record exists (for PUT vs POST) separately from form lock
   const [isRecordSaved, setIsRecordSaved] = useState(false);
