@@ -29,3 +29,6 @@ frontend-app/build/
 .idea/
 .vscode/
 .DS_Store
+
+# Local agent/editor config — may contain personal access tokens
+.codex/
