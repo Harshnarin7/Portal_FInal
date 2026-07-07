@@ -160,11 +160,13 @@ if(!formData.enrollment_id) return;
 
 api.get(`/composite-outcome/${formData.enrollment_id}`)
 .then(res=>{
-if(res.data.length>0){
+if(Array.isArray(res.data) && res.data.length>0){
 setFormData(p=>({...p,...res.data[0]}))
 }
 })
-.catch(()=>{})
+.catch(err=>{
+if(err?.response?.status!==404) console.error("Failed to load composite outcome", err);
+})
 
 },[formData.enrollment_id])
 
