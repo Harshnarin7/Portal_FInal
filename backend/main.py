@@ -436,8 +436,14 @@ def create_screening(
             gestation_days=screening.gestation_days,
             gestation_method=screening.gestation_method,
             expected_delivery_date=screening.expected_delivery_date,
+            lmp_date=screening.lmp_date,
             exclusion_present=screening.exclusion_present,
             exclusion_reasons=screening.exclusion_reasons,
+            reason_for_insufficient_time=screening.reason_for_insufficient_time,
+            decision_forego_resuscitation_reason=screening.decision_forego_resuscitation_reason,
+            decision_forego_resuscitation_reason_other=screening.decision_forego_resuscitation_reason_other,
+            major_structural_anomalies_if_yes=screening.major_structural_anomalies_if_yes,
+            fetal_hydrops=screening.fetal_hydrops,
             consent_given=screening.consent_given,
             consent_taken_by=screening.consent_taken_by,
             consent_datetime=screening.consent_datetime,
@@ -450,6 +456,10 @@ def create_screening(
             relationship_to_participant=screening.relationship_to_participant,
             relationship_other=screening.relationship_other,
             reason_not_approached=screening.reason_not_approached,
+            reason_not_approached_other=screening.reason_not_approached_other,
+            reason_for_consent_refusal=screening.reason_for_consent_refusal,
+            reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
+            video_pis_shown=screening.video_pis_shown,
         )
         stamp_created(db_screening, current_user)
 

@@ -46,7 +46,7 @@ function YesNoToggle({ label, name, value, onChange, disabled = false }) {
 }
 
 /* ─── MultiCheckbox ("select all that apply") ─────────────── */
-function MultiCheckbox({ options, selected = [], onChange, otherValue = "", onOtherChange, disabled = false }) {
+function MultiCheckbox({ options, selected = [], onChange, otherValue = "", onOtherChange, disabled = false, dataField }) {
   const toggle = (opt) => {
     if (disabled) return;
     const next = selected.includes(opt)
@@ -55,7 +55,7 @@ function MultiCheckbox({ options, selected = [], onChange, otherValue = "", onOt
     onChange(next);
   };
   return (
-    <div className="multi-checkbox-group">
+    <div className="multi-checkbox-group" data-field={dataField}>
       {options.map(opt => (
         <label key={opt} className={`multi-check-item${disabled ? " disabled" : ""}${selected.includes(opt) ? " checked" : ""}`}>
           <input type="checkbox" checked={selected.includes(opt)}
@@ -168,6 +168,10 @@ export default function ScreeningForm() {
   const [formData, setFormData] = useState({
     ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()),
   });
+  const formDataRef    = useRef(formData);
+  const screeningIdRef = useRef(screeningId);
+  formDataRef.current = formData;
+  screeningIdRef.current = screeningId;
 
   /* ─── Load ── */
   useEffect(() => {
@@ -196,8 +200,8 @@ export default function ScreeningForm() {
         }
       }
 
-      const forgoList  = d.decision_forego_resus_reason
-        ? d.decision_forego_resus_reason.split(",").map(s=>s.trim()).filter(Boolean) : [];
+      const forgoList  = (d.decision_forego_resuscitation_reason || d.decision_forego_resus_reason || "")
+        ? (d.decision_forego_resuscitation_reason || d.decision_forego_resus_reason).split(",").map(s=>s.trim()).filter(Boolean) : [];
       const refuseList = d.reason_for_consent_refusal
         ? d.reason_for_consent_refusal.split(",").map(s=>s.trim()).filter(Boolean) : [];
       const notApprList = d.reason_not_approached
@@ -229,7 +233,8 @@ export default function ScreeningForm() {
         fetal_hydrops_type:    d.fetal_hydrops_type || d.fetal_hydrops || "",
         decision_forego_resus: d.exclusion_reasons?.includes("Forego resuscitation") ? "Yes" : (d.exclusion_present != null) ? "No" : "",
         decision_forego_resus_reasons: forgoList,
-        decision_forego_resus_reason_other: forgoList.includes("Other") ? (d.decision_forego_resus_reason_other||"") : "",
+        decision_forego_resus_reason_other: forgoList.includes("Other")
+          ? (d.decision_forego_resuscitation_reason_other || d.decision_forego_resus_reason_other || "") : "",
         insufficient_time:     d.exclusion_reasons?.includes("Insufficient time")    ? "Yes" : (d.exclusion_present != null) ? "No" : "",
         insufficient_time_reason: d.insufficient_time_reason || d.reason_for_insufficient_time || "",
         iufd:                  d.exclusion_reasons?.includes("IUFD")                 ? "Yes" : (d.exclusion_present != null) ? "No" : "",
@@ -251,8 +256,11 @@ export default function ScreeningForm() {
       if (d.enrollment_id) localStorage.setItem("current_enrollment_id", d.enrollment_id);
 
       /* If A4 exclusions not fully answered, load in editing mode so nurse can continue */
-      const a4Fields = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","insufficient_time","iufd"];
-      const a4Complete  = a4Fields.every(k => d[k] === "Yes" || d[k] === "No");
+      const exclusionAnswered = (label) =>
+        d.exclusion_reasons?.includes(label) || d.exclusion_present != null;
+      const a4Complete  = [
+        "Structural anomaly", "Fetal hydrops", "Forego resuscitation", "Insufficient time", "IUFD",
+      ].every(exclusionAnswered);
       const consentDone = !!d.consent_given;
       const videosDone  = !!d.video_pis_shown;
       const fullyDone   = a4Complete && consentDone && videosDone;
@@ -537,9 +545,9 @@ export default function ScreeningForm() {
         if (!formData.consent_taken_by)            add("Consent obtained by nurse (A5)", "consent_taken_by");
       }
       if (formData.consent_given === "No" && formData.reason_for_consent_refusal_list.length === 0)
-        add("Reason for consent refusal — select at least one (A5)",               "consent_given");
+        add("Reason for consent refusal — select at least one (A5)",               "reason_for_consent_refusal_list");
       if (formData.consent_given === "Not approached" && formData.reason_not_approached_list.length === 0)
-        add("Reason not approached — select at least one (A5)",                    "consent_given");
+        add("Reason not approached — select at least one (A5)",                    "reason_not_approached_list");
       /* Video PIS required whenever any consent value is selected */
       if (formData.consent_given && !formData.video_pis_shown)
         add("Video PIS shown? (A5)",                                               "video_pis_shown");
@@ -561,66 +569,80 @@ export default function ScreeningForm() {
   };
 
   /* ─── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
-  const buildPayload = useCallback((useDraftFallbacks = false) => {
+  const buildPayloadFrom = (fd, useDraftFallbacks, exclYes) => {
     const exclusionParts = [];
-    if (formData.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
-    if (formData.fetal_hydrops         === "Yes") exclusionParts.push("Fetal hydrops");
-    if (formData.decision_forego_resus === "Yes") exclusionParts.push("Forego resuscitation");
-    if (formData.insufficient_time     === "Yes") exclusionParts.push("Insufficient time");
-    if (formData.iufd                  === "Yes") exclusionParts.push("IUFD");
+    if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
+    if (fd.fetal_hydrops         === "Yes") exclusionParts.push("Fetal hydrops");
+    if (fd.decision_forego_resus === "Yes") exclusionParts.push("Forego resuscitation");
+    if (fd.insufficient_time     === "Yes") exclusionParts.push("Insufficient time");
+    if (fd.iufd                  === "Yes") exclusionParts.push("IUFD");
 
     return {
-      screening_id:              formData.screening_id    || undefined,
-      screening_datetime:        formData.screening_datetime || (useDraftFallbacks ? new Date().toISOString() : null),
-      site_name:                 formData.site_name        || (useDraftFallbacks ? "DRAFT" : null),
-      site_id:                   formData.site_id          || (useDraftFallbacks ? "00"    : null),
-      screened_by:               formData.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
-      mother_first_name:         formData.mother_first_name || (useDraftFallbacks ? "DRAFT" : formData.mother_first_name),
-      mother_surname:            formData.mother_surname   || null,
-      husband_first_name:        formData.husband_first_name || (useDraftFallbacks ? "DRAFT" : formData.husband_first_name),
-      husband_surname:           formData.husband_surname  || null,
-      maternal_uid:              formData.maternal_uid     || null,
-      hospital_admission_number: formData.hospital_admission_number || null,
-      mother_contact:            formData.mother_contact   || null,
-      husband_contact:           formData.husband_contact  || null,
+      screening_id:              fd.screening_id    || undefined,
+      screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? new Date().toISOString() : null),
+      site_name:                 fd.site_name        || (useDraftFallbacks ? "DRAFT" : null),
+      site_id:                   fd.site_id          || (useDraftFallbacks ? "00"    : null),
+      screened_by:               fd.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
+      mother_first_name:         fd.mother_first_name || (useDraftFallbacks ? "DRAFT" : fd.mother_first_name),
+      mother_surname:            fd.mother_surname   || null,
+      husband_first_name:        fd.husband_first_name || (useDraftFallbacks ? "DRAFT" : fd.husband_first_name),
+      husband_surname:           fd.husband_surname  || null,
+      maternal_uid:              fd.maternal_uid     || null,
+      hospital_admission_number: fd.hospital_admission_number || null,
+      mother_contact:            fd.mother_contact   || null,
+      husband_contact:           fd.husband_contact  || null,
       gestation_weeks:           useDraftFallbacks
-        ? (parseInt(formData.gestation_known === "Yes" ? formData.best_ga_weeks : formData.auto_ga_weeks) || 0)
-        : (formData.gestation_known === "Yes" ? parseInt(formData.best_ga_weeks)||null : parseInt(formData.auto_ga_weeks)||null),
-      gestation_days:            formData.gestation_known === "Yes"
-        ? parseInt(formData.best_ga_days)||0 : parseInt(formData.auto_ga_days)||0,
-      gestation_method:          formData.gestation_method || null,
-      lmp_date:                  formData.lmp_date         || null,
-      expected_delivery_date:    formData.edd_date ? new Date(formData.edd_date).toISOString().split("T")[0] : null,
-      exclusion_present:         anyExclusionYes,
+        ? (parseInt(fd.gestation_known === "Yes" ? fd.best_ga_weeks : fd.auto_ga_weeks) || 0)
+        : (fd.gestation_known === "Yes" ? parseInt(fd.best_ga_weeks)||null : parseInt(fd.auto_ga_weeks)||null),
+      gestation_days:            fd.gestation_known === "Yes"
+        ? parseInt(fd.best_ga_days)||0 : parseInt(fd.auto_ga_days)||0,
+      gestation_method:          fd.gestation_method || null,
+      lmp_date:                  fd.lmp_date         || null,
+      expected_delivery_date:    fd.edd_date ? new Date(fd.edd_date).toISOString().split("T")[0] : null,
+      exclusion_present:         exclYes,
       exclusion_reasons:         exclusionParts.join(", ") || null,
-      exclusion_anomaly_details: formData.exclusion_anomaly_details || null,
-      fetal_hydrops_type:        formData.fetal_hydrops_type || null,
-      decision_forego_resus_reason: formData.decision_forego_resus_reasons.length > 0
-        ? formData.decision_forego_resus_reasons.join(", ") : null,
-      decision_forego_resus_reason_other: formData.decision_forego_resus_reason_other || null,
-      insufficient_time_reason:  formData.insufficient_time_reason || null,
-      consent_given:             formData.consent_given     || null,
-      consent_taken_by:          formData.consent_taken_by  || null,
-      consent_datetime:          formData.consent_datetime   || null,
-      consent_form_version:      formData.consent_form_version || null,
-      consent_language:          formData.consent_language   || null,
-      relationship_to_participant: formData.relationship_to_participant || null,
-      relationship_other:        formData.relationship_other || null,
-      reason_for_consent_refusal: formData.reason_for_consent_refusal_list.length > 0
-        ? formData.reason_for_consent_refusal_list.join(", ") : null,
-      reason_for_consent_refusal_other: formData.reason_for_consent_refusal_other || null,
-      reason_not_approached:     formData.reason_not_approached_list.length > 0
-        ? formData.reason_not_approached_list.join(", ") : null,
-      reason_not_approached_other: formData.reason_not_approached_other || null,
-      video_pis_shown:           formData.video_pis_shown  || null,
+      major_structural_anomalies_if_yes: fd.exclusion_anomaly === "Yes" ? (fd.exclusion_anomaly_details || null) : null,
+      fetal_hydrops:             fd.fetal_hydrops === "Yes" ? (fd.fetal_hydrops_type || null) : null,
+      decision_forego_resuscitation_reason: fd.decision_forego_resus === "Yes" && fd.decision_forego_resus_reasons.length > 0
+        ? fd.decision_forego_resus_reasons.join(", ") : null,
+      decision_forego_resuscitation_reason_other: fd.decision_forego_resus_reason_other || null,
+      reason_for_insufficient_time: fd.insufficient_time === "Yes" ? (fd.insufficient_time_reason || null) : null,
+      consent_given:             fd.consent_given     || null,
+      consent_taken_by:          fd.consent_taken_by  || null,
+      consent_datetime:          fd.consent_datetime   || null,
+      consent_form_version:      fd.consent_form_version || null,
+      consent_language:          fd.consent_language   || null,
+      relationship_to_participant: fd.relationship_to_participant || null,
+      relationship_other:        fd.relationship_other || null,
+      reason_for_consent_refusal: fd.reason_for_consent_refusal_list.length > 0
+        ? fd.reason_for_consent_refusal_list.join(", ") : null,
+      reason_for_consent_refusal_other: fd.reason_for_consent_refusal_other || null,
+      reason_not_approached:     fd.reason_not_approached_list.length > 0
+        ? fd.reason_not_approached_list.join(", ") : null,
+      reason_not_approached_other: fd.reason_not_approached_other || null,
+      video_pis_shown:           fd.video_pis_shown  || null,
     };
-  }, [formData, anyExclusionYes]);
+  };
+
+  const buildPayload = useCallback(
+    (useDraftFallbacks = false) => buildPayloadFrom(formData, useDraftFallbacks, anyExclusionYes),
+    [formData, anyExclusionYes]
+  );
 
   /* ─── Auto-save every 10 seconds (silent, no modals, no validation) ── */
   const autoSave = useCallback(async () => {
-    if (!formData.site_name && !formData.screening_id && !formData.mother_first_name) return;
+    const fd = formDataRef.current;
+    const exclYes = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
+      .some(k => fd[k] === "Yes");
 
-    // If offline, queue the save for when we come back online
+    const storedId = localStorage.getItem("current_screening_id");
+    const sid = screeningIdRef.current;
+    const existingId = (sid && sid !== "undefined") ? sid
+      : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+
+    /* Don't create a new DB row until the nurse has picked a site */
+    if (!existingId && !fd.site_name) return;
+
     if (!navigator.onLine) {
       setOfflineQueue(true);
       return;
@@ -628,18 +650,15 @@ export default function ScreeningForm() {
 
     setAutoSaveStatus("saving");
     try {
-      const payload  = buildPayload(true);
-      const storedId = localStorage.getItem("current_screening_id");
-      const existingId = (screeningId && screeningId !== "undefined") ? screeningId
-        : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const payload = buildPayloadFrom(fd, true, exclYes);
 
       const res = existingId
         ? await api.put(`/screenings/${existingId}`, payload)
         : await api.post("/screenings/", payload);
 
-      const sid = res.data.screening_id;
+      const newSid = res.data.screening_id;
       const eid = res.data.enrollment_id;
-      if (sid) localStorage.setItem("current_screening_id", sid);
+      if (newSid) localStorage.setItem("current_screening_id", newSid);
       if (eid) localStorage.setItem("current_enrollment_id", eid);
       window.dispatchEvent(new Event("storage"));
 
@@ -652,12 +671,11 @@ export default function ScreeningForm() {
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
-  }, [formData, buildPayload, screeningId]);
+  }, []);
 
-  /* ─── Start/restart 10-second interval whenever formData changes ── */
+  /* ─── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
     if (!dataLoaded) return;
-    clearInterval(autoSaveTimer.current);
     autoSaveTimer.current = setInterval(autoSave, 10000);
     return () => clearInterval(autoSaveTimer.current);
   }, [autoSave, dataLoaded]);
@@ -688,15 +706,10 @@ export default function ScreeningForm() {
       if (eid) localStorage.setItem("current_enrollment_id", eid);
       window.dispatchEvent(new Event("storage"));
 
-      if (missing.length === 0) {
-        setMessage("✅ Form A saved successfully");
-        setIsSaved(true); setIsEditing(false);
-        setLastSaved(new Date());
-        setIsDirty(false);
-      } else {
-        setMessage("⚠️ Saved with incomplete fields");
-        setIsSaved(false);
-      }
+      setMessage("✅ Form A saved successfully");
+      setIsSaved(true); setIsEditing(false);
+      setLastSaved(new Date());
+      setIsDirty(false);
       window.scrollTo({ top:0, behavior:"smooth" });
       setTimeout(() => setMessage(""), 4000);
       if (!screeningId && sid) navigate(`/form-a/${sid}`, { replace: true });
@@ -1234,9 +1247,10 @@ export default function ScreeningForm() {
                   {formData.decision_forego_resus === "Yes" && (
                     <div className="followup-box">
                       <label className="followup-label">23. If yes, reason (select all that apply)<span className="required">*</span></label>
-                      <MultiCheckbox
-                        options={FOREGO_REASONS}
-                        selected={formData.decision_forego_resus_reasons}
+                        <MultiCheckbox
+                          options={FOREGO_REASONS}
+                          dataField="decision_forego_resus"
+                          selected={formData.decision_forego_resus_reasons}
                         onChange={val => set({ decision_forego_resus_reasons: val })}
                         otherValue={formData.decision_forego_resus_reason_other}
                         onOtherChange={val => set({ decision_forego_resus_reason_other: val })}
@@ -1342,6 +1356,7 @@ export default function ScreeningForm() {
                         <label className="followup-label">29. If no, reason for consent refusal (select all that apply)<span className="required">*</span></label>
                         <MultiCheckbox
                           options={REFUSAL_REASONS}
+                          dataField="reason_for_consent_refusal_list"
                           selected={formData.reason_for_consent_refusal_list}
                           onChange={val => set({ reason_for_consent_refusal_list: val })}
                           otherValue={formData.reason_for_consent_refusal_other}
@@ -1356,6 +1371,7 @@ export default function ScreeningForm() {
                         <label className="followup-label">30. If not approached, reason (select all that apply)<span className="required">*</span></label>
                         <MultiCheckbox
                           options={NOT_APPROACHED_REASONS}
+                          dataField="reason_not_approached_list"
                           selected={formData.reason_not_approached_list}
                           onChange={val => set({ reason_not_approached_list: val })}
                           otherValue={formData.reason_not_approached_other}

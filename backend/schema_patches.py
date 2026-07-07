@@ -21,6 +21,9 @@ SCREENING_COLUMN_PATCHES = [
     # Issue #1 Fix 1
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS reason_for_consent_refusal TEXT",
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS reason_for_consent_refusal_other TEXT",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS reason_not_approached_other TEXT",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS decision_forego_resuscitation_reason_other TEXT",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS video_pis_shown VARCHAR",
 ]
 
 COMPOSITE_OUTCOME_COLUMN_PATCHES = [

@@ -272,6 +272,11 @@ class ScreeningCreate(BaseModel):
     lmp_date: Optional[date] = None 
     exclusion_present: bool
     exclusion_reasons: Optional[str] = None
+    reason_for_insufficient_time: Optional[str] = None
+    decision_forego_resuscitation_reason: Optional[str] = None
+    decision_forego_resuscitation_reason_other: Optional[str] = None
+    major_structural_anomalies_if_yes: Optional[str] = None
+    fetal_hydrops: Optional[str] = None
     screening_status: Optional[str] = None
     consent_given: Optional[str] = None
     consent_taken_by: Optional[str] = None
@@ -285,8 +290,10 @@ class ScreeningCreate(BaseModel):
     relationship_to_participant: Optional[str] = None
     relationship_other: Optional[str] = None
     reason_not_approached: Optional[str] = None
+    reason_not_approached_other: Optional[str] = None
     reason_for_consent_refusal: Optional[str] = None
     reason_for_consent_refusal_other: Optional[str] = None
+    video_pis_shown: Optional[str] = None
 
 
 class ScreeningClinicalOut(BaseModel):
@@ -309,6 +316,11 @@ class ScreeningClinicalOut(BaseModel):
     lmp_date: Optional[str] = None
     exclusion_present: Optional[bool] = None
     exclusion_reasons: Optional[str] = None
+    reason_for_insufficient_time: Optional[str] = None
+    decision_forego_resuscitation_reason: Optional[str] = None
+    decision_forego_resuscitation_reason_other: Optional[str] = None
+    major_structural_anomalies_if_yes: Optional[str] = None
+    fetal_hydrops: Optional[str] = None
 
     consent_given: Optional[str] = None
     consent_taken_by: Optional[str] = None
@@ -322,8 +334,10 @@ class ScreeningClinicalOut(BaseModel):
     relationship_to_participant: Optional[str] = None
     relationship_other: Optional[str] = None
     reason_not_approached: Optional[str] = None
+    reason_not_approached_other: Optional[str] = None
     reason_for_consent_refusal: Optional[str] = None
     reason_for_consent_refusal_other: Optional[str] = None
+    video_pis_shown: Optional[str] = None
 
     created_by: Optional[str] = None
     updated_by: Optional[str] = None

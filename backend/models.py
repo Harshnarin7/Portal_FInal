@@ -140,11 +140,14 @@ class Screening(Base):
     relationship_to_participant = Column(String)
     relationship_other = Column(String)
     reason_not_approached = Column(String)
+    reason_not_approached_other = Column(String, nullable=True)
 
     # Issue #1 Fix 1: reason for consent refusal (was collected by
     # ScreeningForm.jsx but silently dropped — no model/schema column existed)
     reason_for_consent_refusal = Column(String, nullable=True)
     reason_for_consent_refusal_other = Column(String, nullable=True)
+    decision_forego_resuscitation_reason_other = Column(String, nullable=True)
+    video_pis_shown = Column(String, nullable=True)
 
     created_by = Column(String, nullable=True)
     updated_by = Column(String, nullable=True)
