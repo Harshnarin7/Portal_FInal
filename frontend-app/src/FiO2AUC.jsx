@@ -322,6 +322,12 @@ export default function Fio2AUCForm() {
               <span className="id-val">{patient.enrollment_id}</span>
             </div>
           )}
+          {patient.dob && (
+            <div className="screening-id-badge">
+              <span className="id-label">DOB</span>
+              <span className="id-val">{patient.dob}</span>
+            </div>
+          )}
           {patient.gestation && (
             <div className="screening-id-badge">
               <span className="id-label">Gestation</span>
