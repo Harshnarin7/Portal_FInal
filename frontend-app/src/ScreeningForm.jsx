@@ -12,17 +12,7 @@ import {
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
-
-/* ─── Helpers ─────────────────────────────────────────────── */
-function formatDateToDDMMYYYY(date) {
-  if (!date) return "";
-  const d = new Date(date);
-  return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`;
-}
-const toDateTimeLocalValue = d => {
-  const p = n => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-};
+import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY } from "./utils/datetime";
 
 /* ─── YesNoToggle (with disabled support) ─────────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false }) {
@@ -481,16 +471,6 @@ export default function ScreeningForm() {
     if (name === "husband_first_name" && !value.trim()) newErrors.husband_first_name = "Required";
     if (name === "maternal_uid" && !value.trim())       newErrors.maternal_uid = "Required";
     setErrors(newErrors);
-  };
-
-  /* ─── Relative time helper ── */
-  const relativeTime = (date) => {
-    if (!date) return null;
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 10)  return "just now";
-    if (diff < 60)  return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    return `${Math.floor(diff/3600)}h ago`;
   };
 
   /* ─── Validation ── */
