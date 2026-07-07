@@ -561,6 +561,12 @@ export default function MetabRenalVascEyeLog() {
     finally { setSubmitting(false); }
   };
 
+  /* ── Next Form (save before navigate) ── */
+  const handleNext = async () => {
+    await handleSave();
+    navigate(`/form-h/${enrollmentId}`);
+  };
+
   /* ── Copy from day ── */
   const handleCopyFromDay = async (sourceDay) => {
     setShowCopyModal(false); setLoading(true);
@@ -997,7 +1003,7 @@ export default function MetabRenalVascEyeLog() {
           </div>
         </div>
         <button type="button" className="btn btn-primary"
-          onClick={() => navigate(`/form-h/${enrollmentId}`)}>
+          onClick={handleNext} disabled={!isSaved}>
           Form H <ArrowRight size={15}/>
         </button>
       </div>
