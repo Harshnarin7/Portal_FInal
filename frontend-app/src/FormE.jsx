@@ -368,7 +368,7 @@ export default function FormE() {
 
        // Detect if heating_type or adverse_event_type are custom "Other" values
        const knownHeatingTypes = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
-       const knownAdverseTypes = ["Obstruction", "Dislodgement", "Leakage", "Tube accident", "Other"];
+       const knownAdverseTypes = ["Apnea", "Bradycardia", "Tube accident", "Other"];
 
        const heatingType = e.heating_type || "";
        const heatingIsOther = heatingType && !knownHeatingTypes.includes(heatingType);
