@@ -618,6 +618,12 @@ export default function FormC() {
   /* ── Save form ── */
   const saveForm = useCallback(async () => {
     setMessage("");
+    
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save form.");
+      return false;
+    }
+    
     const errs = validate();
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
@@ -641,6 +647,7 @@ export default function FormC() {
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {
+      console.error("FormC save error:", err);
       setMessage("❌ Save failed — " + (err?.response?.data?.detail || err.message));
       return false;
     }

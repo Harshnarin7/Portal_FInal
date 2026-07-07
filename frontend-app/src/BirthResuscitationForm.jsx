@@ -472,7 +472,7 @@ export default function BirthResuscitationForm() {
     const payload = buildPayload();
     try {
       const storedId = localStorage.getItem("current_enrollment_id");
-      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = storedId || null;
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -500,6 +500,7 @@ export default function BirthResuscitationForm() {
       setTimeout(()=>setMessage(""),3000);
       return true;
     } catch(err) {
+      console.error("Birth resuscitation form save error:", err);
       const detail = err?.response?.data?.detail;
       const msg = Array.isArray(detail)
         ? detail.map(e=>`${e.loc?.slice(-1)[0]} — ${e.msg}`).join("; ")
@@ -515,7 +516,7 @@ export default function BirthResuscitationForm() {
 
     try {
       const storedId   = localStorage.getItem("current_enrollment_id");
-      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = storedId || null;
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -530,6 +531,7 @@ export default function BirthResuscitationForm() {
       setShowDraftModal(true);
     } catch (err) {
       /* Parse FastAPI 422 validation errors into readable text */
+      console.error("Birth resuscitation draft save error:", err);
       const detail = err?.response?.data?.detail;
       let msg = "Draft save failed.";
       if (Array.isArray(detail)) {
@@ -549,7 +551,7 @@ export default function BirthResuscitationForm() {
   const autoSave = useCallback(async () => {
     const fd = formDataRef.current;
     const storedId = localStorage.getItem("current_enrollment_id");
-    const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+    const existingId = storedId || null;
 
     /* Don't create a new DB row until the nurse has entered a baby_uid */
     if (!existingId && !fd.baby_uid) return;
@@ -578,7 +580,8 @@ export default function BirthResuscitationForm() {
       setIsDirty(false);
       setOfflineQueue(false);
       setTimeout(() => setAutoSaveStatus("idle"), 2500);
-    } catch {
+    } catch (err) {
+      console.error("Birth resuscitation auto-save error:", err.message);
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
