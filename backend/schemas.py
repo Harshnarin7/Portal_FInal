@@ -381,6 +381,10 @@ class BirthResuscitationCreate(BaseModel):
     intrauterine_centile: Optional[str] = None
 
     indication_for_delivery: Optional[str] = None
+    indication_for_delivery_other: Optional[str] = None
+    indication_edf_detail: Optional[str] = None
+    fetal_indication_detail: Optional[str] = None
+    obstetric_indication_detail: Optional[str] = None
     maternal_complication: Optional[str] = None
     delivery_mode: Optional[str] = None
     vaginal_delivery_type: Optional[str] = None
@@ -394,6 +398,7 @@ class BirthResuscitationCreate(BaseModel):
     initial_steps: Optional[bool] = None
     strata: Optional[str] = None
     enrollment_reason_not_randomized: Optional[str] = None
+    enrollment_reason_not_randomized_other: Optional[str] = None
 
     ppv_required: Optional[bool] = None
     device_ppv: Optional[str] = None
@@ -415,6 +420,8 @@ class BirthResuscitationCreate(BaseModel):
     med_doses: Optional[int] = None
     adrenaline_cumulative: Optional[float] = None
     fluid_bolus: Optional[bool] = None
+    fluid_bolus_doses: Optional[int] = None
+    fluid_bolus_cumulative: Optional[float] = None
 
     placental_transfusion: Optional[bool] = None
     transfusion_method: Optional[str] = None
@@ -422,6 +429,8 @@ class BirthResuscitationCreate(BaseModel):
     cord_clamp_timestamp: Optional[time] = None
     cord_clamp_time: Optional[int] = None
     time_to_respiration: Optional[int] = None
+    respiration_days: Optional[int] = None
+    respiration_hours: Optional[int] = None
     time_to_spo2_80: Optional[int] = None
     spo2_5min: Optional[int] = None
 
@@ -439,6 +448,8 @@ class BirthResuscitationCreate(BaseModel):
     reason_exit_trial_gas: Optional[str] = None
     spo2_exit_trial_gas: Optional[float] = None
     total_resus_time: Optional[int] = None
+    blender_stopped: Optional[bool] = None
+    blender_stopped_description: Optional[str] = None
 
     # =====================================================
     # 🔐 VALIDATORS (MUST BE INSIDE CLASS)
@@ -465,6 +476,76 @@ class BirthResuscitationCreate(BaseModel):
             raise ValueError("Contact must contain digits only")
         if len(v) != 10:
             raise ValueError("Contact must be exactly 10 digits")
+        return v
+
+    @field_validator("gestation_weeks", "gestation_rand_weeks")
+    @classmethod
+    def validate_gestation_weeks(cls, v):
+        if v is not None and not 18 <= v <= 42:
+            raise ValueError("Gestation weeks must be between 18 and 42")
+        return v
+
+    @field_validator("gestation_days", "gestation_rand_days")
+    @classmethod
+    def validate_gestation_days(cls, v):
+        if v is not None and not 0 <= v <= 6:
+            raise ValueError("Gestation days must be between 0 and 6")
+        return v
+
+    @field_validator("birth_weight")
+    @classmethod
+    def validate_birth_weight(cls, v):
+        if v is not None and not 300 <= v <= 6000:
+            raise ValueError("Birth weight must be between 300 and 6000 g")
+        return v
+
+    @field_validator("intrauterine_centile")
+    @classmethod
+    def validate_centile(cls, v):
+        if v not in (None, "") and not 0 <= float(v) <= 100:
+            raise ValueError("Intrauterine centile must be between 0 and 100")
+        return v
+
+    @field_validator("spo2_5min", "spo2_exit_trial_gas")
+    @classmethod
+    def validate_spo2(cls, v):
+        if v is not None and not 0 <= v <= 100:
+            raise ValueError("SpO2 must be between 0 and 100 percent")
+        return v
+
+    @field_validator("cord_clamp_time")
+    @classmethod
+    def validate_cord_clamp_time(cls, v):
+        if v is not None and not 0 <= v <= 300:
+            raise ValueError("Cord clamping time must be between 0 and 300 seconds")
+        return v
+
+    @field_validator("respiration_hours")
+    @classmethod
+    def validate_respiration_hours(cls, v):
+        if v is not None and not 0 <= v <= 23:
+            raise ValueError("Respiration hours must be between 0 and 23")
+        return v
+
+    @field_validator("cord_ph")
+    @classmethod
+    def validate_cord_ph(cls, v):
+        if v is not None and not 6.8 <= v <= 7.8:
+            raise ValueError("Cord pH must be between 6.8 and 7.8")
+        return v
+
+    @field_validator("cord_sbe")
+    @classmethod
+    def validate_cord_sbe(cls, v):
+        if v is not None and not -30 <= v <= 30:
+            raise ValueError("Cord SBE must be between -30 and 30")
+        return v
+
+    @field_validator("cord_pco2")
+    @classmethod
+    def validate_cord_pco2(cls, v):
+        if v is not None and not 0 <= v <= 200:
+            raise ValueError("Cord pCO2 must be between 0 and 200 mmHg")
         return v
 
 

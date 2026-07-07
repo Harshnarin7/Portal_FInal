@@ -191,6 +191,10 @@ class BirthResuscitation(Base):
     intrauterine_centile = Column(String, nullable=True)
     
     indication_for_delivery = Column(String)
+    indication_for_delivery_other = Column(String, nullable=True)
+    indication_edf_detail = Column(String, nullable=True)
+    fetal_indication_detail = Column(String, nullable=True)
+    obstetric_indication_detail = Column(String, nullable=True)
     maternal_complication = Column(String)
     delivery_mode = Column(String)
     vaginal_delivery_type = Column(String, nullable=True)
@@ -205,6 +209,7 @@ class BirthResuscitation(Base):
     initial_steps = Column(Boolean)
     strata = Column(String, nullable=True)
     enrollment_reason_not_randomized = Column(String, nullable=True)
+    enrollment_reason_not_randomized_other = Column(String, nullable=True)
     ppv_required = Column(Boolean)
     device_ppv = Column(String)
     sib_peep_with = Column(String, nullable=True)
@@ -225,6 +230,8 @@ class BirthResuscitation(Base):
     med_doses = Column(Integer)
     adrenaline_cumulative = Column(Float, nullable=True)
     fluid_bolus = Column(Boolean)
+    fluid_bolus_doses = Column(Integer, nullable=True)
+    fluid_bolus_cumulative = Column(Float, nullable=True)
 
     placental_transfusion = Column(Boolean)
     transfusion_method = Column(String)
@@ -232,6 +239,8 @@ class BirthResuscitation(Base):
     cord_clamp_time = Column(Integer)
 
     time_to_respiration = Column(Integer)
+    respiration_days = Column(Integer, nullable=True)
+    respiration_hours = Column(Integer, nullable=True)
     # ✅ FIX C1: Removed duplicate definition - kept nullable version
     time_to_spo2_80 = Column(Integer, nullable=True)
     spo2_5min = Column(Integer)
@@ -250,6 +259,8 @@ class BirthResuscitation(Base):
     reason_exit_trial_gas = Column(String, nullable=True)
     spo2_exit_trial_gas = Column(Float)
     total_resus_time = Column(Integer, nullable=True)
+    blender_stopped = Column(Boolean, nullable=True)
+    blender_stopped_description = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
 

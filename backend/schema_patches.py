@@ -60,6 +60,17 @@ BIRTH_RESUSCITATION_COLUMN_PATCHES = [
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_sbe DOUBLE PRECISION",
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS cord_pco2 DOUBLE PRECISION",
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS interventions JSON",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS fluid_bolus_doses INTEGER",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS fluid_bolus_cumulative DOUBLE PRECISION",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS respiration_days INTEGER",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS respiration_hours INTEGER",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_stopped BOOLEAN",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_stopped_description TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS indication_edf_detail TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS fetal_indication_detail TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS obstetric_indication_detail TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS enrollment_reason_not_randomized_other TEXT",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS indication_for_delivery_other TEXT",
 ]
 
 
