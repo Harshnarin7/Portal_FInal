@@ -5,7 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date
 import random, string
 from models import RespiratoryLog
 from auth import hash_password, verify_password
@@ -488,6 +488,9 @@ def create_screening(
         db.refresh(db_screening)
         return db_screening
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"SCREENING ERROR: {e}")
@@ -551,6 +554,9 @@ def update_screening(
 
         return entry
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
@@ -583,6 +589,9 @@ def delete_screening(
         db.commit()
         return {"message": f"Entry with ID {id} soft-deleted (audit trail preserved)"}
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
@@ -764,6 +773,9 @@ def update_birth_resuscitation(
 
         return entry
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -1743,6 +1755,16 @@ def discharge_enrollment(
 ):
     require_enrollment_access(enrollment_id, db, current_user)
 
+    # Validate discharge_date up front so an invalid value is reported to the
+    # caller instead of being silently swallowed while still returning success.
+    try:
+        parsed_discharge_date = date.fromisoformat(data.discharge_date)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid discharge_date '{data.discharge_date}'; expected YYYY-MM-DD",
+        )
+
     # Update NeonatalMorbidities discharge_date if it exists
     morbidity = (
         db.query(NeonatalMorbidities)
@@ -1750,12 +1772,13 @@ def discharge_enrollment(
         .first()
     )
     if morbidity:
-        from datetime import date
         try:
-            morbidity.discharge_date = date.fromisoformat(data.discharge_date)
+            morbidity.discharge_date = parsed_discharge_date
             db.commit()
-        except Exception:
+        except Exception as e:
             db.rollback()
+            logger.error("Failed to persist discharge_date for %s: %s", enrollment_id, e)
+            raise HTTPException(status_code=400, detail=f"Error saving discharge date: {str(e)}")
 
     # Also store on BirthResuscitation for date_of_birth reference
     # (frontend reads b.discharge_date from birth-resuscitation)
