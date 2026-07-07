@@ -624,7 +624,7 @@ export default function ScreeningForm() {
 
     const storedId = localStorage.getItem("current_screening_id");
     const sid = screeningIdRef.current;
-    const existingId = sid || storedId || null;
+    const existingId = (sid || (storedId && storedId !== "undefined" && storedId !== "null" ? storedId : null)) || null;
 
     /* Don't create a new DB row until the nurse has picked a site */
     if (!existingId && !fd.site_name) return;
