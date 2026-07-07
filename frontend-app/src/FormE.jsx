@@ -443,6 +443,12 @@ export default function FormE() {
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
 
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save form.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     // Required-field + conditional validation (aligned with CRF E1–E15)
     const v = {};
     if (!formData.admission_datetime) v.admission_datetime = "This field is required";
@@ -532,8 +538,8 @@ export default function FormE() {
       setTimeout(() => setMessage(""), 3000);
       // Do NOT navigate here — only navigate when user clicks "Next"
     } catch (err) {
-      console.error(err.response?.data || err);
-      setMessage("❌ Error submitting Form E");
+      console.error("FormE submit error:", err.response?.data || err);
+      setMessage("❌ Error submitting Form E: " + (err?.response?.data?.detail || err.message));
     }
   };
 

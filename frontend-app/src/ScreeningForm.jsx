@@ -624,8 +624,7 @@ export default function ScreeningForm() {
 
     const storedId = localStorage.getItem("current_screening_id");
     const sid = screeningIdRef.current;
-    const existingId = (sid && sid !== "undefined") ? sid
-      : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+    const existingId = sid || storedId || null;
 
     /* Don't create a new DB row until the nurse has picked a site */
     if (!existingId && !fd.site_name) return;
@@ -654,7 +653,8 @@ export default function ScreeningForm() {
       setIsDirty(false);
       setOfflineQueue(false);
       setTimeout(() => setAutoSaveStatus("idle"), 2500);
-    } catch {
+    } catch (err) {
+      console.error("Screening form auto-save error:", err.message);
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
@@ -682,8 +682,7 @@ export default function ScreeningForm() {
 
     try {
       const storedId = localStorage.getItem("current_screening_id");
-      const existingId = (screeningId && screeningId !== "undefined") ? screeningId
-        : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = screeningId || storedId || null;
 
       const res = existingId
         ? await api.put(`/screenings/${existingId}`, payload)
@@ -704,6 +703,7 @@ export default function ScreeningForm() {
       if (!screeningId && sid) navigate(`/form-a/${sid}`, { replace: true });
       return true;
     } catch (err) {
+      console.error("Screening form save error:", err);
       setMessage(`❌ Save failed: ${err?.response?.data?.detail || err.message}`);
       window.scrollTo({ top:0, behavior:"smooth" });
       return false;
@@ -716,8 +716,7 @@ export default function ScreeningForm() {
 
     try {
       const storedId   = localStorage.getItem("current_screening_id");
-      const existingId = (screeningId && screeningId !== "undefined") ? screeningId
-        : (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = screeningId || storedId || null;
 
       const res = existingId
         ? await api.put(`/screenings/${existingId}`, payload)
@@ -732,6 +731,7 @@ export default function ScreeningForm() {
       setShowDraftModal(true);
     } catch (err) {
       /* Parse FastAPI 422 validation errors into readable text */
+      console.error("Screening draft save error:", err);
       const detail = err?.response?.data?.detail;
       let msg = "Draft save failed.";
       if (Array.isArray(detail)) {
