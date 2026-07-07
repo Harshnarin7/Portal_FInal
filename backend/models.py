@@ -455,7 +455,7 @@ class NICUAdmission(Base):
     __tablename__ = "nicu_admission"
 
     id = Column(Integer, primary_key=True, index=True)
-    enrollment_id = Column(String, index=True)
+    enrollment_id = Column(String, unique=True, index=True)
 
     baby_uid = Column(String)
     annual_number = Column(String)

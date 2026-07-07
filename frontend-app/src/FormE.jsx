@@ -357,32 +357,31 @@ export default function FormE() {
       });
 
    /* ── Phase 2: load saved Form E record ── */
-    api.get(`/nicu-admission/${enrollmentId}`)
-      .then(res => {
-        // GET returns a list — take first record
-        const list = Array.isArray(res.data) ? res.data : [];
-        if (!list.length) return;
-        const e = list[0];
+   api.get(`/nicu-admission/${enrollmentId}`)
+     .then(res => {
+       // GET now returns a single record (not a list)
+       const e = res.data;
+       if (!e) return;
 
-        /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
-        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
+       /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
+       const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
 
-        // Detect if heating_type or adverse_event_type are custom "Other" values
-        const knownHeatingTypes = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
-        const knownAdverseTypes = ["Obstruction", "Dislodgement", "Leakage", "Tube accident", "Other"];
+       // Detect if heating_type or adverse_event_type are custom "Other" values
+       const knownHeatingTypes = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
+       const knownAdverseTypes = ["Obstruction", "Dislodgement", "Leakage", "Tube accident", "Other"];
 
-        const heatingType = e.heating_type || "";
-        const heatingIsOther = heatingType && !knownHeatingTypes.includes(heatingType);
-        const heatingTypeToSet = heatingIsOther ? "Other" : heatingType;
-        const heatingTypeOtherToSet = heatingIsOther ? heatingType : "";
+       const heatingType = e.heating_type || "";
+       const heatingIsOther = heatingType && !knownHeatingTypes.includes(heatingType);
+       const heatingTypeToSet = heatingIsOther ? "Other" : heatingType;
+       const heatingTypeOtherToSet = heatingIsOther ? heatingType : "";
 
-        const adverseType = e.adverse_event_type || "";
-        const adverseIsOther = adverseType && !knownAdverseTypes.includes(adverseType);
-        const adverseTypeToSet = adverseIsOther ? "Other" : adverseType;
-        const adverseTypeOtherToSet = adverseIsOther ? adverseType : "";
+       const adverseType = e.adverse_event_type || "";
+       const adverseIsOther = adverseType && !knownAdverseTypes.includes(adverseType);
+       const adverseTypeToSet = adverseIsOther ? "Other" : adverseType;
+       const adverseTypeOtherToSet = adverseIsOther ? adverseType : "";
 
-        setFormData(prev => ({
-          ...prev,
+       setFormData(prev => ({
+         ...prev,
           // Identification
           annual_number:   e.annual_number || prev.annual_number,
           baby_name:       e.baby_name     || prev.baby_name,
