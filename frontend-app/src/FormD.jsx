@@ -559,6 +559,12 @@ export default function FormD() {
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
 
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save form.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     // Touch all fields to show all errors
     const allTouched = Object.fromEntries(Object.keys(RULES).map(k => [k, true]));
     setTouched(allTouched);
@@ -635,8 +641,8 @@ export default function FormD() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       setTimeout(() => setMessage(""), 3000);
     } catch (err) {
-      console.error(err.response?.data || err);
-      setMessage("❌ Error submitting Form D");
+      console.error("FormD save error:", err.response?.data || err);
+      setMessage("❌ Error submitting Form D: " + (err?.response?.data?.detail || err.message));
     }
   };
 
