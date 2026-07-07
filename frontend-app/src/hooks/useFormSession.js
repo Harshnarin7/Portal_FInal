@@ -24,6 +24,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api/axios";
+import { relativeTime } from "../utils/datetime";
 
 export default function useFormSession({
   formKey,
@@ -137,14 +138,7 @@ export default function useFormSession({
   }, []);
 
   /* ── Relative time string ── */
-  const relT = useCallback((date) => {
-    if (!date) return null;
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 10)   return "just now";
-    if (diff < 60)   return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    return `${Math.floor(diff / 3600)}h ago`;
-  }, []);
+  const relT = useCallback((date) => relativeTime(date), []);
 
   return {
     /* state */

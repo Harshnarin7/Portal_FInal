@@ -8,6 +8,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
+import { relativeTime } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
@@ -232,12 +233,7 @@ export default function BirthResuscitationForm() {
   }, []);
 
   /* ── Relative time ── */
-  const relT = d => {
-    if(!d) return null;
-    const s=Math.floor((Date.now()-d.getTime())/1000);
-    if(s<10)return"just now";if(s<60)return`${s}s ago`;
-    if(s<3600)return`${Math.floor(s/60)}m ago`;return`${Math.floor(s/3600)}h ago`;
-  };
+  const relT = relativeTime;
 
   /* ── Apgar colour ── */
   const apgarCls = v => {
