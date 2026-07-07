@@ -75,7 +75,22 @@ BIRTH_RESUSCITATION_COLUMN_PATCHES = [
 
 NICU_ADMISSION_UNIQUE_PATCHES = [
     # FormE enrollment_id uniqueness constraint (prevent duplicate Form E submissions)
+    # First, deduplicate: keep newest row per enrollment_id, delete older duplicates
+    """
+    WITH ranked_rows AS (
+      SELECT id,
+             ROW_NUMBER() OVER (PARTITION BY enrollment_id ORDER BY created_at DESC NULLS LAST, id DESC) as rn
+      FROM nicu_admission
+      WHERE enrollment_id IS NOT NULL
+    )
+    DELETE FROM nicu_admission
+    WHERE id IN (
+      SELECT id FROM ranked_rows WHERE rn > 1
+    )
+    """,
+    # Drop constraint if it exists (idempotent)
     "ALTER TABLE nicu_admission DROP CONSTRAINT IF EXISTS nicu_admission_enrollment_id_key",
+    # Add the unique constraint
     "ALTER TABLE nicu_admission ADD CONSTRAINT nicu_admission_enrollment_id_key UNIQUE (enrollment_id)",
 ]
 
