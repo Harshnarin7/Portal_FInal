@@ -178,7 +178,7 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
   );
 }
 
-function RespModeSection({ prefix, label, formData, errors, isFieldEditable, handleChange, setFormData, setErrors }) {
+function RespModeSection({ prefix, label, modes, formData, errors, isFieldEditable, handleChange, setFormData, setErrors }) {
   const modeField = `${prefix}_mode_resp`;
   const otherField = `${prefix}_mode_other`;
   return (
@@ -187,7 +187,7 @@ function RespModeSection({ prefix, label, formData, errors, isFieldEditable, han
       <div className="form-group">
         <label>Mode of Respiratory Support <span className="required">*</span></label>
         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
-          {["Room air","CPAP","NIPPV","IMV","HFO","Other"].map(mode => (
+          {modes.map(mode => (
             <button key={mode} type="button"
               className={`rx-horizontal-btn${formData[modeField] === mode ? " active" : ""}`}
               onClick={() => {
@@ -442,11 +442,49 @@ export default function FormE() {
 
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (formData.transport_fio2 && (Number(formData.transport_fio2) < 21 || Number(formData.transport_fio2) > 100)) {
-      setMessage("❌ Transport FiO₂ must be between 21% and 100%"); return;
-    }
-    if (formData.nicu_fio2 && (Number(formData.nicu_fio2) < 21 || Number(formData.nicu_fio2) > 100)) {
-      setMessage("❌ NICU FiO₂ must be between 21% and 100%"); return;
+
+    // Required-field + conditional validation (aligned with CRF E1–E15)
+    const v = {};
+    if (!formData.admission_datetime) v.admission_datetime = "This field is required";
+    if (!formData.temp_skin) v.temp_skin = "This field is required";
+    if (!formData.temp_axillary) v.temp_axillary = "This field is required";
+    if (!formData.transport_incubator) v.transport_incubator = "This field is required";
+    if (formData.transport_incubator === "No" && !formData.transport_mode)
+      v.transport_mode = "Specify transport mode";
+    if (!formData.additional_heating) v.additional_heating = "This field is required";
+    if (formData.additional_heating === "Yes" && !formData.heating_type)
+      v.heating_type = "Select heating type";
+    if (formData.heating_type === "Other" && !formData.heating_type_other)
+      v.heating_type_other = "Specify heating method";
+    if (!formData.transport_adverse_event) v.transport_adverse_event = "This field is required";
+    if (formData.transport_adverse_event === "Yes" && !formData.adverse_event_type)
+      v.adverse_event_type = "Select adverse event";
+    if (formData.adverse_event_type === "Tube accident" && !formData.tube_accident_type)
+      v.tube_accident_type = "Select tube accident type";
+    if (formData.adverse_event_type === "Other" && !formData.adverse_event_other)
+      v.adverse_event_other = "Specify adverse event";
+    if (!formData.transport_mode_resp) v.transport_mode_resp = "This field is required";
+    if (formData.transport_mode_resp === "Other" && !formData.transport_mode_other)
+      v.transport_mode_other = "Specify mode";
+    if (!formData.nicu_mode_resp) v.nicu_mode_resp = "This field is required";
+    if (formData.nicu_mode_resp === "Other" && !formData.nicu_mode_other)
+      v.nicu_mode_other = "Specify mode";
+    if (!formData.completed_by) v.completed_by = "This field is required";
+
+    ["temp_dr","temp_skin","temp_axillary"].forEach(f => {
+      if (formData[f] && (Number(formData[f]) < 30 || Number(formData[f]) > 40))
+        v[f] = "Must be between 30–40 °C";
+    });
+    if (formData.transport_fio2 && (Number(formData.transport_fio2) < 21 || Number(formData.transport_fio2) > 100))
+      v.transport_fio2 = "Must be between 21% and 100%";
+    if (formData.nicu_fio2 && (Number(formData.nicu_fio2) < 21 || Number(formData.nicu_fio2) > 100))
+      v.nicu_fio2 = "Must be between 21% and 100%";
+
+    if (Object.keys(v).length > 0) {
+      setErrors(prev => ({ ...prev, ...v }));
+      setMessage("❌ Please complete the required fields highlighted below.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
     }
     const payload = {
       enrollment_id: formData.enrollment_id,
@@ -563,7 +601,7 @@ export default function FormE() {
               <div className="form-section-body">
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Enrollment ID</label>
+                    <label>1. Enrollment ID</label>
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
@@ -573,7 +611,7 @@ export default function FormE() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Baby Name</label>
+                    <label>2. Baby of (Baby Name)</label>
                     <input value={formData.baby_name || ""} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
@@ -592,7 +630,7 @@ export default function FormE() {
               <div className="form-section-body">
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Date &amp; Time of NICU Admission <span className="required">*</span></label>
+                    <label>3. Date &amp; Time of NICU Admission <span className="required">*</span></label>
                     <DatePicker
                       selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
                       onChange={date => setFormData(prev => ({
@@ -604,7 +642,7 @@ export default function FormE() {
                       disabled={!isFieldEditable} />
                   </div>
                   <div className="form-group">
-                    <label>Age at Admission <span className="auto-tag">AUTO</span></label>
+                    <label>4. Age at Admission <span className="auto-tag">AUTO</span></label>
                     <div style={{ position:"relative" }}>
                       <input value={formData.age_at_admission_hours || ""}
                         readOnly className="readonly-input" placeholder="Auto-calculated"
@@ -631,7 +669,7 @@ export default function FormE() {
                   {/* Row 1: Temperature in DR (prior to transport) */}
                   <div className="form-group" style={{ marginBottom: 14 }}>
                     <label>
-                      Temperature in DR{" "}
+                      5. Temperature in DR{" "}
                       <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>
                         (prior to transport)
                       </span>
@@ -644,18 +682,18 @@ export default function FormE() {
 
                   {/* Row 2: Temperature at admission into NICU */}
                   <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:10 }}>
-                    Temperature at admission into NICU:
+                    6. Temperature at admission into NICU:
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>Skin <span className="required">*</span></label>
+                      <label>6a. Skin <span className="required">*</span></label>
                       <UnitInput name="temp_skin" value={formData.temp_skin} unit="°C"
                         readOnly={!isFieldEditable} error={!!errors.temp_skin}
                         placeholder="30–40" onChange={handleChange} />
                       <FieldErr msg={errors.temp_skin} />
                     </div>
                     <div className="form-group">
-                      <label>Axillary <span className="required">*</span></label>
+                      <label>6b. Axillary <span className="required">*</span></label>
                       <UnitInput name="temp_axillary" value={formData.temp_axillary} unit="°C"
                         readOnly={!isFieldEditable} error={!!errors.temp_axillary}
                         placeholder="30–40" onChange={handleChange} />
@@ -664,11 +702,39 @@ export default function FormE() {
                   </div>
                 </div>
 
+                {/* Transport Incubator */}
+                <div className="obstetric-subcard">
+                  <div className="obstetric-subcard__title">Transport</div>
+                  <div className="form-group">
+                    <label>7. Transport incubator used <span className="required">*</span></label>
+                    <Toggle name="transport_incubator" value={formData.transport_incubator}
+                      options={["Yes","No"]} onChange={handleToggle}
+                      disabled={!isFieldEditable} error={errors.transport_incubator} />
+                  </div>
+                  {formData.transport_incubator === "No" && (
+                    <div className="followup-box" style={{ marginTop:10 }}>
+                      <div className="form-group">
+                        <label>8. Mode of transport (if not incubator) <span className="required">*</span></label>
+                        <input type="text" name="transport_mode"
+                          value={formData.transport_mode || ""}
+                          readOnly={!isFieldEditable}
+                          className={`emr-input${errors.transport_mode ? " input-error" : ""}`}
+                          placeholder="e.g. Ambulance, Kangaroo transport"
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);
+                          }} />
+                        <FieldErr msg={errors.transport_mode} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Additional Heating */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Additional Heating</div>
                   <div className="form-group">
-                    <label>Additional heating provided <span className="required">*</span></label>
+                    <label>9. Additional heating provided <span className="required">*</span></label>
                     <Toggle name="additional_heating" value={formData.additional_heating}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={errors.additional_heating} />
@@ -676,7 +742,7 @@ export default function FormE() {
                   {formData.additional_heating === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>Heating Type <span className="required">*</span></label>
+                        <label>10. Heating Type <span className="required">*</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
                           {["Gel pack","PCM","Plastic wrap","Cap","Other"].map(type => (
                             <button key={type} type="button"
@@ -709,39 +775,11 @@ export default function FormE() {
                   )}
                 </div>
 
-                {/* Transport Incubator */}
-                <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">Transport</div>
-                  <div className="form-group">
-                    <label>Transport incubator used <span className="required">*</span></label>
-                    <Toggle name="transport_incubator" value={formData.transport_incubator}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={errors.transport_incubator} />
-                  </div>
-                  {formData.transport_incubator === "No" && (
-                    <div className="followup-box" style={{ marginTop:10 }}>
-                      <div className="form-group">
-                        <label>Mode of transport (if not incubator) <span className="required">*</span></label>
-                        <input type="text" name="transport_mode"
-                          value={formData.transport_mode || ""}
-                          readOnly={!isFieldEditable}
-                          className={`emr-input${errors.transport_mode ? " input-error" : ""}`}
-                          placeholder="e.g. Ambulance, Kangaroo transport"
-                          onChange={e => {
-                            const v = e.target.value;
-                            if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);
-                          }} />
-                        <FieldErr msg={errors.transport_mode} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 {/* Adverse Events */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Adverse Events During Transport</div>
                   <div className="form-group">
-                    <label>Adverse events occurred <span className="required">*</span></label>
+                    <label>11. Adverse events occurred <span className="required">*</span></label>
                     <Toggle name="transport_adverse_event" value={formData.transport_adverse_event}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={errors.transport_adverse_event} />
@@ -749,7 +787,7 @@ export default function FormE() {
                   {formData.transport_adverse_event === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>Type of adverse event <span className="required">*</span></label>
+                        <label>12. Type of adverse event <span className="required">*</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
                           {["Apnea","Bradycardia","Tube accident","Other"].map(type => (
                             <button key={type} type="button"
@@ -765,7 +803,7 @@ export default function FormE() {
                       </div>
                       {formData.adverse_event_type === "Tube accident" && (
                         <div className="form-group" style={{ marginTop:10 }}>
-                          <label>Tube accident type <span className="required">*</span></label>
+                          <label>13. Tube accident type <span className="required">*</span></label>
                           <Toggle name="tube_accident_type" value={formData.tube_accident_type}
                             options={["Displacement","Blockage"]} onChange={handleToggle}
                             disabled={!isFieldEditable} error={errors.tube_accident_type} />
@@ -799,12 +837,14 @@ export default function FormE() {
                 <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>Respiratory Support</h3></div>
               </div>
               <div className="form-section-body">
-                <RespModeSection prefix="transport" label="During Transport"
+                <RespModeSection prefix="transport" label="14. During Transport"
+                  modes={["Room air","CPAP","SIB","NIPPV","IMV","SIMV","HFOV","Other"]}
                   formData={formData} errors={errors}
                   isFieldEditable={isFieldEditable} handleChange={handleChange}
                   setFormData={setFormData} setErrors={setErrors} />
                 <div style={{ marginTop:16 }}>
-                  <RespModeSection prefix="nicu" label="In NICU (after stabilization)"
+                  <RespModeSection prefix="nicu" label="15. In NICU (after stabilization)"
+                    modes={["Room air","CPAP","NIPPV","IMV","SIMV","HFOV","Other"]}
                     formData={formData} errors={errors}
                     isFieldEditable={isFieldEditable} handleChange={handleChange}
                     setFormData={setFormData} setErrors={setErrors} />
