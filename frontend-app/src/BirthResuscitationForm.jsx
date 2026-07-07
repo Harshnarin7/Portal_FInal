@@ -112,6 +112,7 @@ export default function BirthResuscitationForm() {
     intubation:"",
     chest_compression:"", cc_duration:"",
     adrenaline:"", adrenaline_dilution:"", adrenaline_route:"",
+    med_doses:"", adrenaline_cumulative:"",
     fluid_bolus:"", fluid_bolus_doses:"", fluid_bolus_cumulative:"",
     placental_transfusion:"", transfusion_method:"",
     cord_clamp_timestamp:"", cord_clamp_time:"",
@@ -306,6 +307,8 @@ export default function BirthResuscitationForm() {
       adrenaline:          yn(fd.adrenaline),
       adrenaline_dilution: fd.adrenaline_dilution || null,
       adrenaline_route:    fd.adrenaline_route || null,
+      med_doses:           optionalNum(fd.med_doses),
+      adrenaline_cumulative: optionalNum(fd.adrenaline_cumulative),
       fluid_bolus:         yn(fd.fluid_bolus),
       fluid_bolus_doses:   optionalNum(fd.fluid_bolus_doses),
       fluid_bolus_cumulative: optionalNum(fd.fluid_bolus_cumulative),
@@ -423,6 +426,10 @@ export default function BirthResuscitationForm() {
         add("B4. Epinephrine Dilution", "adrenaline_dilution");
       if(formData.adrenaline==="Yes" && !formData.adrenaline_route)
         add("B4. Epinephrine Route", "adrenaline_route");
+      if(formData.adrenaline==="Yes" && !formData.med_doses)
+        add("B4. Epinephrine Doses", "med_doses");
+      if(formData.adrenaline==="Yes" && !formData.adrenaline_cumulative)
+        add("B4. Epinephrine Cumulative Dose", "adrenaline_cumulative");
       if(!formData.fluid_bolus)     add("B4. Fluid Bolus",            "fluid_bolus");
       if(formData.fluid_bolus==="Yes" && !formData.fluid_bolus_doses)
         add("B4. Fluid Bolus Doses", "fluid_bolus_doses");
@@ -472,7 +479,7 @@ export default function BirthResuscitationForm() {
     const payload = buildPayload();
     try {
       const storedId = localStorage.getItem("current_enrollment_id");
-      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = storedId || null;
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -500,6 +507,7 @@ export default function BirthResuscitationForm() {
       setTimeout(()=>setMessage(""),3000);
       return true;
     } catch(err) {
+      console.error("Birth resuscitation form save error:", err);
       const detail = err?.response?.data?.detail;
       const msg = Array.isArray(detail)
         ? detail.map(e=>`${e.loc?.slice(-1)[0]} — ${e.msg}`).join("; ")
@@ -515,7 +523,7 @@ export default function BirthResuscitationForm() {
 
     try {
       const storedId   = localStorage.getItem("current_enrollment_id");
-      const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+      const existingId = storedId || null;
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -530,6 +538,7 @@ export default function BirthResuscitationForm() {
       setShowDraftModal(true);
     } catch (err) {
       /* Parse FastAPI 422 validation errors into readable text */
+      console.error("Birth resuscitation draft save error:", err);
       const detail = err?.response?.data?.detail;
       let msg = "Draft save failed.";
       if (Array.isArray(detail)) {
@@ -549,7 +558,7 @@ export default function BirthResuscitationForm() {
   const autoSave = useCallback(async () => {
     const fd = formDataRef.current;
     const storedId = localStorage.getItem("current_enrollment_id");
-    const existingId = (storedId && storedId !== "undefined" && storedId !== "null") ? storedId : null;
+    const existingId = storedId || null;
 
     /* Don't create a new DB row until the nurse has entered a baby_uid */
     if (!existingId && !fd.baby_uid) return;
@@ -578,7 +587,8 @@ export default function BirthResuscitationForm() {
       setIsDirty(false);
       setOfflineQueue(false);
       setTimeout(() => setAutoSaveStatus("idle"), 2500);
-    } catch {
+    } catch (err) {
+      console.error("Birth resuscitation auto-save error:", err.message);
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
@@ -1189,7 +1199,7 @@ export default function BirthResuscitationForm() {
                   {/* 35–37. Epinephrine */}
                   <YesNoToggle label="35. Epinephrine (Adrenaline)"
                     name="adrenaline" value={formData.adrenaline}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:""}); }}
+                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:"",med_doses:"",adrenaline_cumulative:""}); }}
                     disabled={!isFieldEditable}/>
                   {formData.adrenaline==="Yes" && (
                     <div className="followup-box">
@@ -1214,11 +1224,25 @@ export default function BirthResuscitationForm() {
                           </select>
                         </div>
                       </div>
+                      <div className="form-grid-2">
+                        <div className="form-group">
+                          <label>39. Number of Doses</label>
+                          <input type="text" name="med_doses" value={formData.med_doses||""}
+                            inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
+                            onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({med_doses:e.target.value});}}/>
+                        </div>
+                        <div className="form-group">
+                          <label>40. Cumulative Dose (ml/mg)</label>
+                          <input type="text" name="adrenaline_cumulative" value={formData.adrenaline_cumulative||""}
+                            inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
+                            onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({adrenaline_cumulative:e.target.value});}}/>
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  {/* 38–40. Fluid bolus */}
-                  <YesNoToggle label="38. Fluid Bolus"
+                  {/* 41–43. Fluid bolus */}
+                  <YesNoToggle label="41. Fluid Bolus"
                     name="fluid_bolus" value={formData.fluid_bolus}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({fluid_bolus_doses:"",fluid_bolus_cumulative:""});}}
                     disabled={!isFieldEditable}/>
@@ -1226,13 +1250,13 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>39. Number of Doses</label>
+                          <label>42. Number of Doses</label>
                           <input type="text" name="fluid_bolus_doses" value={formData.fluid_bolus_doses||""}
                             inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({fluid_bolus_doses:e.target.value});}}/>
                         </div>
                         <div className="form-group">
-                          <label>40. Cumulative Volume/Dose (ml/mg)</label>
+                          <label>43. Cumulative Volume/Dose (ml/mg)</label>
                           <input type="text" name="fluid_bolus_cumulative" value={formData.fluid_bolus_cumulative||""}
                             inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({fluid_bolus_cumulative:e.target.value});}}/>
@@ -1241,8 +1265,8 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 41–44. Placental transfusion */}
-                  <YesNoToggle label="41. Placental Transfusion"
+                  {/* 44–47. Placental transfusion */}
+                  <YesNoToggle label="44. Placental Transfusion"
                     name="placental_transfusion" value={formData.placental_transfusion}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({transfusion_method:"",cord_clamp_time:"",cord_clamp_timestamp:""});}}
                     disabled={!isFieldEditable}/>
@@ -1250,7 +1274,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>42. Method</label>
+                          <label>45. Method</label>
                           <select name="transfusion_method" value={formData.transfusion_method||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1259,14 +1283,14 @@ export default function BirthResuscitationForm() {
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>43. Cord clamped at (HH:MM:SS)</label>
+                          <label>46. Cord clamped at (HH:MM:SS)</label>
                           <input type="time" step="1" name="cord_clamp_timestamp" value={formData.cord_clamp_timestamp||""}
                             readOnly={!isFieldEditable} onChange={handleChange}/>
                         </div>
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>44. Cord clamping time from birth (sec) <span className="field-note">auto-filled or enter directly</span></label>
+                          <label>47. Cord clamping time from birth (sec) <span className="field-note">auto-filled or enter directly</span></label>
                           <input type="text" name="cord_clamp_time" value={formData.cord_clamp_time||""}
                             inputMode="numeric" maxLength={3} placeholder="0–300" readOnly={!isFieldEditable}
                             className={errors.cord_clamp_time?"input-error":""}
@@ -1281,7 +1305,7 @@ export default function BirthResuscitationForm() {
                   {/* Timings */}
                   <div className="form-grid-3" style={{marginTop:16}}>
                     <div className="form-group">
-                      <label>45. Time to Spontaneous Respiratory Efforts (MM:SS)</label>
+                      <label>48. Time to Spontaneous Respiratory Efforts (MM:SS)</label>
                       <input type="text" name="time_to_respiration"
                         value={formData.time_to_respiration||""}
                         inputMode="numeric" maxLength={6} placeholder="MM:SS"
@@ -1289,13 +1313,13 @@ export default function BirthResuscitationForm() {
                         onChange={e=>{const v=e.target.value;if(/^\d{0,3}:?[0-5]?\d?$/.test(v))set({time_to_respiration:v});}}/>
                     </div>
                     <div className="form-group">
-                      <label>45. If Longer — Days</label>
+                      <label>48. If Longer — Days</label>
                       <input type="text" name="respiration_days" value={formData.respiration_days||""}
                         inputMode="numeric" maxLength={3} placeholder="days" readOnly={!isFieldEditable}
                         onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({respiration_days:e.target.value});}}/>
                     </div>
                     <div className="form-group">
-                      <label>45. If Longer — Hours</label>
+                      <label>48. If Longer — Hours</label>
                       <input type="text" name="respiration_hours" value={formData.respiration_hours||""}
                         inputMode="numeric" maxLength={2} placeholder="0–23" readOnly={!isFieldEditable}
                         onChange={e=>{const v=e.target.value;if(/^\d{0,2}$/.test(v)&&(v===""||Number(v)<=23))set({respiration_hours:v});}}/>
@@ -1303,14 +1327,14 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>46. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>49. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <input type="text" name="spo2_5min" value={formData.spo2_5min||""}
                         inputMode="numeric" maxLength={3} placeholder="0–100"
                         readOnly={!isFieldEditable}
                         onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=100))set({spo2_5min:v});}}/>
                     </div>
                     <div className="form-group">
-                      <label>47. Time to SpO₂ &gt; 80% (MM:SS) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>50. Time to SpO₂ &gt; 80% (MM:SS) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <input type="text" name="time_to_spo2_80" value={formData.time_to_spo2_80||""}
                         inputMode="numeric" maxLength={6} placeholder="MM:SS"
                         readOnly={!isFieldEditable}
@@ -1349,11 +1373,11 @@ export default function BirthResuscitationForm() {
                       </thead>
                       <tbody>
                         {[
-                          {key:"oxygen",         label:"48. Oxygen"},
-                          {key:"ventilation",     label:"49. Ventilation"},
-                          {key:"chest_compression",label:"50. Chest Compression"},
-                          {key:"intubation",      label:"51. Intubation"},
-                          {key:"medication",      label:"52. Medication"},
+                          {key:"oxygen",         label:"51. Oxygen"},
+                          {key:"ventilation",     label:"52. Ventilation"},
+                          {key:"chest_compression",label:"53. Chest Compression"},
+                          {key:"intubation",      label:"54. Intubation"},
+                          {key:"medication",      label:"55. Medication"},
                           {key:"fluid_bolus",     label:"53. Fluid Bolus"},
                           {key:"cpap",            label:"54. CPAP"},
                         ].map((row,ri)=>(

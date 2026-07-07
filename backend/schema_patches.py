@@ -73,6 +73,12 @@ BIRTH_RESUSCITATION_COLUMN_PATCHES = [
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS indication_for_delivery_other TEXT",
 ]
 
+NICU_ADMISSION_UNIQUE_PATCHES = [
+    # FormE enrollment_id uniqueness constraint (prevent duplicate Form E submissions)
+    "ALTER TABLE nicu_admission DROP CONSTRAINT IF EXISTS nicu_admission_enrollment_id_key",
+    "ALTER TABLE nicu_admission ADD CONSTRAINT nicu_admission_enrollment_id_key UNIQUE (enrollment_id)",
+]
+
 
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -83,4 +89,6 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in COMPOSITE_OUTCOME_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in BIRTH_RESUSCITATION_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))

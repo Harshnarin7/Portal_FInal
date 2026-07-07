@@ -4,8 +4,10 @@ import api from "./api/axios";
 import "./styles/FormC.css";
 import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
+import useFormSession from "./hooks/useFormSession";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import OfflineBanner from "./components/OfflineBanner";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Thermometer, Wind, CheckSquare, Truck,
@@ -229,9 +231,11 @@ export default function FormE() {
   const { enrollmentId } = useParams();
 
   const [errors,    setErrors]    = useState({});
+  const [touched,   setTouched]   = useState({});
   const [isSaved,   setIsSaved]   = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [message,   setMessage]   = useState("");
+  const [isFormELoaded, setIsFormELoaded] = useState(false);
   const isFieldEditable = !isSaved || isEditing;
 
   const [formData, setFormData] = useState({
@@ -252,6 +256,56 @@ export default function FormE() {
     nicu_map: "", nicu_fio2: "",
     completed_by: "", designation: "", completion_date: "",
   });
+
+  /* ── Build payload for auto-save (draft-safe, no validation) ── */
+  const buildAutoPayload = () => ({
+    enrollment_id: formData.enrollment_id,
+    baby_uid: formData.baby_uid,
+    annual_number: formData.annual_number,
+    baby_name: formData.baby_name,
+    admission_datetime: formData.admission_datetime || null,
+    age_at_admission_hours: num(formData.age_at_admission_hours),
+    temp_skin: num(formData.temp_skin),
+    temp_axillary: num(formData.temp_axillary),
+    temp_dr: num(formData.temp_dr),
+    transport_incubator: yesNoToBool(formData.transport_incubator),
+    transport_mode: formData.transport_mode,
+    additional_heating: yesNoToBool(formData.additional_heating),
+    heating_type: formData.heating_type === "Other" ? formData.heating_type_other : formData.heating_type,
+    transport_adverse_event: yesNoToBool(formData.transport_adverse_event),
+    adverse_event_type: formData.adverse_event_type === "Other" ? formData.adverse_event_other : formData.adverse_event_type,
+    tube_accident_type: formData.tube_accident_type,
+    transport_mode_resp: formData.transport_mode_resp === "Other" ? formData.transport_mode_other : formData.transport_mode_resp,
+    transport_cpap: num(formData.transport_cpap),
+    transport_pip: num(formData.transport_pip),
+    transport_peep: num(formData.transport_peep),
+    transport_map: num(formData.transport_map),
+    transport_fio2: num(formData.transport_fio2),
+    nicu_mode_resp: formData.nicu_mode_resp === "Other" ? formData.nicu_mode_other : formData.nicu_mode_resp,
+    nicu_cpap: num(formData.nicu_cpap),
+    nicu_pip: num(formData.nicu_pip),
+    nicu_peep: num(formData.nicu_peep),
+    nicu_map: num(formData.nicu_map),
+    nicu_fio2: num(formData.nicu_fio2),
+    completed_by: formData.completed_by,
+    designation: formData.designation,
+    completion_date: formData.completion_date || null,
+  });
+
+  /* ── useFormSession hook: auto-save, dirty tracking, beforeunload warning ── */
+  const session = useFormSession({
+    formKey: "form_e",
+    isLoaded: isFormELoaded,
+    recordId: enrollmentId,
+    buildPayload: buildAutoPayload,
+    endpoint: "/nicu-admission",
+    enabled: true,
+  });
+
+  /* ── Mark dirty on form change ── */
+  useEffect(() => {
+    session.markDirty();
+  }, [formData, session]);
 
   /* ════════ ALL ORIGINAL LOGIC PRESERVED ════════ */
 
@@ -302,19 +356,32 @@ export default function FormE() {
         }));
       });
 
-    /* ── Phase 2: load saved Form E record ── */
-    api.get(`/nicu-admission/${enrollmentId}`)
-      .then(res => {
-        // GET returns a list — take first record
-        const list = Array.isArray(res.data) ? res.data : [];
-        if (!list.length) return;
-        const e = list[0];
+   /* ── Phase 2: load saved Form E record ── */
+   api.get(`/nicu-admission/${enrollmentId}`)
+     .then(res => {
+       // GET now returns a single record (not a list)
+       const e = res.data;
+       if (!e) return;
 
-        /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
-        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
+       /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
+       const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
 
-        setFormData(prev => ({
-          ...prev,
+       // Detect if heating_type or adverse_event_type are custom "Other" values
+       const knownHeatingTypes = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
+       const knownAdverseTypes = ["Obstruction", "Dislodgement", "Leakage", "Tube accident", "Other"];
+
+       const heatingType = e.heating_type || "";
+       const heatingIsOther = heatingType && !knownHeatingTypes.includes(heatingType);
+       const heatingTypeToSet = heatingIsOther ? "Other" : heatingType;
+       const heatingTypeOtherToSet = heatingIsOther ? heatingType : "";
+
+       const adverseType = e.adverse_event_type || "";
+       const adverseIsOther = adverseType && !knownAdverseTypes.includes(adverseType);
+       const adverseTypeToSet = adverseIsOther ? "Other" : adverseType;
+       const adverseTypeOtherToSet = adverseIsOther ? adverseType : "";
+
+       setFormData(prev => ({
+         ...prev,
           // Identification
           annual_number:   e.annual_number || prev.annual_number,
           baby_name:       e.baby_name     || prev.baby_name,
@@ -332,10 +399,8 @@ export default function FormE() {
 
           // Additional heating — bool → "Yes"/"No"
           additional_heating: fromBool(e.additional_heating),
-          // heating_type was stored as the resolved value (Other → other_text)
-          // We restore it directly; if it doesn't match a known option it's an "other" value
-          heating_type: e.heating_type || "",
-          heating_type_other: "",  // only set if heating_type is a free-text value
+          heating_type: heatingTypeToSet,
+          heating_type_other: heatingTypeOtherToSet,
 
           // Transport incubator — bool → "Yes"/"No"
           transport_incubator: fromBool(e.transport_incubator),
@@ -343,8 +408,8 @@ export default function FormE() {
 
           // Transport adverse event — bool → "Yes"/"No"
           transport_adverse_event: fromBool(e.transport_adverse_event),
-          adverse_event_type: e.adverse_event_type || "",
-          adverse_event_other: "",
+          adverse_event_type: adverseTypeToSet,
+          adverse_event_other: adverseTypeOtherToSet,
           tube_accident_type: e.tube_accident_type || "",
 
           // Respiratory — transport
@@ -372,12 +437,14 @@ export default function FormE() {
         }));
 
         setIsSaved(true);
+        setIsFormELoaded(true);
+        session.resetInitialRender();
       })
       .catch(err => {
         if (err?.response?.status !== 404)
           console.log("❌ Error loading Form E data", err);
       });
-  }, [enrollmentId]);
+  }, [enrollmentId, session]);
 
   useEffect(() => {
     if (!formData.date_of_birth || !formData.admission_datetime) return;
@@ -442,6 +509,12 @@ export default function FormE() {
 
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
+
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save form.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
     // Required-field + conditional validation (aligned with CRF E1–E15)
     const v = {};
@@ -532,14 +605,32 @@ export default function FormE() {
       setTimeout(() => setMessage(""), 3000);
       // Do NOT navigate here — only navigate when user clicks "Next"
     } catch (err) {
-      console.error(err.response?.data || err);
-      setMessage("❌ Error submitting Form E");
+      console.error("FormE submit error:", err.response?.data || err);
+      setMessage("❌ Error submitting Form E: " + (err?.response?.data?.detail || err.message));
     }
   };
 
   const handleNext = async () => {
     await handleSubmit({ preventDefault: () => {} });
-    navigate(`/fio2-auc/${enrollmentId}`);
+    // Only navigate if form has no validation errors
+    const allTouched = Object.fromEntries(Object.keys(formData).map(k => [k, true]));
+    setTouched(allTouched);
+    const errs = Object.keys(setErrors);
+    if (errs.length === 0) {
+      navigate(`/fio2-auc/${enrollmentId}`);
+    }
+  };
+
+  const handlePrevious = async () => {
+    // Save before going back
+    if (session.isDirty && isFormELoaded) {
+      try {
+        await session.doSave();
+      } catch (err) {
+        console.error("Save before back failed:", err);
+      }
+    }
+    navigate(-1);
   };
 
   const nurses = ["Geetika","Navkiran Kaur","Priyanka Thakur","Seemran Kaur",
@@ -557,6 +648,8 @@ export default function FormE() {
   /* ════════ RENDER ════════ */
   return (
     <>
+      <OfflineBanner isOnline={session.isOnline} offlineQueue={session.offlineQueue} />
+
       {isSaved && isEditing && (
         <div className="editing-mode-banner">
           <span className="editing-mode-dot" />
@@ -903,7 +996,7 @@ export default function FormE() {
 
       {/* STICKY FOOTER */}
       <div className="form-navigation">
-        <button type="button" className="btn btn-secondary btn-outline" onClick={() => navigate(-1)}>
+        <button type="button" className="btn btn-secondary btn-outline" onClick={handlePrevious}>
           <ArrowLeft size={15} /> Postnatal Day 1
         </button>
         <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSubmit}>
