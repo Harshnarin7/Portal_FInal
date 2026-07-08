@@ -24,8 +24,8 @@ const clamp       = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 ════════════════════════════════════════════ */
 function HoursBar({ used }) {
   const pct  = clamp((used / 12) * 100, 0, 100);
-  const over = used > 12;
-  const done = used === 12;
+  const over = used > 12.01;
+  const done = Math.abs(used - 12) < 0.01;
   const cls  = over ? "hb-danger" : done ? "hb-ok" : used >= 9 ? "hb-warn" : "hb-idle";
   return (
     <div className="hb-wrap">
@@ -130,6 +130,10 @@ export default function Fio2AUCForm() {
   /* ── UI state ── */
   const [message, setMessage] = useState("");
   const [isSaved, setIsSaved] = useState(false);
+  // Tracks whether there are edits since the last successful save (POST or PUT).
+  // Kept separate from `isSaved` (which just means "has a record ever been saved")
+  // so autosave and the unload-warning keep working after the first save.
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "saving" | "saved" | "error" | ""
   
   /* ── Auto-save refs ── */
@@ -206,6 +210,7 @@ export default function Fio2AUCForm() {
         }));
 
         setIsSaved(true);
+        setHasUnsavedChanges(false);
       })
       .catch(err => {
         if (err?.response?.status !== 404)
@@ -213,10 +218,10 @@ export default function Fio2AUCForm() {
       });
   }, [enrollmentId]);
 
-  /* ── Warn before unload if unsaved changes ── */
+  /* ── Warn before unload if there are unsaved changes ── */
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (!isSaved) {
+      if (hasUnsavedChanges) {
         e.preventDefault();
         e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
         return "You have unsaved changes. Are you sure you want to leave?";
@@ -224,17 +229,20 @@ export default function Fio2AUCForm() {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isSaved]);
+  }, [hasUnsavedChanges]);
 
   /* ── Day helpers ── */
   const setDay = useCallback((dayNum, fn) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, ...fn(d) } : d)), []);
 
   const toggleDay     = d  => setDay(d, x => ({ expanded: !x.expanded }));
-  const addRow        = (d, win) => setDay(d, x => ({ [win]: [...x[win], mkRow()] }));
-  const delRow        = (d, win, id) =>
+  const addRow        = (d, win) => { setHasUnsavedChanges(true); setDay(d, x => ({ [win]: [...x[win], mkRow()] })); };
+  const delRow        = (d, win, id) => {
+    setHasUnsavedChanges(true);
     setDay(d, x => ({ [win]: x[win].length > 1 ? x[win].filter(r => r.id !== id) : x[win] }));
+  };
   const updateRow     = (d, win, id, field, value) => {
+    setHasUnsavedChanges(true);
     setDays(prev => {
       const updated = prev.map(x => x.day === d
         ? { ...x, [win]: x[win].map(r => r.id === id ? { ...r, [field]: value } : r) }
@@ -267,7 +275,10 @@ export default function Fio2AUCForm() {
 
   /* ── Auto-save every 10 seconds (silent, no validation messages) ── */
   const autoSave = useCallback(async () => {
-    if (!enrollmentId || !daysRef.current || isSaved) return;
+    // Only autosave when there's something new to persist; this is a dirty-flag
+    // check, not a "has it ever been saved" check, so it keeps firing on Day 2..7
+    // edits after the very first save.
+    if (!enrollmentId || !daysRef.current || !hasUnsavedChanges) return;
     setAutoSaveStatus("saving");
     try {
       const currentDays = daysRef.current;
@@ -293,6 +304,7 @@ export default function Fio2AUCForm() {
         await api.post("/fio2-auc/", payload);
         setIsSaved(true);
       }
+      setHasUnsavedChanges(false);
       setAutoSaveStatus("saved");
       setTimeout(() => setAutoSaveStatus(""), 2000);
     } catch (err) {
@@ -300,7 +312,7 @@ export default function Fio2AUCForm() {
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus(""), 3000);
     }
-  }, [enrollmentId, isSaved]);
+  }, [enrollmentId, isSaved, hasUnsavedChanges]);
 
   /* ── Auto-save interval (10 seconds) ── */
   useEffect(() => {
@@ -366,6 +378,7 @@ export default function Fio2AUCForm() {
       markFormCompleted("fio2_auc");
       setMessage("✅ FiO₂ data saved successfully");
       setIsSaved(true);
+      setHasUnsavedChanges(false);
       setTimeout(() => setMessage(""), 3000);
     } catch (err) {
       console.error(err);
@@ -373,7 +386,9 @@ export default function Fio2AUCForm() {
     }
   };
 
-  const handleNext = async () => { await handleSubmit(); navigate(`/resp-cv-neuro/${enrollmentId}`); };
+  // Route matches the registered path in App.js (/vs6-1/:enrollmentId), not
+  // "/resp-cv-neuro/..." which does not exist and previously led to a blank page.
+  const handleNext = async () => { await handleSubmit(); navigate(`/vs6-1/${enrollmentId}`); };
 
   const handlePrevious = async () => {
     if (isSaved) {
@@ -421,7 +436,7 @@ export default function Fio2AUCForm() {
 
       {/* ── Auto-save status indicator ── */}
       {autoSaveStatus && (
-        <div className={`autosave-indicator ${autoSaveStatus}`}>
+        <div className={`fio2-autosave-toast ${autoSaveStatus}`}>
           {autoSaveStatus === "saving" && "⏳ Auto-saving..."}
           {autoSaveStatus === "saved" && "✅ Auto-saved"}
           {autoSaveStatus === "error" && "⚠️ Auto-save failed"}
@@ -499,13 +514,16 @@ export default function Fio2AUCForm() {
             const mFiO2 = ((dAuc / 24) * 100).toFixed(1);
             const h1    = windowHours(d.w1);
             const h2    = windowHours(d.w2);
-            const done  = h1 === 12 && h2 === 12;
+            // Use a tolerance instead of strict equality — summed parseFloat
+            // durations (e.g. 4.1 + 4.1 + 3.8) can land on 11.999999999999998
+            // rather than exactly 12, which would otherwise never register as done.
+            const done  = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
 
             // Day is locked if any previous day is incomplete
             const isLocked = idx > 0 && days.slice(0, idx).some(prev => {
               const ph1 = windowHours(prev.w1);
               const ph2 = windowHours(prev.w2);
-              return ph1 !== 12 || ph2 !== 12;
+              return Math.abs(ph1 - 12) >= 0.01 || Math.abs(ph2 - 12) >= 0.01;
             });
 
             return (

@@ -993,7 +993,7 @@ def get_nicu_admission(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form E not found")
+        return None
     return record
 
 

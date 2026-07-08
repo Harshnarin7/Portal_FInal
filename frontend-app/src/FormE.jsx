@@ -301,11 +301,12 @@ export default function FormE() {
     endpoint: "/nicu-admission",
     enabled: true,
   });
+  const { markDirty, resetInitialRender } = session;
 
   /* ── Mark dirty on form change ── */
   useEffect(() => {
-    session.markDirty();
-  }, [formData, session]);
+    markDirty();
+  }, [formData, markDirty]);
 
   /* ════════ ALL ORIGINAL LOGIC PRESERVED ════════ */
 
@@ -359,9 +360,13 @@ export default function FormE() {
    /* ── Phase 2: load saved Form E record ── */
    api.get(`/nicu-admission/${enrollmentId}`)
      .then(res => {
-       // GET now returns a single record (not a list)
+       // GET returns a single record, or null when Form E has not been saved yet
        const e = res.data;
-       if (!e) return;
+       if (!e) {
+         setIsFormELoaded(true);
+         resetInitialRender();
+         return;
+       }
 
        /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
@@ -438,13 +443,14 @@ export default function FormE() {
 
         setIsSaved(true);
         setIsFormELoaded(true);
-        session.resetInitialRender();
+        resetInitialRender();
       })
       .catch(err => {
-        if (err?.response?.status !== 404)
-          console.log("❌ Error loading Form E data", err);
+        console.log("❌ Error loading Form E data", err);
+        setIsFormELoaded(true);
+        resetInitialRender();
       });
-  }, [enrollmentId, session]);
+  }, [enrollmentId, resetInitialRender]);
 
   useEffect(() => {
     if (!formData.date_of_birth || !formData.admission_datetime) return;
