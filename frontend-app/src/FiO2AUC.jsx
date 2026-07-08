@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import api from "./api/axios";
+import { ArrowLeft, ArrowRight, Save } from "lucide-react";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
 
@@ -129,6 +130,11 @@ export default function Fio2AUCForm() {
   /* ── UI state ── */
   const [message, setMessage] = useState("");
   const [isSaved, setIsSaved] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "saving" | "saved" | "error" | ""
+  
+  /* ── Auto-save refs ── */
+  const autoSaveTimer = useRef(null);
+  const daysRef = useRef(null);
 
   /* ── Load identification from PatientContext ── */
   useEffect(() => {
@@ -207,6 +213,19 @@ export default function Fio2AUCForm() {
       });
   }, [enrollmentId]);
 
+  /* ── Warn before unload if unsaved changes ── */
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!isSaved) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        return "You have unsaved changes. Are you sure you want to leave?";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isSaved]);
+
   /* ── Day helpers ── */
   const setDay = useCallback((dayNum, fn) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, ...fn(d) } : d)), []);
@@ -245,6 +264,60 @@ export default function Fio2AUCForm() {
     const h2 = windowHours(d.w2);
     return Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
   }).length;
+
+  /* ── Auto-save every 10 seconds (silent, no validation messages) ── */
+  const autoSave = useCallback(async () => {
+    if (!enrollmentId || !daysRef.current || isSaved) return;
+    setAutoSaveStatus("saving");
+    try {
+      const currentDays = daysRef.current;
+      const grandTotalVal = currentDays.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
+      const meanFiO2Val = ((grandTotalVal / 168) * 100).toFixed(1);
+      const excessO2Val = Math.max(0, grandTotalVal - 0.21 * 168).toFixed(2);
+      
+      const fio2_logs = currentDays.flatMap(d => [
+        { day: d.day, block: "0–12h",  entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "12–24h", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+      ]);
+      const payload = {
+        enrollment_id:   enrollmentId,
+        total_auc:       parseFloat(grandTotalVal.toFixed(3)),
+        mean_daily_fio2: parseFloat(meanFiO2Val),
+        excess_o2_auc:   parseFloat(excessO2Val),
+        fio2_logs,
+      };
+      
+      if (isSaved) {
+        await api.put(`/fio2-auc/${enrollmentId}`, payload);
+      } else {
+        await api.post("/fio2-auc/", payload);
+        setIsSaved(true);
+      }
+      setAutoSaveStatus("saved");
+      setTimeout(() => setAutoSaveStatus(""), 2000);
+    } catch (err) {
+      console.error("Auto-save failed:", err);
+      setAutoSaveStatus("error");
+      setTimeout(() => setAutoSaveStatus(""), 3000);
+    }
+  }, [enrollmentId, isSaved]);
+
+  /* ── Auto-save interval (10 seconds) ── */
+  useEffect(() => {
+    daysRef.current = days;
+  }, [days]);
+
+  useEffect(() => {
+    autoSaveTimer.current = setInterval(() => {
+      autoSave();
+    }, 10000); // 10 seconds
+    
+    return () => {
+      if (autoSaveTimer.current) {
+        clearInterval(autoSaveTimer.current);
+      }
+    };
+  }, [autoSave]);
 
   /* ── Save / Submit ── */
   const handleSubmit = async () => {
@@ -300,7 +373,16 @@ export default function Fio2AUCForm() {
     }
   };
 
-  const handleNext = async () => { await handleSubmit(); navigate(`/vs6-1/${enrollmentId}`); };
+  const handleNext = async () => { await handleSubmit(); navigate(`/resp-cv-neuro/${enrollmentId}`); };
+
+  const handlePrevious = async () => {
+    if (isSaved) {
+      navigate(`/form-e/${enrollmentId}`);
+    } else {
+      await handleSubmit();
+      navigate(`/form-e/${enrollmentId}`);
+    }
+  };
 
   /* ════════════════════════════════════════════
      RENDER
@@ -322,6 +404,12 @@ export default function Fio2AUCForm() {
               <span className="id-val">{patient.enrollment_id}</span>
             </div>
           )}
+          {patient.dob && (
+            <div className="screening-id-badge">
+              <span className="id-label">DOB</span>
+              <span className="id-val">{patient.dob}</span>
+            </div>
+          )}
           {patient.gestation && (
             <div className="screening-id-badge">
               <span className="id-label">Gestation</span>
@@ -330,6 +418,15 @@ export default function Fio2AUCForm() {
           )}
         </div>
       </div>
+
+      {/* ── Auto-save status indicator ── */}
+      {autoSaveStatus && (
+        <div className={`autosave-indicator ${autoSaveStatus}`}>
+          {autoSaveStatus === "saving" && "⏳ Auto-saving..."}
+          {autoSaveStatus === "saved" && "✅ Auto-saved"}
+          {autoSaveStatus === "error" && "⚠️ Auto-save failed"}
+        </div>
+      )}
 
       {/* ── MAIN ── */}
       <main className="fio2-main">
@@ -519,12 +616,12 @@ export default function Fio2AUCForm() {
       {/* ── STICKY FOOTER — matches FormC/D/E exactly ── */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(-1)}>
-          ← Form E
+          onClick={handlePrevious}>
+          <ArrowLeft size={15} /> Postnatal Day 1
         </button>
         <button type="button" className="btn btn-save btn-outline-blue"
           onClick={handleSubmit}>
-          💾 Save
+          <Save size={15} /> Save
         </button>
         <div className="footer-step-indicator">
           <span className="step-text">HELPER 1 OF 4</span>
@@ -537,7 +634,7 @@ export default function Fio2AUCForm() {
         </div>
         <button type="button" className="btn btn-primary"
           onClick={handleNext} disabled={!isSaved}>
-          Next Form →
+          Resp-CV-Neuro <ArrowRight size={15} />
         </button>
       </div>
     </div>
