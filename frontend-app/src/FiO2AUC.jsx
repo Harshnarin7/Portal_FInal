@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import api from "./api/axios";
+import { ArrowLeft, ArrowRight, Save } from "lucide-react";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
 
@@ -300,7 +301,16 @@ export default function Fio2AUCForm() {
     }
   };
 
-  const handleNext = async () => { await handleSubmit(); navigate(`/vs6-1/${enrollmentId}`); };
+  const handleNext = async () => { await handleSubmit(); navigate(`/resp-cv-neuro/${enrollmentId}`); };
+
+  const handlePrevious = async () => {
+    if (isSaved) {
+      navigate(`/form-e/${enrollmentId}`);
+    } else {
+      await handleSubmit();
+      navigate(`/form-e/${enrollmentId}`);
+    }
+  };
 
   /* ════════════════════════════════════════════
      RENDER
@@ -525,12 +535,12 @@ export default function Fio2AUCForm() {
       {/* ── STICKY FOOTER — matches FormC/D/E exactly ── */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(-1)}>
-          ← Form E
+          onClick={handlePrevious}>
+          <ArrowLeft size={15} /> Postnatal Day 1
         </button>
         <button type="button" className="btn btn-save btn-outline-blue"
           onClick={handleSubmit}>
-          💾 Save
+          <Save size={15} /> Save
         </button>
         <div className="footer-step-indicator">
           <span className="step-text">HELPER 1 OF 4</span>
@@ -543,7 +553,7 @@ export default function Fio2AUCForm() {
         </div>
         <button type="button" className="btn btn-primary"
           onClick={handleNext} disabled={!isSaved}>
-          Next Form →
+          Resp-CV-Neuro <ArrowRight size={15} />
         </button>
       </div>
     </div>
