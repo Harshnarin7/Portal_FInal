@@ -14,6 +14,21 @@ import {
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
 } from "lucide-react";
 
+/* ── Safe localStorage helpers ──
+   localStorage.setItem coerces its value with String(), so
+   localStorage.setItem(key, undefined) silently stores the literal
+   string "undefined" — which then reads back as truthy and causes
+   requests like PUT /birth-resuscitation/undefined. These helpers
+   guard against writing a non-value and against trusting a
+   previously-corrupted "undefined"/"null" string on read. */
+const getStoredId = (key) => {
+  const v = localStorage.getItem(key);
+  return v && v !== "undefined" && v !== "null" ? v : null;
+};
+const setStoredId = (key, value) => {
+  if (value !== undefined && value !== null) localStorage.setItem(key, value);
+};
+
 /* ── Inline SVG icon ── */
 const Ic = ({ d, s = 15 }) => (
   <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
@@ -478,8 +493,7 @@ export default function BirthResuscitationForm() {
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
     const payload = buildPayload();
     try {
-      const storedId = localStorage.getItem("current_enrollment_id");
-      const existingId = storedId || null;
+      const existingId = getStoredId("current_enrollment_id");
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -487,8 +501,8 @@ export default function BirthResuscitationForm() {
 
       const eid = res.data.enrollment_id;
       const sid = res.data.screening_id;
-      localStorage.setItem("current_enrollment_id", eid);
-      if (sid) localStorage.setItem("current_screening_id", sid);
+      setStoredId("current_enrollment_id", eid);
+      if (sid) setStoredId("current_screening_id", sid);
       window.dispatchEvent(new Event("storage"));
 
       setIsFormBLoaded(true);
@@ -522,8 +536,7 @@ export default function BirthResuscitationForm() {
     const payload = buildPayload();
 
     try {
-      const storedId   = localStorage.getItem("current_enrollment_id");
-      const existingId = storedId || null;
+      const existingId = getStoredId("current_enrollment_id");
 
       const res = existingId
         ? await api.put(`/birth-resuscitation/${existingId}`, payload)
@@ -531,8 +544,8 @@ export default function BirthResuscitationForm() {
 
       const eid = res.data.enrollment_id;
       const sid = res.data.screening_id;
-      localStorage.setItem("current_enrollment_id", eid);
-      if (sid) localStorage.setItem("current_screening_id", sid);
+      setStoredId("current_enrollment_id", eid);
+      if (sid) setStoredId("current_screening_id", sid);
       window.dispatchEvent(new Event("storage"));
 
       setShowDraftModal(true);
@@ -557,8 +570,7 @@ export default function BirthResuscitationForm() {
   /* ── Auto-save every 10 seconds (silent, no modals, no validation) ── */
   const autoSave = useCallback(async () => {
     const fd = formDataRef.current;
-    const storedId = localStorage.getItem("current_enrollment_id");
-    const existingId = storedId || null;
+    const existingId = getStoredId("current_enrollment_id");
 
     /* Don't create a new DB row until the nurse has entered a baby_uid */
     if (!existingId && !fd.baby_uid) return;
@@ -578,8 +590,8 @@ export default function BirthResuscitationForm() {
 
       const newEid = res.data.enrollment_id;
       const sid = res.data.screening_id;
-      if (newEid) localStorage.setItem("current_enrollment_id", newEid);
-      if (sid) localStorage.setItem("current_screening_id", sid);
+      setStoredId("current_enrollment_id", newEid);
+      if (sid) setStoredId("current_screening_id", sid);
       window.dispatchEvent(new Event("storage"));
 
       setAutoSaveStatus("saved");
@@ -608,7 +620,7 @@ export default function BirthResuscitationForm() {
   const handleNext = async () => {
     const ok = await saveForm();
     if(!ok) return;
-    const eid = localStorage.getItem("current_enrollment_id");
+    const eid = getStoredId("current_enrollment_id");
     const key = `completedForms_${eid}`;
     const ex  = JSON.parse(localStorage.getItem(key)||"[]");
     if(!ex.includes("form_b")) localStorage.setItem(key,JSON.stringify([...ex,"form_b"]));
@@ -617,8 +629,8 @@ export default function BirthResuscitationForm() {
 
   /* ── Load data ── */
   useEffect(()=>{
-    const eid=localStorage.getItem("current_enrollment_id");
-    if(!eid||eid==="null") return;
+    const eid=getStoredId("current_enrollment_id");
+    if(!eid) return;
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;

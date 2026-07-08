@@ -468,8 +468,12 @@
 
 .fio2-spacer { height: 48px; }
 
-/* ══ AUTO-SAVE INDICATOR ══ */
-.autosave-indicator {
+/* ══ AUTO-SAVE INDICATOR (FiO2AUC page's own floating toast — must NOT be
+   named .autosave-indicator, since that class is also used by the shared
+   footer nav bar (.form-navigation) on every other form as an inline,
+   non-fixed status pill. Sharing the name caused this fixed/floating rule
+   to leak into and corrupt that footer's layout on other pages.) ══ */
+.fio2-autosave-toast {
   position: fixed;
   top: 20px;
   right: 20px;
@@ -481,19 +485,19 @@
   animation: slideIn 0.3s ease-out;
 }
 
-.autosave-indicator.saving {
+.fio2-autosave-toast.saving {
   background: #e0f2fe;
   color: #0369a1;
   border: 1px solid #7dd3fc;
 }
 
-.autosave-indicator.saved {
+.fio2-autosave-toast.saved {
   background: #dcfce7;
   color: #15803d;
   border: 1px solid #86efac;
 }
 
-.autosave-indicator.error {
+.fio2-autosave-toast.error {
   background: #fef3c7;
   color: #b45309;
   border: 1px solid #fcd34d;
