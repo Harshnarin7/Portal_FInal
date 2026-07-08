@@ -911,7 +911,7 @@ def get_postnatal_day1(
     ).first()
 
     if not record:
-        raise HTTPException(status_code=404, detail="Form D not found")
+        return None
 
     return record
 
@@ -929,12 +929,28 @@ def update_postnatal_day1(
     ).first()
 
     if not record:
-        raise HTTPException(status_code=404, detail="Form D not found")
-
-    payload = {k: v for k, v in data.model_dump().items() if v is not None}
-    for key, value in payload.items():
-        if hasattr(record, key):
-            setattr(record, key, value)
+        # No existing record — create new one (upsert)
+        payload = split_and_store_pii(
+            db,
+            data.model_dump(),
+            POSTNATAL_PII_FIELDS,
+            enrollment_id=enrollment_id,
+            site_name=site_for_enrollment(db, enrollment_id),
+        )
+        record = PostnatalDay1(**payload)
+        db.add(record)
+    else:
+        # Update existing record
+        payload = split_and_store_pii(
+            db,
+            data.model_dump(),
+            POSTNATAL_PII_FIELDS,
+            enrollment_id=enrollment_id,
+            site_name=site_for_enrollment(db, enrollment_id),
+        )
+        for key, value in payload.items():
+            if hasattr(record, key):
+                setattr(record, key, value)
 
     db.commit()
     db.refresh(record)
