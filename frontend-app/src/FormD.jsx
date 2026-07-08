@@ -377,6 +377,7 @@ export default function FormD() {
           mode_of_support:       modeArray,
 
           // ── LISA ──
+          lisa_catheter: d.lisa_catheter || "",
           lisa_catheter_type: d.lisa_catheter_type || "",
           device_assistance:  fromBool(d.device_assistance),
           // device_type was saved as the final resolved value; restore it
@@ -536,6 +537,7 @@ export default function FormD() {
     humidified_gas:    yesNoToBool(formData.humidified_gas),
     max_fio2_1hr:      num(formData.max_fio2_1hr),
     surfactant_brand_other: formData.surfactant_brand_other,
+    lisa_catheter: formData.lisa_catheter,
     lisa_catheter_type: formData.lisa_catheter_type,
     device_assistance:  yesNoToBool(formData.device_assistance),
     device_type: formData.device_type === "Other" ? formData.device_type_other : formData.device_type,
@@ -608,6 +610,7 @@ export default function FormD() {
       humidified_gas:    yesNoToBool(formData.humidified_gas),
       max_fio2_1hr:      num(formData.max_fio2_1hr),
       surfactant_brand_other: formData.surfactant_brand_other,
+      lisa_catheter: formData.lisa_catheter,
       lisa_catheter_type: formData.lisa_catheter_type,
       device_assistance:  yesNoToBool(formData.device_assistance),
       device_type: formData.device_type === "Other" ? formData.device_type_other : formData.device_type,
