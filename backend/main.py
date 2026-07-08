@@ -888,7 +888,7 @@ def create_postnatal_day1(
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         POSTNATAL_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),

@@ -4,6 +4,7 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import api from "./api/axios";
 import { ArrowLeft, ArrowRight, Save } from "lucide-react";
+import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
 
