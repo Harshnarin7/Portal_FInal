@@ -45,6 +45,7 @@ export default function useFormSession({
 
   const autoSaveTimer   = useRef(null);
   const isInitialRender = useRef(true);
+  const isDirtyRef      = useRef(false);
 
   /* ── Mark dirty (call this whenever formData changes) ── */
   const markDirty = useCallback(() => {
@@ -68,6 +69,11 @@ export default function useFormSession({
       window.removeEventListener("offline", goOffline);
     };
   }, [offlineQueue]); // eslint-disable-line
+
+  /* ── Keep isDirtyRef in sync with isDirty state ── */
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   /* ── beforeunload ── */
   useEffect(() => {
@@ -112,7 +118,9 @@ export default function useFormSession({
   useEffect(() => {
     if (!enabled) return;
     clearInterval(autoSaveTimer.current);
-    autoSaveTimer.current = setInterval(doSave, 10000);
+    autoSaveTimer.current = setInterval(() => {
+      if (isDirtyRef.current) doSave();
+    }, 10000);
     return () => clearInterval(autoSaveTimer.current);
   }, [doSave, enabled]);
 
