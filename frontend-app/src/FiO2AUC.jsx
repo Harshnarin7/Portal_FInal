@@ -208,6 +208,19 @@ export default function Fio2AUCForm() {
       });
   }, [enrollmentId]);
 
+  /* ── Warn before unload if unsaved changes ── */
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!isSaved) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        return "You have unsaved changes. Are you sure you want to leave?";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isSaved]);
+
   /* ── Day helpers ── */
   const setDay = useCallback((dayNum, fn) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, ...fn(d) } : d)), []);
