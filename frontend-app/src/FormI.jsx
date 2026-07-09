@@ -9,6 +9,7 @@ import { usePatient } from "./context/PatientContext";
 import FormLayout from "./components/FormLayout";
 
 import { useFormProgress } from "./context/FormProgressContext";
+import { toDateOnlyValue } from "./utils/datetime";
 export default function FormI() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -390,7 +391,7 @@ const handleSubmit = async (e) => {
   name="dob"
   value={formData.dob}readOnly
   onChange={handleChange}
-  max={new Date().toISOString().split("T")[0]}
+  max={toDateOnlyValue(new Date())}
 />
           </div>
         </div>
@@ -718,7 +719,7 @@ onChange={handleChange}
   name="treatment_re_date"
   value={formData.treatment_re_date}
   onChange={handleChange}
-  max={new Date().toISOString().split("T")[0]}
+  max={toDateOnlyValue(new Date())}
 />
         </div>
 
@@ -729,7 +730,7 @@ onChange={handleChange}
   name="treatment_le_date"
   value={formData.treatment_le_date}
   onChange={handleChange}
-  max={new Date().toISOString().split("T")[0]}
+  max={toDateOnlyValue(new Date())}
 />
         </div>
 
@@ -894,7 +895,7 @@ onChange={handleChange}
   name="final_screening_date"
   value={formData.final_screening_date}
   onChange={handleChange}
-  max={new Date().toISOString().split("T")[0]}
+  max={toDateOnlyValue(new Date())}
 />
       </div>
 
