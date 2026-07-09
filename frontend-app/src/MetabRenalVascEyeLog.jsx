@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import { toDateOnlyValue } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -609,7 +610,7 @@ export default function MetabRenalVascEyeLog() {
     setShowDischargeConfirm(false);
     try {
       await api.patch(`/enrollment/${enrollmentId}/discharge`, {
-        discharge_date: new Date().toISOString().split("T")[0],
+        discharge_date: toDateOnlyValue(new Date()),
         discharge_day: activeDay,
       });
       setDischargeDay(activeDay);

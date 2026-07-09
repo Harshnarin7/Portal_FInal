@@ -9,6 +9,7 @@ import { usePatient } from "./context/PatientContext";
 import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 export default function FormF() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -3539,11 +3540,11 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <label>Left Date<span className="required">*</span></label>
         <DatePicker
-  selected={formData.ivh_date_left ? new Date(formData.ivh_date_left) : null}
+  selected={formData.ivh_date_left ? parseDateOnly(formData.ivh_date_left) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      ivh_date_left: date ? date.toISOString().split("T")[0] : ""
+      ivh_date_left: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3555,11 +3556,11 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <label>Right Date<span className="required">*</span></label>
         <DatePicker
-  selected={formData.ivh_date_right ? new Date(formData.ivh_date_right) : null}
+  selected={formData.ivh_date_right ? parseDateOnly(formData.ivh_date_right) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      ivh_date_right: date ? date.toISOString().split("T")[0] : ""
+      ivh_date_right: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3571,11 +3572,11 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-group">
       <label>Date of maximum grade<span className="required">*</span></label>
       <DatePicker
-  selected={formData.ivh_date ? new Date(formData.ivh_date) : null}
+  selected={formData.ivh_date ? parseDateOnly(formData.ivh_date) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      ivh_date: date ? date.toISOString().split("T")[0] : ""
+      ivh_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3748,11 +3749,11 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <label>Left Date<span className="required">*</span></label>
         <DatePicker
-  selected={formData.pvl_date_left ? new Date(formData.pvl_date_left) : null}
+  selected={formData.pvl_date_left ? parseDateOnly(formData.pvl_date_left) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      pvl_date_left: date ? date.toISOString().split("T")[0] : ""
+      pvl_date_left: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3763,11 +3764,11 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <label>Right Date<span className="required">*</span></label>
         <DatePicker
-  selected={formData.pvl_date_right ? new Date(formData.pvl_date_right) : null}
+  selected={formData.pvl_date_right ? parseDateOnly(formData.pvl_date_right) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      pvl_date_right: date ? date.toISOString().split("T")[0] : ""
+      pvl_date_right: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3779,11 +3780,11 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-group">
       <label>Date<span className="required">*</span></label>
       <DatePicker
-  selected={formData.pvl_date ? new Date(formData.pvl_date) : null}
+  selected={formData.pvl_date ? parseDateOnly(formData.pvl_date) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      pvl_date: date ? date.toISOString().split("T")[0] : ""
+      pvl_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -4012,11 +4013,11 @@ const peripheralStatus= getPeripheralStatus();
               <div className="form-group">
                 <label>Date<span className="required">*</span></label>
                 <DatePicker
-  selected={formData.seizure_date ? new Date(formData.seizure_date) : null}
+  selected={formData.seizure_date ? parseDateOnly(formData.seizure_date) : null}
   onChange={(date) =>
     setFormData(prev => ({
       ...prev,
-      seizure_date: date ? date.toISOString().split("T")[0] : ""
+      seizure_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"

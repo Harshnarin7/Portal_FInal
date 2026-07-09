@@ -8,6 +8,7 @@ import useFormSession from "./hooks/useFormSession";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import OfflineBanner from "./components/OfflineBanner";
+import { toDateOnlyValue, parseDateOnly, toDateTimeLocalValue } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Thermometer, Wind, CheckSquare, Truck,
@@ -467,7 +468,7 @@ export default function FormE() {
     let errorMsg = "";
     if (name === "admission_datetime" && value && value.includes("/")) {
       const date = new Date(value);
-      if (!isNaN(date)) updatedValue = date.toISOString().slice(0, 16);
+      if (!isNaN(date)) updatedValue = toDateTimeLocalValue(date);
     }
     if (["temp_dr","temp_skin","temp_axillary"].includes(name))
       if (value && (Number(value) < 30 || Number(value) > 40)) errorMsg = "Must be between 30–40 °C";
@@ -733,7 +734,7 @@ export default function FormE() {
                     <DatePicker
                       selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
                       onChange={date => setFormData(prev => ({
-                        ...prev, admission_datetime: date ? date.toISOString() : ""
+                        ...prev, admission_datetime: date ? toDateTimeLocalValue(date) : ""
                       }))}
                       showTimeSelect timeFormat="HH:mm" timeIntervals={1}
                       dateFormat="dd-MM-yyyy | HH:mm"
@@ -977,9 +978,9 @@ export default function FormE() {
                   <div className="form-group">
                     <label>Completion Date</label>
                     <DatePicker
-                      selected={formData.completion_date ? new Date(formData.completion_date) : null}
+                      selected={formData.completion_date ? parseDateOnly(formData.completion_date) : null}
                       onChange={date => setFormData(prev => ({
-                        ...prev, completion_date: date ? date.toISOString().split("T")[0] : ""
+                        ...prev, completion_date: date ? toDateOnlyValue(date) : ""
                       }))}
                       maxDate={new Date()}
                       dateFormat="dd-MM-yyyy" placeholderText="Select date"
