@@ -70,6 +70,7 @@ gestation_at_birth: "",
   const id =
     patientData?.enrollment_id ||
     location.state?.enrollmentId ||
+    localStorage.getItem("current_enrollment_id") ||
     localStorage.getItem("enrollment_id") ||
     "";
 
@@ -77,6 +78,21 @@ gestation_at_birth: "",
     ...p,
     enrollment_id: id,
   }));
+  if (id && (!patientData?.gestation_weeks || !patientData?.gestation_days)) {
+    api.get(`/birth-resuscitation/${id}`).then(res => {
+      const b = res.data || {};
+      const weeks = b.gestation_weeks ?? "";
+      const days = b.gestation_days ?? "";
+      setFormData(p => ({
+        ...p,
+        dob: b.date_of_birth || p.dob,
+        birth_weight: b.birth_weight || p.birth_weight,
+        gestation_weeks: weeks,
+        gestation_days: days,
+        gestation_at_birth: weeks !== "" && days !== "" ? `${weeks} weeks ${days} days` : p.gestation_at_birth,
+      }));
+    }).catch(() => {});
+  }
 }, [patientData, location.state]);
 
   useEffect(() => {

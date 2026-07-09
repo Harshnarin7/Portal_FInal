@@ -94,6 +94,16 @@ NICU_ADMISSION_UNIQUE_PATCHES = [
     "ALTER TABLE nicu_admission ADD CONSTRAINT nicu_admission_enrollment_id_key UNIQUE (enrollment_id)",
 ]
 
+POSTNATAL_DAY1_COLUMN_PATCHES = [
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS ga_method VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS gender VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS growth_status VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS sga_centile VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS premedication_given BOOLEAN",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS premedication_drugs VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS premedication_other VARCHAR",
+]
+
 
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -104,6 +114,8 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in COMPOSITE_OUTCOME_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in BIRTH_RESUSCITATION_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in POSTNATAL_DAY1_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))

@@ -132,7 +132,8 @@ useEffect(() => {
 
 }, [formData.enrollment_id]);
 useEffect(() => {
-  if (!patientData) return;
+  if (!patientData?.gestation_weeks && patientData?.gestation_weeks !== 0) return;
+  if (patientData?.gestation_days === undefined || patientData?.gestation_days === null) return;
 
   const gestationFormatted =
   patientData.gestation_weeks != null &&
@@ -142,7 +143,7 @@ useEffect(() => {
 
   setFormData((p) => ({
     ...p,
-    dob: patientData.dob || "",
+    dob: patientData.dob || p.dob,
     gestation_at_birth: gestationFormatted
   }));
 }, [patientData]);

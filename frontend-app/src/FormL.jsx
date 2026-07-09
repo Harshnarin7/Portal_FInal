@@ -173,6 +173,7 @@ export default function FormL() {
     const id =
       patientData?.enrollment_id ||
       location.state?.enrollmentId ||
+      localStorage.getItem("current_enrollment_id") ||
       localStorage.getItem("enrollment_id") || "";
     setFormData(p => ({
       ...p,
@@ -182,6 +183,17 @@ export default function FormL() {
       gestation_days: patientData?.gestation_days || "",
       mother_name: patientData?.mother_first_name || "",
     }));
+    if (id && (!patientData?.gestation_weeks || !patientData?.gestation_days)) {
+      api.get(`/birth-resuscitation/${id}`).then(res => {
+        const b = res.data || {};
+        setFormData(p => ({
+          ...p,
+          dob: b.date_of_birth || p.dob,
+          gestation_weeks: b.gestation_weeks ?? p.gestation_weeks,
+          gestation_days: b.gestation_days ?? p.gestation_days,
+        }));
+      }).catch(() => {});
+    }
   }, [patientData, location.state]);
 
   const set = (field, value) =>

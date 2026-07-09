@@ -153,9 +153,7 @@ useEffect(() => {
       let birthData = {};
 
 try {
-  const screeningId = localStorage.getItem("current_screening_id");
-
-const res = await api.get(`/birth-resuscitation/${screeningId}`);
+const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
   birthData = res.data || {};
   console.log("BIRTH:", birthData);
   
@@ -168,8 +166,8 @@ const res = await api.get(`/birth-resuscitation/${screeningId}`);
   ...prev,
   enrollment_id: enrollmentId || "",
   baby_uid: birthData?.baby_uid || "",
-  gestation_weeks: screeningData?.gestation_weeks || "",
-  gestation_days: screeningData?.gestation_days || "",
+  gestation_weeks: birthData?.gestation_weeks || screeningData?.gestation_weeks || "",
+  gestation_days: birthData?.gestation_days || screeningData?.gestation_days || "",
   birth_weight: birthData?.birth_weight || "",
   dob: birthData?.date_of_birth || "",
 }));
