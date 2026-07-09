@@ -239,10 +239,12 @@ export default function FormD() {
   const [lastSaved,      setLastSaved]      = useState(null);
   const [isDirty,        setIsDirty]        = useState(false);
   const [isOnline,       setIsOnline]       = useState(navigator.onLine);
+  const [siteName,       setSiteName]       = useState("");
   const autoSaveTimer  = useRef(null);
   const firstErrRef = useRef(null);
 
   const isFieldEditable = true; // Form D is always editable
+  const isPgiSite = siteName === "PGIMER";
 
   const [formData, setFormData] = useState({
     enrollment_id: "", gestation_weeks: "", gestation_days: "",
@@ -311,8 +313,12 @@ export default function FormD() {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
         let motherName = "";
-        const screeningId = localStorage.getItem("current_screening_id");
+        const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
         if (screeningId) {
+          try {
+            const screeningRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
+            setSiteName(screeningRes.data?.site_name || "");
+          } catch (_) {}
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
             const pii = piiRes.data || {};
@@ -810,12 +816,14 @@ export default function FormD() {
                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#64748b",fontWeight:600 }}>grams</span>
                     </div>
                   </div>
-                  <div className="form-group">
-                    <label>2. Annual Number (REDCap)</label>
-                    <input name="annual_number" value={formData.annual_number || ""}
-                      onChange={handleChange} placeholder="Optional"
-                      readOnly={!isFieldEditable} className="emr-input" />
-                  </div>
+                  {isPgiSite && (
+                    <div className="form-group">
+                      <label>2. Annual Number (REDCap)</label>
+                      <input name="annual_number" value={formData.annual_number || ""}
+                        onChange={handleChange} placeholder="Optional"
+                        readOnly={!isFieldEditable} className="emr-input" />
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-grid-3">
