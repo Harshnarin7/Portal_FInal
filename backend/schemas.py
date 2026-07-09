@@ -552,6 +552,9 @@ class BirthResuscitationCreate(BaseModel):
 class BirthResuscitationOut(BirthResuscitationCreate):
     id: int
     created_at: Optional[datetime]
+    original_gestation_weeks: Optional[int] = None
+    original_gestation_days: Optional[int] = None
+    gestation_source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -672,6 +675,20 @@ class MaternalDetailsCreate(BaseModel):
     uterotonic: Optional[str] = None
     uterotonic_timing: Optional[str] = None
 
+    @field_validator(
+        "steroid_doses",
+        "steroid_courses",
+        "lddi_hours",
+        "pprom_duration",
+        "duration_rom",
+        mode="before",
+    )
+    @classmethod
+    def stringify_numeric_text_fields(cls, v):
+        if v is None:
+            return v
+        return str(v)
+
 
 class MaternalDetailsOut(MaternalDetailsCreate):
     id: int
@@ -693,6 +710,10 @@ class PostnatalDay1Create(BaseModel):
     baby_name: str | None = None
     baby_uid: str | None = None
     birth_weight: float | None = None
+    ga_method: str | None = None
+    gender: str | None = None
+    growth_status: str | None = None
+    sga_centile: str | None = None
 
     plastic_wrap: bool | None = None
     remained_intubated: bool | None = None
@@ -704,6 +725,9 @@ class PostnatalDay1Create(BaseModel):
     cpap_cm: float | None = None
     fio2_percent: float | None = None
     surfactant_method: str | None = None
+    premedication_given: bool | None = None
+    premedication_drugs: str | None = None
+    premedication_other: str | None = None
     lisa_catheter: str | None = None
     device_assistance: bool | None = None
     device_type: str | None = None

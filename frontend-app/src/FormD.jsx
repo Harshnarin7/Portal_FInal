@@ -22,6 +22,24 @@ import {
 
 const RULES = {
   // required toggles (Golden Hour)
+  ga_method:             { required: true, type: "toggle" },
+  gestation_weeks:       { required: true, type: "number",
+    validate: v => {
+      const n = Number(v);
+      if (!v && v !== 0) return "Required";
+      if (n < 18 || n > 42) return "Weeks must be 18-42";
+      return null;
+    } },
+  gestation_days:        { required: true, type: "number",
+    validate: v => {
+      const n = Number(v);
+      if (v === "" || v === null || v === undefined) return "Required";
+      if (n < 0 || n > 6) return "Days must be 0-6";
+      return null;
+    } },
+  gender:                { required: true, type: "toggle" },
+  growth_status:         { required: true, type: "toggle" },
+  sga_centile:           { required: (fd) => fd.growth_status === "SGA", type: "toggle" },
   plastic_wrap:          { required: true, type: "toggle" },
   et_intubation:         { required: true, type: "toggle" },
   labored_breathing:     { required: true, type: "toggle" },
@@ -31,6 +49,10 @@ const RULES = {
   surfactant_required:   { required: true, type: "toggle" },
   surfactant_indication: { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
   surfactant_method:     { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
+  premedication_given:   { required: (fd) => fd.surfactant_method === "InSurE", type: "toggle" },
+  premedication_drugs:   { required: (fd) => fd.premedication_given === "Yes", type: "pill" },
+  premedication_other:   { required: (fd) => fd.premedication_drugs?.includes("Others"), type: "text",
+    validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
   surfactant_brand:      { required: (fd) => fd.surfactant_required === "Yes", type: "pill" },
   surfactant_brand_other:{ required: (fd) => fd.surfactant_brand === "Other", type: "text",
     validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
@@ -104,7 +126,7 @@ const RULES = {
     },
   },
   caffeine_maint_abs: {
-    required: false, type: "number",
+    required: (fd) => fd.caffeine_loading === "Yes", type: "number",
     validate: v => {
       if (!v) return null;
       const n = Number(v);
@@ -114,7 +136,7 @@ const RULES = {
     },
   },
   caffeine_date: {
-    required: false, type: "date",
+    required: (fd) => fd.caffeine_loading === "Yes", type: "date",
     validate: v => {
       if (!v) return null;
       if (new Date(v) > new Date()) return "Future date not allowed";
@@ -126,7 +148,7 @@ const RULES = {
   immediate_kmc: { required: true, type: "toggle" },
 
   date: {
-    required: false, type: "date",
+    required: true, type: "date",
     validate: v => {
       if (!v) return null;
       if (new Date(v) > new Date()) return "Future date not allowed";
@@ -223,6 +245,33 @@ const UnitInput = ({ name, value, onChange, onBlur, readOnly, unit, error, warn,
   );
 };
 
+const deriveGrowthStatus = (centile) => {
+  if (centile === "" || centile === null || centile === undefined) return { growth_status: "", sga_centile: "" };
+  const n = Number(centile);
+  if (Number.isNaN(n)) return { growth_status: "", sga_centile: "" };
+  if (n < 3) return { growth_status: "SGA", sga_centile: "<3rd" };
+  if (n < 10) return { growth_status: "SGA", sga_centile: "<10th" };
+  if (n > 90) return { growth_status: "LGA", sga_centile: "" };
+  return { growth_status: "AGA", sga_centile: "" };
+};
+
+const toggleListValue = (value, item) => {
+  const current = value ? value.split(",").map(s => s.trim()).filter(Boolean) : [];
+  const next = current.includes(item)
+    ? current.filter(v => v !== item)
+    : [...current, item];
+  return next.join(", ");
+};
+
+const totalGestationDays = (weeks, days) => {
+  if (weeks === "" || weeks === null || weeks === undefined) return null;
+  if (days === "" || days === null || days === undefined) return null;
+  const w = Number(weeks);
+  const d = Number(days);
+  if (Number.isNaN(w) || Number.isNaN(d)) return null;
+  return w * 7 + d;
+};
+
 export default function FormD() {
   const { enrollmentId } = useParams();
   const location  = useLocation();
@@ -239,20 +288,20 @@ export default function FormD() {
   const [lastSaved,      setLastSaved]      = useState(null);
   const [isDirty,        setIsDirty]        = useState(false);
   const [isOnline,       setIsOnline]       = useState(navigator.onLine);
-  const [siteName,       setSiteName]       = useState("");
   const autoSaveTimer  = useRef(null);
   const firstErrRef = useRef(null);
 
   const isFieldEditable = true; // Form D is always editable
-  const isPgiSite = siteName === "PGIMER";
 
   const [formData, setFormData] = useState({
     enrollment_id: "", gestation_weeks: "", gestation_days: "",
+    original_gestation_weeks: "", original_gestation_days: "",
     annual_number: "", baby_name: "", baby_uid: "", birth_weight: "",
     ga_method: "", gender: "", growth_status: "", sga_centile: "",
     plastic_wrap: "", remained_intubated: "", et_intubation: "", labored_breathing: "",
     surfactant_required: "", surfactant_brand_other: "", surfactant_indication: "",
     cpap_cm: "", fio2_percent: "", surfactant_method: "",
+    premedication_given: "", premedication_drugs: "", premedication_other: "",
     lisa_catheter: "", device_assistance: "", device_type: "",
     surfactant_brand: "", surfactant_dose: "", adverse_effects: "",
     adverse_type: "", adverse_type_other: "", mode_of_support: [],
@@ -282,6 +331,21 @@ export default function FormD() {
     setFormData(prev => {
       let updated = { ...prev, [name]: value };
       if (name === "et_intubation" && value === "No") updated.remained_intubated = "";
+      if (name === "surfactant_method" && value !== "InSurE") {
+        updated.premedication_given = "";
+        updated.premedication_drugs = "";
+        updated.premedication_other = "";
+      }
+      if (name === "premedication_given" && value !== "Yes") {
+        updated.premedication_drugs = "";
+        updated.premedication_other = "";
+      }
+      if (name === "caffeine_loading" && value !== "Yes") {
+        updated.caffeine_loading_abs = "";
+        updated.caffeine_maint_abs = "";
+        updated.caffeine_date = "";
+        updated.caffeine_time = "";
+      }
       return updated;
     });
   };
@@ -316,10 +380,6 @@ export default function FormD() {
         const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
         if (screeningId) {
           try {
-            const screeningRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
-            setSiteName(screeningRes.data?.site_name || "");
-          } catch (_) {}
-          try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
             const pii = piiRes.data || {};
             const first = pii.mother_first_name || pii.mother_name_first || "";
@@ -329,15 +389,22 @@ export default function FormD() {
         }
         if (!motherName)
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
+        const growth = deriveGrowthStatus(b?.intrauterine_centile);
 
         // Set identification fields from Form B first
         setFormData(prev => ({
           ...prev,
           enrollment_id:   b?.enrollment_id || enrollmentId,
+          annual_number:   b?.baby_annual_no || prev.annual_number,
           gestation_weeks: b?.gestation_weeks || "",
           gestation_days:  b?.gestation_days  || "",
+          original_gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
+          original_gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
           birth_weight:    b?.birth_weight    || "",
           baby_uid:        b?.baby_uid        || "",
+          gender:          b?.gender || prev.gender,
+          growth_status:   growth.growth_status || prev.growth_status,
+          sga_centile:     growth.sga_centile || prev.sga_centile,
           baby_name:       motherName ? `Baby of ${motherName}` : "",
         }));
       } catch (err) { console.log("❌ No Form B data found", err); }
@@ -381,6 +448,9 @@ export default function FormD() {
           surfactant_brand_other:d.surfactant_brand_other || "",
           surfactant_dose:       d.surfactant_dose != null ? String(d.surfactant_dose) : "",
           mode_of_support:       modeArray,
+          premedication_given:   fromBool(d.premedication_given),
+          premedication_drugs:   d.premedication_drugs || "",
+          premedication_other:   d.premedication_other || "",
 
           // ── LISA ──
           lisa_catheter: d.lisa_catheter || "",
@@ -535,6 +605,9 @@ export default function FormD() {
     cpap_cm:     num(formData.cpap_cm),
     fio2_percent: num(formData.fio2_percent),
     surfactant_method: formData.surfactant_method,
+    premedication_given: yesNoToBool(formData.premedication_given),
+    premedication_drugs: formData.premedication_drugs,
+    premedication_other: formData.premedication_other,
     surfactant_brand:  formData.surfactant_brand,
     surfactant_dose:   num(formData.surfactant_dose),
     adverse_effects:   yesNoToBool(formData.adverse_effects),
@@ -599,6 +672,10 @@ export default function FormD() {
       baby_name:          formData.baby_name,
       baby_uid:           formData.baby_uid,
       birth_weight:       num(formData.birth_weight),
+      ga_method:          formData.ga_method || null,
+      gender:             formData.gender || null,
+      growth_status:      formData.growth_status || null,
+      sga_centile:        formData.sga_centile || null,
       plastic_wrap:       yesNoToBool(formData.plastic_wrap),
       remained_intubated: yesNoToBool(formData.remained_intubated),
       et_intubation:      yesNoToBool(formData.et_intubation),
@@ -608,6 +685,9 @@ export default function FormD() {
       cpap_cm:     num(formData.cpap_cm),
       fio2_percent: num(formData.fio2_percent),
       surfactant_method: formData.surfactant_method,
+      premedication_given: yesNoToBool(formData.premedication_given),
+      premedication_drugs: formData.premedication_drugs,
+      premedication_other: formData.premedication_other,
       surfactant_brand:  formData.surfactant_brand,
       surfactant_dose:   num(formData.surfactant_dose),
       adverse_effects:   yesNoToBool(formData.adverse_effects),
@@ -642,7 +722,19 @@ export default function FormD() {
         await api.post("/postnatal-day1/", payload);
         setIsRecordSaved(true);
       }
-      updatePatientData({ completed_by: formData.completed_by, designation: formData.designation });
+      const originalGa = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
+      const enteredGa = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
+      const useNbsGa = formData.ga_method === "NBS"
+        && originalGa !== null
+        && enteredGa !== null
+        && Math.abs(enteredGa - originalGa) > 14;
+      updatePatientData({
+        completed_by: formData.completed_by,
+        designation: formData.designation,
+        gestation_weeks: useNbsGa ? formData.gestation_weeks : (formData.original_gestation_weeks || formData.gestation_weeks),
+        gestation_days: useNbsGa ? formData.gestation_days : (formData.original_gestation_days || formData.gestation_days),
+        gestation_source: useNbsGa ? "Form D NBS" : "Form B",
+      });
       markFormCompleted("form_d");
       setMessage("✅ Form D saved successfully");
       setIsSaved(true); setIsEditing(false);
@@ -663,10 +755,6 @@ export default function FormD() {
       navigate(`/form-e/${formData.enrollment_id}`);
     }
   };
-
-  const gestationalAgeDisplay =
-    formData.gestation_weeks && formData.gestation_days
-      ? `${formData.gestation_weeks}w ${formData.gestation_days}d` : "—";
 
   const nurses = [
     "Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
@@ -697,9 +785,14 @@ export default function FormD() {
 
   const FIELD_LABELS = {
     plastic_wrap: "Plastic Wrap", et_intubation: "ET Intubation",
+    ga_method: "Gestational Age By", gender: "Gender",
+    growth_status: "Intra-uterine Growth Status", sga_centile: "SGA Centile",
     labored_breathing: "Labored Breathing", remained_intubated: "Remained Intubated",
     surfactant_required: "Surfactant Administered", surfactant_indication: "Surfactant Indication",
     surfactant_method: "Surfactant Method", surfactant_brand: "Surfactant Brand",
+    premedication_given: "Premedication Given",
+    premedication_drugs: "Premedication Drugs",
+    premedication_other: "Premedication Other",
     surfactant_brand_other: "Brand Name", surfactant_dose: "Surfactant Dose",
     cpap_cm: "MAP", fio2_percent: "FiO₂ at Administration",
     adverse_effects: "Adverse Effects", adverse_type: "Adverse Effect Type",
@@ -711,8 +804,11 @@ export default function FormD() {
     max_fio2_1hr: "Maximum FiO₂ in First Hour",
     caffeine_loading: "Loading Dose of Caffeine",
     caffeine_loading_abs: "Caffeine Loading Dose",
+    caffeine_maint_abs: "Caffeine Maintenance Dose",
+    caffeine_date: "Caffeine Administration Date",
     immediate_kmc: "Immediate KMC",
     completed_by: "Completed By",
+    date: "Completion Date",
   };
 
   /* ════════════════ RENDER ════════════════ */
@@ -785,7 +881,7 @@ export default function FormD() {
             {/* ═══ CARD 1 — IDENTIFICATION ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><User size={18} className="section-header-icon" /><h3>Patient Identification</h3></div>
+                <div className="section-title-left"><User size={18} className="section-header-icon" /><h3>D1 · Identification</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
@@ -794,21 +890,15 @@ export default function FormD() {
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
-                    <label>Gestational Age</label>
-                    <input value={gestationalAgeDisplay} readOnly className="readonly-input" />
+                    <label>2. Annual Number <span className="field-note">(auto)</span></label>
+                    <input value={formData.annual_number || ""} readOnly className="readonly-input" />
                   </div>
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Baby of (Mother's Name)</label>
-                    <input value={formData.baby_name || ""} readOnly className="readonly-input" />
-                  </div>
-                  <div className="form-group">
-                    <label>3. Baby's UID</label>
+                    <label>3. Baby's UID <span className="field-note">(auto)</span></label>
                     <input value={formData.baby_uid || ""} readOnly className="readonly-input" />
                   </div>
-                </div>
-                <div className="form-grid-2">
                   <div className="form-group">
                     <label>4. Birth Weight</label>
                     <div style={{ position:"relative" }}>
@@ -816,23 +906,55 @@ export default function FormD() {
                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#64748b",fontWeight:600 }}>grams</span>
                     </div>
                   </div>
-                  {isPgiSite && (
-                    <div className="form-group">
-                      <label>2. Annual Number (REDCap)</label>
-                      <input name="annual_number" value={formData.annual_number || ""}
-                        onChange={handleChange} placeholder="Optional"
-                        readOnly={!isFieldEditable} className="emr-input" />
-                    </div>
-                  )}
                 </div>
 
-                <div className="form-grid-3">
+                <div className="form-grid-2">
                   <div className="form-group">
                     <label>5. Gestational Age by</label>
                     <SegmentedToggle name="ga_method" value={formData.ga_method}
                       options={["USG","LMP","NBS"]}
                       onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
                       disabled={!isFieldEditable}/>
+                    <div className="form-grid-2" style={{ marginTop: 8 }}>
+                      <FieldWrap name="gestation_weeks"
+                        formData={formData} touched={touched}
+                        label="Weeks" required={isRequired("gestation_weeks")}>
+                        <input type="number" name="gestation_weeks" value={formData.gestation_weeks || ""}
+                          min="18" max="42" readOnly={!isFieldEditable}
+                          className={`emr-input${vr("gestation_weeks")?.level === "error" ? " fv-input-error" : vr("gestation_weeks")?.level === "ok" ? " fv-input-ok" : ""}`}
+                          onChange={e => {
+                            touch("gestation_weeks");
+                            const v = e.target.value;
+                            if (v === "" || (/^\d{0,2}$/.test(v) && Number(v) <= 42)) {
+                              setFormData(p => ({ ...p, gestation_weeks: v }));
+                            }
+                          }} />
+                      </FieldWrap>
+                      <FieldWrap name="gestation_days"
+                        formData={formData} touched={touched}
+                        label="Days" required={isRequired("gestation_days")}>
+                        <input type="number" name="gestation_days" value={formData.gestation_days || ""}
+                          min="0" max="6" readOnly={!isFieldEditable}
+                          className={`emr-input${vr("gestation_days")?.level === "error" ? " fv-input-error" : vr("gestation_days")?.level === "ok" ? " fv-input-ok" : ""}`}
+                          onChange={e => {
+                            touch("gestation_days");
+                            const v = e.target.value;
+                            if (v === "" || (/^\d$/.test(v) && Number(v) <= 6)) {
+                              setFormData(p => ({ ...p, gestation_days: v }));
+                            }
+                          }} />
+                      </FieldWrap>
+                    </div>
+                    {formData.ga_method === "NBS" && (() => {
+                      const original = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
+                      const entered = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
+                      if (original === null || entered === null || Math.abs(entered - original) <= 14) return null;
+                      return (
+                        <div className="fv-msg fv-msg-warn" style={{ marginTop: 8 }}>
+                          Difference is more than 2 weeks from previous GA. This NBS GA will auto-fill subsequent forms.
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="form-group">
                     <label>6. Gender</label>
@@ -841,6 +963,8 @@ export default function FormD() {
                       onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
                       disabled={!isFieldEditable}/>
                   </div>
+                </div>
+                <div className="form-grid-2">
                   <div className="form-group">
                     <label>7. Intra-uterine Growth Status</label>
                     <SegmentedToggle name="growth_status" value={formData.growth_status}
@@ -848,26 +972,23 @@ export default function FormD() {
                       onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, growth_status: v, sga_centile: v !== "SGA" ? "" : formData.sga_centile })); }}
                       disabled={!isFieldEditable}/>
                   </div>
-                </div>
-
-                {formData.growth_status === "SGA" && (
-                  <div className="followup-box">
+                  {formData.growth_status === "SGA" && (
                     <div className="form-group">
-                      <label>8. If SGA — Centile</label>
+                      <label>8. If SGA</label>
                       <SegmentedToggle name="sga_centile" value={formData.sga_centile}
                         options={[{label:"< 10th centile", value:"<10th"},{label:"< 3rd centile", value:"<3rd"}]}
                         onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
                         disabled={!isFieldEditable}/>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
             {/* ═══ CARD 2 — GOLDEN HOUR ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Baby size={18} className="section-header-icon" /><h3>Golden Hour</h3></div>
+                <div className="section-title-left"><Baby size={18} className="section-header-icon" /><h3>D2 · Golden Hour</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
@@ -910,7 +1031,7 @@ export default function FormD() {
             {/* ═══ CARD 3 — SURFACTANT ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Droplets size={18} className="section-header-icon" /><h3>Surfactant Administration</h3></div>
+                <div className="section-title-left"><Droplets size={18} className="section-header-icon" /><h3>D3 · Surfactant Administration</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
@@ -1037,7 +1158,7 @@ export default function FormD() {
                       <div className="obstetric-subcard__title">Method of Administration</div>
                       <FieldWrap name="surfactant_method"
                     formData={formData} touched={touched}
-                        label="19. Method" required={isRequired("surfactant_method")}>
+                        label="19. Method of administration" required={isRequired("surfactant_method")}>
                         <SegmentedToggle name="surfactant_method" value={formData.surfactant_method}
                           options={["InSurE","LISA","Remained intubated"]}
                           onChange={handleToggle} disabled={!isFieldEditable} />
@@ -1045,6 +1166,59 @@ export default function FormD() {
                     </div>
 
                     {/* ── Row 5: If LISA — Catheter type (from CRF: Infant feeding tube / LISA catheter / Other) ── */}
+                    {formData.surfactant_method === "InSurE" && (
+                      <div className="obstetric-subcard">
+                        <div className="obstetric-subcard__title">InSurE Premedication</div>
+                        <FieldWrap name="premedication_given"
+                    formData={formData} touched={touched}
+                          label="20. If InSurE, premedication given" required={isRequired("premedication_given")}>
+                          <SegmentedToggle name="premedication_given" value={formData.premedication_given}
+                            options={["Yes","No"]}
+                            onChange={handleToggle} disabled={!isFieldEditable} />
+                        </FieldWrap>
+                        {formData.premedication_given === "Yes" && (
+                          <div style={{ marginTop:12 }}>
+                            <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:8 }}>
+                              21. Drugs used <span style={{ fontSize:11, fontWeight:400, color:"#94a3b8" }}>(select all that apply)</span>
+                              {isRequired("premedication_drugs") && <span className="required"> *</span>}
+                            </div>
+                            <div className="rx-horizontal-group" style={{ flexWrap:"wrap", gap: 8 }}>
+                              {["Atropine","Morphine","Others"].map(drug => {
+                                const selected = formData.premedication_drugs?.split(",").map(s => s.trim()).includes(drug);
+                                return (
+                                  <button key={drug} type="button"
+                                    className={`rx-horizontal-btn${selected ? " active" : ""}`}
+                                    onClick={() => {
+                                      if (!isFieldEditable) return;
+                                      touch("premedication_drugs");
+                                      setFormData(p => ({ ...p, premedication_drugs: toggleListValue(p.premedication_drugs, drug) }));
+                                    }}
+                                    disabled={!isFieldEditable}>{drug}</button>
+                                );
+                              })}
+                            </div>
+                            {touched.premedication_drugs && vr("premedication_drugs")?.level === "error" && (
+                              <div className="fv-msg fv-msg-error">{vr("premedication_drugs").msg}</div>
+                            )}
+                            {formData.premedication_drugs?.split(",").map(s => s.trim()).includes("Others") && (
+                              <div style={{ marginTop:10 }}>
+                                <FieldWrap name="premedication_other"
+                    formData={formData} touched={touched}
+                                  label="Specify other drug" required={isRequired("premedication_other")}>
+                                  <input type="text" name="premedication_other"
+                                    value={formData.premedication_other || ""}
+                                    readOnly={!isFieldEditable}
+                                    className={`emr-input${vr("premedication_other")?.level === "error" ? " fv-input-error" : vr("premedication_other")?.level === "ok" ? " fv-input-ok" : ""}`}
+                                    onChange={e => { touch("premedication_other"); const v = e.target.value; if (/^[A-Za-z\s]*$/.test(v)) setFormData(p => ({ ...p, premedication_other: v })); }}
+                                    placeholder="Enter other drug" />
+                                </FieldWrap>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {formData.surfactant_method === "LISA" && (
                       <div className="obstetric-subcard">
                         <div className="obstetric-subcard__title">LISA Details</div>
@@ -1156,7 +1330,7 @@ export default function FormD() {
             {/* ═══ CARD 4 — EARLY RESPIRATORY SUPPORT ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>Early Respiratory Support</h3></div>
+                <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>D4 · Early Respiratory Support</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
@@ -1219,6 +1393,7 @@ export default function FormD() {
                     <div />
                   </div>
                   {formData.caffeine_loading === "Yes" && (
+                    <>
                     <div className="form-grid-2" style={{ marginTop:12 }}>
                       <FieldWrap name="caffeine_loading_abs"
                     formData={formData} touched={touched}
@@ -1240,8 +1415,30 @@ export default function FormD() {
                         </div>
                       </div>
                     </div>
+                    <div className="form-grid-2" style={{ marginTop:12 }}>
+                      <FieldWrap name="caffeine_date"
+                    formData={formData} touched={touched} label="33. Date of Administration" required={isRequired("caffeine_date")}>
+                        <DatePicker
+                          selected={formData.caffeine_date ? parseDateOnly(formData.caffeine_date) : null}
+                          onChange={date => {
+                            touch("caffeine_date");
+                            setFormData(p => ({ ...p, caffeine_date: date ? toDateOnlyValue(date) : "" }));
+                          }}
+                          maxDate={new Date()}
+                          dateFormat="dd-MM-yyyy" placeholderText="Select date"
+                          readOnly={!isFieldEditable} />
+                      </FieldWrap>
+                      <div className="form-group">
+                        <label>Administration Time</label>
+                        <input type="time" name="caffeine_time"
+                          value={formData.caffeine_time || ""}
+                          onChange={handleChange} readOnly={!isFieldEditable}
+                          className="emr-input" />
+                      </div>
+                    </div>
+                    </>
                   )}
-                  {/* Maintenance Dose */}
+                  {formData.caffeine_loading === "Yes" && (
                   <div style={{ borderTop:"1px solid #e2e8f0", marginTop:16, paddingTop:16 }}>
                     <div style={{ fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:"#94a3b8",marginBottom:12 }}>
                       Maintenance Dose
@@ -1249,7 +1446,7 @@ export default function FormD() {
                     <div className="form-grid-2">
                       <FieldWrap name="caffeine_maint_abs"
                     formData={formData} touched={touched}
-                        label="34. Absolute Maintenance Dose (mg)" required={false}>
+                        label="34. If loading dose is given, maintenance dose of caffeine: absolute dose" required={isRequired("caffeine_maint_abs")}>
                         <UnitInput name="caffeine_maint_abs" value={formData.caffeine_maint_abs} unit="mg"
                           readOnly={!isFieldEditable}
                           error={vr("caffeine_maint_abs")?.level === "error"}
@@ -1267,28 +1464,8 @@ export default function FormD() {
                         </div>
                       </div>
                     </div>
-                    <div className="form-grid-2" style={{ marginTop:12 }}>
-                      <FieldWrap name="caffeine_date"
-                    formData={formData} touched={touched} label="33. Date of Administration">
-                        <DatePicker
-                          selected={formData.caffeine_date ? parseDateOnly(formData.caffeine_date) : null}
-                          onChange={date => {
-                            touch("caffeine_date");
-                            setFormData(p => ({ ...p, caffeine_date: date ? toDateOnlyValue(date) : "" }));
-                          }}
-                          maxDate={new Date()}
-                          dateFormat="dd-MM-yyyy" placeholderText="Select date"
-                          readOnly={!isFieldEditable} />
-                      </FieldWrap>
-                      <div className="form-group">
-                        <label>Time</label>
-                        <input type="time" name="caffeine_time"
-                          value={formData.caffeine_time || ""}
-                          onChange={handleChange} readOnly={!isFieldEditable}
-                          className="emr-input" />
-                      </div>
-                    </div>
                   </div>
+                  )}
                 </div>
                 {/* Field 35 — Immediate KMC */}
                 <div className="obstetric-subcard" style={{ marginTop:16 }}>
@@ -1333,7 +1510,7 @@ export default function FormD() {
                 </div>
                 <div className="form-grid-2">
                   <FieldWrap name="date"
-                    formData={formData} touched={touched} label="Completion Date">
+                    formData={formData} touched={touched} label="Date (DD/MM/YY)" required={isRequired("date")}>
                     <DatePicker
                       selected={formData.date ? parseDateOnly(formData.date) : null}
                       onChange={date => {

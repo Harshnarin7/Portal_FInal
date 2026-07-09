@@ -696,6 +696,27 @@ def create_birth_resuscitation(
         screening_id=data.screening_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
+    existing = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        payload.pop("enrollment_id", None)
+        for key, value in payload.items():
+            setattr(existing, key, value)
+
+        db.commit()
+        db.refresh(existing)
+
+        if existing.randomised and existing.screening_id:
+            db.query(Screening).filter(
+                Screening.screening_id == existing.screening_id
+            ).update({"enrollment_id": existing.enrollment_id})
+            db.commit()
+
+        return existing
+
     entry = BirthResuscitation(**payload)
     db.add(entry)
     db.commit()
@@ -728,7 +749,32 @@ def get_birth_resuscitation(
     if not entry:
         raise HTTPException(status_code=404, detail="Birth Resuscitation not found")
 
-    return entry
+    record_dict = {col.name: getattr(entry, col.name) for col in entry.__table__.columns}
+    record_dict["original_gestation_weeks"] = entry.gestation_weeks
+    record_dict["original_gestation_days"] = entry.gestation_days
+    record_dict["gestation_source"] = "Form B"
+
+    form_d = (
+        db.query(PostnatalDay1)
+        .filter(PostnatalDay1.enrollment_id == enrollment_id)
+        .first()
+    )
+    if (
+        form_d
+        and form_d.ga_method == "NBS"
+        and form_d.gestation_weeks is not None
+        and form_d.gestation_days is not None
+        and entry.gestation_weeks is not None
+        and entry.gestation_days is not None
+    ):
+        original_days = int(entry.gestation_weeks) * 7 + int(entry.gestation_days or 0)
+        nbs_days = int(form_d.gestation_weeks) * 7 + int(form_d.gestation_days or 0)
+        if abs(nbs_days - original_days) > 14:
+            record_dict["gestation_weeks"] = form_d.gestation_weeks
+            record_dict["gestation_days"] = form_d.gestation_days
+            record_dict["gestation_source"] = "Form D NBS"
+
+    return record_dict
 
 @app.put("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
 def update_birth_resuscitation(
@@ -791,6 +837,8 @@ def create_maternal_details(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+    if not data.landmark or not data.landmark.strip():
+        raise HTTPException(status_code=422, detail="Nearest landmark is required")
     payload = split_and_store_pii(
         db,
         data.model_dump(),
@@ -812,6 +860,8 @@ def update_maternal_details(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
+    if not data.landmark or not data.landmark.strip():
+        raise HTTPException(status_code=422, detail="Nearest landmark is required")
     record = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == enrollment_id)

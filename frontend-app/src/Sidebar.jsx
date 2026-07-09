@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useFormProgress } from './context/FormProgressContext';
 import { useAuth } from './context/AuthContext';
+import api from './api/axios';
 import './Sidebar.css';
 
 /* All forms unlock after A+B are done */
@@ -93,6 +94,8 @@ const ROLE_LABELS = {
   superadmin:'Super Admin', admin:'Admin', pi:'Principal Investigator',
   scientist:'Scientist', nurse:'Research Nurse', deo:'Data Entry Operator', monitor:'Monitor',
 };
+const validId = value => value && value !== 'undefined' && value !== 'null' ? value : null;
+const consentAllowsEnrollment = value => value === 'Yes' || value === 'Trial run';
 
 export default function Sidebar({ currentForm }) {
   const { completedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
@@ -100,10 +103,12 @@ export default function Sidebar({ currentForm }) {
   const navigate = useNavigate();
 
   const readIds = () => ({
-    screeningId:  localStorage.getItem('current_screening_id'),
-    enrollmentId: localStorage.getItem('current_enrollment_id'),
+    screeningId:  validId(localStorage.getItem('current_screening_id')),
+    enrollmentId: validId(localStorage.getItem('current_enrollment_id')),
   });
   const [ids, setIds] = useState(readIds);
+  const screeningId = ids.screeningId;
+  const enrollmentId = ids.enrollmentId;
 
   useEffect(() => {
     const sync = () => setIds(readIds());
@@ -113,11 +118,10 @@ export default function Sidebar({ currentForm }) {
   }, []);
 
   useEffect(() => {
-    const { enrollmentId } = ids;
     if (enrollmentId && enrollmentId !== 'undefined' && enrollmentId !== 'null') {
       fetchProgress(enrollmentId);
     }
-  }, [ids.enrollmentId]); // eslint-disable-line
+  }, [enrollmentId]); // eslint-disable-line
 
   const [enrollmentLocked, setEnrollmentLocked] = useState(
     localStorage.getItem('enrollment_locked') === 'true'
@@ -125,8 +129,39 @@ export default function Sidebar({ currentForm }) {
   useEffect(() => {
     const check = () => setEnrollmentLocked(localStorage.getItem('enrollment_locked') === 'true');
     window.addEventListener('storage', check);
-    return () => window.removeEventListener('storage', check);
+    window.addEventListener('focus', check);
+    return () => {
+      window.removeEventListener('storage', check);
+      window.removeEventListener('focus', check);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!screeningId && !enrollmentId) return;
+
+    let active = true;
+    const request = screeningId
+      ? api.get(`/screenings/by-screening-id/${screeningId}`)
+      : api.get(`/screenings/by-enrollment/${enrollmentId}`);
+
+    request.then(res => {
+      if (!active) return;
+      const consent = res.data?.consent_given;
+      if (consentAllowsEnrollment(consent)) {
+        localStorage.removeItem('enrollment_locked');
+        setEnrollmentLocked(false);
+        return;
+      }
+      if (consent) {
+        localStorage.setItem('enrollment_locked', 'true');
+        setEnrollmentLocked(true);
+      }
+    }).catch(() => {
+      if (active) setEnrollmentLocked(localStorage.getItem('enrollment_locked') === 'true');
+    });
+
+    return () => { active = false; };
+  }, [screeningId, enrollmentId]);
 
   const getPath = (form) => {
     const sid = ids.screeningId  && ids.screeningId  !== 'undefined' ? ids.screeningId  : null;

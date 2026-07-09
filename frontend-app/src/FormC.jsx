@@ -336,6 +336,7 @@ export default function FormC() {
       case "house": return value?.trim() ? "" : "House / Street required";
       case "city":  return value?.trim() ? "" : "Village / City required";
       case "state": return value ? "" : "State required";
+      case "landmark": return value?.trim() ? "" : "Nearest landmark required";
       case "pincode": if (!value) return ""; return /^\d{6}$/.test(value) ? "" : "6-digit PIN";
       case "email_address": if (!value) return ""; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? "" : "Invalid email";
       case "gravida": if (!value) return "Required"; if (Number(value)<1) return "Must be ≥ 1"; return "";
@@ -450,6 +451,7 @@ export default function FormC() {
     if (!data.house?.trim()) e.house = "House / Street required";
     if (!data.city?.trim())  e.city  = "Village / City required";
     if (!data.state)         e.state = "State required";
+    if (!data.landmark?.trim()) e.landmark = "Nearest landmark required";
     if (data.pincode && !/^\d{6}$/.test(data.pincode)) e.pincode = "6-digit PIN";
     if (data.email_address && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email_address)) e.email_address = "Invalid email";
 
@@ -552,7 +554,6 @@ export default function FormC() {
   /* ── Build payload ── */
   const buildPayload = useCallback(() => ({
     enrollment_id: formData.enrollment_id || null,
-    mother_name: formData.mother_name || null,
     mother_age: toInt(formData.mother_age),
     maternal_uid: formData.maternal_uid || null,
     contact_mother: formData.contact_mother || null,
@@ -665,7 +666,7 @@ export default function FormC() {
 
   /* ── Card error counts ── */
   const ce = {
-    c1: ["mother_age"].filter(f => touched[f]&&errors[f]).length,
+    c1: ["mother_age","house","city","state","landmark","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c2: ["house","city","state","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c3: ["gravida","parity","abortions","live","still","booked","anc_visits","conception","artificial_type"].filter(f => touched[f]&&errors[f]).length,
     c4: ["antenatal_steroids","steroid_drug","steroid_doses","steroid_courses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
@@ -753,10 +754,6 @@ export default function FormC() {
                       onInput={ev=>{ if(ev.target.value.length>2) ev.target.value=ev.target.value.slice(0,2); }}/>
                     <FieldError msg={E("mother_age")}/>
                   </div>
-                  <div className="form-group">
-                    <label>Mother's Name <span className="field-note">(auto)</span></label>
-                    <input value={formData.mother_name||""} readOnly className="readonly-input"/>
-                  </div>
                 </div>
 
                 {/* 3. Address — site-specific format */}
@@ -810,10 +807,11 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Nearest Landmark <span className="field-note">(optional)</span></label>
-                    <input name="landmark" value={formData.landmark||""} onChange={handleChange}
+                    <label>Nearest Landmark<span className="required">*</span></label>
+                    <input name="landmark" value={formData.landmark||""} onChange={handleChange} onBlur={handleBlur}
                       placeholder="Nearest landmark"
-                      readOnly={!isFieldEditable}/>
+                      readOnly={!isFieldEditable} className={E("landmark")?"input-error":""}/>
+                    <FieldError msg={E("landmark")}/>
                   </div>
                   <div className="form-group">
                     <label>4. Email Address <span className="field-note">(optional)</span></label>

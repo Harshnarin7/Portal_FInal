@@ -405,6 +405,10 @@ class PostnatalDay1(Base):
     baby_name = Column(String, nullable=True)
     baby_uid = Column(String, nullable=True)
     birth_weight = Column(Float, nullable=True)
+    ga_method = Column(String, nullable=True)
+    gender = Column(String, nullable=True)
+    growth_status = Column(String, nullable=True)
+    sga_centile = Column(String, nullable=True)
 
     # GOLDEN HOUR
     plastic_wrap = Column(Boolean, nullable=True)
@@ -418,6 +422,9 @@ class PostnatalDay1(Base):
     cpap_cm = Column(Float, nullable=True)
     fio2_percent = Column(Float, nullable=True)
     surfactant_method = Column(String, nullable=True)
+    premedication_given = Column(Boolean, nullable=True)
+    premedication_drugs = Column(String, nullable=True)
+    premedication_other = Column(String, nullable=True)
     lisa_catheter = Column(String, nullable=True)
     lisa_catheter_type = Column(String, nullable=True)
     device_assistance = Column(Boolean, nullable=True)
