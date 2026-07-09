@@ -237,7 +237,9 @@ export default function FormE() {
   const [isEditing, setIsEditing] = useState(false);
   const [message,   setMessage]   = useState("");
   const [isFormELoaded, setIsFormELoaded] = useState(false);
+  const [siteName,  setSiteName]  = useState("");
   const isFieldEditable = !isSaved || isEditing;
+  const isPgiSite = siteName === "PGIMER";
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -336,8 +338,12 @@ export default function FormE() {
           return "";
         };
         let motherName = "";
-        const screeningId = localStorage.getItem("current_screening_id");
+        const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
         if (screeningId) {
+          try {
+            const screeningRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
+            setSiteName(screeningRes.data?.site_name || "");
+          } catch (_) {}
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
             const pii = piiRes.data || {};
@@ -714,10 +720,12 @@ export default function FormE() {
                     <label>2. Baby of (Baby Name)</label>
                     <input value={formData.baby_name || ""} readOnly className="readonly-input" />
                   </div>
-                  <div className="form-group">
-                    <label>Annual Number (REDCap)</label>
-                    <input value={formData.annual_number || ""} readOnly className="readonly-input" />
-                  </div>
+                  {isPgiSite && (
+                    <div className="form-group">
+                      <label>Annual Number (REDCap)</label>
+                      <input value={formData.annual_number || ""} readOnly className="readonly-input" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

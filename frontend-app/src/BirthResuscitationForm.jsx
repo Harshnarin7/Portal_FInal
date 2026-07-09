@@ -87,6 +87,7 @@ export default function BirthResuscitationForm() {
   const [isOnline,         setIsOnline]         = useState(navigator.onLine);
   const [offlineQueue,    setOfflineQueue]     = useState(false);
   const [showDraftModal,  setShowDraftModal]   = useState(false);
+  const [siteName,        setSiteName]          = useState("");
   const autoSaveTimer   = useRef(null);
   const lastSavedTimer = useRef(null);
   const isInitialRender = useRef(true);
@@ -96,6 +97,24 @@ export default function BirthResuscitationForm() {
   const autoSaveRef = useRef(null);
   const offlineQueueRef = useRef(false);
   const isFieldEditable = !isSaved || isEditing;
+  const isPgiSite = siteName === "PGIMER";
+  const requiredMark = <span className="required">*</span>;
+  const BABY_ADMISSION_RULES = {
+    PGIMER: { label: "6. Baby Admission No.", placeholder: "10-digit admission number", min: 10, max: 10, required: true },
+    "GMCH-A": { label: "6. MRD Number for Baby", placeholder: "4-6 digit MRD number", min: 4, max: 6 },
+    AMC: { label: "6. Baby Admission No. (NICU only)", placeholder: "11-digit admission number if NICU admitted", min: 11, max: 11 },
+    GMCH: { label: "6. Baby Admission No.", placeholder: "9-11 digit number", min: 9, max: 11 },
+    IOG: { label: "6. Baby MRD No. (same as UID)", placeholder: "Auto-filled from Baby UID, 4-6 digits", min: 4, max: 6 },
+  };
+  const babyAdmissionRule = BABY_ADMISSION_RULES[siteName] || {
+    label: "6. Baby Admission No.",
+    placeholder: "Optional",
+    min: 0,
+    max: 15,
+  };
+  const babyAdmissionLabel = babyAdmissionRule.required
+    ? <>{babyAdmissionRule.label}{requiredMark}</>
+    : babyAdmissionRule.label;
 
   const BLANK = {
     /* B1 */
@@ -160,6 +179,12 @@ export default function BirthResuscitationForm() {
     const match = String(value).match(/^(\d{1,3}):([0-5]\d)$/);
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
   };
+
+  useEffect(() => {
+    if (siteName === "IOG" && formData.baby_admission_no !== formData.baby_uid) {
+      set({ baby_admission_no: formData.baby_uid || "" });
+    }
+  }, [siteName, formData.baby_uid, formData.baby_admission_no]); // eslint-disable-line
   const secondsToDuration = value => {
     if (value === "" || value === null || value === undefined) return "";
     const total = Number(value);
@@ -374,6 +399,10 @@ export default function BirthResuscitationForm() {
     const m = [];
     const add = (label,field) => m.push({label,fieldName:field});
     if(!formData.baby_uid)           add("B1. Baby UID",              "baby_uid");
+    if(babyAdmissionRule.required && !formData.baby_admission_no)
+      add("B1. Baby Admission No.", "baby_admission_no");
+    if(formData.baby_admission_no && !new RegExp(`^\\d{${babyAdmissionRule.min},${babyAdmissionRule.max}}$`).test(formData.baby_admission_no))
+      add(`B1. ${babyAdmissionRule.label.replace(/^6\\.\\s*/, "")} must be ${babyAdmissionRule.min === babyAdmissionRule.max ? `${babyAdmissionRule.max}` : `${babyAdmissionRule.min}-${babyAdmissionRule.max}`} digits`, "baby_admission_no");
     if(!formData.date_of_birth)      add("B2. Date of Birth",         "date_of_birth");
     if(!formData.time_of_birth)      add("B2. Time of Birth",         "time_of_birth");
     if(!formData.birth_weight)       add("B2. Birth Weight",          "birth_weight");
@@ -672,6 +701,7 @@ export default function BirthResuscitationForm() {
         try{const p2=await api.get(`/pii/screening/${screeningId}`);pii=p2.data||{};}catch(_){}
         set({
           screening_id:        d.screening_id||"",
+          site_name:           d.site_name||"",
           maternal_uid:        pii.maternal_uid||"",
           mother_name_first:   pii.mother_first_name||"",
           mother_name_surname: pii.mother_surname||"",
@@ -681,6 +711,7 @@ export default function BirthResuscitationForm() {
           contact_mother:  pii.mother_contact||pii.contact_mother||"",
           contact_husband: pii.husband_contact||pii.contact_husband||"",
         });
+        setSiteName(d.site_name || "");
       }catch(e){console.error(e);}
     };
     fetch();
@@ -786,15 +817,22 @@ export default function BirthResuscitationForm() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>6. Baby Admission No.</label>
+                    <label>{babyAdmissionLabel}</label>
                     <input name="baby_admission_no" value={formData.baby_admission_no||""}
-                      onChange={handleChange} placeholder="Optional" readOnly={!isFieldEditable}/>
+                      maxLength={babyAdmissionRule.max} inputMode="numeric"
+                      onChange={e=>{
+                        const v = e.target.value;
+                        if (/^\d*$/.test(v)) set({ baby_admission_no: v });
+                      }}
+                      placeholder={babyAdmissionRule.placeholder} readOnly={!isFieldEditable || siteName === "IOG"}/>
                   </div>
-                  <div className="form-group">
-                    <label>7. Baby Annual No. <span className="field-note">(REDCap)</span></label>
-                    <input name="baby_annual_no" value={formData.baby_annual_no||""}
-                      onChange={handleChange} placeholder="Annual number" readOnly={!isFieldEditable}/>
-                  </div>
+                  {isPgiSite && (
+                    <div className="form-group">
+                      <label>7. Baby Annual No. <span className="field-note">(REDCap)</span></label>
+                      <input name="baby_annual_no" value={formData.baby_annual_no||""}
+                        onChange={handleChange} placeholder="Annual number" readOnly={!isFieldEditable}/>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -879,7 +917,7 @@ export default function BirthResuscitationForm() {
                       readOnly={!isFieldEditable}/>
                   </div>
                   <div className="form-group">
-                    <label>15. Delivery Mode</label>
+                    <label>15. Delivery Mode{requiredMark}</label>
                     <select name="delivery_mode" value={formData.delivery_mode}
                       disabled={!isFieldEditable}
                       onChange={e=>{ handleChange(e); set({vaginal_delivery_type:"",lscs_type:""}); }}>
@@ -890,7 +928,7 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-group">
                     {formData.delivery_mode==="Vaginal" && (<>
-                      <label>16. Vaginal Delivery Type</label>
+                      <label>16. Vaginal Delivery Type{requiredMark}</label>
                       <select name="vaginal_delivery_type" value={formData.vaginal_delivery_type||""}
                         disabled={!isFieldEditable} onChange={handleChange}>
                         <option value="">-- Select --</option>
@@ -900,7 +938,7 @@ export default function BirthResuscitationForm() {
                       </select>
                     </>)}
                     {formData.delivery_mode==="LSCS" && (<>
-                      <label>17. LSCS Type</label>
+                      <label>17. LSCS Type{requiredMark}</label>
                       <select name="lscs_type" value={formData.lscs_type||""}
                         disabled={!isFieldEditable} onChange={handleChange}>
                         <option value="">-- Select --</option>
@@ -913,7 +951,7 @@ export default function BirthResuscitationForm() {
 
                 {/* Field 18: Indication — multi-select per CRF */}
                 <div className="form-group">
-                  <label>18. Indication for Delivery <span className="field-note">(select all that apply)</span></label>
+                  <label>18. Indication for Delivery{requiredMark} <span className="field-note">(select all that apply)</span></label>
                   <div className="multi-checkbox-group">
                     {["pPROM","PTL","Absent/Reversed EDF","Fetal indication","Obstetric indication","Other"].map(opt => (
                       <label key={opt} className={`multi-check-item${!isFieldEditable?" disabled":""}${(formData.indication_for_delivery||[]).includes(opt)?" checked":""}`}>
@@ -931,23 +969,23 @@ export default function BirthResuscitationForm() {
                   </div>
                   {(formData.indication_for_delivery||[]).includes("Absent/Reversed EDF") && (
                     <input type="text" name="indication_edf_detail" value={formData.indication_edf_detail||""}
-                      onChange={handleChange} placeholder="Specify Absent/Reversed EDF details"
+                      onChange={handleChange} placeholder="Specify Absent/Reversed EDF details *"
                       readOnly={!isFieldEditable} style={{marginTop:8}}/>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Fetal indication") && (
                     <input type="text" name="fetal_indication_detail" value={formData.fetal_indication_detail||""}
-                      onChange={handleChange} placeholder="Specify fetal indication"
+                      onChange={handleChange} placeholder="Specify fetal indication *"
                       readOnly={!isFieldEditable} style={{marginTop:8}}/>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Obstetric indication") && (
                     <input type="text" name="obstetric_indication_detail" value={formData.obstetric_indication_detail||""}
-                      onChange={handleChange} placeholder="Specify obstetric indication"
+                      onChange={handleChange} placeholder="Specify obstetric indication *"
                       readOnly={!isFieldEditable} style={{marginTop:8}}/>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Other") && (
                     <input type="text" name="indication_for_delivery_other"
                       value={formData.indication_for_delivery_other||""}
-                      onChange={handleChange} placeholder="Specify other indication"
+                      onChange={handleChange} placeholder="Specify other indication *"
                       readOnly={!isFieldEditable} style={{marginTop:8}}/>
                   )}
                 </div>
@@ -967,19 +1005,19 @@ export default function BirthResuscitationForm() {
               </div>
               <div className="form-section-body">
 
-                <YesNoToggle label="19. Respiratory Effort — Absent/Poor? (No = Normal)"
+                <YesNoToggle label={<>19. Respiratory Effort — Absent/Poor? (No = Normal){requiredMark}</>}
                   name="poor_resp_efforts" value={formData.poor_resp_efforts}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label="20. Muscle Tone — Limp/Poor? (No = Normal)"
+                <YesNoToggle label={<>20. Muscle Tone — Limp/Poor? (No = Normal){requiredMark}</>}
                   name="poor_muscle_tone" value={formData.poor_muscle_tone}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label="21. Heart Rate > 100"
+                <YesNoToggle label={<>21. Heart Rate &gt; 100{requiredMark}</>}
                   name="hr_above_100" value={formData.hr_above_100||""}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label="22. Initial Steps Required (Warm, Dry, Stimulate, Suction)"
+                <YesNoToggle label={<>22. Initial Steps Required (Warm, Dry, Stimulate, Suction){requiredMark}</>}
                   name="initial_steps" value={formData.initial_steps}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label="23. Resuscitation Beyond Initial Steps Required"
+                <YesNoToggle label={<>23. Resuscitation Beyond Initial Steps Required{requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
                   onChange={e=>{
                     handleChange(e);
@@ -1032,7 +1070,7 @@ export default function BirthResuscitationForm() {
                     {formData.randomised==="Yes" && (
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>27. Strata</label>
+                          <label>27. Strata{requiredMark}</label>
                           <select name="strata" value={formData.strata||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1062,7 +1100,7 @@ export default function BirthResuscitationForm() {
                           {formData.enrollment_reason_not_randomized==="Other" && (
                             <input type="text" name="enrollment_reason_not_randomized_other"
                               value={formData.enrollment_reason_not_randomized_other||""}
-                              onChange={handleChange} placeholder="Specify other reason"
+                              onChange={handleChange} placeholder="Specify other reason *"
                               readOnly={!isFieldEditable} style={{marginTop:8}}/>
                           )}
                         </div>
@@ -1090,7 +1128,7 @@ export default function BirthResuscitationForm() {
                 <div className="form-section-body">
 
                   {/* 29. PPV */}
-                  <YesNoToggle label="29. PPV (Positive Pressure Ventilation) Required"
+                  <YesNoToggle label={<>29. PPV (Positive Pressure Ventilation) Required{requiredMark}</>}
                     name="ppv_required" value={formData.ppv_required}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({device_ppv:"",sib_peep_with:"",sib_peep_cmh2o:"",tpiece_pip:"",tpiece_peep:"",tpiece_flow:"",interface_used:"",ppv_duration:""});}}
                     disabled={!isFieldEditable}/>
@@ -1098,7 +1136,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>Device used</label>
+                          <label>Device used{requiredMark}</label>
                           <select name="device_ppv" value={formData.device_ppv||""}
                             disabled={!isFieldEditable}
                             onChange={e=>{handleChange(e);set({sib_peep_with:"",sib_peep_cmh2o:"",tpiece_pip:"",tpiece_peep:"",tpiece_flow:""});}}>
@@ -1114,7 +1152,7 @@ export default function BirthResuscitationForm() {
                         <div className="followup-box">
                           <div className="form-grid-3">
                             <div className="form-group">
-                              <label>29a. SIB — With PEEP valve?</label>
+                              <label>29a. SIB — With PEEP valve?{requiredMark}</label>
                               <select name="sib_peep_with" value={formData.sib_peep_with||""}
                                 disabled={!isFieldEditable} onChange={handleChange}>
                                 <option value="">-- Select --</option>
@@ -1124,7 +1162,7 @@ export default function BirthResuscitationForm() {
                             </div>
                             {formData.sib_peep_with==="Yes" && (
                               <div className="form-group">
-                                <label>PEEP value (cmH₂O)</label>
+                                <label>PEEP value (cmH₂O){requiredMark}</label>
                                 <input type="text" name="sib_peep_cmh2o" value={formData.sib_peep_cmh2o||""}
                                   inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
                                   onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({sib_peep_cmh2o:e.target.value});}}/>
@@ -1138,19 +1176,19 @@ export default function BirthResuscitationForm() {
                         <div className="followup-box">
                           <div className="form-grid-3">
                             <div className="form-group">
-                              <label>29b. T-piece PIP (cmH₂O)</label>
+                              <label>29b. T-piece PIP (cmH₂O){requiredMark}</label>
                               <input type="text" name="tpiece_pip" value={formData.tpiece_pip||""}
                                 inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
                                 onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_pip:e.target.value});}}/>
                             </div>
                             <div className="form-group">
-                              <label>PEEP (cmH₂O)</label>
+                              <label>PEEP (cmH₂O){requiredMark}</label>
                               <input type="text" name="tpiece_peep" value={formData.tpiece_peep||""}
                                 inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
                                 onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_peep:e.target.value});}}/>
                             </div>
                             <div className="form-group">
-                              <label>Flow Rate (L/min)</label>
+                              <label>Flow Rate (L/min){requiredMark}</label>
                               <input type="text" name="tpiece_flow" value={formData.tpiece_flow||""}
                                 inputMode="numeric" maxLength={3} placeholder="L/min" readOnly={!isFieldEditable}
                                 onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_flow:e.target.value});}}/>
@@ -1160,7 +1198,7 @@ export default function BirthResuscitationForm() {
                       )}
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>30. Interface</label>
+                          <label>30. Interface{requiredMark}</label>
                           <select name="interface_used" value={formData.interface_used||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1174,7 +1212,7 @@ export default function BirthResuscitationForm() {
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>31. Duration of PPV (sec) <span className="field-note">from PORTAL timer</span></label>
+                          <label>31. Duration of PPV (sec){requiredMark} <span className="field-note">from PORTAL timer</span></label>
                           <input type="text" name="ppv_duration" value={formData.ppv_duration||""}
                             inputMode="numeric" maxLength={4} placeholder="seconds" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,4}$/.test(e.target.value))set({ppv_duration:e.target.value});}}/>
@@ -1185,12 +1223,12 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 32. Intubation */}
-                  <YesNoToggle label="32. Endotracheal Intubation"
+                  <YesNoToggle label={<>32. Endotracheal Intubation{requiredMark}</>}
                     name="intubation" value={formData.intubation}
                     onChange={handleChange} disabled={!isFieldEditable}/>
 
                   {/* 33–34. Chest compressions */}
-                  <YesNoToggle label="33. Chest Compressions"
+                  <YesNoToggle label={<>33. Chest Compressions{requiredMark}</>}
                     name="chest_compression" value={formData.chest_compression}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({cc_duration:""}); }}
                     disabled={!isFieldEditable}/>
@@ -1198,7 +1236,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>34. Duration of CC (sec) <span className="field-note">from PORTAL timer</span></label>
+                          <label>34. Duration of CC (sec){requiredMark} <span className="field-note">from PORTAL timer</span></label>
                           <input type="text" name="cc_duration" value={formData.cc_duration||""}
                             inputMode="numeric" maxLength={4} placeholder="seconds" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,4}$/.test(e.target.value))set({cc_duration:e.target.value});}}/>
@@ -1209,7 +1247,7 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 35–37. Epinephrine */}
-                  <YesNoToggle label="35. Epinephrine (Adrenaline)"
+                  <YesNoToggle label={<>35. Epinephrine (Adrenaline){requiredMark}</>}
                     name="adrenaline" value={formData.adrenaline}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:"",med_doses:"",adrenaline_cumulative:""}); }}
                     disabled={!isFieldEditable}/>
@@ -1217,7 +1255,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>36. Dilution</label>
+                          <label>36. Dilution{requiredMark}</label>
                           <select name="adrenaline_dilution" value={formData.adrenaline_dilution||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1226,7 +1264,7 @@ export default function BirthResuscitationForm() {
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>37. Route</label>
+                          <label>37. Route{requiredMark}</label>
                           <select name="adrenaline_route" value={formData.adrenaline_route||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1238,13 +1276,13 @@ export default function BirthResuscitationForm() {
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>39. Number of Doses</label>
+                          <label>39. Number of Doses{requiredMark}</label>
                           <input type="text" name="med_doses" value={formData.med_doses||""}
                             inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({med_doses:e.target.value});}}/>
                         </div>
                         <div className="form-group">
-                          <label>40. Cumulative Dose (ml/mg)</label>
+                          <label>40. Cumulative Dose (ml/mg){requiredMark}</label>
                           <input type="text" name="adrenaline_cumulative" value={formData.adrenaline_cumulative||""}
                             inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({adrenaline_cumulative:e.target.value});}}/>
@@ -1254,7 +1292,7 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 41–43. Fluid bolus */}
-                  <YesNoToggle label="41. Fluid Bolus"
+                  <YesNoToggle label={<>41. Fluid Bolus{requiredMark}</>}
                     name="fluid_bolus" value={formData.fluid_bolus}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({fluid_bolus_doses:"",fluid_bolus_cumulative:""});}}
                     disabled={!isFieldEditable}/>
@@ -1262,13 +1300,13 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>42. Number of Doses</label>
+                          <label>42. Number of Doses{requiredMark}</label>
                           <input type="text" name="fluid_bolus_doses" value={formData.fluid_bolus_doses||""}
                             inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({fluid_bolus_doses:e.target.value});}}/>
                         </div>
                         <div className="form-group">
-                          <label>43. Cumulative Volume/Dose (ml/mg)</label>
+                          <label>43. Cumulative Volume/Dose (ml/mg){requiredMark}</label>
                           <input type="text" name="fluid_bolus_cumulative" value={formData.fluid_bolus_cumulative||""}
                             inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({fluid_bolus_cumulative:e.target.value});}}/>
@@ -1278,7 +1316,7 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 44–47. Placental transfusion */}
-                  <YesNoToggle label="44. Placental Transfusion"
+                  <YesNoToggle label={<>44. Placental Transfusion{requiredMark}</>}
                     name="placental_transfusion" value={formData.placental_transfusion}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({transfusion_method:"",cord_clamp_time:"",cord_clamp_timestamp:""});}}
                     disabled={!isFieldEditable}/>
@@ -1286,7 +1324,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>45. Method</label>
+                          <label>45. Method{requiredMark}</label>
                           <select name="transfusion_method" value={formData.transfusion_method||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1295,7 +1333,7 @@ export default function BirthResuscitationForm() {
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>46. Cord clamped at (HH:MM:SS)</label>
+                          <label>46. Cord clamped at (HH:MM:SS){requiredMark}</label>
                           <input type="time" step="1" name="cord_clamp_timestamp" value={formData.cord_clamp_timestamp||""}
                             readOnly={!isFieldEditable} onChange={handleChange}/>
                         </div>
@@ -1453,7 +1491,7 @@ export default function BirthResuscitationForm() {
                 <div className="form-section-body">
 
                   {/* 56. Cord Blood */}
-                  <YesNoToggle label="56. Cord Blood Analysis Done"
+                  <YesNoToggle label={<>56. Cord Blood Analysis Done{requiredMark}</>}
                     name="cord_blood_done" value={formData.cord_blood_done||""}
                     onChange={e=>{handleChange(e);if(e.target.value==="Yes")set({cord_blood_within_1hr:""});else set({cord_blood_within_1hr:"",cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});}}
                     disabled={!isFieldEditable}/>
@@ -1462,7 +1500,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>57. Within 1 hour of birth — sample taken?</label>
+                          <label>57. Within 1 hour of birth — sample taken?{requiredMark}</label>
                           <select name="cord_blood_within_1hr" value={formData.cord_blood_within_1hr||""}
                             disabled={!isFieldEditable}
                             onChange={e=>{handleChange(e);if(e.target.value==="No")set({cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});}}>
@@ -1480,7 +1518,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>58. Source</label>
+                          <label>58. Source{requiredMark}</label>
                           <select name="cord_blood_source" value={formData.cord_blood_source||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1492,7 +1530,7 @@ export default function BirthResuscitationForm() {
                       </div>
                       <div className="form-grid-3">
                         <div className="form-group">
-                          <label>59. pH</label>
+                          <label>59. pH{requiredMark}</label>
                           <input type="text" name="cord_ph" value={formData.cord_ph||""}
                             placeholder="6.8-7.8" readOnly={!isFieldEditable}
                             className={errors.cord_ph?"input-error":""}
@@ -1500,13 +1538,13 @@ export default function BirthResuscitationForm() {
                           {errors.cord_ph&&<div className="field-error">{errors.cord_ph}</div>}
                         </div>
                         <div className="form-group">
-                          <label>59. SBE</label>
+                          <label>59. SBE{requiredMark}</label>
                           <input type="text" name="cord_sbe" value={formData.cord_sbe||""}
                             placeholder="-30 to +30" readOnly={!isFieldEditable}
                             onChange={e=>{const v=e.target.value;if(/^-?\d*\.?\d{0,1}$/.test(v)&&(v===""||v==="-"||(Number(v)>=-30&&Number(v)<=30)))set({cord_sbe:v});}}/>
                         </div>
                         <div className="form-group">
-                          <label>59. pCO2 (mmHg)</label>
+                          <label>59. pCO2 (mmHg){requiredMark}</label>
                           <input type="text" name="cord_pco2" value={formData.cord_pco2||""}
                             placeholder="10-100" inputMode="numeric" readOnly={!isFieldEditable}
                             onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=200))set({cord_pco2:v});}}/>
@@ -1516,7 +1554,7 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 60. Resuscitation Failure */}
-                  <YesNoToggle label="60. Resuscitation Failure"
+                  <YesNoToggle label={<>60. Resuscitation Failure{requiredMark}</>}
                     name="resus_failure" value={formData.resus_failure}
                     onChange={handleChange} disabled={!isFieldEditable}/>
 
@@ -1539,7 +1577,7 @@ export default function BirthResuscitationForm() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>63. Reason for Resuscitation Exit</label>
+                      <label>63. Reason for Resuscitation Exit{requiredMark}</label>
                       <select name="reason_exit_trial_gas"
                         value={formData.reason_exit_trial_gas||""}
                         disabled={!isFieldEditable} onChange={handleChange}>
@@ -1551,21 +1589,21 @@ export default function BirthResuscitationForm() {
                       {formData.reason_exit_trial_gas==="Other" && (
                         <input type="text" name="reason_exit_trial_gas_other"
                           value={formData.reason_exit_trial_gas_other||""}
-                          onChange={handleChange} placeholder="Specify"
+                          onChange={handleChange} placeholder="Specify *"
                           readOnly={!isFieldEditable} style={{marginTop:8}}/>
                       )}
                     </div>
                     <div/>
                   </div>
 
-                  <YesNoToggle label="64. Did the PORTAL Blender Stop Suddenly During Use?"
+                  <YesNoToggle label={<>64. Did the PORTAL Blender Stop Suddenly During Use?{requiredMark}</>}
                     name="blender_stopped" value={formData.blender_stopped}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({blender_stopped_description:""});}}
                     disabled={!isFieldEditable}/>
                   {formData.blender_stopped==="Yes" && (
                     <div className="followup-box">
                       <div className="form-group">
-                        <label>64. If Yes, Describe</label>
+                        <label>64. If Yes, Describe{requiredMark}</label>
                         <textarea name="blender_stopped_description"
                           value={formData.blender_stopped_description||""}
                           maxLength={1000} rows={3} readOnly={!isFieldEditable}
