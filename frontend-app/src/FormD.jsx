@@ -9,7 +9,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
-import { relativeTime } from "./utils/datetime";
+import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Baby, Wind, Droplets, CheckSquare,
@@ -1263,10 +1263,10 @@ export default function FormD() {
                       <FieldWrap name="caffeine_date"
                     formData={formData} touched={touched} label="33. Date of Administration">
                         <DatePicker
-                          selected={formData.caffeine_date ? new Date(formData.caffeine_date) : null}
+                          selected={formData.caffeine_date ? parseDateOnly(formData.caffeine_date) : null}
                           onChange={date => {
                             touch("caffeine_date");
-                            setFormData(p => ({ ...p, caffeine_date: date ? date.toISOString().split("T")[0] : "" }));
+                            setFormData(p => ({ ...p, caffeine_date: date ? toDateOnlyValue(date) : "" }));
                           }}
                           maxDate={new Date()}
                           dateFormat="dd-MM-yyyy" placeholderText="Select date"
@@ -1327,10 +1327,10 @@ export default function FormD() {
                   <FieldWrap name="date"
                     formData={formData} touched={touched} label="Completion Date">
                     <DatePicker
-                      selected={formData.date ? new Date(formData.date) : null}
+                      selected={formData.date ? parseDateOnly(formData.date) : null}
                       onChange={date => {
                         touch("date");
-                        setFormData(p => ({ ...p, date: date ? date.toISOString().split("T")[0] : "" }));
+                        setFormData(p => ({ ...p, date: date ? toDateOnlyValue(date) : "" }));
                       }}
                       maxDate={new Date()}
                       dateFormat="dd-MM-yyyy" placeholderText="Select date"

@@ -7,6 +7,7 @@ import "./styles/FormJ.css";
 
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 
 import FormLayout from "./components/FormLayout";
 import { usePatient } from "./context/PatientContext";
@@ -1213,7 +1214,7 @@ onChange={handleChange} readOnly/>
 <div className="form-group">
 <label>Date of Birth</label>
 <DatePicker
-  selected={formData.dob ? new Date(formData.dob) : null}
+  selected={formData.dob ? parseDateOnly(formData.dob) : null}
   onChange={() => {}}
   dateFormat="dd-MM-yyyy"
   placeholderText="Select date"
@@ -1243,17 +1244,11 @@ onChange={handleChange} readOnly/>
   <label>Date of Assessment<span className="required">*</span></label>
 
   <DatePicker
-    selected={
-      formData.assess_36_date
-        ? new Date(formData.assess_36_date)
-        : null
-    }
+    selected={formData.assess_36_date ? parseDateOnly(formData.assess_36_date) : null}
     onChange={(date) => {
       setFormData((prev) => ({
         ...prev,
-        assess_36_date: date
-          ? date.toISOString().split("T")[0]
-          : ""
+        assess_36_date: date ? toDateOnlyValue(date) : ""
       }));
     }}
     dateFormat="dd-MM-yyyy"
@@ -1389,11 +1384,11 @@ className={errors.death_before_36 ? "input-error" : ""}
 <label>Date of Death {formData.death_before_36 === "Yes" && <span className="required">*</span>}</label>
 
 <DatePicker
-  selected={formData.death_36_date ? new Date(formData.death_36_date) : null}
+  selected={formData.death_36_date ? parseDateOnly(formData.death_36_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      death_36_date: date ? date.toISOString().split("T")[0] : ""
+      death_36_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -1726,17 +1721,11 @@ Respiratory category
 <label>Date of Assessment <span className="required">*</span></label>
 
 <DatePicker
-  selected={
-    formData.assess_40_date
-      ? new Date(formData.assess_40_date)
-      : null
-  }
+  selected={formData.assess_40_date ? parseDateOnly(formData.assess_40_date) : null}
   onChange={(date) => {
     setFormData((prev) => ({
       ...prev,
-      assess_40_date: date
-        ? date.toISOString().split("T")[0]
-        : ""
+      assess_40_date: date ? toDateOnlyValue(date) : ""
     }));
   }}
   dateFormat="dd-MM-yyyy"
@@ -1874,11 +1863,11 @@ Date of Death {formData.death_before_40 === "Yes" && <span className="required">
 </label>
 
 <DatePicker
-  selected={formData.death_40_date ? new Date(formData.death_40_date) : null}
+  selected={formData.death_40_date ? parseDateOnly(formData.death_40_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      death_40_date: date ? date.toISOString().split("T")[0] : ""
+      death_40_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -2485,17 +2474,11 @@ formData.cpvl_grade_2 === "Yes" && "cPVL ≥ 2"
 <label>Date of Assessment <span className="required">*</span></label>
 
 <DatePicker
-  selected={
-    formData.assess_44_date
-      ? new Date(formData.assess_44_date)
-      : null
-  }
+  selected={formData.assess_44_date ? parseDateOnly(formData.assess_44_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      assess_44_date: date
-        ? date.toISOString().split("T")[0]
-        : ""
+      assess_44_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -2631,11 +2614,11 @@ Date of Death {formData.death_before_44 === "Yes" }<span className="required">*<
 </label>
 
 <DatePicker
-  selected={formData.death_44_date ? new Date(formData.death_44_date) : null}
+  selected={formData.death_44_date ? parseDateOnly(formData.death_44_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      death_44_date: date ? date.toISOString().split("T")[0] : ""
+      death_44_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -2934,11 +2917,11 @@ Date of MRI {formData.mri_subset === "Yes" && <span className="required">*</span
 </label>
 
 <DatePicker
-  selected={formData.mri_date ? new Date(formData.mri_date) : null}
+  selected={formData.mri_date ? parseDateOnly(formData.mri_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      mri_date: date ? date.toISOString().split("T")[0] : ""
+      mri_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"
@@ -3321,11 +3304,11 @@ MRI Report Date {formData.mri_subset === "Yes" && <span className="required">*</
 </label>
 
 <DatePicker
-  selected={formData.mri_report_date ? new Date(formData.mri_report_date) : null}
+  selected={formData.mri_report_date ? parseDateOnly(formData.mri_report_date) : null}
   onChange={(date) =>
     setFormData((prev) => ({
       ...prev,
-      mri_report_date: date ? date.toISOString().split("T")[0] : ""
+      mri_report_date: date ? toDateOnlyValue(date) : ""
     }))
   }
   dateFormat="dd-MM-yyyy"

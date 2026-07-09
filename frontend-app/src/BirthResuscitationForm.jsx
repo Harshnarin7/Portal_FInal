@@ -8,7 +8,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
-import { relativeTime } from "./utils/datetime";
+import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
@@ -290,7 +290,7 @@ export default function BirthResuscitationForm() {
       birth_weight:        optionalNum(fd.birth_weight),
       intrauterine_centile: fd.intrauterine_centile || null,
       date_of_birth:       fd.date_of_birth
-        ? new Date(fd.date_of_birth).toISOString().split("T")[0] : null,
+        ? String(fd.date_of_birth).slice(0, 10) : null,
       time_of_birth:       fd.time_of_birth || null,
       gender:              fd.gender || null,
       indication_for_delivery: (fd.indication_for_delivery || []).join(", ") || null,
@@ -339,7 +339,7 @@ export default function BirthResuscitationForm() {
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
       randomisation_date:  fd.randomisation_date
-        ? new Date(fd.randomisation_date).toISOString().split("T")[0] : null,
+        ? String(fd.randomisation_date).slice(0, 10) : null,
       enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
       enrollment_reason_not_randomized_other: fd.enrollment_reason_not_randomized_other || null,
       resus_failure:       yn(fd.resus_failure),
@@ -814,8 +814,8 @@ export default function BirthResuscitationForm() {
                   <div className="form-group">
                     <label>8. Date of Birth<span className="required">*</span></label>
                     <DatePicker
-                      selected={formData.date_of_birth?new Date(formData.date_of_birth):null}
-                      onChange={d=>set({date_of_birth:d?d.toISOString().split("T")[0]:""})}
+                      selected={formData.date_of_birth?parseDateOnly(formData.date_of_birth):null}
+                      onChange={d=>set({date_of_birth:d?toDateOnlyValue(d):""})}
                       maxDate={new Date()}
                       dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                       readOnly={!isFieldEditable}/>
@@ -1015,8 +1015,8 @@ export default function BirthResuscitationForm() {
                         <div className="form-group">
                           <label>25. Randomization Date<span className="required">*</span></label>
                           <DatePicker
-                            selected={formData.randomisation_date?new Date(formData.randomisation_date):null}
-                            onChange={d=>set({randomisation_date:d?d.toISOString().split("T")[0]:""})}
+                            selected={formData.randomisation_date?parseDateOnly(formData.randomisation_date):null}
+                            onChange={d=>set({randomisation_date:d?toDateOnlyValue(d):""})}
                             maxDate={new Date()}
                             dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                             readOnly={!isFieldEditable}/>
