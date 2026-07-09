@@ -12,7 +12,7 @@ import {
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
-import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY } from "./utils/datetime";
+import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 
 /* ─── YesNoToggle (with disabled support) ─────────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false }) {
@@ -351,9 +351,9 @@ export default function ScreeningForm() {
   useEffect(() => {
     if (!formData.lmp_date || !dataLoaded) return;
     if (formData.edd_date) return;
-    const edd = new Date(formData.lmp_date);
+    const edd = parseDateOnly(formData.lmp_date);
     edd.setDate(edd.getDate() + 280);
-    setFormData(p => ({ ...p, edd_date: edd.toISOString().split("T")[0] }));
+    setFormData(p => ({ ...p, edd_date: toDateOnlyValue(edd) }));
   }, [formData.lmp_date, dataLoaded]); // eslint-disable-line
 
   /* ─── EDD → GA auto-calc (only when gestation_known=No) ── */
@@ -566,7 +566,7 @@ export default function ScreeningForm() {
 
     return {
       screening_id:              fd.screening_id    || undefined,
-      screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? new Date().toISOString() : null),
+      screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? toDateTimeLocalValue(new Date()) : null),
       site_name:                 fd.site_name        || (useDraftFallbacks ? "DRAFT" : null),
       site_id:                   fd.site_id          || (useDraftFallbacks ? "00"    : null),
       screened_by:               fd.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
@@ -585,7 +585,7 @@ export default function ScreeningForm() {
         ? parseInt(fd.best_ga_days)||0 : parseInt(fd.auto_ga_days)||0,
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date         || null,
-      expected_delivery_date:    fd.edd_date ? new Date(fd.edd_date).toISOString().split("T")[0] : null,
+      expected_delivery_date:    fd.edd_date ? String(fd.edd_date).slice(0, 10) : null,
       exclusion_present:         exclYes,
       exclusion_reasons:         exclusionParts.join(", ") || null,
       major_structural_anomalies_if_yes: fd.exclusion_anomaly === "Yes" ? (fd.exclusion_anomaly_details || null) : null,
@@ -884,8 +884,8 @@ export default function ScreeningForm() {
                       <div className="form-group">
                         <label>3a. LMP Date<span className="required">*</span></label>
                         <DatePicker
-                          selected={formData.lmp_date ? new Date(formData.lmp_date) : null}
-                          onChange={d => set({ lmp_date: d ? d.toISOString().split("T")[0] : "", edd_date:"" })}
+                          selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
+                          onChange={d => set({ lmp_date: d ? toDateOnlyValue(d) : "", edd_date:"" })}
                           dateFormat="dd-MM-yyyy" placeholderText="Select LMP date"
                           maxDate={today}
                           readOnly={!isFieldEditable}/>
@@ -905,8 +905,8 @@ export default function ScreeningForm() {
                       <div className="form-group">
                         <label>4. Expected Delivery Date <span className="field-note">(optional)</span></label>
                         <DatePicker
-                          selected={formData.edd_date ? new Date(formData.edd_date) : null}
-                          onChange={d => set({ edd_date: d ? d.toISOString().split("T")[0] : "" })}
+                          selected={formData.edd_date ? parseDateOnly(formData.edd_date) : null}
+                          onChange={d => set({ edd_date: d ? toDateOnlyValue(d) : "" })}
                           dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                           readOnly={!isFieldEditable}/>
                       </div>
@@ -935,8 +935,8 @@ export default function ScreeningForm() {
                       <div className="form-group">
                         <label>6. If LMP known, LMP:<span className="required">*</span></label>
                         <DatePicker
-                          selected={formData.lmp_date ? new Date(formData.lmp_date) : null}
-                          onChange={d => set({ lmp_date: d ? d.toISOString().split("T")[0] : "", edd_date:"" })}
+                          selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
+                          onChange={d => set({ lmp_date: d ? toDateOnlyValue(d) : "", edd_date:"" })}
                           dateFormat="dd-MM-yyyy" placeholderText="Select LMP date"
                           maxDate={today}
                           readOnly={!isFieldEditable}/>
@@ -955,8 +955,8 @@ export default function ScreeningForm() {
                       <div className="form-group">
                         <label>7. If LMP not known, EDD:<span className="required">*</span></label>
                         <DatePicker
-                          selected={formData.edd_date ? new Date(formData.edd_date) : null}
-                          onChange={d => set({ edd_date: d ? d.toISOString().split("T")[0] : "" })}
+                          selected={formData.edd_date ? parseDateOnly(formData.edd_date) : null}
+                          onChange={d => set({ edd_date: d ? toDateOnlyValue(d) : "" })}
                           dateFormat="dd-MM-yyyy" placeholderText="Select EDD"
                           readOnly={!isFieldEditable}/>
                       </div>
@@ -1036,7 +1036,7 @@ export default function ScreeningForm() {
                       <label>12. Screening Date &amp; Time<span className="required">*</span></label>
                       <DatePicker
                         selected={formData.screening_datetime ? new Date(formData.screening_datetime) : null}
-                        onChange={d => set({ screening_datetime: d ? d.toISOString() : "" })}
+                        onChange={d => set({ screening_datetime: d ? toDateTimeLocalValue(d) : "" })}
                         showTimeSelect timeFormat="HH:mm" timeIntervals={1}
                         dateFormat="dd-MM-yyyy · HH:mm"
                         maxDate={today}

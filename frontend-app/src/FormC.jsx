@@ -7,6 +7,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import NotesBox      from "./components/NotesBox";
 import OfflineBanner from "./components/OfflineBanner";
 import FormNavBar    from "./components/FormNavBar";
@@ -309,9 +310,9 @@ export default function FormC() {
             uterotonic: formCData.uterotonic ?? prev.uterotonic,
             uterotonic_timing: formCData.uterotonic_timing ?? prev.uterotonic_timing,
           } : {}),
-          lmp: formCData?.lmp ? new Date(formCData.lmp) : formAData?.lmp_date ? new Date(formAData.lmp_date) : prev.lmp || null,
-          edd: formCData?.edd ? new Date(formCData.edd) : formAData?.expected_delivery_date ? new Date(formAData.expected_delivery_date) : prev.edd || null,
-          mgso4_date: formCData?.mgso4_date ? new Date(formCData.mgso4_date) : prev.mgso4_date || "",
+          lmp: formCData?.lmp ? parseDateOnly(formCData.lmp) : formAData?.lmp_date ? parseDateOnly(formAData.lmp_date) : prev.lmp || null,
+          edd: formCData?.edd ? parseDateOnly(formCData.edd) : formAData?.expected_delivery_date ? parseDateOnly(formAData.expected_delivery_date) : prev.edd || null,
+          mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : prev.mgso4_date || "",
         }));
         if (formCData || isEditMode) setIsSaved(true);
       } catch (err) { console.log("Error loading Form C:", err); }
@@ -565,8 +566,8 @@ export default function FormC() {
     abortions: formData.abortions || null, live: formData.live || null, still: formData.still || null,
     anc_visits: formData.anc_visits || null, booked: formData.booked || null,
     multiple: formData.multiple || null,
-    lmp: formData.lmp ? formData.lmp.toISOString().split("T")[0] : null,
-    edd: formData.edd ? formData.edd.toISOString().split("T")[0] : null,
+    lmp: formData.lmp ? toDateOnlyValue(formData.lmp) : null,
+    edd: formData.edd ? toDateOnlyValue(formData.edd) : null,
     conception: formData.conception || null,
     artificial_type: formData.artificial_type || null,
     artificial_other: formData.artificial_other || null,
@@ -578,7 +579,7 @@ export default function FormC() {
     lddi_hours: formData.lddi_hours || null,
     antenatal_mgso4: formData.antenatal_mgso4 || null,
     gestation_at_steroids: formData.gestation_at_steroids || null,
-    mgso4_date: formData.mgso4_date ? new Date(formData.mgso4_date).toISOString().split("T")[0] : null,
+    mgso4_date: formData.mgso4_date ? toDateOnlyValue(formData.mgso4_date) : null,
     mgso4_gestation_weeks: toInt(formData.mgso4_gestation_weeks),
     mgso4_gestation_days: toInt(formData.mgso4_gestation_days),
     chronic_hypertension: formData.chronic_hypertension||false,
