@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+﻿from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -96,18 +96,18 @@ app.include_router(dashboard_router.router)
 
 @app.on_event("startup")
 def on_startup_migrations():
-    # ── DB connectivity check with retry (safe for AWS RDS cold start) ──
+    # â”€â”€ DB connectivity check with retry (safe for AWS RDS cold start) â”€â”€
     import time
     for attempt in range(1, 6):
         try:
             with engine.connect() as conn:
                 db_name = conn.execute(text("SELECT current_database()")).scalar()
-                logger.info("✅ CONNECTED DB: %s", db_name)
+                logger.info("âœ… CONNECTED DB: %s", db_name)
             break
         except Exception as exc:
             logger.warning("DB not ready (attempt %s/5): %s", attempt, exc)
             if attempt == 5:
-                logger.error("❌ Could not connect to DB after 5 attempts — startup continuing anyway")
+                logger.error("âŒ Could not connect to DB after 5 attempts â€” startup continuing anyway")
             else:
                 time.sleep(3)
 
@@ -173,7 +173,7 @@ ALLOWED_ORIGINS = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
 
-print(f"📍 CORS Allowed Origins: {ALLOWED_ORIGINS}")
+print(f"ðŸ“ CORS Allowed Origins: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -233,7 +233,7 @@ def site_for_enrollment(db: Session, enrollment_id: str | None) -> str | None:
 def root():
     return {"message": "PORTAL Trial API is running!"}
 
-# Health check endpoint — required by AWS ALB, ECS, and Elastic Beanstalk
+# Health check endpoint â€” required by AWS ALB, ECS, and Elastic Beanstalk
 @app.get("/health")
 def health_check():
     try:
@@ -244,7 +244,7 @@ def health_check():
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=503, content={"status": "error", "db": str(exc)})
 
-# Version endpoint — reports which git commit is actually running, so
+# Version endpoint â€” reports which git commit is actually running, so
 # deployment status can be checked with `curl https://api.<host>/version`
 # instead of guessing from GitHub history. deploy.sh writes VERSION at
 # deploy time; if it's missing (e.g. local dev, or an older deploy that
@@ -257,7 +257,7 @@ def version_check():
             info = f.read().strip()
         return {"deployed_commit": info or "unknown"}
     except FileNotFoundError:
-        return {"deployed_commit": "unknown", "note": "VERSION file not found — deploy.sh may predate this endpoint, or this is a local/dev run"}
+        return {"deployed_commit": "unknown", "note": "VERSION file not found â€” deploy.sh may predate this endpoint, or this is a local/dev run"}
 
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS
@@ -307,7 +307,7 @@ async def login(request: Request, data: LoginRequest, db: Session = Depends(get_
     """
     User login endpoint with brute force protection.
     
-    ✅ SECURITY FIXES:
+    âœ… SECURITY FIXES:
     - Rate limited to 5 attempts per 15 minutes per IP
     - Logs failed attempts
     - Returns 429 Too Many Requests when limit exceeded
@@ -367,7 +367,7 @@ def refresh_access_token(body: RefreshTokenRequest, db: Session = Depends(get_db
     }
 
 # ============================================================================
-# FORM A — SCREENING ENDPOINTS
+# FORM A â€” SCREENING ENDPOINTS
 # ============================================================================
 
 @app.get("/screenings/", response_model=list[ScreeningClinicalOut])
@@ -678,7 +678,7 @@ def get_screening_by_enrollment(
     return entry
 
 # ============================================================================
-# FORM B — BIRTH RESUSCITATION ENDPOINTS
+# FORM B â€” BIRTH RESUSCITATION ENDPOINTS
 # ============================================================================
 
 @app.post("/birth-resuscitation/")
@@ -827,7 +827,7 @@ def update_birth_resuscitation(
         raise HTTPException(status_code=400, detail=str(e))
 
 # ============================================================================
-# FORM C — MATERNAL DETAILS ENDPOINTS
+# FORM C â€” MATERNAL DETAILS ENDPOINTS
 # ============================================================================
 
 @app.post("/maternal-details/", response_model=MaternalDetailsOut)
@@ -926,7 +926,7 @@ def get_maternal_details(
     return record_dict
 
 # ============================================================================
-# FORM D — POSTNATAL DAY 1 ENDPOINTS
+# FORM D â€” POSTNATAL DAY 1 ENDPOINTS
 # ============================================================================
 
 @app.post("/postnatal-day1/", response_model=PostnatalDay1Out)
@@ -979,7 +979,7 @@ def update_postnatal_day1(
     ).first()
 
     if not record:
-        # No existing record — create new one (upsert)
+        # No existing record â€” create new one (upsert)
         payload = split_and_store_pii(
             db,
             data.model_dump(),
@@ -1007,7 +1007,7 @@ def update_postnatal_day1(
     return record
 
 # ============================================================================
-# FORM E — NICU ADMISSION ENDPOINTS
+# FORM E â€” NICU ADMISSION ENDPOINTS
 # ============================================================================
 
 @app.post("/nicu-admission/", response_model=NICUAdmissionOut)
@@ -1071,12 +1071,25 @@ def update_nicu_admission(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
+    payload = split_and_store_pii(
+        db,
+        data.model_dump(),
+        NICU_PII_FIELDS,
+        enrollment_id=enrollment_id,
+        site_name=site_for_enrollment(db, enrollment_id),
+    )
+    payload["enrollment_id"] = enrollment_id
+
     record = db.query(NICUAdmission).filter(
         NICUAdmission.enrollment_id == enrollment_id
     ).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Form E not found")
-    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+        record = NICUAdmission(**payload)
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+
     for key, value in payload.items():
         if hasattr(record, key):
             setattr(record, key, value)
@@ -1085,7 +1098,7 @@ def update_nicu_admission(
     return record
 
 # ============================================================================
-# FORM F — NEONATAL MORBIDITIES ENDPOINTS
+# FORM F â€” NEONATAL MORBIDITIES ENDPOINTS
 # ============================================================================
 
 @app.post("/neonatal-morbidities/", response_model=NeonatalMorbiditiesOut)
@@ -1115,7 +1128,7 @@ def get_neonatal_morbidities(
     )
 
 # ============================================================================
-# FORM G — STUDY OUTCOMES ENDPOINTS
+# FORM G â€” STUDY OUTCOMES ENDPOINTS
 # ============================================================================
 
 @app.post("/study-outcomes/", response_model=StudyOutcomesOut)
@@ -1158,7 +1171,7 @@ def create_rop_screening(
     return record
 
 # ============================================================================
-# FORM J — COMPOSITE OUTCOME ENDPOINTS
+# FORM J â€” COMPOSITE OUTCOME ENDPOINTS
 # ============================================================================
 
 @app.post("/composite-outcome/", response_model=CompositeOutcomeOut)
@@ -1249,7 +1262,8 @@ def update_fio2_auc(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="FiO₂ AUC record not found")
+        record = FiO2AUC(enrollment_id=enrollment_id)
+        db.add(record)
     record.total_auc       = data.total_auc
     record.mean_daily_fio2 = data.mean_daily_fio2
     record.excess_o2_auc   = data.excess_o2_auc
@@ -1638,13 +1652,13 @@ def get_enrollment_status(
         "form_d": form_d,
         "next_form": next_form,
     }
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Paste these routes into main.py
 # below the existing FiO2 AUC section
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # ============================================================================
-# RESP / CV / NEURO DAILY LOG — NEW STRUCTURED ENDPOINTS
+# RESP / CV / NEURO DAILY LOG â€” NEW STRUCTURED ENDPOINTS
 # Replaces the old /resp-cv-neuro-log/ blob endpoints
 # ============================================================================
 
@@ -1684,7 +1698,7 @@ def _compute_completion_pct(record) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# ── GET single day ────────────────────────────────────────────
+# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
     enrollment_id: str,
@@ -1706,7 +1720,7 @@ def get_resp_cv_neuro_day(
     return record
 
 
-# ── POST create day ───────────────────────────────────────────
+# â”€â”€ POST create day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.post("/resp-cv-neuro/")
 def create_resp_cv_neuro_day(
     data:         RespCVNeuroDayCreate,
@@ -1715,7 +1729,7 @@ def create_resp_cv_neuro_day(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
-    # Prevent duplicate — upsert pattern
+    # Prevent duplicate â€” upsert pattern
     existing = (
         db.query(RespCVNeuroDayLog)
         .filter(
@@ -1740,7 +1754,7 @@ def create_resp_cv_neuro_day(
     return record
 
 
-# ── PUT update day ────────────────────────────────────────────
+# â”€â”€ PUT update day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.put("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def update_resp_cv_neuro_day(
     enrollment_id: str,
@@ -1759,7 +1773,7 @@ def update_resp_cv_neuro_day(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
 
     # Block edits on submitted days
     if record.submission_status == "submitted":
@@ -1774,7 +1788,7 @@ def update_resp_cv_neuro_day(
     return record
 
 
-# ── PATCH submit day ──────────────────────────────────────────
+# â”€â”€ PATCH submit day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.patch("/resp-cv-neuro/{enrollment_id}/{nicu_day}/submit")
 def submit_resp_cv_neuro_day(
     enrollment_id: str,
@@ -1803,7 +1817,7 @@ def submit_resp_cv_neuro_day(
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 
 
-# ── GET summary (all days for timeline status indicators) ─────
+# â”€â”€ GET summary (all days for timeline status indicators) â”€â”€â”€â”€â”€
 @app.get("/resp-cv-neuro/{enrollment_id}/summary")
 def get_resp_cv_neuro_summary(
     enrollment_id: str,
@@ -1829,7 +1843,7 @@ def get_resp_cv_neuro_summary(
     ]
 
 
-# ── PATCH discharge ───────────────────────────────────────────
+# â”€â”€ PATCH discharge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.patch("/enrollment/{enrollment_id}/discharge")
 def discharge_enrollment(
     enrollment_id: str,
@@ -1874,7 +1888,7 @@ def discharge_enrollment(
 
     # Since BirthResuscitation has no discharge_date column,
     # we store it in the Screening record's notes or use a
-    # separate approach. For now return success — add a
+    # separate approach. For now return success â€” add a
     # discharge_date column to BirthResuscitation if needed.
 
     return {
@@ -1882,16 +1896,16 @@ def discharge_enrollment(
         "discharge_date": data.discharge_date,
         "discharge_day":  data.discharge_day,
     }
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Paste into main.py after the Resp-CV-Neuro routes section
 #
 # Add to main.py imports:
 #   from models import InfectGIHemaDayLog
 #   from schemas import InfectGIHemaDayCreate, InfectGIHemaDaySubmit
-# ─────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # ============================================================================
-# INFECT / GI / HEMA DAILY LOG — STRUCTURED PER-DAY ENDPOINTS
+# INFECT / GI / HEMA DAILY LOG â€” STRUCTURED PER-DAY ENDPOINTS
 # ============================================================================
 
 def _infect_completion_pct(r) -> int:
@@ -1935,7 +1949,7 @@ def _infect_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# ── GET single day ────────────────────────────────────────────
+# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
 def get_infect_gi_hema_day(
     enrollment_id: str,
@@ -1957,7 +1971,7 @@ def get_infect_gi_hema_day(
     return record
 
 
-# ── GET summary (all days — for timeline status indicators) ───
+# â”€â”€ GET summary (all days â€” for timeline status indicators) â”€â”€â”€
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
 def get_infect_gi_hema_summary(
     enrollment_id: str,
@@ -1983,7 +1997,7 @@ def get_infect_gi_hema_summary(
     ]
 
 
-# ── POST create day (upsert) ──────────────────────────────────
+# â”€â”€ POST create day (upsert) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.post("/infect-gi-hema/")
 def create_infect_gi_hema_day(
     data:         InfectGIHemaDayCreate,
@@ -2015,7 +2029,7 @@ def create_infect_gi_hema_day(
     return record
 
 
-# ── PUT update day ────────────────────────────────────────────
+# â”€â”€ PUT update day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.put("/infect-gi-hema/{enrollment_id}/{nicu_day}")
 def update_infect_gi_hema_day(
     enrollment_id: str,
@@ -2034,7 +2048,7 @@ def update_infect_gi_hema_day(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
     if record.submission_status == "submitted":
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
@@ -2047,7 +2061,7 @@ def update_infect_gi_hema_day(
     return record
 
 
-# ── PATCH submit day ──────────────────────────────────────────
+# â”€â”€ PATCH submit day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/submit")
 def submit_infect_gi_hema_day(
     enrollment_id: str,
@@ -2074,13 +2088,13 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 3. ADD TO main.py  (imports + routes)
 #
 # Add to imports:
 #   from models import MetabRenalVascEyeDayLog
 #   from schemas import MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
  
 def _metab_completion_pct(r) -> int:
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
@@ -2185,7 +2199,7 @@ def update_metab_renal_vasc_eye_day(
         MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
     ).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
     if record.submission_status == "submitted":
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -2214,7 +2228,7 @@ def submit_metab_renal_vasc_eye_day(
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 # ============================================================================
-# FORM H — CRANIAL USG ENDPOINTS
+# FORM H â€” CRANIAL USG ENDPOINTS
 # Add these to main.py
 #
 # REQUIRED IMPORTS (add to top of main.py):
@@ -2222,7 +2236,7 @@ def submit_metab_renal_vasc_eye_day(
 #   from schemas import CranialUSGCreate, CranialUSGSubmit
 # ============================================================================
 
-# ── POST — create or upsert ───────────────────────────────────
+# â”€â”€ POST â€” create or upsert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.post("/form-h/")
 def create_form_h(
     data:         CranialUSGCreate,
@@ -2251,7 +2265,7 @@ def create_form_h(
     return record
 
 
-# ── GET — load by enrollment_id ───────────────────────────────
+# â”€â”€ GET â€” load by enrollment_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.get("/form-h/{enrollment_id}")
 def get_form_h(
     enrollment_id: str,
@@ -2269,7 +2283,7 @@ def get_form_h(
     return record
 
 
-# ── PUT — full update ─────────────────────────────────────────
+# â”€â”€ PUT â€” full update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.put("/form-h/{enrollment_id}")
 def update_form_h(
     enrollment_id: str,
@@ -2284,7 +2298,7 @@ def update_form_h(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form H not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Form H not found â€” use POST to create")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key != "enrollment_id":
@@ -2295,7 +2309,7 @@ def update_form_h(
     return record
 
 
-# ── PATCH — submit and lock ───────────────────────────────────
+# â”€â”€ PATCH â€” submit and lock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.patch("/form-h/{enrollment_id}/submit")
 def submit_form_h(
     enrollment_id: str,
@@ -2324,7 +2338,7 @@ def submit_form_h(
 
 
 # ============================================================================
-# FORM K — MRI Brain Assessment Endpoints
+# FORM K â€” MRI Brain Assessment Endpoints
 # ============================================================================
 
 @app.post("/form-k", response_model=MRIBrainOut)
@@ -2386,7 +2400,7 @@ def update_form_k(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form K not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Form K not found â€” use POST to create")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key != "enrollment_id":
@@ -2424,7 +2438,7 @@ def submit_form_k(
 
 
 # ============================================================================
-# FORM L — Blender Data & Study Summary Endpoints
+# FORM L â€” Blender Data & Study Summary Endpoints
 # ============================================================================
 
 @app.post("/form-l", response_model=BlenderSummaryOut)
@@ -2486,7 +2500,7 @@ def update_form_l(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form L not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Form L not found â€” use POST to create")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key != "enrollment_id":

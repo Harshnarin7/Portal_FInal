@@ -65,11 +65,11 @@ const FieldErr = ({ msg }) => msg
   : null;
 
 /* ── Respiratory parameter grid — defined OUTSIDE FormE to prevent remount on state change ── */
-function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange }) {
+function RespParamGrid({ prefix, serial, formData, errors, isFieldEditable, handleChange }) {
   return (
     <div className="form-grid-2" style={{ marginTop: 12 }}>
       <div className="form-group">
-        <label>CPAP</label>
+        <label>{serial}b. CPAP</label>
         <UnitInput name={`${prefix}_cpap`} value={formData[`${prefix}_cpap`]} unit="cmH₂O"
           readOnly={!isFieldEditable} error={errors[`${prefix}_cpap`]}
           placeholder="2–12"
@@ -85,7 +85,7 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
         <FieldErr msg={errors[`${prefix}_cpap`]} />
       </div>
       <div className="form-group">
-        <label>PIP</label>
+        <label>{serial}c. PIP</label>
         <UnitInput name={`${prefix}_pip`} value={formData[`${prefix}_pip`]} unit="cmH₂O"
           readOnly={!isFieldEditable} error={errors[`${prefix}_pip`]}
           placeholder="10–40"
@@ -101,7 +101,7 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
         <FieldErr msg={errors[`${prefix}_pip`]} />
       </div>
       <div className="form-group">
-        <label>PEEP</label>
+        <label>{serial}d. PEEP</label>
         <UnitInput name={`${prefix}_peep`} value={formData[`${prefix}_peep`]} unit="cmH₂O"
           readOnly={!isFieldEditable} error={errors[`${prefix}_peep`]}
           placeholder="2–10"
@@ -117,7 +117,7 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
         <FieldErr msg={errors[`${prefix}_peep`]} />
       </div>
       <div className="form-group">
-        <label>MAP</label>
+        <label>{serial}e. MAP</label>
         <UnitInput name={`${prefix}_map`} value={formData[`${prefix}_map`]} unit="cmH₂O"
           readOnly={!isFieldEditable} error={errors[`${prefix}_map`]}
           placeholder="5–20"
@@ -134,7 +134,7 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
       </div>
       {/* FiO₂ — inline (not via UnitInput) to avoid spinner overlap */}
       <div className="form-group">
-        <label>FiO₂</label>
+        <label>{serial}f. FiO2</label>
         <div style={{ position: "relative" }}>
           <input
             type="number"
@@ -181,14 +181,14 @@ function RespParamGrid({ prefix, formData, errors, isFieldEditable, handleChange
   );
 }
 
-function RespModeSection({ prefix, label, modes, formData, errors, isFieldEditable, handleChange, setFormData, setErrors }) {
+function RespModeSection({ prefix, label, serial, modes, formData, errors, isFieldEditable, handleChange, setFormData, setErrors }) {
   const modeField = `${prefix}_mode_resp`;
   const otherField = `${prefix}_mode_other`;
   return (
     <div className="obstetric-subcard">
       <div className="obstetric-subcard__title">{label}</div>
       <div className="form-group">
-        <label>Mode of Respiratory Support <span className="required">*</span></label>
+        <label>{serial}a. Mode <span className="required">*</span></label>
         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
           {modes.map(mode => (
             <button key={mode} type="button"
@@ -218,7 +218,7 @@ function RespModeSection({ prefix, label, modes, formData, errors, isFieldEditab
           </div>
         </div>
       )}
-      <RespParamGrid prefix={prefix}
+      <RespParamGrid prefix={prefix} serial={serial}
         formData={formData} errors={errors}
         isFieldEditable={isFieldEditable} handleChange={handleChange} />
     </div>
@@ -237,9 +237,7 @@ export default function FormE() {
   const [isEditing, setIsEditing] = useState(false);
   const [message,   setMessage]   = useState("");
   const [isFormELoaded, setIsFormELoaded] = useState(false);
-  const [siteName,  setSiteName]  = useState("");
   const isFieldEditable = !isSaved || isEditing;
-  const isPgiSite = siteName === "PGIMER";
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -340,10 +338,6 @@ export default function FormE() {
         let motherName = "";
         const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
         if (screeningId) {
-          try {
-            const screeningRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
-            setSiteName(screeningRes.data?.site_name || "");
-          } catch (_) {}
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
             const pii = piiRes.data || {};
@@ -526,7 +520,7 @@ export default function FormE() {
     if (!formData.enrollment_id) {
       setMessage("❌ Enrollment ID missing. Cannot save form.");
       window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
+      return false;
     }
 
     // Required-field + conditional validation (aligned with CRF E1–E15)
@@ -556,6 +550,7 @@ export default function FormE() {
     if (formData.nicu_mode_resp === "Other" && !formData.nicu_mode_other)
       v.nicu_mode_other = "Specify mode";
     if (!formData.completed_by) v.completed_by = "This field is required";
+    if (!formData.completion_date) v.completion_date = "This field is required";
 
     ["temp_dr","temp_skin","temp_axillary"].forEach(f => {
       if (formData[f] && (Number(formData[f]) < 30 || Number(formData[f]) > 40))
@@ -570,7 +565,7 @@ export default function FormE() {
       setErrors(prev => ({ ...prev, ...v }));
       setMessage("❌ Please complete the required fields highlighted below.");
       window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
+      return false;
     }
     const payload = {
       enrollment_id: formData.enrollment_id,
@@ -616,6 +611,7 @@ export default function FormE() {
       setIsSaved(true); setIsEditing(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setTimeout(() => setMessage(""), 3000);
+      return true;
       // Do NOT navigate here — only navigate when user clicks "Next"
     } catch (err) {
       console.error("FormE submit error:", err.response?.data || err);
@@ -623,13 +619,28 @@ export default function FormE() {
     }
   };
 
+  const saveForLater = async () => {
+    setMessage("");
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save draft.");
+      return;
+    }
+    try {
+      await session.saveDraft();
+      setIsFormELoaded(true);
+      setMessage("💾 Draft saved — return any time to complete");
+      setTimeout(() => setMessage(""), 3000);
+      return true;
+    } catch (err) {
+      setMessage("❌ " + (err?.message || "Draft save failed."));
+    }
+  };
+
   const handleNext = async () => {
-    await handleSubmit({ preventDefault: () => {} });
-    // Only navigate if form has no validation errors
     const allTouched = Object.fromEntries(Object.keys(formData).map(k => [k, true]));
     setTouched(allTouched);
-    const errs = Object.keys(setErrors);
-    if (errs.length === 0) {
+    const ok = await handleSubmit({ preventDefault: () => {} });
+    if (ok) {
       navigate(`/fio2-auc/${enrollmentId}`);
     }
   };
@@ -681,7 +692,7 @@ export default function FormE() {
               <div className="form-header-title-area">
                 <div className="form-breadcrumb"><Home size={12} /> FORM E</div>
                 <h2 className="form-main-title">NICU Admission</h2>
-                <p className="form-main-subtitle">Temperature, transport and respiratory stabilization</p>
+                <p className="form-main-subtitle">Fill only if enrolled subject required NICU admission</p>
               </div>
               <div className="form-header-meta-area">
                 {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
@@ -702,7 +713,7 @@ export default function FormE() {
             {/* ═══ CARD 1 — IDENTIFICATION ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><User size={18} className="section-header-icon" /><h3>Patient Identification</h3></div>
+                <div className="section-title-left"><User size={18} className="section-header-icon" /><h3>E1 · Identification</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
@@ -711,21 +722,9 @@ export default function FormE() {
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
-                    <label>Baby UID</label>
-                    <input value={formData.baby_uid || ""} readOnly className="readonly-input" />
-                  </div>
-                </div>
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>2. Baby of (Baby Name)</label>
+                    <label>2. Baby of <span className="field-note">(auto)</span></label>
                     <input value={formData.baby_name || ""} readOnly className="readonly-input" />
                   </div>
-                  {isPgiSite && (
-                    <div className="form-group">
-                      <label>Annual Number (REDCap)</label>
-                      <input value={formData.annual_number || ""} readOnly className="readonly-input" />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -733,19 +732,19 @@ export default function FormE() {
             {/* ═══ CARD 2 — NICU ADMISSION DETAILS ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Truck size={18} className="section-header-icon" /><h3>NICU Admission Details</h3></div>
+                <div className="section-title-left"><Truck size={18} className="section-header-icon" /><h3>E2 · NICU Admission Details</h3></div>
               </div>
               <div className="form-section-body">
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>3. Date &amp; Time of NICU Admission <span className="required">*</span></label>
+                    <label>3. Date &amp; Time <span className="required">*</span></label>
                     <DatePicker
                       selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
                       onChange={date => setFormData(prev => ({
                         ...prev, admission_datetime: date ? toDateTimeLocalValue(date) : ""
                       }))}
-                      showTimeSelect timeFormat="HH:mm" timeIntervals={1}
-                      dateFormat="dd-MM-yyyy | HH:mm"
+                      showTimeSelect timeFormat="hh:mm aa" timeIntervals={1}
+                      dateFormat="dd-MM-yyyy | hh:mm aa"
                       placeholderText="Select date & time"
                       disabled={!isFieldEditable} />
                   </div>
@@ -766,7 +765,7 @@ export default function FormE() {
             {/* ═══ CARD 3 — TEMPERATURE & TRANSPORT ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Thermometer size={18} className="section-header-icon" /><h3>Temperature &amp; Transport</h3></div>
+                <div className="section-title-left"><Thermometer size={18} className="section-header-icon" /><h3>E3 · NICU Transport Details</h3></div>
               </div>
               <div className="form-section-body">
 
@@ -842,7 +841,7 @@ export default function FormE() {
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Additional Heating</div>
                   <div className="form-group">
-                    <label>9. Additional heating provided <span className="required">*</span></label>
+                    <label>9. Additional heating <span className="required">*</span></label>
                     <Toggle name="additional_heating" value={formData.additional_heating}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={errors.additional_heating} />
@@ -850,7 +849,7 @@ export default function FormE() {
                   {formData.additional_heating === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>10. Heating Type <span className="required">*</span></label>
+                        <label>10. Type <span className="required">*</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
                           {["Gel pack","PCM","Plastic wrap","Cap","Other"].map(type => (
                             <button key={type} type="button"
@@ -887,7 +886,7 @@ export default function FormE() {
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Adverse Events During Transport</div>
                   <div className="form-group">
-                    <label>11. Adverse events occurred <span className="required">*</span></label>
+                    <label>11. Adverse events during transport <span className="required">*</span></label>
                     <Toggle name="transport_adverse_event" value={formData.transport_adverse_event}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={errors.transport_adverse_event} />
@@ -895,7 +894,7 @@ export default function FormE() {
                   {formData.transport_adverse_event === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>12. Type of adverse event <span className="required">*</span></label>
+                        <label>12. If yes, type <span className="required">*</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
                           {["Apnea","Bradycardia","Tube accident","Other"].map(type => (
                             <button key={type} type="button"
@@ -942,16 +941,16 @@ export default function FormE() {
             {/* ═══ CARD 4 — RESPIRATORY SUPPORT ═══ */}
             <div className="form-section card-section">
               <div className="form-section-header">
-                <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>Respiratory Support</h3></div>
+                <div className="section-title-left"><Wind size={18} className="section-header-icon" /><h3>E4 · Respiratory Support</h3></div>
               </div>
               <div className="form-section-body">
-                <RespModeSection prefix="transport" label="14. During Transport"
+                <RespModeSection prefix="transport" label="14. During Transport" serial="14"
                   modes={["Room air","CPAP","SIB","NIPPV","IMV","SIMV","HFOV","Other"]}
                   formData={formData} errors={errors}
                   isFieldEditable={isFieldEditable} handleChange={handleChange}
                   setFormData={setFormData} setErrors={setErrors} />
                 <div style={{ marginTop:16 }}>
-                  <RespModeSection prefix="nicu" label="15. In NICU (after stabilization)"
+                  <RespModeSection prefix="nicu" label="15. In NICU (after stabilization)" serial="15"
                     modes={["Room air","CPAP","NIPPV","IMV","SIMV","HFOV","Other"]}
                     formData={formData} errors={errors}
                     isFieldEditable={isFieldEditable} handleChange={handleChange}
@@ -984,15 +983,18 @@ export default function FormE() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>Completion Date</label>
+                    <label>Date (DD/MM/YY) <span className="required">*</span></label>
                     <DatePicker
                       selected={formData.completion_date ? parseDateOnly(formData.completion_date) : null}
-                      onChange={date => setFormData(prev => ({
-                        ...prev, completion_date: date ? toDateOnlyValue(date) : ""
-                      }))}
+                      onChange={date => {
+                        const value = date ? toDateOnlyValue(date) : "";
+                        setFormData(prev => ({ ...prev, completion_date: value }));
+                        setErrors(prev => ({ ...prev, completion_date: value ? "" : "This field is required" }));
+                      }}
                       maxDate={new Date()}
                       dateFormat="dd-MM-yyyy" placeholderText="Select date"
                       disabled={!isFieldEditable} />
+                    <FieldErr msg={errors.completion_date} />
                   </div>
                   <div />
                 </div>
@@ -1017,6 +1019,26 @@ export default function FormE() {
         <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSubmit}>
           <Save size={15} /> Save
         </button>
+        <button type="button" className="btn btn-draft" onClick={saveForLater}>
+          <Save size={15} /> Save for Later
+        </button>
+        <div className="autosave-indicator">
+          {session.lastSaved && session.autoSaveStatus === "idle" && (
+            <span className="last-saved-txt">Saved {session.relT(session.lastSaved)}</span>
+          )}
+          {session.isDirty && session.autoSaveStatus === "idle" && !session.lastSaved && (
+            <span className="unsaved-dot-pill"><span className="unsaved-dot" />Unsaved changes</span>
+          )}
+          {session.autoSaveStatus === "saving" && (
+            <span className="autosave-pill autosave-pill--saving"><span className="autosave-dot autosave-dot--spin" />Auto-saving...</span>
+          )}
+          {session.autoSaveStatus === "saved" && (
+            <span className="autosave-pill autosave-pill--saved">Auto-saved</span>
+          )}
+          {session.autoSaveStatus === "error" && (
+            <span className="autosave-pill autosave-pill--error">Auto-save failed</span>
+          )}
+        </div>
         <div className="footer-step-indicator">
           <span className="step-text">STEP 5 OF 17</span>
           <div className="step-progress-line">

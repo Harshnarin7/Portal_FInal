@@ -427,6 +427,8 @@ export default function FormD() {
           // ── Identification (from Form B already set, but override if present) ──
           annual_number:   d.annual_number   || prev.annual_number,
           baby_name:       d.baby_name       || prev.baby_name,
+          gestation_weeks: d.gestation_weeks != null ? String(d.gestation_weeks) : prev.gestation_weeks,
+          gestation_days:  d.gestation_days  != null ? String(d.gestation_days)  : prev.gestation_days,
           ga_method:       d.ga_method       || prev.ga_method,
           gender:          d.gender          || prev.gender,
           growth_status:   d.growth_status   || prev.growth_status,

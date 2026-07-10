@@ -1,5 +1,5 @@
 diff --git a/frontend-app/src/BirthResuscitationForm.jsx b/frontend-app/src/BirthResuscitationForm.jsx
-index 4a41aaf..5c35c33 100644
+index 4a41aaf..80d37bd 100644
 --- a/frontend-app/src/BirthResuscitationForm.jsx
 +++ b/frontend-app/src/BirthResuscitationForm.jsx
 @@ -8,7 +8,7 @@ import { useFormProgress } from "./context/FormProgressContext";
@@ -11,6 +11,15 @@ index 4a41aaf..5c35c33 100644
  import {
    ArrowLeft, ArrowRight, Save, Home, User, Baby,
    Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
+@@ -102,7 +102,7 @@ export default function BirthResuscitationForm() {
+     screening_id:"", enrollment_id:"", screening_datetime:"",
+     mother_name_first:"", mother_name_surname:"", maternal_uid:"",
+     contact_mother:"", contact_husband:"",
+-    baby_uid:"", baby_admission_no:"", baby_annual_no:"",
++    baby_uid:"", baby_admission_no:"", baby_annual_no:"", site_name:"",
+     /* B2 */
+     date_of_birth:"", time_of_birth:"",
+     gestation_weeks:"", gestation_days:"",
 @@ -290,7 +290,7 @@ export default function BirthResuscitationForm() {
        birth_weight:        optionalNum(fd.birth_weight),
        intrauterine_centile: fd.intrauterine_centile || null,
@@ -29,7 +38,34 @@ index 4a41aaf..5c35c33 100644
        enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
        enrollment_reason_not_randomized_other: fd.enrollment_reason_not_randomized_other || null,
        resus_failure:       yn(fd.resus_failure),
-@@ -814,8 +814,8 @@ export default function BirthResuscitationForm() {
+@@ -672,6 +672,7 @@ export default function BirthResuscitationForm() {
+         try{const p2=await api.get(`/pii/screening/${screeningId}`);pii=p2.data||{};}catch(_){}
+         set({
+           screening_id:        d.screening_id||"",
++          site_name:           d.site_name||"",
+           maternal_uid:        pii.maternal_uid||"",
+           mother_name_first:   pii.mother_first_name||"",
+           mother_name_surname: pii.mother_surname||"",
+@@ -790,11 +791,13 @@ export default function BirthResuscitationForm() {
+                     <input name="baby_admission_no" value={formData.baby_admission_no||""}
+                       onChange={handleChange} placeholder="Optional" readOnly={!isFieldEditable}/>
+                   </div>
+-                  <div className="form-group">
+-                    <label>7. Baby Annual No. <span className="field-note">(REDCap)</span></label>
+-                    <input name="baby_annual_no" value={formData.baby_annual_no||""}
+-                      onChange={handleChange} placeholder="Annual number" readOnly={!isFieldEditable}/>
+-                  </div>
++                  {formData.site_name === "PGIMER" && (
++                    <div className="form-group">
++                      <label>7. Baby Annual No. <span className="field-note">(REDCap)</span></label>
++                      <input name="baby_annual_no" value={formData.baby_annual_no||""}
++                        onChange={handleChange} placeholder="Annual number" readOnly={!isFieldEditable}/>
++                    </div>
++                  )}
+                 </div>
+               </div>
+             </div>
+@@ -814,8 +817,8 @@ export default function BirthResuscitationForm() {
                    <div className="form-group">
                      <label>8. Date of Birth<span className="required">*</span></label>
                      <DatePicker
@@ -40,7 +76,7 @@ index 4a41aaf..5c35c33 100644
                        maxDate={new Date()}
                        dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                        readOnly={!isFieldEditable}/>
-@@ -1015,8 +1015,8 @@ export default function BirthResuscitationForm() {
+@@ -1015,8 +1018,8 @@ export default function BirthResuscitationForm() {
                          <div className="form-group">
                            <label>25. Randomization Date<span className="required">*</span></label>
                            <DatePicker
@@ -97,7 +133,7 @@ index a681d12..5c35df7 100644
      mgso4_gestation_days: toInt(formData.mgso4_gestation_days),
      chronic_hypertension: formData.chronic_hypertension||false,
 diff --git a/frontend-app/src/FormD.jsx b/frontend-app/src/FormD.jsx
-index 563642c..ae9cfbe 100644
+index 563642c..ede631a 100644
 --- a/frontend-app/src/FormD.jsx
 +++ b/frontend-app/src/FormD.jsx
 @@ -9,7 +9,7 @@ import { useFormProgress } from "./context/FormProgressContext";
@@ -109,7 +145,74 @@ index 563642c..ae9cfbe 100644
  import {
    ArrowLeft, ArrowRight, Save, Home,
    User, Baby, Wind, Droplets, CheckSquare,
-@@ -1263,10 +1263,10 @@ export default function FormD() {
+@@ -246,7 +246,7 @@ export default function FormD() {
+ 
+   const [formData, setFormData] = useState({
+     enrollment_id: "", gestation_weeks: "", gestation_days: "",
+-    annual_number: "", baby_name: "", baby_uid: "", birth_weight: "",
++    annual_number: "", baby_name: "", baby_uid: "", birth_weight: "", site_name: "",
+     ga_method: "", gender: "", growth_status: "", sga_centile: "",
+     plastic_wrap: "", remained_intubated: "", et_intubation: "", labored_breathing: "",
+     surfactant_required: "", surfactant_brand_other: "", surfactant_indication: "",
+@@ -305,6 +305,13 @@ export default function FormD() {
+      Phase 2: load saved postnatal-day1 record and restore ALL fields ── */
+   useEffect(() => {
+     if (!enrollmentId) return;
++
++    // Reset immediately: without this, switching to a patient with no
++    // Form D record yet keeps isRecordSaved=true from whichever patient
++    // was viewed previously, which makes autosave/save fire PUT instead
++    // of POST and the backend 404s.
++    setIsRecordSaved(false);
++
+     const loadData = async () => {
+       try {
+         // ── Form B: identification fields (readonly) ──
+@@ -324,6 +331,14 @@ export default function FormD() {
+         if (!motherName)
+           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
+ 
++        let siteName = "";
++        if (screeningId) {
++          try {
++            const siteRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
++            siteName = siteRes.data?.site_name || "";
++          } catch (_) {}
++        }
++
+         // Set identification fields from Form B first
+         setFormData(prev => ({
+           ...prev,
+@@ -333,6 +348,7 @@ export default function FormD() {
+           birth_weight:    b?.birth_weight    || "",
+           baby_uid:        b?.baby_uid        || "",
+           baby_name:       motherName ? `Baby of ${motherName}` : "",
++          site_name:       siteName,
+         }));
+       } catch (err) { console.log("❌ No Form B data found", err); }
+ 
+@@ -810,12 +826,14 @@ export default function FormD() {
+                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#64748b",fontWeight:600 }}>grams</span>
+                     </div>
+                   </div>
+-                  <div className="form-group">
+-                    <label>2. Annual Number (REDCap)</label>
+-                    <input name="annual_number" value={formData.annual_number || ""}
+-                      onChange={handleChange} placeholder="Optional"
+-                      readOnly={!isFieldEditable} className="emr-input" />
+-                  </div>
++                  {formData.site_name === "PGIMER" && (
++                    <div className="form-group">
++                      <label>2. Annual Number (REDCap)</label>
++                      <input name="annual_number" value={formData.annual_number || ""}
++                        onChange={handleChange} placeholder="Optional"
++                        readOnly={!isFieldEditable} className="emr-input" />
++                    </div>
++                  )}
+                 </div>
+ 
+                 <div className="form-grid-3">
+@@ -1263,10 +1281,10 @@ export default function FormD() {
                        <FieldWrap name="caffeine_date"
                      formData={formData} touched={touched} label="33. Date of Administration">
                          <DatePicker
@@ -122,7 +225,7 @@ index 563642c..ae9cfbe 100644
                            }}
                            maxDate={new Date()}
                            dateFormat="dd-MM-yyyy" placeholderText="Select date"
-@@ -1327,10 +1327,10 @@ export default function FormD() {
+@@ -1327,10 +1345,10 @@ export default function FormD() {
                    <FieldWrap name="date"
                      formData={formData} touched={touched} label="Completion Date">
                      <DatePicker
@@ -136,7 +239,7 @@ index 563642c..ae9cfbe 100644
                        maxDate={new Date()}
                        dateFormat="dd-MM-yyyy" placeholderText="Select date"
 diff --git a/frontend-app/src/FormE.jsx b/frontend-app/src/FormE.jsx
-index 8e9f3c0..1afc7f1 100644
+index 8e9f3c0..c5ae3bc 100644
 --- a/frontend-app/src/FormE.jsx
 +++ b/frontend-app/src/FormE.jsx
 @@ -8,6 +8,7 @@ import useFormSession from "./hooks/useFormSession";
@@ -147,7 +250,53 @@ index 8e9f3c0..1afc7f1 100644
  import {
    ArrowLeft, ArrowRight, Save, Home,
    User, Thermometer, Wind, CheckSquare, Truck,
-@@ -467,7 +468,7 @@ export default function FormE() {
+@@ -320,10 +321,19 @@ export default function FormE() {
+ 
+   useEffect(() => {
+     if (!enrollmentId) return;
++    let cancelled = false;
++
++    // Reset immediately: without this, switching to a patient with no
++    // Form E record yet keeps isSaved=true from whichever patient was
++    // viewed previously, which makes Save fire PUT instead of POST and
++    // the backend correctly 404s ("Form E not found").
++    setIsSaved(false);
++    setIsFormELoaded(false);
+ 
+     /* ── Phase 1: identification from Form B ── */
+     api.get(`/birth-resuscitation/${enrollmentId}`)
+       .then(async res => {
++        if (cancelled) return;
+         const b = res?.data || {};
+         const formatDOB = (dob) => {
+           if (!dob) return "";
+@@ -360,9 +370,11 @@ export default function FormE() {
+    /* ── Phase 2: load saved Form E record ── */
+    api.get(`/nicu-admission/${enrollmentId}`)
+      .then(res => {
++       if (cancelled) return;
+        // GET returns a single record, or null when Form E has not been saved yet
+        const e = res.data;
+        if (!e) {
++         setIsSaved(false);
+          setIsFormELoaded(true);
+          resetInitialRender();
+          return;
+@@ -446,10 +458,13 @@ export default function FormE() {
+         resetInitialRender();
+       })
+       .catch(err => {
++        if (cancelled) return;
+         console.log("❌ Error loading Form E data", err);
+         setIsFormELoaded(true);
+         resetInitialRender();
+       });
++
++    return () => { cancelled = true; };
+   }, [enrollmentId, resetInitialRender]);
+ 
+   useEffect(() => {
+@@ -467,7 +482,7 @@ export default function FormE() {
      let errorMsg = "";
      if (name === "admission_datetime" && value && value.includes("/")) {
        const date = new Date(value);
@@ -156,7 +305,7 @@ index 8e9f3c0..1afc7f1 100644
      }
      if (["temp_dr","temp_skin","temp_axillary"].includes(name))
        if (value && (Number(value) < 30 || Number(value) > 40)) errorMsg = "Must be between 30–40 °C";
-@@ -733,7 +734,7 @@ export default function FormE() {
+@@ -733,7 +748,7 @@ export default function FormE() {
                      <DatePicker
                        selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
                        onChange={date => setFormData(prev => ({
@@ -165,7 +314,7 @@ index 8e9f3c0..1afc7f1 100644
                        }))}
                        showTimeSelect timeFormat="HH:mm" timeIntervals={1}
                        dateFormat="dd-MM-yyyy | HH:mm"
-@@ -977,9 +978,9 @@ export default function FormE() {
+@@ -977,9 +992,9 @@ export default function FormE() {
                    <div className="form-group">
                      <label>Completion Date</label>
                      <DatePicker

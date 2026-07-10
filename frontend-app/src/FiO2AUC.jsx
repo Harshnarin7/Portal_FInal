@@ -8,21 +8,43 @@ import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
 
-/* ════════════════════════════════════════════
+/* 
    CONSTANTS & PURE HELPERS
-════════════════════════════════════════════ */
+ */
 const DAYS   = [1, 2, 3, 4, 5, 6, 7];
 const mkRow  = () => ({ id: Date.now() + Math.random(), fio2: "", dur: "" });
+const mkDay  = d => ({ day: d, expanded: d === 1, start1: "", start2: "", w1: [mkRow()], w2: [mkRow()] });
 
 const rowAUC      = (fio2, dur) => ((parseFloat(fio2) || 0) / 100) * (parseFloat(dur) || 0);
 const windowAUC   = rows => rows.reduce((s, r) => s + rowAUC(r.fio2, r.dur), 0);
 const windowHours = rows => rows.reduce((s, r) => s + (parseFloat(r.dur) || 0), 0);
 const dayAUC      = (w1, w2) => windowAUC(w1) + windowAUC(w2);
 const clamp       = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const totalGestationDays = (weeks, days) => {
+  if (weeks === null || weeks === undefined || weeks === "") return null;
+  if (days === null || days === undefined || days === "") return null;
+  const w = Number(weeks);
+  const d = Number(days);
+  return Number.isNaN(w) || Number.isNaN(d) ? null : w * 7 + d;
+};
+const formatGestation = (weeks, days) =>
+  weeks !== null && weeks !== undefined && weeks !== "" ? `${weeks}+${days ?? 0} wks` : "";
+const formatDateDisplay = value => {
+  if (!value) return "";
+  const [datePart] = String(value).split("T");
+  const parts = datePart.includes("-") ? datePart.split("-") : datePart.split("/");
+  if (parts.length !== 3) return datePart;
+  if (datePart.includes("-")) {
+    const [yyyy, mm, dd] = parts;
+    return `${dd}-${mm}-${yyyy}`;
+  }
+  const [dd, mm, yyyy] = parts;
+  return `${dd}-${mm}-${yyyy}`;
+};
 
-/* ════════════════════════════════════════════
+/* 
    HOURS PROGRESS BAR
-════════════════════════════════════════════ */
+ */
 function HoursBar({ used }) {
   const pct  = clamp((used / 12) * 100, 0, 100);
   const over = used > 12.01;
@@ -34,15 +56,15 @@ function HoursBar({ used }) {
         <div className={`hb-fill ${cls}`} style={{ width: `${pct}%` }} />
       </div>
       <span className={`hb-label ${cls}`}>
-        {used.toFixed(1)} / 12 h {done ? "✓" : over ? "⚠ exceeds 12h" : ""}
+        {used.toFixed(1)} / 12 h {done ? "" : over ? "exceeds 12h" : ""}
       </span>
     </div>
   );
 }
 
-/* ════════════════════════════════════════════
-   WINDOW CARD  (1–12h  or  13–24h)
-════════════════════════════════════════════ */
+/* 
+   WINDOW CARD  (112h  or  1324h)
+ */
 function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
   const hrs = windowHours(rows);
   const auc = windowAUC(rows);
@@ -57,7 +79,7 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
 
       {/* Column labels */}
       <div className="entry-head">
-        <span>FiO₂ (%)</span>
+        <span>FiO2 (%)</span>
         <span>Duration (hr)</span>
         <span>AUC</span>
         <span></span>
@@ -70,17 +92,17 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
         return (
           <div key={row.id} className="entry-row">
             <input
-              type="number" min={21} max={100} placeholder="21–100"
+              type="number" min={21} max={100} placeholder="21-100"
               value={row.fio2}
               className={`entry-input${fioErr ? " entry-input--err" : row.fio2 ? " entry-input--ok" : ""}`}
               onChange={e => onRowChange(row.id, "fio2", e.target.value)} />
             <input
-              type="number" min={0} max={12} placeholder="0–12"
+              type="number" min={0} max={12} placeholder="0-12"
               value={row.dur}
               className={`entry-input${row.dur && Number(row.dur) < 0 ? " entry-input--err" : row.dur ? " entry-input--ok" : ""}`}
               onChange={e => onRowChange(row.id, "dur", e.target.value)} />
             <div className="entry-auc">
-              {ra > 0 ? ra.toFixed(2) : "—"}
+              {ra > 0 ? ra.toFixed(2) : "-"}
             </div>
             <button type="button" className="entry-del"
               onClick={() => onDelRow(row.id)}
@@ -94,7 +116,7 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
 
       {/* Add row */}
       <button type="button" className="add-row-btn" onClick={onAddRow}>
-        <span className="add-row-icon">+</span> Add FiO₂ Change
+        <span className="add-row-icon">+</span> Add FiO2 Change
       </button>
 
       {/* Hours bar */}
@@ -109,26 +131,26 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
   );
 }
 
-/* ════════════════════════════════════════════
+/* 
    MAIN COMPONENT
-════════════════════════════════════════════ */
+ */
 export default function Fio2AUCForm() {
   const navigate = useNavigate();
   const { markFormCompleted } = useFormProgress();
   const { enrollmentId }      = useParams();
   const { patientData }       = usePatient();
 
-  /* ── Patient identification ── */
+  /*  Patient identification  */
   const [patient, setPatient] = useState({
-    enrollment_id: "", dob: "", gestation: "", mother_name: "", maternal_uid: ""
+    enrollment_id: "", dob: "", gestation: "", gestation_source: "", mother_name: "", maternal_uid: ""
   });
 
-  /* ── Per-day state ── */
+  /*  Per-day state  */
   const [days, setDays] = useState(() =>
-    DAYS.map(d => ({ day: d, expanded: d === 1, w1: [mkRow()], w2: [mkRow()] }))
+    DAYS.map(mkDay)
   );
 
-  /* ── UI state ── */
+  /*  UI state  */
   const [message, setMessage] = useState("");
   const [isSaved, setIsSaved] = useState(false);
   // Tracks whether there are edits since the last successful save (POST or PUT).
@@ -137,44 +159,64 @@ export default function Fio2AUCForm() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "saving" | "saved" | "error" | ""
   
-  /* ── Auto-save refs ── */
+  /*  Auto-save refs  */
   const autoSaveTimer = useRef(null);
   const daysRef = useRef(null);
 
-  /* ── Load identification from PatientContext ── */
+  /*  Load identification from PatientContext  */
   useEffect(() => {
     if (!patientData) return;
-    const g = patientData.gestation_weeks != null
-      ? `${patientData.gestation_weeks}+${patientData.gestation_days ?? 0} wks` : "";
+    const g = formatGestation(patientData.gestation_weeks, patientData.gestation_days);
     setPatient(p => ({
       ...p,
       enrollment_id: patientData.enrollment_id || "",
-      dob:           patientData.dob || "",
-      gestation:     g,
+      dob:           p.dob || formatDateDisplay(patientData.dob),
+      gestation:     p.gestation || g,
       mother_name:   patientData.mother_name  || patientData.baby_name || "",
       maternal_uid:  patientData.maternal_uid || "",
     }));
   }, [patientData]);
 
-  /* ── Load identification from Form B ── */
+  /*  Load identification from Form B  */
   useEffect(() => {
     if (!enrollmentId) return;
-    api.get(`/birth-resuscitation/${enrollmentId}`).then(res => {
+    api.get(`/birth-resuscitation/${enrollmentId}`).then(async res => {
       const b = res?.data || {};
-      const g = b?.gestation_weeks != null
-        ? `${b.gestation_weeks}+${b.gestation_days ?? 0} wks` : "";
+      let gestWeeks = b?.gestation_weeks;
+      let gestDays = b?.gestation_days ?? 0;
+      let gestSource = b?.gestation_source || "Form B";
+
+      try {
+        const dRes = await api.get(`/postnatal-day1/${enrollmentId}`);
+        const d = dRes?.data || {};
+        const originalWeeks = b?.original_gestation_weeks ?? b?.gestation_weeks;
+        const originalDays = b?.original_gestation_days ?? b?.gestation_days ?? 0;
+        const originalTotal = totalGestationDays(originalWeeks, originalDays);
+        const nbsTotal = totalGestationDays(d?.gestation_weeks, d?.gestation_days);
+        const useNbs = d?.ga_method === "NBS" && nbsTotal !== null && (
+          originalTotal === null || Math.abs(nbsTotal - originalTotal) > 14
+        );
+        if (useNbs) {
+          gestWeeks = d.gestation_weeks;
+          gestDays = d.gestation_days ?? 0;
+          gestSource = "Form D NBS";
+        }
+      } catch (_) {}
+
+      const g = formatGestation(gestWeeks, gestDays);
       setPatient(p => ({
         ...p,
         enrollment_id: b?.enrollment_id || enrollmentId,
-        dob:           b?.date_of_birth ? b.date_of_birth.split("T")[0] : "",
-        gestation:     g,
+        dob:           formatDateDisplay(b?.date_of_birth) || p.dob,
+        gestation:     g || p.gestation,
+        gestation_source: gestSource,
         mother_name:   `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim(),
         maternal_uid:  b?.baby_uid || b?.maternal_uid || "",
       }));
     }).catch(() => {});
   }, [enrollmentId]);
 
-  /* ── Load saved FiO₂ AUC record and rehydrate all 7 days ── */
+  /*  Load saved FiO2 AUC record and rehydrate all 7 days  */
   useEffect(() => {
     if (!enrollmentId) return;
     api.get(`/fio2-auc/${enrollmentId}`)
@@ -186,8 +228,8 @@ export default function Fio2AUCForm() {
         if (!logs.length) return;
 
         setDays(prev => prev.map(dayState => {
-          const w1Log = logs.find(l => l.day === dayState.day && l.block === "0–12h");
-          const w2Log = logs.find(l => l.day === dayState.day && l.block === "12–24h");
+          const w1Log = logs.find(l => l.day === dayState.day && String(l.block || "").startsWith("0"));
+          const w2Log = logs.find(l => l.day === dayState.day && String(l.block || "").startsWith("12"));
 
           const restoreEntries = (log) => {
             if (!log) return [mkRow()];
@@ -203,6 +245,8 @@ export default function Fio2AUCForm() {
 
           return {
             ...dayState,
+            start1: w1Log?.start_time || "",
+            start2: w2Log?.start_time || "",
             w1: restoreEntries(w1Log),
             w2: restoreEntries(w2Log),
             // Expand day 1, collapse rest (same as initial state)
@@ -215,11 +259,11 @@ export default function Fio2AUCForm() {
       })
       .catch(err => {
         if (err?.response?.status !== 404)
-          console.log("❌ Error loading FiO₂ AUC data", err);
+          console.log(" Error loading FiO2 AUC data", err);
       });
   }, [enrollmentId]);
 
-  /* ── Warn before unload if there are unsaved changes ── */
+  /*  Warn before unload if there are unsaved changes  */
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (hasUnsavedChanges) {
@@ -232,12 +276,16 @@ export default function Fio2AUCForm() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  /* ── Day helpers ── */
+  /*  Day helpers  */
   const setDay = useCallback((dayNum, fn) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, ...fn(d) } : d)), []);
 
   const toggleDay     = d  => setDay(d, x => ({ expanded: !x.expanded }));
   const addRow        = (d, win) => { setHasUnsavedChanges(true); setDay(d, x => ({ [win]: [...x[win], mkRow()] })); };
+  const updateStartTime = (d, field, value) => {
+    setHasUnsavedChanges(true);
+    setDay(d, () => ({ [field]: value }));
+  };
   const delRow        = (d, win, id) => {
     setHasUnsavedChanges(true);
     setDay(d, x => ({ [win]: x[win].length > 1 ? x[win].filter(r => r.id !== id) : x[win] }));
@@ -264,7 +312,7 @@ export default function Fio2AUCForm() {
     });
   };
 
-  /* ── Totals ── */
+  /*  Totals  */
   const grandTotal   = days.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
   const meanFiO2     = ((grandTotal / 168) * 100).toFixed(1);
   const excessO2     = Math.max(0, grandTotal - 0.21 * 168).toFixed(2);
@@ -274,7 +322,23 @@ export default function Fio2AUCForm() {
     return Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
   }).length;
 
-  /* ── Auto-save every 10 seconds (silent, no validation messages) ── */
+  const buildDraftPayload = (currentDays) => {
+    const total = currentDays.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
+    const mean = ((total / 168) * 100).toFixed(1);
+    const excess = Math.max(0, total - 0.21 * 168).toFixed(2);
+    return {
+      enrollment_id:   enrollmentId,
+      total_auc:       parseFloat(total.toFixed(3)),
+      mean_daily_fio2: parseFloat(mean),
+      excess_o2_auc:   parseFloat(excess),
+      fio2_logs: currentDays.flatMap(d => [
+        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+      ]),
+    };
+  };
+
+  /*  Auto-save every 10 seconds (silent, no validation messages)  */
   const autoSave = useCallback(async () => {
     // Only autosave when there's something new to persist; this is a dirty-flag
     // check, not a "has it ever been saved" check, so it keeps firing on Day 2..7
@@ -288,8 +352,8 @@ export default function Fio2AUCForm() {
       const excessO2Val = Math.max(0, grandTotalVal - 0.21 * 168).toFixed(2);
       
       const fio2_logs = currentDays.flatMap(d => [
-        { day: d.day, block: "0–12h",  entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-        { day: d.day, block: "12–24h", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
       ]);
       const payload = {
         enrollment_id:   enrollmentId,
@@ -315,7 +379,7 @@ export default function Fio2AUCForm() {
     }
   }, [enrollmentId, isSaved, hasUnsavedChanges]);
 
-  /* ── Auto-save interval (10 seconds) ── */
+  /*  Auto-save interval (10 seconds)  */
   useEffect(() => {
     daysRef.current = days;
   }, [days]);
@@ -332,10 +396,10 @@ export default function Fio2AUCForm() {
     };
   }, [autoSave]);
 
-  /* ── Save / Submit ── */
+  /*  Save / Submit  */
   const handleSubmit = async () => {
     try {
-      if (!enrollmentId) { setMessage("❌ Enrollment ID missing"); return; }
+      if (!enrollmentId) { setMessage("Enrollment ID missing"); return false; }
       
       // Validate all entries before saving
       for (const day of days) {
@@ -344,25 +408,25 @@ export default function Fio2AUCForm() {
             const fio2 = parseFloat(row.fio2);
             const dur = parseFloat(row.dur);
             if (row.fio2 && (isNaN(fio2) || fio2 < 0 || fio2 > 100)) {
-              setMessage(`❌ FiO₂ must be 0–100 (Day ${day.day}, ${win === "w1" ? "0–12h" : "12–24h"})`);
-              return;
+              setMessage(`FiO2 must be 0-100 (Day ${day.day}, ${win === "w1" ? "0-12h" : "12-24h"})`);
+              return false;
             }
             if (row.dur && (isNaN(dur) || dur <= 0 || dur > 12)) {
-              setMessage(`❌ Duration must be 0–12 hours (Day ${day.day}, ${win === "w1" ? "0–12h" : "12–24h"})`);
-              return;
+              setMessage(`Duration must be 0-12 hours (Day ${day.day}, ${win === "w1" ? "0-12h" : "12-24h"})`);
+              return false;
             }
           }
           const windowHrs = windowHours(day[win]);
           if (windowHrs > 12.01) {
-            setMessage(`❌ ${win === "w1" ? "0–12h" : "12–24h"} window exceeds 12 hours on Day ${day.day}`);
-            return;
+            setMessage(`${win === "w1" ? "0-12h" : "12-24h"} window exceeds 12 hours on Day ${day.day}`);
+            return false;
           }
         }
       }
       
       const fio2_logs = days.flatMap(d => [
-        { day: d.day, block: "0–12h",  entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-        { day: d.day, block: "12–24h", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
       ]);
       const payload = {
         enrollment_id:   enrollmentId,
@@ -377,41 +441,70 @@ export default function Fio2AUCForm() {
         await api.post("/fio2-auc/", payload);
       }
       markFormCompleted("fio2_auc");
-      setMessage("✅ FiO₂ data saved successfully");
+      setMessage("FiO2 data saved successfully");
       setIsSaved(true);
       setHasUnsavedChanges(false);
       setTimeout(() => setMessage(""), 3000);
+      return true;
     } catch (err) {
       console.error(err);
-      setMessage("❌ Error saving FiO₂ data");
+      setMessage("Error saving FiO2 data");
+      return false;
+    }
+  };
+
+  const saveForLater = async () => {
+    if (!enrollmentId) {
+      setMessage("Enrollment ID missing. Cannot save draft.");
+      return false;
+    }
+    try {
+      const payload = buildDraftPayload(days);
+      if (isSaved) {
+        await api.put(`/fio2-auc/${enrollmentId}`, payload);
+      } else {
+        await api.post("/fio2-auc/", payload);
+        setIsSaved(true);
+      }
+      setHasUnsavedChanges(false);
+      setMessage("Draft saved - return any time to complete");
+      setTimeout(() => setMessage(""), 3000);
+      return true;
+    } catch (err) {
+      console.error("Draft save failed:", err);
+      setMessage("Draft save failed.");
+      return false;
     }
   };
 
   // Route matches the registered path in App.js (/vs6-1/:enrollmentId), not
   // "/resp-cv-neuro/..." which does not exist and previously led to a blank page.
-  const handleNext = async () => { await handleSubmit(); navigate(`/vs6-1/${enrollmentId}`); };
+  const handleNext = async () => {
+    const ok = await handleSubmit();
+    if (ok) navigate(`/vs6-1/${enrollmentId}`);
+  };
 
   const handlePrevious = async () => {
     if (isSaved) {
       navigate(`/form-e/${enrollmentId}`);
     } else {
-      await handleSubmit();
-      navigate(`/form-e/${enrollmentId}`);
+      const ok = await handleSubmit();
+      if (ok) navigate(`/form-e/${enrollmentId}`);
     }
   };
 
-  /* ════════════════════════════════════════════
+  /* 
      RENDER
-  ════════════════════════════════════════════ */
+   */
   return (
     <div className="fio2-page">
 
-      {/* ── PAGE HEADER (matches FormC/D/E style) ── */}
+      {/*  PAGE HEADER (matches FormC/D/E style)  */}
       <div className="form-header-action-row">
         <div className="form-header-title-area">
-          <div className="form-breadcrumb"><span style={{fontSize:12}}>🏠</span> HELPER FORM 1</div>
-          <h2 className="form-main-title">FiO₂ AUC Log</h2>
-          <p className="form-main-subtitle">Area under the FiO₂ curve — first 7 days of life</p>
+          <div className="form-breadcrumb"><span style={{fontSize:12}}></span> HELPER FORM 1</div>
+          <h2 className="form-main-title">FiO2 AUC Log</h2>
+          <p className="form-main-subtitle">Area under the FiO2 curve - first 7 days of life</p>
         </div>
         <div className="form-header-meta-area">
           {patient.enrollment_id && (
@@ -428,26 +521,28 @@ export default function Fio2AUCForm() {
           )}
           {patient.gestation && (
             <div className="screening-id-badge">
-              <span className="id-label">Gestation</span>
+              <span className="id-label">
+                Gestation{patient.gestation_source === "Form D NBS" ? " (NBS)" : ""}
+              </span>
               <span className="id-val">{patient.gestation}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Auto-save status indicator ── */}
+      {/*  Auto-save status indicator  */}
       {autoSaveStatus && (
         <div className={`fio2-autosave-toast ${autoSaveStatus}`}>
-          {autoSaveStatus === "saving" && "⏳ Auto-saving..."}
-          {autoSaveStatus === "saved" && "✅ Auto-saved"}
-          {autoSaveStatus === "error" && "⚠️ Auto-save failed"}
+          {autoSaveStatus === "saving" && "Auto-saving..."}
+          {autoSaveStatus === "saved" && "Auto-saved"}
+          {autoSaveStatus === "error" && "Auto-save failed"}
         </div>
       )}
 
-      {/* ── MAIN ── */}
+      {/*  MAIN  */}
       <main className="fio2-main">
 
-        {/* ── KPI CARDS ── */}
+        {/*  KPI CARDS  */}
         <section className="fio2-kpi-grid">
           {/* Wide card: Total AUC + Excess O2 */}
           <div className="kpi-card kpi-card--primary">
@@ -455,14 +550,14 @@ export default function Fio2AUCForm() {
               <p className="kpi-label">7-Day Cumulative Total</p>
               <div className="kpi-value-row">
                 <span className="kpi-big">{grandTotal.toFixed(1)}</span>
-                <span className="kpi-unit">FiO₂·hr</span>
+                <span className="kpi-unit">FiO2-hr</span>
               </div>
             </div>
             <div className="kpi-primary-right">
-              <p className="kpi-label">Cumulative Excess O₂</p>
+              <p className="kpi-label">Cumulative Excess O2</p>
               <div className="kpi-value-row kpi-value-row--right">
                 <span className="kpi-big">{excessO2}</span>
-                <span className="kpi-unit">&gt;21% FiO₂·hr</span>
+                <span className="kpi-unit">&gt;21% FiO2-hr</span>
               </div>
             </div>
             <div className="kpi-glow" />
@@ -470,7 +565,7 @@ export default function Fio2AUCForm() {
 
           {/* Mean FiO2 */}
           <div className="kpi-card kpi-card--white">
-            <p className="kpi-label kpi-label--muted">Average Mean FiO₂</p>
+            <p className="kpi-label kpi-label--muted">Average Mean FiO2</p>
             <div className="kpi-value-row">
               <span className="kpi-big kpi-big--dark">{meanFiO2}%</span>
               <span className="kpi-unit kpi-unit--muted">Trial Avg</span>
@@ -492,11 +587,11 @@ export default function Fio2AUCForm() {
           </div>
         </section>
 
-        {/* ── LOGGING TITLE ── */}
+        {/*  LOGGING TITLE  */}
         <div className="fio2-section-header">
           <h3 className="fio2-section-title">
             <span className="fio2-section-icon">&#128203;</span>
-            Daily FiO₂ Logging (First 7 Days)
+            Daily FiO2 Logging (First 7 Days)
           </h3>
           <div className="fio2-section-actions">
             <button type="button" className="btn-export" onClick={() => window.print()}>
@@ -508,14 +603,14 @@ export default function Fio2AUCForm() {
           </div>
         </div>
 
-        {/* ── DAY CARDS ── */}
+        {/*  DAY CARDS  */}
         <div className="day-stack">
           {days.map((d, idx) => {
             const dAuc  = dayAUC(d.w1, d.w2);
             const mFiO2 = ((dAuc / 24) * 100).toFixed(1);
             const h1    = windowHours(d.w1);
             const h2    = windowHours(d.w2);
-            // Use a tolerance instead of strict equality — summed parseFloat
+            // Use a tolerance instead of strict equality  summed parseFloat
             // durations (e.g. 4.1 + 4.1 + 3.8) can land on 11.999999999999998
             // rather than exactly 12, which would otherwise never register as done.
             const done  = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
@@ -535,7 +630,7 @@ export default function Fio2AUCForm() {
                   style={{ cursor: isLocked ? "not-allowed" : "pointer" }}>
                   <div className="day-header-left">
                     <span className={`day-bubble${d.expanded ? " day-bubble--active" : ""}${isLocked ? " day-bubble--locked" : ""}`}>
-                      {isLocked ? "🔒" : d.day}
+                      {isLocked ? "L" : d.day}
                     </span>
                     <span className="day-title" style={{ color: isLocked ? "#94a3b8" : undefined }}>
                       Day {d.day}
@@ -554,30 +649,48 @@ export default function Fio2AUCForm() {
                   </div>
                   <div className="day-header-right">
                     {isLocked
-                      ? <span className="locked-pill">🔒 Locked</span>
+                      ? <span className="locked-pill">Locked</span>
                       : done
                         ? <span className="validated-pill">&#10003; VALIDATED</span>
                         : <span className="incomplete-pill">&#9679; Incomplete</span>
                     }
                     {!isLocked && (
-                      <span className="day-chevron">{d.expanded ? "▲" : "▼"}</span>
+                      <span className="day-chevron">{d.expanded ? "^" : "v"}</span>
                     )}
                   </div>
                 </div>
 
-                {/* Day body — only shown if unlocked and expanded */}
+                {/* Day body  only shown if unlocked and expanded */}
                 {d.expanded && !isLocked && (
                   <div className="day-body">
+                    <div className="start-time-grid">
+                      <div className="start-time-field">
+                        <label>Start timing hour of life - 1-12hr</label>
+                        <input
+                          type="time"
+                          value={d.start1 || ""}
+                          onChange={e => updateStartTime(d.day, "start1", e.target.value)}
+                          className="entry-input" />
+                      </div>
+                      <div className="start-time-field">
+                        <label>Start timing hour of life - 13-24h</label>
+                        <input
+                          type="time"
+                          value={d.start2 || ""}
+                          onChange={e => updateStartTime(d.day, "start2", e.target.value)}
+                          className="entry-input" />
+                      </div>
+                    </div>
                     <div className="windows-grid">
                       <WindowCard
-                        title="WINDOW: 1 – 12 HOURS"
+                        title="WINDOW: 1 - 12 HOURS"
                         rows={d.w1}
                         onRowChange={(id, f, v) => updateRow(d.day, "w1", id, f, v)}
                         onAddRow={() => addRow(d.day, "w1")}
                         onDelRow={id => delRow(d.day, "w1", id)} />
 
                       <WindowCard
-                        title="WINDOW: 13 – 24 HOURS"
+                        title="WINDOW: 13 - 24 HOURS"
                         rows={d.w2}
                         onRowChange={(id, f, v) => updateRow(d.day, "w2", id, f, v)}
                         onAddRow={() => addRow(d.day, "w2")}
@@ -591,11 +704,11 @@ export default function Fio2AUCForm() {
                         <span className="dmt-value dmt-value--blue">{dAuc.toFixed(2)}</span>
                       </div>
                       <div className="day-metric-tile">
-                        <span className="dmt-label">Mean Daily FiO₂</span>
+                        <span className="dmt-label">Mean Daily FiO2</span>
                         <span className="dmt-value dmt-value--blue">{mFiO2}%</span>
                       </div>
                       <div className="day-metric-tile">
-                        <span className="dmt-label">Excess Oxygen AUC</span>
+                        <span className="dmt-label">Excess O2 AUC</span>
                         <span className="dmt-value dmt-value--green">
                           {Math.max(0, dAuc - 0.21 * 24).toFixed(3)}
                         </span>
@@ -608,23 +721,23 @@ export default function Fio2AUCForm() {
           })}
         </div>
 
-        {/* ── INFO CARD ── */}
+        {/*  INFO CARD  */}
         <div className="info-card">
           <span className="info-icon">&#9432;</span>
           <div className="info-content">
             <h4 className="info-title">Logging Rules &amp; Formulas</h4>
             <ul className="info-list">
-              <li><strong>Daily Cumulative AUC</strong> = Sum of (FiO₂ × Hours) for the full 24h period.</li>
-              <li><strong>Excess O₂ AUC</strong> = Total Cumulative AUC − (21% × 24 hours).</li>
-              <li>Record actual FiO₂ delivered, even if it differs from the prescribed set point.</li>
-              <li>If FiO₂ changed within a 12h block, add a new row to record the duration of each FiO₂ level.</li>
+              <li><strong>Daily Cumulative AUC</strong> = Sum of (FiO2 x Hours) for the full 24h period.</li>
+              <li><strong>Excess O2 AUC</strong> = Total Cumulative AUC - (21% x 24 hours).</li>
+              <li>Record actual FiO2 delivered, even if it differs from the prescribed set point.</li>
+              <li>If FiO2 changed within a 12h block, add a new row to record the duration of each FiO2 level.</li>
             </ul>
           </div>
         </div>
 
-        {/* ── MESSAGE ── */}
+        {/*  MESSAGE  */}
         {message && (
-          <div className={`fio2-message${message.startsWith("✅") ? " fio2-message--ok" : " fio2-message--err"}`}>
+          <div className={`fio2-message${/saved|successfully/i.test(message) ? " fio2-message--ok" : " fio2-message--err"}`}>
             {message}
           </div>
         )}
@@ -632,15 +745,19 @@ export default function Fio2AUCForm() {
         <div className="fio2-spacer" />
       </main>
 
-      {/* ── STICKY FOOTER — matches FormC/D/E exactly ── */}
+      {/*  STICKY FOOTER  matches FormC/D/E exactly  */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
           onClick={handlePrevious}>
-          <ArrowLeft size={15} /> Postnatal Day 1
+          <ArrowLeft size={15} /> NICU Admission
         </button>
         <button type="button" className="btn btn-save btn-outline-blue"
           onClick={handleSubmit}>
           <Save size={15} /> Save
+        </button>
+        <button type="button" className="btn btn-draft"
+          onClick={saveForLater}>
+          <Save size={15} /> Save for Later
         </button>
         <div className="footer-step-indicator">
           <span className="step-text">HELPER 1 OF 4</span>

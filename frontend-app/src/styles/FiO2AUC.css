@@ -74,8 +74,10 @@
   overflow: hidden;
 }
 .kpi-card--primary {
-  background: var(--c-primary-container);
-  color: var(--c-on-primary-container);
+  background: #ffffff;
+  color: var(--c-on-surface);
+  border: 1px solid var(--c-outline-variant);
+  box-shadow: var(--shadow-1), inset 5px 0 0 var(--c-primary);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -99,11 +101,25 @@
   position: absolute;
   right: -64px; top: -64px;
   width: 256px; height: 256px;
-  background: var(--c-primary);
-  opacity: 0.2;
+  background: var(--c-surface-container-highest);
+  opacity: 0.55;
   border-radius: 50%;
   filter: blur(48px);
   pointer-events: none;
+}
+
+.kpi-card--primary .kpi-label {
+  color: var(--c-on-surface-variant);
+  opacity: 1;
+}
+
+.kpi-card--primary .kpi-big {
+  color: var(--c-on-surface);
+}
+
+.kpi-card--primary .kpi-unit {
+  color: var(--c-on-surface-variant);
+  opacity: 1;
 }
 
 .kpi-label {
@@ -277,6 +293,26 @@
 
 /* Day body */
 .day-body { padding: 24px; background: var(--c-background); }
+
+.start-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.start-time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.start-time-field label {
+  color: var(--c-on-surface-variant);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
 
 .windows-grid {
   display: grid;
