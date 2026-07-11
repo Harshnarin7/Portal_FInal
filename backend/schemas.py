@@ -1395,43 +1395,63 @@ class RespCVNeuroDayCreate(BaseModel):
     enrollment_id: str
     nicu_day:      int
 
+    # 2.1 Weight
+    weight_kg: Optional[str] = None
+
     # Respiratory
-    support_modes:      Optional[str]   = None
-    max_fio2:           Optional[float] = None
-    max_flow:           Optional[float] = None
-    supp_o2:            Optional[bool]  = None
-    surfactant:         Optional[bool]  = None
-    caffeine:           Optional[bool]  = None
+    respiratory_support: Optional[bool]  = None  # #1
+    endotracheal_intubation: Optional[bool] = None  # #2
+    support_modes:      Optional[str]   = None  # #3
+    map_cpap:           Optional[float] = None  # #4
+    max_fio2:           Optional[float] = None  # #5
+    max_flow:           Optional[float] = None  # #6
+    supp_o2:            Optional[bool]  = None  # #7
+    lowest_ph:          Optional[str]   = None  # #8
+    pao2_range:         Optional[str]   = None  # #9
+    paco2_range:        Optional[str]   = None  # #10
+    surfactant:         Optional[bool]  = None  # #11
+    caffeine:           Optional[bool]  = None  # #12
+    apnea_count:              Optional[str] = None  # #13
+    desaturation_count:       Optional[str] = None  # #14
+    severe_desaturation_count: Optional[str] = None  # #15
+    extub_attempted:    Optional[bool]  = None  # #16
+    extub_failure:      Optional[bool]  = None  # #17
+    pulm_hemorrhage:    Optional[bool]  = None  # #18
+    pneumothorax:       Optional[bool]  = None  # #19
+    chest_drain:        Optional[bool]  = None  # #20
+    pphn:               Optional[bool]  = None  # #21
+    postnatal_steroids: Optional[bool]  = None  # #22
+
+    # Legacy fields kept for backward compatibility with old records
+    # (superseded by apnea_count / desaturation_count above)
     apnea:              Optional[bool]  = None
     desaturations:      Optional[bool]  = None
-    extub_attempted:    Optional[bool]  = None
-    extub_failure:      Optional[bool]  = None
-    pulm_hemorrhage:    Optional[bool]  = None
-    pneumothorax:       Optional[bool]  = None
-    chest_drain:        Optional[bool]  = None
-    pphn:               Optional[bool]  = None
-    postnatal_steroids: Optional[bool]  = None
 
     # Cardiovascular
-    pda_suspected:      Optional[bool]  = None
-    echo_done:          Optional[bool]  = None
-    hs_pda:             Optional[bool]  = None
+    pda_suspected:      Optional[bool]  = None  # #23
+    echo_done:          Optional[bool]  = None  # #24
+    hs_pda:             Optional[bool]  = None  # #25
+    shock:              Optional[bool]  = None  # #26
+    vasoactive_support: Optional[bool]  = None  # #27
+    vasoactive_drugs:   Optional[str]   = None  # #28
+    fluid_bolus:        Optional[str]   = None  # #29
+
+    # Legacy field kept for backward compatibility with old records
     pda_medical_rx:     Optional[bool]  = None
-    shock:              Optional[bool]  = None
-    vasoactive_support: Optional[bool]  = None
-    vasoactive_drugs:   Optional[str]   = None
 
     # Neurological
-    cranial_usg:          Optional[bool] = None
-    ivh:                  Optional[bool] = None
+    cranial_usg:          Optional[bool] = None  # #30
+    ivh:                  Optional[bool] = None  # #31
     ivh_grade:            Optional[str]  = None
+    cpvl_confirmed:       Optional[bool] = None  # #32
+    ventriculomegaly:     Optional[bool] = None  # #33
+    clinical_seizures:    Optional[bool] = None  # #34
+    eeg_seizures:         Optional[bool] = None  # #35
+    aeds_given:           Optional[bool] = None  # #36
+    non_ivh_ich:          Optional[bool] = None  # #37
+
+    # Legacy fields kept for backward compatibility with old records
     pvl_suspected:        Optional[bool] = None
-    cpvl_confirmed:       Optional[bool] = None
-    ventriculomegaly:     Optional[bool] = None
-    clinical_seizures:    Optional[bool] = None
-    eeg_seizures:         Optional[bool] = None
-    aeds_given:           Optional[bool] = None
-    non_ivh_ich:          Optional[bool] = None
     meningitis_suspected: Optional[bool] = None
 
     # Workflow
