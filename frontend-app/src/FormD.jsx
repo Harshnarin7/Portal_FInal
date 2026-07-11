@@ -296,7 +296,7 @@ export default function FormD() {
   const [formData, setFormData] = useState({
     enrollment_id: "", gestation_weeks: "", gestation_days: "",
     original_gestation_weeks: "", original_gestation_days: "",
-    annual_number: "", baby_name: "", baby_uid: "", birth_weight: "",
+    annual_number: "", baby_name: "", baby_uid: "", birth_weight: "", site_name: "",
     ga_method: "", gender: "", growth_status: "", sga_centile: "",
     plastic_wrap: "", remained_intubated: "", et_intubation: "", labored_breathing: "",
     surfactant_required: "", surfactant_brand_other: "", surfactant_indication: "",
@@ -371,6 +371,13 @@ export default function FormD() {
      Phase 2: load saved postnatal-day1 record and restore ALL fields ── */
   useEffect(() => {
     if (!enrollmentId) return;
+
+    // Reset immediately: without this, switching to a patient with no
+    // Form D record yet keeps isRecordSaved=true from whichever patient
+    // was viewed previously, which makes autosave/save fire PUT instead
+    // of POST and the backend 404s.
+    setIsRecordSaved(false);
+
     const loadData = async () => {
       try {
         // ── Form B: identification fields (readonly) ──
@@ -378,6 +385,7 @@ export default function FormD() {
         const b = res?.data || {};
         let motherName = "";
         const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
+        let siteName = "";
         if (screeningId) {
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
@@ -385,6 +393,10 @@ export default function FormD() {
             const first = pii.mother_first_name || pii.mother_name_first || "";
             const last  = pii.mother_surname    || pii.mother_name_surname || "";
             motherName  = `${first} ${last}`.trim();
+          } catch (_) {}
+          try {
+            const siteRes = await api.get(`/screenings/by-screening-id/${screeningId}`);
+            siteName = siteRes.data?.site_name || "";
           } catch (_) {}
         }
         if (!motherName)
@@ -406,6 +418,7 @@ export default function FormD() {
           growth_status:   growth.growth_status || prev.growth_status,
           sga_centile:     growth.sga_centile || prev.sga_centile,
           baby_name:       motherName ? `Baby of ${motherName}` : "",
+          site_name:       siteName,
         }));
       } catch (err) { console.log("❌ No Form B data found", err); }
 
@@ -891,10 +904,12 @@ export default function FormD() {
                     <label>1. Enrollment ID</label>
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
-                  <div className="form-group">
-                    <label>2. Annual Number <span className="field-note">(auto)</span></label>
-                    <input value={formData.annual_number || ""} readOnly className="readonly-input" />
-                  </div>
+                  {formData.site_name === "PGIMER" && (
+                    <div className="form-group">
+                      <label>2. Annual Number <span className="field-note">(auto)</span></label>
+                      <input value={formData.annual_number || ""} readOnly className="readonly-input" />
+                    </div>
+                  )}
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
