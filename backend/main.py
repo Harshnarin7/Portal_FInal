@@ -1663,36 +1663,52 @@ def get_enrollment_status(
 # ============================================================================
 
 def _compute_completion_pct(record) -> int:
-    """Compute completion % for a RespCVNeuroDayLog row."""
-    resp_fields = [
-        "support_modes", "max_fio2", "max_flow",
-        "supp_o2", "surfactant", "caffeine", "apnea",
-        "desaturations", "extub_attempted", "extub_failure",
-        "pulm_hemorrhage", "pneumothorax", "chest_drain",
-        "pphn", "postnatal_steroids",
-    ]  # 15 fields
-    cv_fields = [
-        "pda_suspected", "echo_done", "hs_pda",
-        "pda_medical_rx", "shock", "vasoactive_support",
-    ]  # 6 fields
-    neuro_base = [
-        "cranial_usg", "ivh", "pvl_suspected", "cpvl_confirmed",
-        "ventriculomegaly", "clinical_seizures", "eeg_seizures",
-        "aeds_given", "non_ivh_ich", "meningitis_suspected",
-    ]  # 10 base fields
+    """Compute completion % for a RespCVNeuroDayLog row (spec items 1-37)."""
 
     def answered(val):
         return val is not None and val != ""
 
-    resp_done  = sum(1 for f in resp_fields  if answered(getattr(record, f, None)))
-    cv_done    = sum(1 for f in cv_fields    if answered(getattr(record, f, None)))
-    neuro_done = sum(1 for f in neuro_base   if answered(getattr(record, f, None)))
+    # ── RESPIRATORY (items 1-22) ──
+    resp_bool_fields = [
+        "respiratory_support", "endotracheal_intubation",       # 1, 2
+        "supp_o2", "surfactant", "caffeine",                    # 7, 11, 12
+        "extub_attempted", "extub_failure", "pulm_hemorrhage",  # 16, 17, 18
+        "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",  # 19-22
+    ]
+    resp_text_fields = [
+        "map_cpap", "max_fio2", "max_flow",                     # 4, 5, 6
+        "lowest_ph", "pao2_range", "paco2_range",                # 8, 9, 10
+        "apnea_count", "desaturation_count", "severe_desaturation_count",  # 13, 14, 15
+    ]
+    resp_done = (
+        sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
+        + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
+        + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
+    )
+    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1  # = 22
 
+    # ── CARDIOVASCULAR (items 23-29) ──
+    cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27
+    vasoactive_visible = getattr(record, "vasoactive_support", None) is True
+    cv_done = (
+        sum(1 for f in cv_bool_fields if answered(getattr(record, f, None)))
+        + (1 if answered(getattr(record, "fluid_bolus", None)) else 0)  # 29
+        + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
+    )
+    cv_total = len(cv_bool_fields) + 1 + (1 if vasoactive_visible else 0)
+
+    # ── NEUROLOGICAL (items 30-37) ──
+    neuro_base = [
+        "cranial_usg", "ivh", "cpvl_confirmed", "ventriculomegaly",       # 30-33
+        "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich",  # 34-37
+    ]
     ivh_visible = getattr(record, "ivh", None) is True
+    neuro_done = sum(1 for f in neuro_base if answered(getattr(record, f, None)))
     if ivh_visible and answered(getattr(record, "ivh_grade", None)):
         neuro_done += 1
+    neuro_total = len(neuro_base) + (1 if ivh_visible else 0)
 
-    total_fields = 15 + 6 + (11 if ivh_visible else 10)
+    total_fields = resp_total + cv_total + neuro_total  # = 37 (+1 if vasoactive/ivh visible)
     total_done   = resp_done + cv_done + neuro_done
 
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0

@@ -321,10 +321,19 @@ export default function FormE() {
 
   useEffect(() => {
     if (!enrollmentId) return;
+    let cancelled = false;
+
+    // Reset immediately: without this, switching to a patient with no
+    // Form E record yet keeps isSaved=true from whichever patient was
+    // viewed previously, which makes Save fire PUT instead of POST and
+    // the backend correctly 404s ("Form E not found").
+    setIsSaved(false);
+    setIsFormELoaded(false);
 
     /* ── Phase 1: identification from Form B ── */
     api.get(`/birth-resuscitation/${enrollmentId}`)
       .then(async res => {
+        if (cancelled) return;
         const b = res?.data || {};
         const formatDOB = (dob) => {
           if (!dob) return "";
@@ -361,9 +370,11 @@ export default function FormE() {
    /* ── Phase 2: load saved Form E record ── */
    api.get(`/nicu-admission/${enrollmentId}`)
      .then(res => {
+       if (cancelled) return;
        // GET returns a single record, or null when Form E has not been saved yet
        const e = res.data;
        if (!e) {
+         setIsSaved(false);
          setIsFormELoaded(true);
          resetInitialRender();
          return;
@@ -447,10 +458,13 @@ export default function FormE() {
         resetInitialRender();
       })
       .catch(err => {
+        if (cancelled) return;
         console.log("❌ Error loading Form E data", err);
         setIsFormELoaded(true);
         resetInitialRender();
       });
+
+    return () => { cancelled = true; };
   }, [enrollmentId, resetInitialRender]);
 
   useEffect(() => {
