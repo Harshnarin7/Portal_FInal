@@ -44,6 +44,168 @@
   caret-color: auto;
 }
 
+/* ── Patient Info Header ─────────────────────────────────── */
+.rcn-patient-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 4px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+/* Left title block */
+.rcn-patient-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  padding-right: 24px;
+  border-right: 2px solid #e2e8f0;
+}
+
+.rcn-patient-header-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0f4c81;
+  background: #dbeafe;
+  border-radius: 4px;
+  padding: 2px 8px;
+  width: fit-content;
+}
+
+.rcn-patient-header-form-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rcn-patient-header-subtitle {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Cards row */
+.rcn-patient-cards {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.rcn-pcard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1.5px solid transparent;
+  transition: transform 0.15s;
+}
+.rcn-pcard:hover { transform: translateY(-1px); }
+
+.rcn-pcard-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.rcn-pcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rcn-pcard-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rcn-pcard-value {
+  font-size: 13px;
+  font-weight: 800;
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  max-width: none;
+}
+
+.rcn-pcard-value--cap {
+  text-transform: capitalize;
+}
+
+.rcn-pcard-empty {
+  font-size: 11px;
+  font-weight: 400;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* Color variants */
+.rcn-pcard--blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.rcn-pcard--blue .rcn-pcard-label  { color: #1d4ed8; }
+.rcn-pcard--blue .rcn-pcard-value  { color: #1e3a8a; }
+
+.rcn-pcard--violet {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+.rcn-pcard--violet .rcn-pcard-label { color: #7c3aed; }
+.rcn-pcard--violet .rcn-pcard-value { color: #4c1d95; }
+
+.rcn-pcard--teal {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+.rcn-pcard--teal .rcn-pcard-label { color: #0d9488; }
+.rcn-pcard--teal .rcn-pcard-value { color: #134e4a; }
+
+.rcn-pcard--amber {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+.rcn-pcard--amber .rcn-pcard-label { color: #d97706; }
+.rcn-pcard--amber .rcn-pcard-value { color: #78350f; }
+
+.rcn-pcard--rose {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+.rcn-pcard--rose .rcn-pcard-label { color: #e11d48; }
+.rcn-pcard--rose .rcn-pcard-value { color: #881337; }
+
+@media (max-width: 1024px) {
+  .rcn-patient-header { flex-direction: column; align-items: flex-start; }
+  .rcn-patient-header-title { border-right: none; padding-right: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 14px; width: 100%; }
+  .rcn-patient-cards { width: 100%; }
+  .rcn-pcard { min-width: 0; flex: 1 1 calc(33% - 8px); }
+}
+
+@media (max-width: 640px) {
+  .rcn-pcard { flex: 1 1 calc(50% - 5px); }
+}
+
 /* ── Patient Context Bar ──────────────────────────────────── */
 .rcn-context-bar {
   background: #0F4C81;
@@ -207,13 +369,17 @@
   align-items: center;
   gap: 3px;
   overflow-x: auto;
-  padding: 10px 0;
-  scrollbar-width: none;
+  padding: 10px 0 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #CBD5E1 transparent;
   flex: 1;
   /* prevent pills from stretching */
   align-content: flex-start;
 }
-.rcn-timeline::-webkit-scrollbar { display: none; }
+.rcn-timeline::-webkit-scrollbar { display: block; height: 4px; }
+.rcn-timeline::-webkit-scrollbar-track { background: transparent; }
+.rcn-timeline::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+.rcn-timeline::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
 .rcn-day {
   display: flex;
@@ -241,9 +407,19 @@
 }
 
 .rcn-day--future {
-  opacity: 0.38;
+  opacity: 0.28;
   cursor: default;
+  pointer-events: none;
 }
+
+/* Tomorrow — clickable but visually "upcoming" */
+.rcn-day--tomorrow {
+  opacity: 0.65;
+  border: 1.5px dashed #CBD5E1 !important;
+}
+.rcn-day--tomorrow .rcn-day-num { color: #94A3B8; }
+.rcn-day--tomorrow .rcn-day-d   { color: #CBD5E1; }
+.rcn-day--tomorrow .rcn-day-date { color: #CBD5E1; }
 
 .rcn-day-d {
   font-size: 9px;
@@ -842,7 +1018,45 @@
    REVIEW & SUBMIT WORKFLOW
 ══════════════════════════════════════════════════════ */
 
-/* ── Day pill status variants ──────────────────────────────── */
+/* ── Add Day button at end of timeline ─────────────────────── */
+.rcn-day-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 58px;
+  border-radius: 12px;
+  border: 2px dashed #CBD5E1;
+  background: transparent;
+  cursor: pointer;
+  color: #94A3B8;
+  font-size: 20px;
+  font-weight: 700;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.rcn-day-add:hover {
+  border-color: #0F4C81;
+  color: #0F4C81;
+  background: #EFF6FF;
+}
+.rcn-day-add-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* ── Timeline wrap needs to show scrollbar area ─────────────── */
+.rcn-timeline-wrap {
+  padding-bottom: 8px;
+}
+
+
 .rcn-day--submitted .rcn-day-dot {
   background: #10B981;
   box-shadow: 0 0 0 2px rgba(16,185,129,0.3);

@@ -255,7 +255,14 @@ export default function RespCVNeuroLog() {
 
   /* ── UI state ── */
   const [activeDay, setActiveDay]       = useState(1);
-  const [totalDays, setTotalDays]       = useState(14);
+  const [totalDays, setTotalDays]       = useState(1);
+  const [todayDay, setTodayDay]         = useState(1); // actual current NICU day (today)
+  // Day 1 date — set manually by user, persisted per enrollment in localStorage.
+  // All subsequent day dates auto-calculate from this.
+  const [day1Date, setDay1Date] = useState(() => {
+    if (!enrollmentId) return "";
+    return localStorage.getItem(`rcn_day1_${enrollmentId}`) || "";
+  });
   const [completedDays, setCompletedDays] = useState([]);
   const [dayStatuses, setDayStatuses]     = useState({}); // { [day]: STATUS.* }
   const [dayMeta, setDayMeta]             = useState({}); // { [day]: { pct, savedAt } }
@@ -277,6 +284,8 @@ export default function RespCVNeuroLog() {
   const [patientInfo, setPatientInfo] = useState({
     enrollmentId: enrollmentId || "",
     babyUid: "",
+    babyName: "",
+    motherName: "",
     gestationalAge: "",
     admissionDate: "",
     dischargeDate: "",
@@ -334,8 +343,8 @@ export default function RespCVNeuroLog() {
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
-        const ga = b.gestation_weeks && b.gestation_days
-          ? `${b.gestation_weeks}+${b.gestation_days} wks` : "";
+        const ga = b.gestation_weeks != null
+          ? `${b.gestation_weeks}+${b.gestation_days ?? 0} wks` : "";
 
         // Calculate current NICU day
         const admitDate = b.date_of_birth ? new Date(b.date_of_birth) : null;
@@ -354,7 +363,13 @@ export default function RespCVNeuroLog() {
           setDischargeDay(dischDay);
         }
 
-        const maxDay = dischDay || Math.max(14, dayNum + 3);
+        // Timeline: show from Day 1 to today's NICU day (no cap).
+        // Add 1 extra day so staff can pre-fill tomorrow's record.
+        const maxDay = dischDay || (dayNum + 1);
+
+        // Mother name from birth-resuscitation (primary source, same as FiO2)
+        const motherNameFromB = [b.mother_name_first, b.mother_name_surname]
+          .filter(Boolean).join(" ");
 
         setPatientInfo(prev => ({
           ...prev,
@@ -364,9 +379,24 @@ export default function RespCVNeuroLog() {
           admissionDate:  b.date_of_birth  || "",
           dischargeDate:  b.discharge_date || "",
           status:         b.discharge_date ? "Discharged" : "In NICU",
+          motherName:     motherNameFromB  || prev.motherName || "",
         }));
         setActiveDay(dayNum);
+        setTodayDay(dayNum);
         setTotalDays(maxDay);
+      } catch (_) {}
+
+      // Load PII (baby name + mother name fallback if not on birth-resuscitation)
+      try {
+        const piiRes = await api.get(`/pii/enrollment/${enrollmentId}`);
+        const p = piiRes?.data || {};
+        const motherNameFromPII = [p.mother_first_name, p.mother_surname]
+          .filter(Boolean).join(" ");
+        setPatientInfo(prev => ({
+          ...prev,
+          motherName: prev.motherName || motherNameFromPII || "",
+          babyName:   p.baby_name || "",
+        }));
       } catch (_) {}
 
       // Load summary for all days to populate status indicators
@@ -387,6 +417,21 @@ export default function RespCVNeuroLog() {
     };
     load();
   }, [enrollmentId]);
+
+  /* ── Recompute timeline when day1Date changes ── */
+  useEffect(() => {
+    if (!day1Date) return;
+    const d1 = new Date(day1Date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d1.setHours(0, 0, 0, 0);
+    const dayNum = Math.max(1, Math.floor((today - d1) / 86400000) + 1);
+    setTodayDay(dayNum);
+    setTotalDays(prev => Math.max(prev, dayNum + 1));
+    if (enrollmentId) {
+      localStorage.setItem(`rcn_day1_${enrollmentId}`, day1Date);
+    }
+  }, [day1Date, enrollmentId]);
 
   /* ── Load saved day data ── */
   useEffect(() => {
@@ -497,16 +542,17 @@ export default function RespCVNeuroLog() {
   /* ── Progress calculation ── */
   // (explicit key arrays used — no generic countAnswered to avoid hidden field bugs)
 
-  // ── RESPIRATORY (spec items 1-22) ────────────────────────
+  // ── RESPIRATORY (spec items 2.1 weight + 1-22) ──────────────
   const RESP_EVENT_KEYS = [
     "supp_o2","surfactant","caffeine",
     "extub_attempted","extub_failure","pulm_hemorrhage","pneumothorax",
     "chest_drain","pphn","postnatal_steroids",
   ]; // items 7,11,12,16-22 = 10 keys
   const respEventsAnswered = RESP_EVENT_KEYS.filter(k => respEvents[k] !== null).length;
-  const respTotal    = 22; // items 1-22
+  const respTotal    = 23; // weight(2.1) + items 1-22
   const respAnswered = Math.min(
-    (respiratorySupport !== null ? 1 : 0)          // 1
+    (weightKg !== "" ? 1 : 0)                      // 2.1 weight
+    + (respiratorySupport !== null ? 1 : 0)          // 1
     + (endotrachealIntubation !== null ? 1 : 0)    // 2
     + (supportModes.length > 0 ? 1 : 0)            // 3
     + (mapCpap !== "" ? 1 : 0)                     // 4
@@ -776,58 +822,63 @@ export default function RespCVNeuroLog() {
 
       <div className={`rcn-page${isSaved && !isEditing ? " rcn-readonly" : ""}`}>
 
-        {/* ══ PATIENT CONTEXT BAR ══ */}
-        <div className="rcn-context-bar">
-          <div className="rcn-context-trial">
-            <div className="rcn-context-trial-icon">⊕</div>
-            <div className="rcn-context-trial-info">
-              <span className="rcn-context-trial-name">PORTAL TRIAL</span>
-              <span className="rcn-context-trial-sub">Helper Form 2</span>
+        {/* ══ PATIENT INFO HEADER ══ */}
+        <div className="rcn-patient-header">
+          {/* Title block */}
+          <div className="rcn-patient-header-title">
+            <div className="rcn-patient-header-badge">HELPER FORM 2</div>
+            <h2 className="rcn-patient-header-form-name">Resp / CV / Neuro Daily Log</h2>
+            <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
+          </div>
+
+          {/* Info cards */}
+          <div className="rcn-patient-cards">
+            <div className="rcn-pcard rcn-pcard--blue">
+              <span className="rcn-pcard-icon">🪪</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Enrolment ID</span>
+                <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
+              </div>
+            </div>
+
+            <div className="rcn-pcard rcn-pcard--violet">
+              <span className="rcn-pcard-icon">🤱</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Mother's Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.motherName || "—"}
+                </span>
+              </div>
+            </div>
+
+            <div className="rcn-pcard rcn-pcard--teal">
+              <span className="rcn-pcard-icon">🧬</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Gestation</span>
+                <span className="rcn-pcard-value">
+                  {patientInfo.gestationalAge || "—"}
+                </span>
+              </div>
+            </div>
+
+            <div className="rcn-pcard rcn-pcard--amber">
+              <span className="rcn-pcard-icon">🏷️</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby UID</span>
+                <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
+              </div>
+            </div>
+
+            <div className="rcn-pcard rcn-pcard--rose">
+              <span className="rcn-pcard-icon">👶</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.babyName || <span className="rcn-pcard-empty">if available</span>}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="rcn-context-fields">
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">Enrolment ID</span>
-              <span className="rcn-context-field-value">{patientInfo.enrollmentId || "—"}</span>
-            </div>
-            {patientInfo.babyUid && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Baby UID</span>
-                <span className="rcn-context-field-value">{patientInfo.babyUid}</span>
-              </div>
-            )}
-            {patientInfo.gestationalAge && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Gestational Age</span>
-                <span className="rcn-context-field-value">{patientInfo.gestationalAge}</span>
-              </div>
-            )}
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">NICU Day</span>
-              <span className="rcn-context-field-value">Day {activeDay}</span>
-            </div>
-            <div className="rcn-context-field rcn-context-field--last">
-              <span className="rcn-context-field-label">Status</span>
-              <div className="rcn-status-badge">
-                <span className="rcn-status-dot" style={{
-                  background: patientInfo.status === "Discharged" ? "#94A3B8" : "#10B981",
-                  boxShadow: patientInfo.status === "Discharged"
-                    ? "0 0 5px #94A3B8" : "0 0 5px #10B981"
-                }} />
-                <span>{patientInfo.status}</span>
-              </div>
-            </div>
-          </div>
-          {isSaved && !isSubmitted && (
-            <button
-              type="button"
-              className={`rcn-edit-btn${isEditing ? " rcn-edit-btn--active" : ""}`}
-              onClick={() => setIsEditing(p => !p)}
-              style={{ flexShrink: 0 }}
-            >
-              {isEditing ? "✓ Done" : "Edit"}
-            </button>
-          )}
         </div>
 
         {/* ══ DAY TIMELINE ══ */}
@@ -836,7 +887,10 @@ export default function RespCVNeuroLog() {
           <div className="rcn-timeline">
             {days.map(d => {
               const isActive      = d === activeDay;
-              const isFuture      = d > activeDay;
+              const isTomorrow    = day1Date
+                ? d === todayDay + 1
+                : false;
+              const isFuture      = false; // all days in the array are accessible
               const isDischarge   = dischargeDay && d > dischargeDay;
               const st            = dayStatuses[d] || STATUS.EMPTY;
               const cfg           = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
@@ -848,6 +902,7 @@ export default function RespCVNeuroLog() {
                   className={[
                     "rcn-day",
                     isActive    ? "rcn-day--active"    : "",
+                    isTomorrow  ? "rcn-day--tomorrow"  : "",
                     isFuture    ? "rcn-day--future"    : "",
                     isDischarge ? "rcn-day--discharged": "",
                     `rcn-day--${st}`,
@@ -876,6 +931,22 @@ export default function RespCVNeuroLog() {
                 </button>
               );
             })}
+
+            {/* ── Add next day button ── */}
+            {!dischargeDay && (
+              <button
+                type="button"
+                className="rcn-day-add"
+                onClick={() => {
+                  setTotalDays(prev => prev + 1);
+                  setActiveDay(totalDays + 1);
+                }}
+                title={`Add Day ${totalDays + 1}`}
+              >
+                <span>+</span>
+                <span className="rcn-day-add-label">Day</span>
+              </button>
+            )}
           </div>
 
           {/* ── Status legend ── */}

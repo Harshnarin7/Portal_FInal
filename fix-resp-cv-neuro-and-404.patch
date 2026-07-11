@@ -1,8 +1,8 @@
 diff --git a/backend/main.py b/backend/main.py
-index b3e61f4..a4f9677 100644
+index b3e61f4..fb7b8db 100644
 --- a/backend/main.py
 +++ b/backend/main.py
-@@ -1649,36 +1649,52 @@ def get_enrollment_status(
+@@ -1649,41 +1649,89 @@ def get_enrollment_status(
  # ============================================================================
  
  def _compute_completion_pct(record) -> int:
@@ -76,6 +76,138 @@ index b3e61f4..a4f9677 100644
      total_done   = resp_done + cv_done + neuro_done
  
      return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
+ 
+ 
++# ── GET summary (all days for timeline status indicators) ─────
++# NOTE: this must be registered BEFORE the /{enrollment_id}/{nicu_day} route
++# below. FastAPI/Starlette matches routes in registration order, and
++# "/resp-cv-neuro/{id}/summary" also textually matches the {nicu_day:int}
++# pattern (two path segments) — if that route comes first, FastAPI tries to
++# coerce the literal "summary" into an int, fails, and returns 422 before
++# this handler is ever reached.
++@app.get("/resp-cv-neuro/{enrollment_id}/summary")
++def get_resp_cv_neuro_summary(
++    enrollment_id: str,
++    db:            Session = Depends(get_db),
++    current_user:  User    = Depends(get_current_user),
++):
++    require_enrollment_access(enrollment_id, db, current_user)
++    records = (
++        db.query(RespCVNeuroDayLog)
++        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
++        .order_by(RespCVNeuroDayLog.nicu_day)
++        .all()
++    )
++    return [
++        {
++            "nicu_day":          r.nicu_day,
++            "submission_status": r.submission_status or "empty",
++            "completion_pct":    _compute_completion_pct(r),
++            "saved_at":          r.saved_at,
++            "submitted_at":      r.submitted_at,
++        }
++        for r in records
++    ]
++
++
+ # ── GET single day ────────────────────────────────────────────
+ @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
+ def get_resp_cv_neuro_day(
+@@ -1803,32 +1851,6 @@ def submit_resp_cv_neuro_day(
+     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+ 
+ 
+-# ── GET summary (all days for timeline status indicators) ─────
+-@app.get("/resp-cv-neuro/{enrollment_id}/summary")
+-def get_resp_cv_neuro_summary(
+-    enrollment_id: str,
+-    db:            Session = Depends(get_db),
+-    current_user:  User    = Depends(get_current_user),
+-):
+-    require_enrollment_access(enrollment_id, db, current_user)
+-    records = (
+-        db.query(RespCVNeuroDayLog)
+-        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+-        .order_by(RespCVNeuroDayLog.nicu_day)
+-        .all()
+-    )
+-    return [
+-        {
+-            "nicu_day":          r.nicu_day,
+-            "submission_status": r.submission_status or "empty",
+-            "completion_pct":    _compute_completion_pct(r),
+-            "saved_at":          r.saved_at,
+-            "submitted_at":      r.submitted_at,
+-        }
+-        for r in records
+-    ]
+-
+-
+ # ── PATCH discharge ───────────────────────────────────────────
+ @app.patch("/enrollment/{enrollment_id}/discharge")
+ def discharge_enrollment(
+@@ -1935,29 +1957,10 @@ def _infect_completion_pct(r) -> int:
+     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
+ 
+ 
+-# ── GET single day ────────────────────────────────────────────
+-@app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
+-def get_infect_gi_hema_day(
+-    enrollment_id: str,
+-    nicu_day:      int,
+-    db:            Session = Depends(get_db),
+-    current_user:  User    = Depends(get_current_user),
+-):
+-    require_enrollment_access(enrollment_id, db, current_user)
+-    record = (
+-        db.query(InfectGIHemaDayLog)
+-        .filter(
+-            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+-            InfectGIHemaDayLog.nicu_day      == nicu_day,
+-        )
+-        .first()
+-    )
+-    if not record:
+-        raise HTTPException(status_code=404, detail="No data for this day")
+-    return record
+-
+-
+ # ── GET summary (all days — for timeline status indicators) ───
++# NOTE: must be registered BEFORE /{enrollment_id}/{nicu_day} below —
++# otherwise "summary" gets matched as the {nicu_day:int} segment, fails
++# int coercion, and returns 422 before this handler is ever reached.
+ @app.get("/infect-gi-hema/{enrollment_id}/summary")
+ def get_infect_gi_hema_summary(
+     enrollment_id: str,
+@@ -1983,6 +1986,28 @@ def get_infect_gi_hema_summary(
+     ]
+ 
+ 
++# ── GET single day ────────────────────────────────────────────
++@app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
++def get_infect_gi_hema_day(
++    enrollment_id: str,
++    nicu_day:      int,
++    db:            Session = Depends(get_db),
++    current_user:  User    = Depends(get_current_user),
++):
++    require_enrollment_access(enrollment_id, db, current_user)
++    record = (
++        db.query(InfectGIHemaDayLog)
++        .filter(
++            InfectGIHemaDayLog.enrollment_id == enrollment_id,
++            InfectGIHemaDayLog.nicu_day      == nicu_day,
++        )
++        .first()
++    )
++    if not record:
++        raise HTTPException(status_code=404, detail="No data for this day")
++    return record
++
++
+ # ── POST create day (upsert) ──────────────────────────────────
+ @app.post("/infect-gi-hema/")
+ def create_infect_gi_hema_day(
 diff --git a/backend/models.py b/backend/models.py
 index 3a63893..89e5b90 100644
 --- a/backend/models.py
