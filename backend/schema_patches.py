@@ -104,6 +104,20 @@ POSTNATAL_DAY1_COLUMN_PATCHES = [
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS premedication_other VARCHAR",
 ]
 
+RESP_CV_NEURO_DAY_COLUMN_PATCHES = [
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS weight_kg VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS respiratory_support BOOLEAN",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS endotracheal_intubation BOOLEAN",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap DOUBLE PRECISION",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS lowest_ph VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS pao2_range VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS paco2_range VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS apnea_count VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS desaturation_count VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS severe_desaturation_count VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS fluid_bolus VARCHAR",
+]
+
 
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -116,6 +130,8 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in BIRTH_RESUSCITATION_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in POSTNATAL_DAY1_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in RESP_CV_NEURO_DAY_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))

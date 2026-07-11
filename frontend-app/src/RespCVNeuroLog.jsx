@@ -284,13 +284,25 @@ export default function RespCVNeuroLog() {
     currentSupport: "None",
   });
 
+  /* ── Weight (2.1) ── */
+  const [weightKg, setWeightKg] = useState("");
+
   /* ── Respiratory state ── */
   const [supportModes, setSupportModes] = useState([]);
+  const [respiratorySupport, setRespiratorySupport] = useState(null); // #1
+  const [endotrachealIntubation, setEndotrachealIntubation] = useState(null); // #2
+  const [mapCpap, setMapCpap]           = useState(""); // #4
   const [maxFio2, setMaxFio2]           = useState("");
   const [maxFlow, setMaxFlow]           = useState("");
+  const [lowestPh, setLowestPh]         = useState(""); // #8
+  const [pao2Range, setPao2Range]       = useState(""); // #9
+  const [paco2Range, setPaco2Range]     = useState(""); // #10
+  const [apneaCount, setApneaCount]             = useState(""); // #13
+  const [desatCount, setDesatCount]             = useState(""); // #14
+  const [severeDesatCount, setSevereDesatCount] = useState(""); // #15
   const [respEvents, setRespEvents]     = useState({
-    supp_o2: null, surfactant: null, caffeine: null, apnea: null,
-    desaturations: null, extub_attempted: null, extub_failure: null,
+    supp_o2: null, surfactant: null, caffeine: null,
+    extub_attempted: null, extub_failure: null,
     pulm_hemorrhage: null, pneumothorax: null, chest_drain: null,
     pphn: null, postnatal_steroids: null,
   });
@@ -298,8 +310,9 @@ export default function RespCVNeuroLog() {
   /* ── Cardiovascular state ── */
   const [cvData, setCvData] = useState({
     pda_suspected: null, echo_done: null, hs_pda: null,
-    pda_medical_rx: null, shock: null, vasoactive_support: null,
+    shock: null, vasoactive_support: null,
   });
+  const [fluidBolus, setFluidBolus] = useState(""); // #29
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
 
   /* ── Neurological state ── */
@@ -384,15 +397,23 @@ export default function RespCVNeuroLog() {
         const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay}`);
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
+          setWeightKg(d.weight_kg || "");
           setSupportModes(d.support_modes ? d.support_modes.split(",").map(s => s.trim()).filter(Boolean) : []);
+          setRespiratorySupport(d.respiratory_support ?? null);
+          setEndotrachealIntubation(d.endotracheal_intubation ?? null);
+          setMapCpap(d.map_cpap != null ? String(d.map_cpap) : "");
           setMaxFio2(d.max_fio2 != null ? String(d.max_fio2) : "");
           setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
+          setLowestPh(d.lowest_ph || "");
+          setPao2Range(d.pao2_range || "");
+          setPaco2Range(d.paco2_range || "");
+          setApneaCount(d.apnea_count || "");
+          setDesatCount(d.desaturation_count || "");
+          setSevereDesatCount(d.severe_desaturation_count || "");
           setRespEvents({
             supp_o2:           d.supp_o2           ?? null,
             surfactant:        d.surfactant         ?? null,
             caffeine:          d.caffeine           ?? null,
-            apnea:             d.apnea              ?? null,
-            desaturations:     d.desaturations      ?? null,
             extub_attempted:   d.extub_attempted    ?? null,
             extub_failure:     d.extub_failure      ?? null,
             pulm_hemorrhage:   d.pulm_hemorrhage    ?? null,
@@ -409,6 +430,7 @@ export default function RespCVNeuroLog() {
             shock:            d.shock            ?? null,
             vasoactive_support: d.vasoactive_support ?? null,
           });
+          setFluidBolus(d.fluid_bolus || "");
           setVasoactiveDrugs(d.vasoactive_drugs ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
           setNeuroData({
             cranial_usg:        d.cranial_usg        ?? null,
@@ -447,14 +469,19 @@ export default function RespCVNeuroLog() {
   }, [enrollmentId, activeDay]);
 
   const resetFormState = () => {
+    setWeightKg("");
     setSupportModes([]);
-    setMaxFio2(""); setMaxFlow("");
-    setRespEvents({ supp_o2: null, surfactant: null, caffeine: null, apnea: null,
-      desaturations: null, extub_attempted: null, extub_failure: null,
+    setRespiratorySupport(null); setEndotrachealIntubation(null);
+    setMapCpap(""); setMaxFio2(""); setMaxFlow("");
+    setLowestPh(""); setPao2Range(""); setPaco2Range("");
+    setApneaCount(""); setDesatCount(""); setSevereDesatCount("");
+    setRespEvents({ supp_o2: null, surfactant: null, caffeine: null,
+      extub_attempted: null, extub_failure: null,
       pulm_hemorrhage: null, pneumothorax: null, chest_drain: null,
       pphn: null, postnatal_steroids: null });
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
       pda_medical_rx: null, shock: null, vasoactive_support: null });
+    setFluidBolus("");
     setVasoactiveDrugs([]);
     setNeuroData({ cranial_usg: null, ivh: null, ivh_grade: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
@@ -470,41 +497,56 @@ export default function RespCVNeuroLog() {
   /* ── Progress calculation ── */
   // (explicit key arrays used — no generic countAnswered to avoid hidden field bugs)
 
-  // ── RESPIRATORY ──────────────────────────────────────────
-  // Fields: supportModes(1) + maxFio2(1) + maxFlow(1) + 12 respEvents = 15
+  // ── RESPIRATORY (spec items 1-22) ────────────────────────
   const RESP_EVENT_KEYS = [
-    "supp_o2","surfactant","caffeine","apnea","desaturations",
+    "supp_o2","surfactant","caffeine",
     "extub_attempted","extub_failure","pulm_hemorrhage","pneumothorax",
     "chest_drain","pphn","postnatal_steroids",
-  ]; // exactly 12 keys
+  ]; // items 7,11,12,16-22 = 10 keys
   const respEventsAnswered = RESP_EVENT_KEYS.filter(k => respEvents[k] !== null).length;
-  const respTotal    = 15; // 1 + 1 + 1 + 12
+  const respTotal    = 22; // items 1-22
   const respAnswered = Math.min(
-    (supportModes.length > 0 ? 1 : 0)
-    + (maxFio2 !== "" ? 1 : 0)
-    + (maxFlow  !== "" ? 1 : 0)
-    + respEventsAnswered,
+    (respiratorySupport !== null ? 1 : 0)          // 1
+    + (endotrachealIntubation !== null ? 1 : 0)    // 2
+    + (supportModes.length > 0 ? 1 : 0)            // 3
+    + (mapCpap !== "" ? 1 : 0)                     // 4
+    + (maxFio2 !== "" ? 1 : 0)                     // 5
+    + (maxFlow  !== "" ? 1 : 0)                    // 6
+    + (lowestPh !== "" ? 1 : 0)                    // 8
+    + (pao2Range !== "" ? 1 : 0)                   // 9
+    + (paco2Range !== "" ? 1 : 0)                  // 10
+    + (apneaCount !== "" ? 1 : 0)                  // 13
+    + (desatCount !== "" ? 1 : 0)                  // 14
+    + (severeDesatCount !== "" ? 1 : 0)            // 15
+    + respEventsAnswered,                          // 7,11,12,16-22
     respTotal
   );
 
-  // ── CARDIOVASCULAR ───────────────────────────────────────
-  // Fields: pda_suspected, echo_done, hs_pda, pda_medical_rx, shock, vasoactive_support = 6
-  // vasoactiveDrugs is NOT a required question — it's conditional detail, not counted
-  const CV_KEYS = ["pda_suspected","echo_done","hs_pda","pda_medical_rx","shock","vasoactive_support"];
-  const cvTotal    = 6;
-  const cvAnswered = Math.min(CV_KEYS.filter(k => cvData[k] !== null).length, cvTotal);
+  // ── CARDIOVASCULAR (spec items 23-29) ────────────────────
+  // Base always-visible: pda_suspected(23), echo_done(24), hs_pda(25), shock(26),
+  //   vasoactive_support(27) = 5. fluid_bolus(29) always visible = 1.
+  // Conditional: vasoactive_drugs(28) — only counts when vasoactive_support === true.
+  const CV_KEYS = ["pda_suspected","echo_done","hs_pda","shock","vasoactive_support"];
+  const vasoactiveVisible = cvData.vasoactive_support === true;
+  const cvTotal    = vasoactiveVisible ? 7 : 6;
+  const cvAnswered = Math.min(
+    CV_KEYS.filter(k => cvData[k] !== null).length
+    + (fluidBolus !== "" ? 1 : 0)
+    + (vasoactiveVisible && vasoactiveDrugs.length > 0 ? 1 : 0),
+    cvTotal
+  );
 
-  // ── NEUROLOGICAL ─────────────────────────────────────────
-  // Base fields (always visible): cranial_usg, ivh, pvl_suspected, cpvl_confirmed,
-  //   ventriculomegaly, clinical_seizures, eeg_seizures, aeds_given, non_ivh_ich,
-  //   meningitis_suspected = 10 fields
+  // ── NEUROLOGICAL (spec items 30-37) ──────────────────────
+  // Base fields (always visible): cranial_usg(30), ivh(31), cpvl_confirmed(32),
+  //   ventriculomegaly(33), clinical_seizures(34), eeg_seizures(35),
+  //   aeds_given(36), non_ivh_ich(37) = 8 fields
   // Conditional: ivh_grade — only counts when ivh === true (+1 field)
   const NEURO_BASE_KEYS = [
-    "cranial_usg","ivh","pvl_suspected","cpvl_confirmed","ventriculomegaly",
-    "clinical_seizures","eeg_seizures","aeds_given","non_ivh_ich","meningitis_suspected",
-  ]; // exactly 10
+    "cranial_usg","ivh","cpvl_confirmed","ventriculomegaly",
+    "clinical_seizures","eeg_seizures","aeds_given","non_ivh_ich",
+  ]; // exactly 8
   const ivhGradeVisible = neuroData.ivh === true;
-  const neuroTotal    = ivhGradeVisible ? 11 : 10;
+  const neuroTotal    = ivhGradeVisible ? 9 : 8;
   const neuroAnswered = Math.min(
     NEURO_BASE_KEYS.filter(k => neuroData[k] !== null).length
     + (ivhGradeVisible && neuroData.ivh_grade ? 1 : 0),
@@ -544,11 +586,22 @@ export default function RespCVNeuroLog() {
     const payload = {
       enrollment_id:       enrollmentId,
       nicu_day:            activeDay,
+      weight_kg:           weightKg || null,
       support_modes:       supportModes.join(", "),
+      respiratory_support: respiratorySupport,
+      endotracheal_intubation: endotrachealIntubation,
+      map_cpap:            mapCpap !== "" ? Number(mapCpap) : null,
       max_fio2:            maxFio2 !== "" ? Number(maxFio2) : null,
       max_flow:            maxFlow !== "" ? Number(maxFlow) : null,
+      lowest_ph:           lowestPh || null,
+      pao2_range:          pao2Range || null,
+      paco2_range:         paco2Range || null,
+      apnea_count:              apneaCount || null,
+      desaturation_count:       desatCount || null,
+      severe_desaturation_count: severeDesatCount || null,
       ...respEvents,
       ...cvData,
+      fluid_bolus:         fluidBolus || null,
       vasoactive_drugs:    vasoactiveDrugs.join(", "),
       ...neuroData,
       submission_status:   STATUS.DRAFT,
@@ -630,15 +683,23 @@ export default function RespCVNeuroLog() {
         return;
       }
       // Copy all clinical fields — do NOT copy submission status or timestamps
+      setWeightKg(d.weight_kg || "");
       setSupportModes(d.support_modes ? d.support_modes.split(",").map(s => s.trim()).filter(Boolean) : []);
+      setRespiratorySupport(d.respiratory_support ?? null);
+      setEndotrachealIntubation(d.endotracheal_intubation ?? null);
+      setMapCpap(d.map_cpap != null ? String(d.map_cpap) : "");
       setMaxFio2(d.max_fio2 != null ? String(d.max_fio2) : "");
       setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
+      setLowestPh(d.lowest_ph || "");
+      setPao2Range(d.pao2_range || "");
+      setPaco2Range(d.paco2_range || "");
+      setApneaCount(d.apnea_count || "");
+      setDesatCount(d.desaturation_count || "");
+      setSevereDesatCount(d.severe_desaturation_count || "");
       setRespEvents({
         supp_o2:           d.supp_o2           ?? null,
         surfactant:        d.surfactant         ?? null,
         caffeine:          d.caffeine           ?? null,
-        apnea:             d.apnea              ?? null,
-        desaturations:     d.desaturations      ?? null,
         extub_attempted:   d.extub_attempted    ?? null,
         extub_failure:     d.extub_failure      ?? null,
         pulm_hemorrhage:   d.pulm_hemorrhage    ?? null,
@@ -655,6 +716,7 @@ export default function RespCVNeuroLog() {
         shock:              d.shock              ?? null,
         vasoactive_support: d.vasoactive_support ?? null,
       });
+      setFluidBolus(d.fluid_bolus || "");
       setVasoactiveDrugs(d.vasoactive_drugs
         ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
       setNeuroData({
@@ -925,6 +987,21 @@ export default function RespCVNeuroLog() {
               </div>
             )}
 
+            {/* ════ 2.1 WEIGHT ════ */}
+            <div className="rcn-field-group" style={{ marginBottom: 16 }}>
+              <label className="rcn-field-label">
+                2.1 Weight
+                <span className="rcn-field-sub">(all measured weights of the day, chronologically)</span>
+              </label>
+              <input
+                type="text" placeholder="e.g. 1250g, 1245g"
+                className="rcn-text-input"
+                value={weightKg}
+                onChange={e => isFieldEditable && setWeightKg(e.target.value)}
+                readOnly={!isFieldEditable}
+              />
+            </div>
+
             {/* ════ RESPIRATORY ════ */}
             <SectionCard
               iconEmoji="🫁"
@@ -933,11 +1010,19 @@ export default function RespCVNeuroLog() {
               total={respTotal}
               defaultOpen={true}
             >
-              {/* Support Mode Pills */}
+              {/* #1-2 Respiratory support / Endotracheally intubated */}
+              <div className="rcn-yn-list">
+                <YNRow label="1. Respiratory support" value={respiratorySupport}
+                  onChange={v => isFieldEditable && setRespiratorySupport(v)} disabled={!isFieldEditable} />
+                <YNRow label="2. Endotracheally intubated" value={endotrachealIntubation}
+                  onChange={v => isFieldEditable && setEndotrachealIntubation(v)} disabled={!isFieldEditable} />
+              </div>
+
+              {/* #3 Mode Pills */}
               <div className="rcn-field-group">
                 <label className="rcn-field-label">
-                  Respiratory Support Mode
-                  <span className="rcn-field-sub">(select all that apply)</span>
+                  3. Mode
+                  <span className="rcn-field-sub">NC, HFNC, CPAP, NIPPV, SIMV, A/C, PSV, HFOV — select all that apply</span>
                 </label>
                 <div className="rcn-pills">
                   {["NC","HFNC","CPAP","NIPPV","SIMV","AC","PSV","HFOV"].map(mode => (
@@ -952,10 +1037,22 @@ export default function RespCVNeuroLog() {
                 </div>
               </div>
 
-              {/* Max FiO2 / Max Flow */}
-              <div className="rcn-inputs-row">
+              {/* #4-6 MAP/CPAP, Max FiO2, Max Flow */}
+              <div className="rcn-inputs-row rcn-inputs-row--3col">
                 <div className="rcn-input-group">
-                  <label className="rcn-field-label">Max FiO₂</label>
+                  <label className="rcn-field-label">4. MAP/CPAP</label>
+                  <div className="rcn-num-input">
+                    <input
+                      type="number" placeholder="0"
+                      value={mapCpap}
+                      onChange={e => isFieldEditable && setMapCpap(e.target.value)}
+                      readOnly={!isFieldEditable}
+                    />
+                    <span className="rcn-num-unit">cm H₂O</span>
+                  </div>
+                </div>
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">5. Max FiO₂</label>
                   <div className="rcn-num-input">
                     <input
                       type="number" placeholder="21"
@@ -968,7 +1065,7 @@ export default function RespCVNeuroLog() {
                   </div>
                 </div>
                 <div className="rcn-input-group">
-                  <label className="rcn-field-label">Max Flow</label>
+                  <label className="rcn-field-label">6. Max Gas Flow</label>
                   <div className="rcn-num-input">
                     <input
                       type="number" placeholder="0"
@@ -982,23 +1079,75 @@ export default function RespCVNeuroLog() {
                 </div>
               </div>
 
-              {/* Respiratory Events */}
+              {/* #7 Supplemental O2 */}
+              <div className="rcn-yn-list">
+                <YNRow label="7. Supplemental O₂ >21% (any)" value={respEvents.supp_o2}
+                  onChange={v => setResp("supp_o2", v)} disabled={!isFieldEditable} />
+              </div>
+
+              {/* #8-10 Lowest pH, PaO2, PaCO2 */}
+              <div className="rcn-inputs-row rcn-inputs-row--3col">
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">8. Lowest pH</label>
+                  <input type="text" placeholder="e.g. 7.25" className="rcn-text-input"
+                    value={lowestPh} onChange={e => isFieldEditable && setLowestPh(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">9. PaO₂ (lowest–highest)</label>
+                  <input type="text" placeholder="e.g. 45-72" className="rcn-text-input"
+                    value={pao2Range} onChange={e => isFieldEditable && setPao2Range(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">10. PaCO₂ (lowest–highest)</label>
+                  <input type="text" placeholder="e.g. 35-55" className="rcn-text-input"
+                    value={paco2Range} onChange={e => isFieldEditable && setPaco2Range(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+              </div>
+
+              {/* #11-12 Surfactant, Caffeine */}
+              <div className="rcn-yn-list">
+                <YNRow label="11. Surfactant given" value={respEvents.surfactant}
+                  onChange={v => setResp("surfactant", v)} disabled={!isFieldEditable} />
+                <YNRow label="12. Caffeine" value={respEvents.caffeine}
+                  onChange={v => setResp("caffeine", v)} disabled={!isFieldEditable} />
+              </div>
+
+              {/* #13-15 Apnea, Desaturations, Severe desaturations */}
+              <div className="rcn-inputs-row rcn-inputs-row--3col">
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">13. No of Apnea episodes</label>
+                  <input type="text" placeholder="e.g. 2" className="rcn-text-input"
+                    value={apneaCount} onChange={e => isFieldEditable && setApneaCount(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">14. No of Desaturations (&lt;91%)</label>
+                  <input type="text" placeholder="e.g. 3" className="rcn-text-input"
+                    value={desatCount} onChange={e => isFieldEditable && setDesatCount(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+                <div className="rcn-input-group">
+                  <label className="rcn-field-label">15. No of severe desaturations (&lt;80%)</label>
+                  <input type="text" placeholder="e.g. 1" className="rcn-text-input"
+                    value={severeDesatCount} onChange={e => isFieldEditable && setSevereDesatCount(e.target.value)}
+                    readOnly={!isFieldEditable} />
+                </div>
+              </div>
+
+              {/* #16-22 remaining respiratory events */}
               <div className="rcn-field-group">
-                <label className="rcn-field-label">Respiratory Events</label>
                 <div className="rcn-yn-list">
                   {[
-                    { k: "supp_o2",           l: "Supplemental O₂ >21%" },
-                    { k: "surfactant",         l: "Surfactant Given" },
-                    { k: "caffeine",           l: "Caffeine" },
-                    { k: "apnea",              l: "Apnea Episodes" },
-                    { k: "desaturations",      l: "Desaturations" },
-                    { k: "extub_attempted",    l: "Extubation Attempted" },
-                    { k: "extub_failure",      l: "Extubation Failure" },
-                    { k: "pulm_hemorrhage",    l: "Pulmonary Hemorrhage" },
-                    { k: "pneumothorax",       l: "Pneumothorax" },
-                    { k: "chest_drain",        l: "Chest Drain" },
-                    { k: "pphn",               l: "Pulmonary HTN (PPHN)" },
-                    { k: "postnatal_steroids", l: "Postnatal Steroids" },
+                    { k: "extub_attempted",    l: "16. Extubation attempted" },
+                    { k: "extub_failure",      l: "17. Extubation failure (<72h from extubation)" },
+                    { k: "pulm_hemorrhage",    l: "18. Pulmonary hemorrhage" },
+                    { k: "pneumothorax",       l: "19. Pneumothorax" },
+                    { k: "chest_drain",        l: "20. Chest drain in situ" },
+                    { k: "pphn",               l: "21. Pulmonary HTN (PPHN)" },
+                    { k: "postnatal_steroids", l: "22. Postnatal steroids" },
                   ].map(({ k, l }) => (
                     <YNRow key={k} label={l} value={respEvents[k]}
                       onChange={v => setResp(k, v)} disabled={!isFieldEditable} />
@@ -1017,12 +1166,11 @@ export default function RespCVNeuroLog() {
             >
               <div className="rcn-yn-list">
                 {[
-                  { k: "pda_suspected",     l: "PDA Suspected" },
-                  { k: "echo_done",         l: "Echo Done" },
-                  { k: "hs_pda",            l: "HS-PDA" },
-                  { k: "pda_medical_rx",    l: "PDA Medical Rx" },
-                  { k: "shock",             l: "Shock" },
-                  { k: "vasoactive_support",l: "Vasoactive Support" },
+                  { k: "pda_suspected",     l: "23. PDA suspected/confirmed" },
+                  { k: "echo_done",         l: "24. Echo done" },
+                  { k: "hs_pda",            l: "25. HS-PDA" },
+                  { k: "shock",             l: "26. Shock" },
+                  { k: "vasoactive_support",l: "27. Vasoactives" },
                 ].map(({ k, l }) => (
                   <YNRow key={k} label={l} value={cvData[k]}
                     onChange={v => setCv(k, v)} disabled={!isFieldEditable} />
@@ -1031,9 +1179,9 @@ export default function RespCVNeuroLog() {
 
               {cvData.vasoactive_support === true && (
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">Vasoactive Drugs Used</div>
+                  <div className="rcn-subsection-title">28. Vasoactive type (select all that apply)</div>
                   <div className="rcn-pills">
-                    {["Dopamine","Dobutamine","Adrenaline","Noradrenaline","Vasopressin"].map(drug => (
+                    {["Dopamine","Dobutamine","Adrenaline","Noradrenaline","Milrinone","Vasopressin"].map(drug => (
                       <button
                         key={drug}
                         type="button"
@@ -1045,6 +1193,13 @@ export default function RespCVNeuroLog() {
                   </div>
                 </div>
               )}
+
+              <div className="rcn-field-group">
+                <label className="rcn-field-label">29. Fluid bolus</label>
+                <input type="text" placeholder="e.g. 10ml/kg NS" className="rcn-text-input"
+                  value={fluidBolus} onChange={e => isFieldEditable && setFluidBolus(e.target.value)}
+                  readOnly={!isFieldEditable} />
+              </div>
             </SectionCard>
 
             {/* ════ NEUROLOGICAL ════ */}
@@ -1057,8 +1212,8 @@ export default function RespCVNeuroLog() {
             >
               <div className="rcn-yn-list">
                 {[
-                  { k: "cranial_usg", l: "Cranial USG Done" },
-                  { k: "ivh",         l: "IVH" },
+                  { k: "cranial_usg", l: "30. Cranial USG done" },
+                  { k: "ivh",         l: "31. IVH (any grade)" },
                 ].map(({ k, l }) => (
                   <YNRow key={k} label={l} value={neuroData[k]}
                     onChange={v => setNeuro(k, v)} disabled={!isFieldEditable} />
@@ -1085,20 +1240,19 @@ export default function RespCVNeuroLog() {
 
               <div className="rcn-yn-list">
                 {[
-                  { k: "pvl_suspected",        l: "PVL Suspected" },
-                  { k: "cpvl_confirmed",        l: "cPVL Confirmed" },
-                  { k: "ventriculomegaly",      l: "Ventriculomegaly" },
-                  { k: "clinical_seizures",     l: "Clinical Seizures" },
-                  { k: "eeg_seizures",          l: "EEG-Confirmed Seizures" },
-                  { k: "aeds_given",            l: "AEDs Given" },
-                  { k: "non_ivh_ich",           l: "Non-IVH Intracranial Hemorrhage" },
-                  { k: "meningitis_suspected",  l: "Meningitis Suspected" },
+                  { k: "cpvl_confirmed",        l: "32. cPVL (any grade)" },
+                  { k: "ventriculomegaly",      l: "33. Ventriculomegaly" },
+                  { k: "clinical_seizures",     l: "34. Seizures (clinical)" },
+                  { k: "eeg_seizures",          l: "35. Seizures (EEG confirmed)" },
+                  { k: "aeds_given",            l: "36. AEDs given" },
+                  { k: "non_ivh_ich",           l: "37. Non-IVH ICH" },
                 ].map(({ k, l }) => (
                   <YNRow key={k} label={l} value={neuroData[k]}
                     onChange={v => setNeuro(k, v)} disabled={!isFieldEditable} />
                 ))}
               </div>
             </SectionCard>
+
 
           </div>
         )}

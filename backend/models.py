@@ -1136,44 +1136,63 @@ class RespCVNeuroDayLog(Base):
     enrollment_id = Column(String, index=True, nullable=False)
     nicu_day      = Column(Integer, nullable=False, index=True)  # 1, 2, 3 …
 
-    # ── RESPIRATORY ──────────────────────────────────────────
-    support_modes      = Column(String, nullable=True)   # "NC, HFNC, CPAP"
-    max_fio2           = Column(Float,  nullable=True)   # %
-    max_flow           = Column(Float,  nullable=True)   # L/min
+    # ── 2.1 WEIGHT ────────────────────────────────────────────
+    weight_kg           = Column(String, nullable=True)
 
-    supp_o2            = Column(Boolean, nullable=True)
-    surfactant         = Column(Boolean, nullable=True)
-    caffeine           = Column(Boolean, nullable=True)
+    # ── RESPIRATORY ──────────────────────────────────────────
+    respiratory_support = Column(Boolean, nullable=True)   # #1
+    endotracheal_intubation = Column(Boolean, nullable=True)  # #2
+    support_modes      = Column(String, nullable=True)   # "NC, HFNC, CPAP"  #3
+    map_cpap           = Column(Float,  nullable=True)   # cm H2O  #4
+    max_fio2           = Column(Float,  nullable=True)   # %  #5
+    max_flow           = Column(Float,  nullable=True)   # L/min  #6
+
+    supp_o2            = Column(Boolean, nullable=True)  # #7
+    lowest_ph           = Column(String, nullable=True)  # #8
+    pao2_range           = Column(String, nullable=True)  # #9
+    paco2_range          = Column(String, nullable=True)  # #10
+    surfactant         = Column(Boolean, nullable=True)  # #11
+    caffeine           = Column(Boolean, nullable=True)  # #12
+    apnea_count               = Column(String, nullable=True)  # #13
+    desaturation_count        = Column(String, nullable=True)  # #14
+    severe_desaturation_count = Column(String, nullable=True)  # #15
+    extub_attempted    = Column(Boolean, nullable=True)  # #16
+    extub_failure      = Column(Boolean, nullable=True)  # #17
+    pulm_hemorrhage    = Column(Boolean, nullable=True)  # #18
+    pneumothorax       = Column(Boolean, nullable=True)  # #19
+    chest_drain        = Column(Boolean, nullable=True)  # #20
+    pphn               = Column(Boolean, nullable=True)  # #21
+    postnatal_steroids = Column(Boolean, nullable=True)  # #22
+
+    # Legacy — superseded by apnea_count / desaturation_count
     apnea              = Column(Boolean, nullable=True)
     desaturations      = Column(Boolean, nullable=True)
-    extub_attempted    = Column(Boolean, nullable=True)
-    extub_failure      = Column(Boolean, nullable=True)
-    pulm_hemorrhage    = Column(Boolean, nullable=True)
-    pneumothorax       = Column(Boolean, nullable=True)
-    chest_drain        = Column(Boolean, nullable=True)
-    pphn               = Column(Boolean, nullable=True)
-    postnatal_steroids = Column(Boolean, nullable=True)
 
     # ── CARDIOVASCULAR ───────────────────────────────────────
-    pda_suspected      = Column(Boolean, nullable=True)
-    echo_done          = Column(Boolean, nullable=True)
-    hs_pda             = Column(Boolean, nullable=True)
+    pda_suspected      = Column(Boolean, nullable=True)  # #23
+    echo_done          = Column(Boolean, nullable=True)  # #24
+    hs_pda             = Column(Boolean, nullable=True)  # #25
+    shock              = Column(Boolean, nullable=True)  # #26
+    vasoactive_support = Column(Boolean, nullable=True)  # #27
+    vasoactive_drugs   = Column(String,  nullable=True)  # "Dopamine, Dobutamine"  #28
+    fluid_bolus        = Column(String,  nullable=True)  # #29
+
+    # Legacy — no longer part of the numbered sequence
     pda_medical_rx     = Column(Boolean, nullable=True)
-    shock              = Column(Boolean, nullable=True)
-    vasoactive_support = Column(Boolean, nullable=True)
-    vasoactive_drugs   = Column(String,  nullable=True)  # "Dopamine, Dobutamine"
 
     # ── NEUROLOGICAL ─────────────────────────────────────────
-    cranial_usg          = Column(Boolean, nullable=True)
-    ivh                  = Column(Boolean, nullable=True)
+    cranial_usg          = Column(Boolean, nullable=True)  # #30
+    ivh                  = Column(Boolean, nullable=True)  # #31
     ivh_grade            = Column(String,  nullable=True)  # "I","II","III","IV"
+    cpvl_confirmed       = Column(Boolean, nullable=True)  # #32
+    ventriculomegaly     = Column(Boolean, nullable=True)  # #33
+    clinical_seizures    = Column(Boolean, nullable=True)  # #34
+    eeg_seizures         = Column(Boolean, nullable=True)  # #35
+    aeds_given           = Column(Boolean, nullable=True)  # #36
+    non_ivh_ich          = Column(Boolean, nullable=True)  # #37
+
+    # Legacy — no longer part of the numbered sequence
     pvl_suspected        = Column(Boolean, nullable=True)
-    cpvl_confirmed       = Column(Boolean, nullable=True)
-    ventriculomegaly     = Column(Boolean, nullable=True)
-    clinical_seizures    = Column(Boolean, nullable=True)
-    eeg_seizures         = Column(Boolean, nullable=True)
-    aeds_given           = Column(Boolean, nullable=True)
-    non_ivh_ich          = Column(Boolean, nullable=True)
     meningitis_suspected = Column(Boolean, nullable=True)
 
     # ── SUBMISSION WORKFLOW ───────────────────────────────────
