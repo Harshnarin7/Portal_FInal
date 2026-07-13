@@ -151,7 +151,7 @@ const FORM_COMP = [
   ["Helper 2 (Resp-CV)",     76, C.amber ],
   ["Helper 3 (Infect-GI)",   71, C.orange],
   ["Helper 4 (Metab)",       68, C.red   ],
-  ["Form H — CrUSG",         82, C.amber ],
+  ["Form F — CrUSG",         82, C.amber ],
   ["Form I — Outcomes",      44, C.red   ],
 ];
 const QUERIES = [
