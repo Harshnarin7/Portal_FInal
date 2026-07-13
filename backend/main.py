@@ -1681,11 +1681,12 @@ def _compute_completion_pct(record) -> int:
         "apnea_count", "desaturation_count", "severe_desaturation_count",  # 13, 14, 15
     ]
     resp_done = (
-        sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
+        (1 if answered(getattr(record, "weight_kg", None)) else 0)      # 2.1 weight
+        + sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
         + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
         + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
     )
-    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1  # = 22
+    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 1  # = 23 (weight + items 1-22)
 
     # ── CARDIOVASCULAR (items 23-29) ──
     cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27
@@ -1715,6 +1716,33 @@ def _compute_completion_pct(record) -> int:
 
 
 # â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+# â”€â”€ GET summary (all days for timeline status indicators) â”€â”€â”€â”€â”€
+@app.get("/resp-cv-neuro/{enrollment_id}/summary")
+def get_resp_cv_neuro_summary(
+    enrollment_id: str,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    records = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .order_by(RespCVNeuroDayLog.nicu_day)
+        .all()
+    )
+    return [
+        {
+            "nicu_day":          r.nicu_day,
+            "submission_status": r.submission_status or "empty",
+            "completion_pct":    _compute_completion_pct(r),
+            "saved_at":          r.saved_at,
+            "submitted_at":      r.submitted_at,
+        }
+        for r in records
+    ]
+
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
     enrollment_id: str,
@@ -1831,33 +1859,6 @@ def submit_resp_cv_neuro_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
-
-
-# â”€â”€ GET summary (all days for timeline status indicators) â”€â”€â”€â”€â”€
-@app.get("/resp-cv-neuro/{enrollment_id}/summary")
-def get_resp_cv_neuro_summary(
-    enrollment_id: str,
-    db:            Session = Depends(get_db),
-    current_user:  User    = Depends(get_current_user),
-):
-    require_enrollment_access(enrollment_id, db, current_user)
-    records = (
-        db.query(RespCVNeuroDayLog)
-        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
-        .order_by(RespCVNeuroDayLog.nicu_day)
-        .all()
-    )
-    return [
-        {
-            "nicu_day":          r.nicu_day,
-            "submission_status": r.submission_status or "empty",
-            "completion_pct":    _compute_completion_pct(r),
-            "saved_at":          r.saved_at,
-            "submitted_at":      r.submitted_at,
-        }
-        for r in records
-    ]
-
 
 # â”€â”€ PATCH discharge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.patch("/enrollment/{enrollment_id}/discharge")

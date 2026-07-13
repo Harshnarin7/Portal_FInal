@@ -256,6 +256,11 @@ export default function RespCVNeuroLog() {
   /* ── UI state ── */
   const [activeDay, setActiveDay]       = useState(1);
   const [totalDays, setTotalDays]       = useState(14);
+  // Day 1 date — manually entered, drives all day date labels.
+  // Pre-filled from birth-resuscitation date_of_birth, persisted per enrollment.
+  const [day1Date, setDay1Date] = useState(() =>
+    enrollmentId ? (localStorage.getItem(`rcn_day1_${enrollmentId}`) || "") : ""
+  );
   const [completedDays, setCompletedDays] = useState([]);
   const [dayStatuses, setDayStatuses]     = useState({}); // { [day]: STATUS.* }
   const [dayMeta, setDayMeta]             = useState({}); // { [day]: { pct, savedAt } }
@@ -277,6 +282,8 @@ export default function RespCVNeuroLog() {
   const [patientInfo, setPatientInfo] = useState({
     enrollmentId: enrollmentId || "",
     babyUid: "",
+    babyName: "",
+    motherName: "",
     gestationalAge: "",
     admissionDate: "",
     dischargeDate: "",
@@ -334,8 +341,29 @@ export default function RespCVNeuroLog() {
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
-        const ga = b.gestation_weeks && b.gestation_days
-          ? `${b.gestation_weeks}+${b.gestation_days} wks` : "";
+
+        // Gestation — start with Form B, then check postnatal-day1 for NBS correction
+        // (mirrors FiO2AUC logic exactly)
+        let gestWeeks = b?.gestation_weeks;
+        let gestDays  = b?.gestation_days ?? 0;
+        try {
+          const dRes = await api.get(`/postnatal-day1/${enrollmentId}`);
+          const d = dRes?.data || {};
+          const origTotal = (b?.original_gestation_weeks ?? gestWeeks) * 7
+                          + (b?.original_gestation_days  ?? gestDays);
+          const nbsTotal  = (d?.gestation_weeks ?? 0) * 7 + (d?.gestation_days ?? 0);
+          if (
+            d?.ga_method === "NBS" &&
+            d?.gestation_weeks != null &&
+            Math.abs(nbsTotal - origTotal) > 14
+          ) {
+            gestWeeks = d.gestation_weeks;
+            gestDays  = d.gestation_days ?? 0;
+          }
+        } catch (_) {}
+
+        const ga = gestWeeks != null
+          ? `${gestWeeks}+${gestDays} wks` : "";
 
         // Calculate current NICU day
         const admitDate = b.date_of_birth ? new Date(b.date_of_birth) : null;
@@ -365,8 +393,32 @@ export default function RespCVNeuroLog() {
           dischargeDate:  b.discharge_date || "",
           status:         b.discharge_date ? "Discharged" : "In NICU",
         }));
+        // Pre-fill Day 1 date from birth date only if not already set manually
+        if (b.date_of_birth) {
+          setDay1Date(prev => {
+            if (prev) return prev; // keep manual entry
+            // Normalize to YYYY-MM-DD for <input type="date">
+            const d1 = b.date_of_birth.split("T")[0];
+            localStorage.setItem(`rcn_day1_${enrollmentId}`, d1);
+            return d1;
+          });
+        }
         setActiveDay(dayNum);
         setTotalDays(maxDay);
+      } catch (_) {}
+
+      // Load PII — mother_first_name, mother_surname, baby_name
+      // (PII fields are NOT available on birth-resuscitation response
+      //  since they are stored encrypted; the /pii endpoint decrypts them)
+      try {
+        const piiRes = await api.get(`/pii/enrollment/${enrollmentId}`);
+        const p = piiRes?.data || {};
+        const motherName = `${p.mother_first_name || ""} ${p.mother_surname || ""}`.trim();
+        setPatientInfo(prev => ({
+          ...prev,
+          motherName: motherName || "",
+          babyName:   p.baby_name || "",
+        }));
       } catch (_) {}
 
       // Load summary for all days to populate status indicators
@@ -504,9 +556,10 @@ export default function RespCVNeuroLog() {
     "chest_drain","pphn","postnatal_steroids",
   ]; // items 7,11,12,16-22 = 10 keys
   const respEventsAnswered = RESP_EVENT_KEYS.filter(k => respEvents[k] !== null).length;
-  const respTotal    = 22; // items 1-22
+  const respTotal    = 23; // weight(2.1) + items 1-22
   const respAnswered = Math.min(
-    (respiratorySupport !== null ? 1 : 0)          // 1
+    (weightKg !== "" ? 1 : 0)                      // 2.1 weight
+    + (respiratorySupport !== null ? 1 : 0)          // 1
     + (endotrachealIntubation !== null ? 1 : 0)    // 2
     + (supportModes.length > 0 ? 1 : 0)            // 3
     + (mapCpap !== "" ? 1 : 0)                     // 4
@@ -776,71 +829,81 @@ export default function RespCVNeuroLog() {
 
       <div className={`rcn-page${isSaved && !isEditing ? " rcn-readonly" : ""}`}>
 
-        {/* ══ PATIENT CONTEXT BAR ══ */}
-        <div className="rcn-context-bar">
-          <div className="rcn-context-trial">
-            <div className="rcn-context-trial-icon">⊕</div>
-            <div className="rcn-context-trial-info">
-              <span className="rcn-context-trial-name">PORTAL TRIAL</span>
-              <span className="rcn-context-trial-sub">Helper Form 2</span>
+        {/* ══ PATIENT INFO HEADER ══ */}
+        <div className="rcn-patient-header">
+          <div className="rcn-patient-header-title">
+            <div className="rcn-patient-header-badge">HELPER FORM 2</div>
+            <h2 className="rcn-patient-header-form-name">Resp / CV / Neuro Daily Log</h2>
+            <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
+          </div>
+          <div className="rcn-patient-cards">
+            <div className="rcn-pcard rcn-pcard--blue">
+              <span className="rcn-pcard-icon">🪪</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Enrolment ID</span>
+                <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--violet">
+              <span className="rcn-pcard-icon">🤱</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Mother's Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.motherName || "—"}
+                </span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--teal">
+              <span className="rcn-pcard-icon">🧬</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Gestation</span>
+                <span className="rcn-pcard-value">{patientInfo.gestationalAge || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--amber">
+              <span className="rcn-pcard-icon">🏷️</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby UID</span>
+                <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--rose">
+              <span className="rcn-pcard-icon">👶</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.babyName || <span className="rcn-pcard-empty">if available</span>}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="rcn-context-fields">
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">Enrolment ID</span>
-              <span className="rcn-context-field-value">{patientInfo.enrollmentId || "—"}</span>
-            </div>
-            {patientInfo.babyUid && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Baby UID</span>
-                <span className="rcn-context-field-value">{patientInfo.babyUid}</span>
-              </div>
-            )}
-            {patientInfo.gestationalAge && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Gestational Age</span>
-                <span className="rcn-context-field-value">{patientInfo.gestationalAge}</span>
-              </div>
-            )}
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">NICU Day</span>
-              <span className="rcn-context-field-value">Day {activeDay}</span>
-            </div>
-            <div className="rcn-context-field rcn-context-field--last">
-              <span className="rcn-context-field-label">Status</span>
-              <div className="rcn-status-badge">
-                <span className="rcn-status-dot" style={{
-                  background: patientInfo.status === "Discharged" ? "#94A3B8" : "#10B981",
-                  boxShadow: patientInfo.status === "Discharged"
-                    ? "0 0 5px #94A3B8" : "0 0 5px #10B981"
-                }} />
-                <span>{patientInfo.status}</span>
-              </div>
-            </div>
-          </div>
-          {isSaved && !isSubmitted && (
-            <button
-              type="button"
-              className={`rcn-edit-btn${isEditing ? " rcn-edit-btn--active" : ""}`}
-              onClick={() => setIsEditing(p => !p)}
-              style={{ flexShrink: 0 }}
-            >
-              {isEditing ? "✓ Done" : "Edit"}
-            </button>
-          )}
         </div>
 
         {/* ══ DAY TIMELINE ══ */}
         <div className="rcn-timeline-wrap">
-          <span className="rcn-timeline-label">Days</span>
+          <div className="rcn-timeline-header">
+            <span className="rcn-timeline-label">Days</span>
+            <div className="rcn-day1-picker">
+              <label className="rcn-day1-picker-label">Day 1 Date</label>
+              <input
+                type="date"
+                className="rcn-day1-picker-input"
+                value={day1Date}
+                onChange={e => {
+                  const v = e.target.value;
+                  setDay1Date(v);
+                  if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
+                }}
+              />
+            </div>
+          </div>
           <div className="rcn-timeline">
             {days.map(d => {
-              const isActive      = d === activeDay;
-              const isFuture      = d > activeDay;
-              const isDischarge   = dischargeDay && d > dischargeDay;
-              const st            = dayStatuses[d] || STATUS.EMPTY;
-              const cfg           = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
-              const meta          = dayMeta[d] || {};
+              const isActive    = d === activeDay;
+              const isDischarge = dischargeDay && d > dischargeDay;
+              const st          = dayStatuses[d] || STATUS.EMPTY;
+              const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
+              const meta        = dayMeta[d] || {};
               return (
                 <button
                   key={d}
@@ -848,27 +911,23 @@ export default function RespCVNeuroLog() {
                   className={[
                     "rcn-day",
                     isActive    ? "rcn-day--active"    : "",
-                    isFuture    ? "rcn-day--future"    : "",
                     isDischarge ? "rcn-day--discharged": "",
                     `rcn-day--${st}`,
                   ].filter(Boolean).join(" ")}
-                  onClick={() => !isFuture && !isDischarge && setActiveDay(d)}
+                  onClick={() => !isDischarge && setActiveDay(d)}
                   title={isDischarge
                     ? `Day ${d} — Patient discharged`
                     : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`}
-                  style={!isActive && !isFuture && !isDischarge
-                    ? { borderColor: cfg.color + "66" } : {}}
+                  style={!isActive && !isDischarge ? { borderColor: cfg.color + "66" } : {}}
                 >
                   <span className="rcn-day-d">D</span>
                   <span className="rcn-day-num">{d}</span>
-                  <span
-                    className="rcn-day-dot"
-                    style={!isActive ? { background: cfg.dot } : {}}
-                  />
+                  <span className="rcn-day-dot"
+                    style={!isActive ? { background: cfg.dot } : {}} />
                   <span className="rcn-day-date">
                     {isDischarge ? "🏠" : (() => {
-                      if (!patientInfo.admissionDate) return "";
-                      const base = new Date(patientInfo.admissionDate);
+                      if (!day1Date) return "";
+                      const base = new Date(day1Date);
                       base.setDate(base.getDate() + d - 1);
                       return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
                     })()}
@@ -876,6 +935,23 @@ export default function RespCVNeuroLog() {
                 </button>
               );
             })}
+
+            {/* ── Add next day ── */}
+            {!dischargeDay && (
+              <button
+                type="button"
+                className="rcn-day-add"
+                onClick={() => {
+                  const next = totalDays + 1;
+                  setTotalDays(next);
+                  setActiveDay(next);
+                }}
+                title={`Add Day ${totalDays + 1}`}
+              >
+                <span className="rcn-day-add-plus">+</span>
+                <span className="rcn-day-add-label">Day</span>
+              </button>
+            )}
           </div>
 
           {/* ── Status legend ── */}
@@ -1289,12 +1365,14 @@ export default function RespCVNeuroLog() {
 
       {/* ══ STICKY FOOTER ══ */}
       <div className="form-navigation">
+
+        {/* ← Back */}
         <button type="button" className="btn btn-secondary btn-outline"
           onClick={() => navigate(`/fio2-auc/${enrollmentId}`)}>
           <ArrowLeft size={15} /> FiO₂ AUC
         </button>
 
-        {/* Save — always visible unless submitted */}
+        {/* Save */}
         {!isSubmitted && (
           <button type="button" className="btn btn-save btn-outline-blue"
             onClick={handleSave}>
@@ -1302,43 +1380,28 @@ export default function RespCVNeuroLog() {
           </button>
         )}
 
-        {/* Submit — visible when 100% complete */}
-        {!isSubmitted && (
-          <button
-            type="button"
-            className="btn btn-submit-day"
-            onClick={() => canSubmit && setShowModal(true)}
-            disabled={!canSubmit}
-            title={completionPct < 100 ? `Fill all fields (${completionPct}% done)` : "Submit and lock this day"}
-          >
-            <Shield size={15} />
-            {canSubmit ? `Submit Day ${activeDay}` : `Submit (${completionPct}%)`}
-          </button>
-        )}
-
-        {/* Discharge button — only when not already discharged */}
-        {!dischargeDay && (
-          showDischargeConfirm ? (
-            <div className="rcn-discharge-confirm">
-              <span>Discharge after Day {activeDay}?</span>
-              <button type="button" className="rcn-discharge-yes" onClick={handleDischarge}>Yes</button>
-              <button type="button" className="rcn-discharge-no" onClick={() => setShowDischargeConfirm(false)}>No</button>
-            </div>
-          ) : (
-            <button type="button" className="btn rcn-btn-discharge"
-              onClick={() => setShowDischargeConfirm(true)}>
-              🏠 Discharge
-            </button>
-          )
-        )}
-
-        {/* Locked indicator */}
-        {isSubmitted && (
+        {/* Save for Later (draft) / Submit (when complete) / Locked badge */}
+        {isSubmitted ? (
           <div className="rcn-locked-badge">
             <Lock size={13} /> Day {activeDay} Locked
           </div>
+        ) : canSubmit ? (
+          <button
+            type="button"
+            className="btn btn-submit-day"
+            onClick={() => setShowModal(true)}
+            title="Submit and lock this day"
+          >
+            <Shield size={15} /> Submit Day {activeDay}
+          </button>
+        ) : (
+          <button type="button" className="btn btn-draft"
+            onClick={handleSave}>
+            <Save size={15} /> Save for Later
+          </button>
         )}
 
+        {/* Step indicator — centre */}
         <div className="footer-step-indicator">
           <span className="step-text">HELPER 2 OF 4</span>
           <div className="step-progress-line">
@@ -1348,10 +1411,13 @@ export default function RespCVNeuroLog() {
             <div className="progress-segment" />
           </div>
         </div>
+
+        {/* Next → */}
         <button type="button" className="btn btn-primary"
-          onClick={handleNext} disabled={completionPct === 0}>
-          Next Form <ArrowRight size={15} />
+          onClick={handleNext} disabled={!isSaved}>
+          Infect / GI / Hema <ArrowRight size={15} />
         </button>
+
       </div>
     </>
   );

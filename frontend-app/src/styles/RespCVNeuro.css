@@ -44,6 +44,116 @@
   caret-color: auto;
 }
 
+/* ── Patient Info Header (colorful cards) ───────────────────── */
+.rcn-patient-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px 22px;
+  margin-bottom: 4px;
+  box-shadow: 0 2px 12px rgba(15,23,42,0.06);
+}
+.rcn-patient-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  padding-right: 20px;
+  border-right: 2px solid #e2e8f0;
+}
+.rcn-patient-header-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0f4c81;
+  background: #dbeafe;
+  border-radius: 4px;
+  padding: 2px 8px;
+  width: fit-content;
+}
+.rcn-patient-header-form-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.rcn-patient-header-subtitle {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+}
+.rcn-patient-cards {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.rcn-pcard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1.5px solid transparent;
+  transition: transform 0.15s;
+}
+.rcn-pcard:hover { transform: translateY(-1px); }
+.rcn-pcard-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+.rcn-pcard-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rcn-pcard-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.rcn-pcard-value {
+  font-size: 13px;
+  font-weight: 800;
+  word-break: break-word;
+}
+.rcn-pcard-value--cap { text-transform: capitalize; }
+.rcn-pcard-empty { font-size: 11px; font-weight: 400; font-style: italic; opacity: 0.6; }
+
+.rcn-pcard--blue   { background: #eff6ff; border-color: #bfdbfe; }
+.rcn-pcard--blue   .rcn-pcard-label { color: #1d4ed8; }
+.rcn-pcard--blue   .rcn-pcard-value { color: #1e3a8a; }
+.rcn-pcard--violet { background: #f5f3ff; border-color: #ddd6fe; }
+.rcn-pcard--violet .rcn-pcard-label { color: #7c3aed; }
+.rcn-pcard--violet .rcn-pcard-value { color: #4c1d95; }
+.rcn-pcard--teal   { background: #f0fdfa; border-color: #99f6e4; }
+.rcn-pcard--teal   .rcn-pcard-label { color: #0d9488; }
+.rcn-pcard--teal   .rcn-pcard-value { color: #134e4a; }
+.rcn-pcard--amber  { background: #fffbeb; border-color: #fde68a; }
+.rcn-pcard--amber  .rcn-pcard-label { color: #d97706; }
+.rcn-pcard--amber  .rcn-pcard-value { color: #78350f; }
+.rcn-pcard--rose   { background: #fff1f2; border-color: #fecdd3; }
+.rcn-pcard--rose   .rcn-pcard-label { color: #e11d48; }
+.rcn-pcard--rose   .rcn-pcard-value { color: #881337; }
+
+@media (max-width: 1100px) {
+  .rcn-patient-header { flex-direction: column; align-items: flex-start; }
+  .rcn-patient-header-title {
+    border-right: none; padding-right: 0;
+    border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; width: 100%;
+  }
+  .rcn-patient-cards { width: 100%; }
+}
+@media (max-width: 640px) {
+  .rcn-pcard { flex: 1 1 calc(50% - 4px); }
+}
+
 /* ── Patient Context Bar ──────────────────────────────────── */
 .rcn-context-bar {
   background: #0F4C81;
@@ -188,8 +298,15 @@
   border-bottom: 1px solid #E2E8F0;
   padding: 0 28px;
   display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.rcn-timeline-header {
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  padding: 10px 0 4px;
 }
 
 .rcn-timeline-label {
@@ -199,7 +316,45 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   flex-shrink: 0;
-  padding: 14px 0;
+}
+
+/* ── Day 1 date picker ───────────────────────────────────── */
+.rcn-day1-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 4px 10px;
+  transition: border-color 0.15s;
+}
+.rcn-day1-picker:focus-within {
+  border-color: #0F4C81;
+  background: #EFF6FF;
+}
+.rcn-day1-picker-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748B;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.rcn-day1-picker-input {
+  border: none;
+  background: transparent;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0F172A;
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+}
+.rcn-day1-picker-input::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
 }
 
 .rcn-timeline {
@@ -207,13 +362,40 @@
   align-items: center;
   gap: 3px;
   overflow-x: auto;
-  padding: 10px 0;
-  scrollbar-width: none;
+  padding: 10px 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
   flex: 1;
-  /* prevent pills from stretching */
   align-content: flex-start;
 }
-.rcn-timeline::-webkit-scrollbar { display: none; }
+.rcn-timeline::-webkit-scrollbar          { display: block; height: 4px; }
+.rcn-timeline::-webkit-scrollbar-track   { background: transparent; }
+.rcn-timeline::-webkit-scrollbar-thumb   { background: #cbd5e1; border-radius: 2px; }
+.rcn-timeline::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Add Day button ─────────────────────────────────────────── */
+.rcn-day-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 58px;
+  border-radius: 12px;
+  border: 2px dashed #94a3b8;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.rcn-day-add:hover         { border-color: #0f4c81; background: #eff6ff; }
+.rcn-day-add-plus          { font-size: 22px; font-weight: 700; line-height: 1; color: #64748b; }
+.rcn-day-add:hover .rcn-day-add-plus { color: #0f4c81; }
+.rcn-day-add-label         { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; }
+.rcn-day-add:hover .rcn-day-add-label { color: #0f4c81; }
 
 .rcn-day {
   display: flex;
@@ -1122,17 +1304,24 @@
   transform: none;
 }
 
+/* ── Save for Later / Draft button (matches FiO2 style) ────── */
+.btn-draft {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  border: none;
+  box-shadow: 0 1px 4px rgba(217,119,6,0.3);
+}
+.btn-draft:hover {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  box-shadow: 0 2px 8px rgba(180,83,9,0.35);
+  transform: translateY(-1px);
+}
+
 /* ══════════════════════════════════════════════════════
    WORKFLOW FEATURES: Copy Day / Discharge / Status
 ══════════════════════════════════════════════════════ */
 
 /* ── Timeline legend ───────────────────────────────────────── */
-.rcn-timeline-wrap {
-  flex-wrap: wrap;
-  gap: 0;
-  padding-bottom: 0;
-}
-
 .rcn-timeline-legend {
   width: 100%;
   display: flex;
