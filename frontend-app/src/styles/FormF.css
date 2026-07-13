@@ -208,6 +208,8 @@
   box-shadow: 0 0 0 4px rgba(15,76,129,.06);
 }
 .fh-card-title { font-size: 15px; font-weight: 700; color: var(--fh-t1); margin: 0; }
+.fh-section-heading { font-size: 15px; font-weight: 700; color: var(--fh-t1); margin: 24px 0 8px; }
+.fh-summary-item-label { font-size: 12px; font-weight: 600; color: var(--fh-t2); margin: 4px 0; }
 .fh-card-count {
   background: var(--fh-blue-pale); color: var(--fh-blue);
   font-size: 11px; font-weight: 700; padding: 3px 10px;
