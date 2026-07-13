@@ -1,0 +1,119 @@
+diff --git a/frontend-app/src/FormF.jsx b/frontend-app/src/FormF.jsx
+index 007c7fb..7cf75fe 100644
+--- a/frontend-app/src/FormF.jsx
++++ b/frontend-app/src/FormF.jsx
+@@ -1026,6 +1026,7 @@ export default function FormF() {
+         </div>
+ 
+         {/* ══ SECTION 3: SUMMARY PANELS (F2) ══ */}
++        <h3 className="fh-section-heading">F2. Detailed Findings &amp; Summary</h3>
+         <div className="fh-summary-grid">
+           {/* IVH */}
+           <div className="fh-summary-panel">
+@@ -1037,14 +1038,15 @@ export default function FormF() {
+               </div>
+             </div>
+             <div className="fh-summary-panel-body">
+-              {[{side:"RIGHT",data:maxRIVH},{side:"LEFT",data:maxLIVH}].map(({side,data})=>(
++              {[{side:"RIGHT",data:maxRIVH,num:1},{side:"LEFT",data:maxLIVH,num:2}].map(({side,data,num})=>(
+                 <div key={side} className="fh-summary-side">
+                   <div className={`fh-side-label fh-side-label--${side.toLowerCase()}`}>{side}</div>
++                  <div className="fh-summary-item-label">{num}. Max IVH Grade</div>
+                   <div className={`fh-summary-grade-display${getGradeNum(data.grade)>=3?" fh-summary-grade-display--high":""}`}>{data.grade}</div>
+                   <div className="fh-summary-side-meta">
+-                    <div><span>Date</span><span>{data.date}</span></div>
+-                    <div><span>DOL</span><span className="fh-auto-value">{data.dol}</span></div>
+-                    <div><span>PMA</span><span className="fh-auto-value">{data.pma}</span></div>
++                    <div><span>{num}a. Date</span><span>{data.date}</span></div>
++                    <div><span>{num}b. DOL</span><span className="fh-auto-value">{data.dol}</span></div>
++                    <div><span>{num}c. PMA</span><span className="fh-auto-value">{data.pma}</span></div>
+                   </div>
+                 </div>
+               ))}
+@@ -1061,14 +1063,15 @@ export default function FormF() {
+               </div>
+             </div>
+             <div className="fh-summary-panel-body">
+-              {[{side:"RIGHT",data:maxRCPVL},{side:"LEFT",data:maxLCPVL}].map(({side,data})=>(
++              {[{side:"RIGHT",data:maxRCPVL,num:3},{side:"LEFT",data:maxLCPVL,num:4}].map(({side,data,num})=>(
+                 <div key={side} className="fh-summary-side">
+                   <div className={`fh-side-label fh-side-label--${side.toLowerCase()}`}>{side}</div>
++                  <div className="fh-summary-item-label">{num}. Max cPVL</div>
+                   <div className={`fh-summary-grade-display${getGradeNum(data.grade)>=2?" fh-summary-grade-display--high":""}`}>{data.grade}</div>
+                   <div className="fh-summary-side-meta">
+-                    <div><span>Date</span><span>{data.date}</span></div>
+-                    <div><span>DOL</span><span className="fh-auto-value">{data.dol}</span></div>
+-                    <div><span>PMA</span><span className="fh-auto-value">{data.pma}</span></div>
++                    <div><span>{num}a. Date</span><span>{data.date}</span></div>
++                    <div><span>{num}b. DOL</span><span className="fh-auto-value">{data.dol}</span></div>
++                    <div><span>{num}c. PMA</span><span className="fh-auto-value">{data.pma}</span></div>
+                   </div>
+                 </div>
+               ))}
+@@ -1080,7 +1083,7 @@ export default function FormF() {
+             <div className="fh-brain-injury-left">
+               <span className="fh-brain-injury-emoji">🧠</span>
+               <div>
+-                <h4 className="fh-brain-injury-title">Brain Injury Composite</h4>
++                <h4 className="fh-brain-injury-title">8. Brain Injury for Composite Outcome</h4>
+                 <p className="fh-brain-injury-desc">IVH ≥ III and/or cPVL ≥ II (CRF §8)</p>
+               </div>
+             </div>
+@@ -1116,7 +1119,7 @@ export default function FormF() {
+               <div className="fh-complication-item">
+                 <div className="fh-complication-row">
+                   <div className="fh-complication-info">
+-                    <div className="fh-complication-title">Ventricular Dilatation (PHVD)</div>
++                    <div className="fh-complication-title">5. Post-Hemorrhagic Ventricular Dilatation (PHVD)</div>
+                     <div className="fh-complication-sub">Post-hemorrhagic ventricular dilatation</div>
+                   </div>
+                   <YNSegment value={complications.phvd}
+@@ -1125,7 +1128,7 @@ export default function FormF() {
+                 </div>
+                 {complications.phvd===true && (
+                   <div className="fh-complication-nested">
+-                    <label className="fh-label">Diagnosis Date</label>
++                    <label className="fh-label">5a. Date</label>
+                     <input type="date" className="fh-input fh-input--sm"
+                       value={complications.phvdDate}
+                       onChange={e=>setComp("phvdDate",e.target.value)}
+@@ -1137,7 +1140,7 @@ export default function FormF() {
+               <div className="fh-complication-item">
+                 <div className="fh-complication-row">
+                   <div className="fh-complication-info">
+-                    <div className="fh-complication-title">VP Shunt / Reservoir Required</div>
++                    <div className="fh-complication-title">6. VP Shunt / Reservoir Required</div>
+                     <div className="fh-complication-sub">Surgical CSF drainage intervention</div>
+                   </div>
+                   <YNSegment value={complications.vpShunt}
+@@ -1146,7 +1149,7 @@ export default function FormF() {
+                 </div>
+                 {complications.vpShunt===true && (
+                   <div className="fh-complication-nested">
+-                    <label className="fh-label">Insertion Date</label>
++                    <label className="fh-label">6a. Date</label>
+                     <input type="date" className="fh-input fh-input--sm"
+                       value={complications.vpShuntDate}
+                       onChange={e=>setComp("vpShuntDate",e.target.value)}
+@@ -1162,7 +1165,7 @@ export default function FormF() {
+             <div className="fh-card-header">
+               <div className="fh-card-header-left">
+                 <div className="fh-card-icon"><FileText size={18}/></div>
+-                <h3 className="fh-card-title">Other Ultrasound Findings</h3>
++                <h3 className="fh-card-title">7. Other Ultrasound Findings</h3>
+               </div>
+             </div>
+             <div className="fh-findings-grid">
+diff --git a/frontend-app/src/styles/FormF.css b/frontend-app/src/styles/FormF.css
+index 0623044..8acfcce 100644
+--- a/frontend-app/src/styles/FormF.css
++++ b/frontend-app/src/styles/FormF.css
+@@ -208,6 +208,8 @@
+   box-shadow: 0 0 0 4px rgba(15,76,129,.06);
+ }
+ .fh-card-title { font-size: 15px; font-weight: 700; color: var(--fh-t1); margin: 0; }
++.fh-section-heading { font-size: 15px; font-weight: 700; color: var(--fh-t1); margin: 24px 0 8px; }
++.fh-summary-item-label { font-size: 12px; font-weight: 600; color: var(--fh-t2); margin: 4px 0; }
+ .fh-card-count {
+   background: var(--fh-blue-pale); color: var(--fh-blue);
+   font-size: 11px; font-weight: 700; padding: 3px 10px;
