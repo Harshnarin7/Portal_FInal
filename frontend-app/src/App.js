@@ -32,6 +32,7 @@ import AdverseEventsForm from "./AdverseEventsForm";
 import SeriousAdverseEventsList from "./SeriousAdverseEventsList";
 
 import ViewEntries from "./ViewEntries";
+import HelperFormRecords from "./HelperFormRecords";
 import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
 import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
@@ -171,6 +172,7 @@ function AppContent() {
                       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                       <Route path="/trial-monitoring" element={<ProtectedRoute><TrialMonitoringDashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
+                      <Route path="/helper-form-records" element={<ProtectedRoute><HelperFormRecords /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
                       <Route path="/form-a/:screeningId?" element={<ProtectedRoute><FormLayout currentForm="form_a"><ScreeningForm /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-b/:screeningId" element={<ProtectedRoute><FormLayout currentForm="form_b"><BirthResuscitation /></FormLayout></ProtectedRoute>} />

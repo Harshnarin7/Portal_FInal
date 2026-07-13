@@ -5,7 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import random, string
 from models import RespiratoryLog
 from auth import hash_password, verify_password
@@ -20,9 +20,9 @@ from models import (
     CranialUltrasound, ROPScreening, CompositeOutcome,
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
     MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, CranialUSGRecord, SAEReport, AdverseEvents,
-    SAEList, User, MRIBrainAssessment, BlenderStudySummary
+    SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import get_current_user, is_superadmin, require_superadmin, ensure_same_site
@@ -54,9 +54,10 @@ from pii_service import (
     split_and_store_pii,
     migrate_legacy_pii,
     upsert_participant_pii,
+    can_view_pii_for_site,
 )
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 import os
 import logging
 
@@ -1719,6 +1720,153 @@ def _compute_completion_pct(record) -> int:
 
 
 # â”€â”€ GET summary (all days for timeline status indicators) â”€â”€â”€â”€â”€
+# ── GET records (cross-patient list — Helper Form Records page) ──────────────
+@app.get("/resp-cv-neuro/records", response_model=HelperFormRecordsPage)
+def list_resp_cv_neuro_records(
+    request:      Request,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+    date_filter:  str     = "today",   # today | yesterday | last7 | all
+    status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
+    site:         str | None = None,
+    search:       str     = "",
+    page:         int     = 1,
+    per_page:     int     = 25,
+):
+    """List Helper Form 2 (Resp/CV/Neuro) daily-log records across patients,
+    for the day-to-day work queue. 'Today' is derived from date_of_birth +
+    (nicu_day - 1), matching the calendar date the form itself computes for
+    each NICU day — not the row's created_at/updated_at, which only reflects
+    when it was last edited."""
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+
+    screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
+    if not is_superadmin(current_user):
+        screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
+    elif site:
+        screening_query = screening_query.filter(Screening.site_name == site)
+
+    accessible = {s.enrollment_id: s for s in screening_query.all() if s.enrollment_id}
+    if not accessible:
+        return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id.in_(accessible.keys()))
+        .all()
+    )
+
+    dob_map = {
+        r.enrollment_id: r.date_of_birth
+        for r in db.query(BirthResuscitation.enrollment_id, BirthResuscitation.date_of_birth)
+        .filter(BirthResuscitation.enrollment_id.in_(accessible.keys()))
+        .all()
+    }
+
+    pii_map = {}
+    for p in db.query(ParticipantPII).filter(ParticipantPII.enrollment_id.in_(accessible.keys())).all():
+        screening = accessible.get(p.enrollment_id)
+        site_name = screening.site_name if screening else None
+        if can_view_pii_for_site(current_user, site_name):
+            name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
+            pii_map[p.enrollment_id] = name or None
+
+    today = date.today()
+    if date_filter == "today":
+        date_range = (today, today)
+    elif date_filter == "yesterday":
+        y = today - timedelta(days=1)
+        date_range = (y, y)
+    elif date_filter == "last7":
+        date_range = (today - timedelta(days=6), today)
+    else:
+        date_range = None
+
+    status_pending = {"empty", "draft", "complete", "late"}
+    search_lower = search.strip().lower()
+
+    rows: list[HelperFormRecordOut] = []
+    for log in logs:
+        screening = accessible.get(log.enrollment_id)
+        dob = dob_map.get(log.enrollment_id)
+        calendar_date = (dob + timedelta(days=log.nicu_day - 1)) if dob else None
+
+        if date_range and (calendar_date is None or not (date_range[0] <= calendar_date <= date_range[1])):
+            continue
+
+        log_status = log.submission_status or "empty"
+        if status == "pending" and log_status not in status_pending:
+            continue
+        if status == "completed" and log_status != "submitted":
+            continue
+        if status not in ("all", "pending", "completed") and log_status != status:
+            continue
+
+        mother_name = pii_map.get(log.enrollment_id)
+
+        if search_lower:
+            haystack = " ".join(filter(None, [
+                log.enrollment_id,
+                screening.screening_id if screening else None,
+                mother_name,
+            ])).lower()
+            if search_lower not in haystack:
+                continue
+
+        rows.append(HelperFormRecordOut(
+            enrollment_id=log.enrollment_id,
+            screening_id=screening.screening_id if screening else None,
+            site_name=screening.site_name if screening else None,
+            nicu_day=log.nicu_day,
+            calendar_date=calendar_date,
+            mother_name=mother_name,
+            submission_status=log_status,
+            completion_pct=_compute_completion_pct(log),
+            saved_at=log.saved_at,
+            saved_by=log.saved_by,
+            submitted_at=log.submitted_at,
+            submitted_by=log.submitted_by,
+            created_at=log.created_at,
+            updated_at=log.updated_at,
+        ))
+
+    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
+
+    total = len(rows)
+    start = (page - 1) * per_page
+    page_rows = rows[start:start + per_page]
+
+    if total >= 50:
+        security_monitor.record_bulk_access(
+            current_user.username,
+            "/resp-cv-neuro/records",
+            total,
+            get_remote_address(request),
+        )
+
+    return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
+
+
+# ── GET latest update (lightweight polling for "new records" banner) ─────────
+@app.get("/resp-cv-neuro/records/latest-update")
+def get_resp_cv_neuro_latest_update(
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Returns the most recent updated_at across accessible Helper Form 2 day
+    logs, so the frontend can detect newly-synced or edited records with a
+    cheap poll instead of re-fetching the full list."""
+    query = (
+        db.query(func.max(RespCVNeuroDayLog.updated_at))
+        .join(Screening, Screening.enrollment_id == RespCVNeuroDayLog.enrollment_id)
+        .filter(Screening.is_deleted.isnot(True))
+    )
+    if not is_superadmin(current_user):
+        query = query.filter(Screening.site_name == current_user.site_name)
+    return {"latest_updated_at": query.scalar()}
+
+
 @app.get("/resp-cv-neuro/{enrollment_id}/summary")
 def get_resp_cv_neuro_summary(
     enrollment_id: str,

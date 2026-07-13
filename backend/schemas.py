@@ -1491,6 +1491,34 @@ class RespCVNeuroDaySummary(BaseModel):
 class DischargeUpdate(BaseModel):
     discharge_date: str   # "YYYY-MM-DD"
     discharge_day:  int
+
+
+class HelperFormRecordOut(BaseModel):
+    """One row in the cross-patient Helper Form 2 (Resp/CV/Neuro) records list."""
+    enrollment_id:     str
+    screening_id:      Optional[str]      = None
+    site_name:         Optional[str]      = None
+    nicu_day:          int
+    calendar_date:     Optional[date]     = None
+    mother_name:       Optional[str]      = None
+    submission_status: Optional[str]      = "empty"
+    completion_pct:    Optional[int]      = 0
+    saved_at:          Optional[datetime] = None
+    saved_by:          Optional[str]      = None
+    submitted_at:      Optional[datetime] = None
+    submitted_by:      Optional[str]      = None
+    created_at:        Optional[datetime] = None
+    updated_at:        Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class HelperFormRecordsPage(BaseModel):
+    total:    int
+    page:     int
+    per_page: int
+    records:  List[HelperFormRecordOut]
 # ─────────────────────────────────────────────────────────────
 # Add these to schemas.py
 # ─────────────────────────────────────────────────────────────

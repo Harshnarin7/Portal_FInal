@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, JSON, Time
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, JSON, Time, Text
 from datetime import datetime, timezone
 from sqlalchemy import UniqueConstraint
 
@@ -503,6 +503,12 @@ class NICUAdmission(Base):
     designation = Column(String)
     signature = Column(String)
     completion_date = Column(Date)
+
+    # ── Shared "Day 1" anchor for daily/NICU-day forms (e.g. Resp/CV/Neuro log) ──
+    # Set once (defaults from date of birth), then locked once any daily data exists.
+    day1_date         = Column(Date, nullable=True)
+    day1_date_set_by  = Column(String, nullable=True)
+    day1_date_set_at  = Column(DateTime, nullable=True)
 
 
 
@@ -1202,6 +1208,11 @@ class RespCVNeuroDayLog(Base):
     saved_by    = Column(String,   nullable=True)
     submitted_at = Column(DateTime, nullable=True)
     submitted_by = Column(String,   nullable=True)
+
+    # ── SITE-MONITOR OVERRIDE (temporary reopen of a locked/past day) ──
+    override_unlocked_until = Column(DateTime, nullable=True)
+    override_reason         = Column(Text, nullable=True)
+    override_by             = Column(String, nullable=True)
 
     created_at  = Column(DateTime, default=utcnow)
     updated_at  = Column(DateTime, default=utcnow, onupdate=utcnow)

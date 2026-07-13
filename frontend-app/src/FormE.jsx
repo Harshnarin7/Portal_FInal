@@ -5,6 +5,7 @@ import "./styles/FormC.css";
 import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import useFormSession from "./hooks/useFormSession";
+import NotesBox from "./components/NotesBox";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import OfflineBanner from "./components/OfflineBanner";
@@ -1014,6 +1015,8 @@ export default function FormE() {
                 </div>
               </div>
             </div>
+
+            <NotesBox formKey={`form_e_${enrollmentId || "new"}`} />
 
             {message && (
               <div className={`form-message${message.startsWith("✅") ? " form-message--success" : " form-message--error"}`}>

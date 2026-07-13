@@ -213,6 +213,11 @@ export default function Sidebar({ currentForm }) {
           <BarChart3 size={14} strokeWidth={2} />
           <span>Trial Monitoring</span>
         </NavLink>
+        <NavLink to="/helper-form-records"
+          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+          <ClipboardList size={14} strokeWidth={2} />
+          <span>Helper Form Records</span>
+        </NavLink>
         <div className="sidebar-sep" />
 
         {!isProgressLoaded ? (

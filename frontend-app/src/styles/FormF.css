@@ -284,11 +284,11 @@
 
 /* ══ EMPTY STATE ═══════════════════════════════════════════ */
 .fh-empty {
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  padding: 56px 28px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 28px 28px 24px; text-align: center;
 }
-.fh-empty-icon { font-size: 40px; opacity: .6; }
-.fh-empty p { font-size: 13px; color: var(--fh-t4); margin: 0; line-height: 1.6; }
+.fh-empty-icon { font-size: 28px; opacity: .55; }
+.fh-empty p { font-size: 12px; color: var(--fh-t4); margin: 0; line-height: 1.5; }
 
 /* ══ SCAN LIST ═════════════════════════════════════════════ */
 .fh-scan-list {
@@ -685,23 +685,22 @@
 /* ══ BUTTONS ═══════════════════════════════════════════════ */
 .fh-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 10px 20px; border-radius: var(--fh-radius-sm);
-  font-family: 'Inter',sans-serif; font-size: 13px; font-weight: 700;
+  padding: 7px 14px; border-radius: var(--fh-radius-sm);
+  font-family: 'Inter',sans-serif; font-size: 12px; font-weight: 600;
   cursor: pointer; transition: all .15s; border: none; white-space: nowrap;
   letter-spacing: .01em;
 }
 .fh-btn--primary {
   background: var(--fh-blue); color: #fff;
-  box-shadow: 0 2px 10px rgba(15,76,129,.3);
+  box-shadow: 0 2px 8px rgba(15,76,129,.25);
 }
-.fh-btn--primary:hover { background: var(--fh-blue-mid); box-shadow: 0 4px 14px rgba(15,76,129,.4); transform: translateY(-1px); }
+.fh-btn--primary:hover { background: var(--fh-blue-mid); box-shadow: 0 3px 10px rgba(15,76,129,.35); transform: translateY(-1px); }
 .fh-btn--primary:active { transform: translateY(0); }
 .fh-btn--primary:disabled { background: var(--fh-border); color: var(--fh-t5); box-shadow: none; cursor: not-allowed; transform: none; }
 .fh-btn--ghost { background: var(--fh-surface); color: var(--fh-t2); border: 1.5px solid var(--fh-border); }
 .fh-btn--ghost:hover { background: var(--fh-border); }
 
-/* Improvement 9: compact add scan */
-/* ══ ADD SCAN BUTTON — minimal text link style ══════════════ */
+/* ══ ADD SCAN BUTTON — compact chip style ══════════════════ */
 .fh-btn-add-scan {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 5px 11px; border-radius: 7px;
@@ -776,4 +775,27 @@
   .fh-scan-expanded-grid { grid-template-columns: repeat(2,1fr); }
   .fh-card-header    { flex-wrap: wrap; gap: 12px; }
   .fh-compliance-item { padding: 0 12px; }
+}
+
+/* ── Save for Later / Draft button ─────────────────────── */
+.btn-draft,
+.form-navigation .btn-draft {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px; height: 46px; padding: 0 18px;
+  font-size: 13px; font-weight: 600; border-radius: 10px;
+  font-family: 'Inter', sans-serif; white-space: nowrap; cursor: pointer;
+  transition: all .15s;
+  border: 1.5px solid #fbbf24 !important;
+  background: #fff !important;
+  color: #d97706 !important;
+  box-shadow: none !important;
+  width: fit-content !important;
+}
+.btn-draft:hover,
+.form-navigation .btn-draft:hover {
+  background: #fffbeb !important;
+  border-color: #f59e0b !important;
+  color: #b45309 !important;
+  transform: translateY(-1px);
+  box-shadow: none !important;
 }
