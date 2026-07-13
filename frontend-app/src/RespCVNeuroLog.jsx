@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -332,7 +332,35 @@ export default function RespCVNeuroLog() {
 
   const currentDayStatus = dayStatuses[activeDay] || STATUS.EMPTY;
   const isSubmitted      = currentDayStatus === STATUS.SUBMITTED;
-  const isFieldEditable  = !isSubmitted && (!isSaved || isEditing);
+
+  /* ── Calendar-based day locking ──
+     todayNicuDay = which NICU day number corresponds to the real
+     device date, given day1Date. Days after it are "future" (no
+     data allowed yet); days before it are "past" (view-only, even
+     if never submitted). Only the day matching today's calendar
+     date is open for entry. */
+  const todayNicuDay = useMemo(() => {
+    if (!day1Date) return null;
+    const base = new Date(day1Date + "T00:00:00");
+    if (isNaN(base.getTime())) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    base.setHours(0, 0, 0, 0);
+    return Math.floor((today - base) / 86400000) + 1;
+  }, [day1Date]);
+
+  const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
+  const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
+
+  const isFieldEditable  =
+    !isSubmitted && !isFutureActiveDay && !isPastActiveDay && (!isSaved || isEditing);
+
+  // Day 1 Date drives every day's calendar label and the future/past
+  // lock above, so once any daily data exists it must stop moving —
+  // editing it after the fact would silently reshuffle which days are
+  // "past" vs "future" and could unlock/relock the wrong records.
+  const day1DateLocked = completedDays.length > 0 ||
+    Object.values(dayStatuses).some(st => st && st !== STATUS.EMPTY);
 
   /* ── Load patient info ── */
   useEffect(() => {
@@ -635,6 +663,7 @@ export default function RespCVNeuroLog() {
   const handleSave = async () => {
     if (!enrollmentId) return;
     if (isSubmitted) return; // locked
+    if (isFutureActiveDay || isPastActiveDay) return; // only today's day can be saved
     const now = new Date().toISOString();
     const payload = {
       enrollment_id:       enrollmentId,
@@ -884,12 +913,20 @@ export default function RespCVNeuroLog() {
           <div className="rcn-timeline-header">
             <span className="rcn-timeline-label">Days</span>
             <div className="rcn-day1-picker">
-              <label className="rcn-day1-picker-label">Day 1 Date</label>
+              <label className="rcn-day1-picker-label">
+                Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
+              </label>
               <input
                 type="date"
                 className="rcn-day1-picker-input"
                 value={day1Date}
+                readOnly={day1DateLocked}
+                disabled={day1DateLocked}
+                title={day1DateLocked
+                  ? "Locked — daily data already exists for this baby, so Day 1 can no longer be changed"
+                  : "Set once, from the baby's date of birth"}
                 onChange={e => {
+                  if (day1DateLocked) return;
                   const v = e.target.value;
                   setDay1Date(v);
                   if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
@@ -901,6 +938,8 @@ export default function RespCVNeuroLog() {
             {days.map(d => {
               const isActive    = d === activeDay;
               const isDischarge = dischargeDay && d > dischargeDay;
+              const isFuture    = todayNicuDay != null && d > todayNicuDay;
+              const isLocked    = isDischarge || isFuture;
               const st          = dayStatuses[d] || STATUS.EMPTY;
               const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
               const meta        = dayMeta[d] || {};
@@ -912,18 +951,24 @@ export default function RespCVNeuroLog() {
                     "rcn-day",
                     isActive    ? "rcn-day--active"    : "",
                     isDischarge ? "rcn-day--discharged": "",
+                    isFuture    ? "rcn-day--future"    : "",
                     `rcn-day--${st}`,
                   ].filter(Boolean).join(" ")}
-                  onClick={() => !isDischarge && setActiveDay(d)}
-                  title={isDischarge
-                    ? `Day ${d} — Patient discharged`
-                    : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`}
-                  style={!isActive && !isDischarge ? { borderColor: cfg.color + "66" } : {}}
+                  onClick={() => !isLocked && setActiveDay(d)}
+                  disabled={isFuture}
+                  title={
+                    isDischarge ? `Day ${d} — Patient discharged`
+                    : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
+                    : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
+                  }
+                  style={!isActive && !isLocked ? { borderColor: cfg.color + "66" } : {}}
                 >
                   <span className="rcn-day-d">D</span>
                   <span className="rcn-day-num">{d}</span>
-                  <span className="rcn-day-dot"
-                    style={!isActive ? { background: cfg.dot } : {}} />
+                  {isFuture
+                    ? <Lock size={10} className="rcn-day-dot" />
+                    : <span className="rcn-day-dot" style={!isActive ? { background: cfg.dot } : {}} />
+                  }
                   <span className="rcn-day-date">
                     {isDischarge ? "🏠" : (() => {
                       if (!day1Date) return "";
@@ -936,8 +981,8 @@ export default function RespCVNeuroLog() {
               );
             })}
 
-            {/* ── Add next day ── */}
-            {!dischargeDay && (
+            {/* ── Add next day (only to catch up to today — future days lock automatically) ── */}
+            {!dischargeDay && (todayNicuDay == null || totalDays < todayNicuDay) && (
               <button
                 type="button"
                 className="rcn-day-add"
@@ -976,7 +1021,7 @@ export default function RespCVNeuroLog() {
               </span>
             </div>
             {/* Copy from previous day button */}
-            {!isSubmitted && activeDay > 1 && (
+            {!isSubmitted && !isFutureActiveDay && !isPastActiveDay && activeDay > 1 && (
               <button
                 type="button"
                 className="rcn-copy-btn"
@@ -1384,6 +1429,14 @@ export default function RespCVNeuroLog() {
         {isSubmitted ? (
           <div className="rcn-locked-badge">
             <Lock size={13} /> Day {activeDay} Locked
+          </div>
+        ) : isFutureActiveDay ? (
+          <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
+            <Lock size={13} /> Day {activeDay} Not Available Yet
+          </div>
+        ) : isPastActiveDay ? (
+          <div className="rcn-locked-badge" title="This day's window has passed — view only">
+            <Lock size={13} /> Day {activeDay} Locked (Past Day)
           </div>
         ) : canSubmit ? (
           <button
