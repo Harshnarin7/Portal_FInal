@@ -375,7 +375,7 @@ const handleCompletedByChange = (e) => {
     <form className="screening-form" onSubmit={handleSubmit}>
        <div className="form-a-header">
   <div className="form-a-header-main"><h2>
-        Form H — Study Outcomes Assessment
+        Form G — Study Outcomes Assessment
       </h2></div></div>
 
       {/* ================= IDENTIFICATION ================= */}
