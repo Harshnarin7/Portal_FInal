@@ -11,3 +11,78 @@
 .guideline-sub { font-size: 13px; color: #333; }
 .date-row th { background: #f5f5f5; font-weight: 500; font-size: 13px; }
 .date-input { width: 70px; text-align: center; font-size: 12px; padding: 4px; }
+
+/* ─── Ensure form-row works properly ─── */
+.form-row {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── ROP Toggle Row (side by side toggles) ─── */
+.rop-toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 20px 0;
+}
+
+/* ─── LEFT EYE Section ─── */
+.rop-left-eye-section {
+  margin-top: 30px;
+  border-top: 2px solid #ddd;
+  padding-top: 20px;
+}
+
+.eye-section-title {
+  margin-bottom: 15px;
+  color: #0F4C81;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ─── Summary Title ─── */
+.summary-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #0F4C81;
+  font-size: 14px;
+}
+
+/* ─── ROP Stage Block ─── */
+.rop-stage-block {
+  margin-bottom: 20px;
+}
+
+/* ─── Spacing for toggle buttons ─── */
+.yes-no-toggle {
+  margin: 0;
+  display: block;
+  width: 100%;
+}
+
+/* ─── Ensure pn-adverse-card doesn't break layout ─── */
+.pn-adverse-card {
+  margin-bottom: 16px;
+}
+
+.pn-adverse-card .yes-no-toggle {
+  margin-bottom: 0;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 768px) {
+  .rop-toggle-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .form-row {
+    flex-direction: column;
+  }
+}

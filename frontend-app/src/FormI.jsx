@@ -7,9 +7,31 @@ import "./styles/Tables.css";
 import "./styles/FormI.css";
 import { usePatient } from "./context/PatientContext";
 import FormLayout from "./components/FormLayout";
+import { User, Info, Calendar, FileText, ShieldAlert, CheckSquare, ArrowLeft, ArrowRight, Save } from "lucide-react";
 
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
+
+/* ─── YesNoToggle (matching ScreeningForm) ─────────────────── */
+function YesNoToggle({ label, name, value, onChange, disabled = false }) {
+  const fire = (val) => {
+    if (disabled) return;
+    onChange({ target: { name, value: val } });
+  };
+  return (
+    <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
+      <span className="yes-no-label">{label}</span>
+      <div className="yes-no-buttons">
+        <button type="button"
+          className={`yn-btn yn-yes${value === "Yes" ? " yn-active-yes" : ""}`}
+          onClick={() => fire("Yes")} disabled={disabled}>YES</button>
+        <button type="button"
+          className={`yn-btn yn-no${value === "No" ? " yn-active-no" : ""}`}
+          onClick={() => fire("No")} disabled={disabled}>NO</button>
+      </div>
+    </div>
+  );
+}
 export default function FormI() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -40,19 +62,29 @@ gestation_at_birth: "",
       signature: "",
     })),
 
+    // RIGHT EYE (fields 1-8)
     worst_stage: "",
     worst_zone: "",
     plus_disease: "",
     a_rop: "",
-
     treatment_required: "",
     treatment_type: [],
     anti_vegf_agent: "",
     treatment_re_date: "",
-    treatment_le_date: "",
-    bilateral_treatment: "",
-    pma_at_treatment: "",
+    pma_at_treatment_re: "",
 
+    // LEFT EYE (fields 9-16)
+    worst_stage_le: "",
+    plus_disease_le: "",
+    a_rop_le: "",
+    worst_zone_le: "",
+    treatment_required_le: "",
+    treatment_le_date: "",
+    pma_at_treatment_le: "",
+    treatment_type_le: [],
+
+    // COMMON (fields 17-20)
+    bilateral_treatment: "",
     outcome: "",
     outcome_other_text: "",
     final_screening_date: "",
@@ -200,27 +232,41 @@ const calculatePMA = (dob, eventDate, gaWeeks, gaDays) => {
 };
 
 useEffect(() => {
-  if (
-    formData.treatment_re_date ||
-    formData.treatment_le_date
-  ) {
-    const date =
-      formData.treatment_re_date || formData.treatment_le_date;
-
+  if (formData.treatment_re_date) {
     const pma = calculatePMA(
       formData.dob,
-      date,
+      formData.treatment_re_date,
       formData.gestation_weeks,
       formData.gestation_days
     );
 
     setFormData(prev => ({
       ...prev,
-      pma_at_treatment: pma
+      pma_at_treatment_re: pma
     }));
   }
 }, [
   formData.treatment_re_date,
+  formData.dob,
+  formData.gestation_weeks,
+  formData.gestation_days
+]);
+
+useEffect(() => {
+  if (formData.treatment_le_date) {
+    const pma = calculatePMA(
+      formData.dob,
+      formData.treatment_le_date,
+      formData.gestation_weeks,
+      formData.gestation_days
+    );
+
+    setFormData(prev => ({
+      ...prev,
+      pma_at_treatment_le: pma
+    }));
+  }
+}, [
   formData.treatment_le_date,
   formData.dob,
   formData.gestation_weeks,
@@ -248,12 +294,15 @@ useEffect(() => {
   formData.gestation_days
 ]);
 const handleCheckbox = (field, value) => {
-  setFormData(prev => ({
-    ...prev,
-    [field]: prev[field].includes(value)
-      ? prev[field].filter(v => v !== value)
-      : [...prev[field], value]
-  }));
+  setFormData(prev => {
+    const currentArray = prev[field] || [];
+    return {
+      ...prev,
+      [field]: currentArray.includes(value)
+        ? currentArray.filter(v => v !== value)
+        : [...currentArray, value]
+    };
+  });
 };   
 
 const nurses = [
@@ -369,7 +418,7 @@ const handleSubmit = async (e) => {
    markFormCompleted("form_i");
     alert("✅ Form I submitted successfully");
    markFormCompleted("form_i");
-    navigate(`/fio2-auc/${formData.enrollment_id}`);
+    navigate(`/form-h/${formData.enrollment_id}`);
   } catch (err) {
     console.error("❌ Form I submission error:", err.response?.data);
     alert(
@@ -381,20 +430,39 @@ const handleSubmit = async (e) => {
 
 
   return (
-    
-    <form className="screening-form" onSubmit={handleSubmit}>
-       <div className="form-a-header">
-  <div className="form-a-header-main"><h2>
-        Form J — Retinopathy of Prematurity (ROP) Screening Record
-      </h2>
-      <span className="form-a-subtitle">
-      (Based on RBSK/NNF India &amp; ICROP 3rd Edition Guidelines)
-    </span></div></div>
+    <div className="screening-form">
+      <div className="form-inner">
+        
+        {/* ═══ PAGE HEADER ═══ */}
+        <div className="form-header-action-row">
+          <div className="form-header-title-area">
+            <div className="form-breadcrumb">
+              <FileText size={11} /> FORM G
+            </div>
+            <h1 className="form-main-title">
+              Retinopathy of Prematurity (ROP) Screening Record
+            </h1>
+            <p className="form-main-subtitle">
+              Based on RBSK/NNF India &amp; ICROP 3rd Edition Guidelines
+            </p>
+          </div>
+        </div>
 
-      {/* ================= IDENTIFICATION ================= */}
-      <div className="form-section soft-blue">
-        <h3>IDENTIFICATION</h3>
+        <form onSubmit={handleSubmit}>
 
+      {/* ═══ IDENTIFICATION ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <User size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Identification</h3>
+            <p className="section-subtitle-card">Patient demographics and eligibility</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
         <div className="form-row">
           <div className="form-group">
             <label>Enrollment ID</label>
@@ -405,7 +473,8 @@ const handleSubmit = async (e) => {
             <input
   type="date"
   name="dob"
-  value={formData.dob}readOnly
+  value={formData.dob}
+  readOnly
   onChange={handleChange}
   max={toDateOnlyValue(new Date())}
 />
@@ -423,11 +492,25 @@ const handleSubmit = async (e) => {
 </div>
           <div className="form-group">
             <label>Birth Weight (g)</label>
-            <input type="number" name="birth_weight" value={formData.birth_weight} onChange={handleChange}readOnly/>
+            <input type="number" name="birth_weight" value={formData.birth_weight} onChange={handleChange} readOnly />
           </div>
+        </div>
         </div>
       </div>
 
+      {/* ═══ ELIGIBILITY & SCREENING GUIDELINES ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <Info size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Eligibility & Screening Guidelines</h3>
+            <p className="section-subtitle-card">RBSK/NNF India & ICROP 3rd Edition</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
      <div className="rop-guideline-wrapper">
 
   <div className="rop-guideline-card">
@@ -465,10 +548,23 @@ const handleSubmit = async (e) => {
   </div>
 
 </div>
+        </div>
+      </div>
 
+      {/* ═══ G1. ROP SCREENING RECORD ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <Calendar size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">G1. ROP Screening Record</h3>
+            <p className="section-subtitle-card">12 screening visits with eye findings</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
       {/* ================= ROP SCREENING VISITS ================= */}
-<h3 className="section-title">ROP Screening</h3>
-
 <div className="rop-panel">
   <div className="rop-scroll">
     <table className="rop-table">
@@ -537,7 +633,22 @@ const handleSubmit = async (e) => {
     </table>
   </div>
 </div>
+        </div>
+      </div>
 
+      {/* ═══ ICROP CLASSIFICATION & FOLLOW-UP ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <FileText size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">ICROP 3rd Edition Classification (2021)</h3>
+            <p className="section-subtitle-card">Stages, Zones, Plus Disease & Follow-up Schedule</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
 <div className="icrop-section">
 
   <div className="icrop-header">
@@ -586,103 +697,69 @@ const handleSubmit = async (e) => {
   </div>
 
 </div>
+        </div>
+      </div>
 
+      {/* ═══ G2. TREATMENT & OUTCOME SUMMARY ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <ShieldAlert size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">G2. Treatment & Outcome Summary</h3>
+            <p className="section-subtitle-card">Detailed findings for both eyes and treatment outcomes</p>
+          </div>
+        </div>
 
-  {/* ================= TREATMENT & OUTCOME SUMMARY ================= */}
-  <div style={{ marginTop: "20px" }}>
+        <div className="section-body-card">
+          <div className="pn-adverse-card rop-summary-card">
 
-<div className="form-section soft-yellow">
-  <h3>Treatment & Outcome Summary</h3>
-
- <div className="pn-adverse-card rop-summary-card">
-
-<div className="rop-summary-top">
-
-{/* WORST STAGE */}
+{/* RIGHT EYE */}
 <div className="rop-stage-block">
+  <label className="summary-title">RIGHT — 1. Max ROP</label>
+  <div className="stage-pill-group">
+    {["None","1","2","3","4A","4B","5"].map(stage => (
+      <label
+        key={stage}
+        className={`stage-pill ${formData.worst_stage === stage ? "active" : ""}`}
+      >
+        <input
+          type="radio"
+          name="worst_stage"
+          value={stage}
+          checked={formData.worst_stage === stage}
+          onChange={handleChange}
+        />
+        {stage}
+      </label>
+    ))}
+  </div>
+</div>
 
-<label className="summary-title">Worst ROP Stage</label>
-
-<div className="stage-pill-group">
-
-{["None","1","2","3","4A","4B","5"].map(stage => (
-
-<label
-key={stage}
-className={`stage-pill ${formData.worst_stage === stage ? "active" : ""}`}
->
-
-<input
-type="radio"
-name="worst_stage"
-value={stage}
-checked={formData.worst_stage === stage}
-onChange={handleChange}
-/>
-
-{stage}
-
-</label>
-
-))}
-
+{/* 2 & 3: Plus Disease and A-ROP side by side */}
+<div className="rop-toggle-row">
+  <YesNoToggle
+    label="2. Plus Disease"
+    name="plus_disease"
+    value={formData.plus_disease}
+    onChange={handleChange}
+  />
+  <YesNoToggle
+    label="3. A-ROP"
+    name="a_rop"
+    value={formData.a_rop}
+    onChange={handleChange}
+  />
 </div>
 
 </div>
 
 
-{/* PLUS DISEASE */}
-
-<div className="rop-dropdown">
-
-<label>Plus Disease</label>
-
-<select
-name="plus_disease"
-value={formData.plus_disease}
-onChange={handleChange}
->
-
-<option value="">Select</option>
-<option>Yes</option>
-<option>No</option>
-
-</select>
-
-</div>
-
-
-{/* AROP */}
-
-<div className="rop-dropdown">
-
-<label>A-ROP</label>
-
-<select
-name="a_rop"
-value={formData.a_rop}
-onChange={handleChange}
->
-
-<option value="">Select</option>
-<option>Yes</option>
-<option>No</option>
-
-</select>
-
-</div>
-
-</div>
-
-</div>
-
-
-  {/* Worst Zone */}
+  {/* 4. Max Zone */}
   {formData.worst_stage !== "None" && (
     <div className="pn-adverse-card">
-
-      <h4>Worst Zone</h4>
-
+      <h4>4. Max Zone</h4>
       <div className="pn-checkbox-grid">
         {["Zone I","Zone II","Zone III"].map(zone => (
           <label className="checkbox-item" key={zone}>
@@ -697,167 +774,253 @@ onChange={handleChange}
           </label>
         ))}
       </div>
-
     </div>
   )}
 
-
-  {/* Treatment Required */}
+  {/* 5. Treatment Required */}
   <div className="pn-adverse-card">
-    <div className="form-group">
-
-      <label>Treatment Required</label>
-
-      <select
-        name="treatment_required"
-        value={formData.treatment_required}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-
-    </div>
+    <YesNoToggle
+      label="5. Treatment Required"
+      name="treatment_required"
+      value={formData.treatment_required}
+      onChange={handleChange}
+    />
   </div>
 
 
-  {/* Treatment Details */}
+  {/* Treatment Details for RIGHT EYE */}
   {formData.treatment_required === "Yes" && (
-    <div className="pn-adverse-card">
+    <>
+      <div className="pn-adverse-card">
+        <div className="form-row">
+          <div className="form-group">
+            <label>6. Treatment Date (RE)</label>
+            <input
+              type="date"
+              name="treatment_re_date"
+              value={formData.treatment_re_date}
+              onChange={handleChange}
+              max={toDateOnlyValue(new Date())}
+            />
+          </div>
 
-      <div className="form-row">
-
-        <div className="form-group">
-          <label>Treatment Date (RE)</label>
-          <input
-  type="date"
-  name="treatment_re_date"
-  value={formData.treatment_re_date}
-  onChange={handleChange}
-  max={toDateOnlyValue(new Date())}
-/>
+          <div className="form-group">
+            <label>7. PMA at treatment (RE)</label>
+            <input
+              name="pma_at_treatment_re"
+              value={formData.pma_at_treatment_re || ""}
+              readOnly
+            />
+          </div>
         </div>
-
-        <div className="form-group">
-          <label>Treatment Date (LE)</label>
-         <input
-  type="date"
-  name="treatment_le_date"
-  value={formData.treatment_le_date}
-  onChange={handleChange}
-  max={toDateOnlyValue(new Date())}
-/>
-        </div>
-
       </div>
 
+      <div className="pn-adverse-card">
+        <h4>8. Treatment Type (RE)</h4>
+        <div className="pn-checkbox-grid">
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Laser")}
+              onChange={() => handleCheckbox("treatment_type","Laser")}
+            />
+            Laser photocoagulation
+          </label>
 
-      <h4>Treatment Type</h4>
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Anti-VEGF")}
+              onChange={() => handleCheckbox("treatment_type","Anti-VEGF")}
+            />
+            Anti-VEGF
+          </label>
 
-      <div className="pn-checkbox-grid">
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Vitrectomy")}
+              onChange={() => handleCheckbox("treatment_type","Vitrectomy")}
+            />
+            Vitrectomy
+          </label>
 
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            checked={formData.treatment_type.includes("Laser")}
-            onChange={() => handleCheckbox("treatment_type","Laser")}
-          />
-          Laser photocoagulation
-        </label>
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Combination")}
+              onChange={() => handleCheckbox("treatment_type","Combination")}
+            />
+            Combination
+          </label>
+        </div>
 
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            checked={formData.treatment_type.includes("Anti-VEGF")}
-            onChange={() => handleCheckbox("treatment_type","Anti-VEGF")}
-          />
-          Anti-VEGF
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            checked={formData.treatment_type.includes("Vitrectomy")}
-            onChange={() => handleCheckbox("treatment_type","Vitrectomy")}
-          />
-          Vitrectomy
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            checked={formData.treatment_type.includes("Combination")}
-            onChange={() => handleCheckbox("treatment_type","Combination")}
-          />
-          Combination
-        </label>
-
+        {formData.treatment_type.includes("Anti-VEGF") && (
+          <div className="form-group other-specify">
+            <label>Agent</label>
+            <input
+              name="anti_vegf_agent"
+              value={formData.anti_vegf_agent}
+              placeholder="e.g. Bevacizumab"
+              pattern="[A-Za-z\s]+"
+              title="Only letters allowed"
+              onChange={(e) => {
+                const value = e.target.value;
+                if (/^[A-Za-z\s]*$/.test(value)) {
+                  setFormData(prev => ({
+                    ...prev,
+                    anti_vegf_agent: value
+                  }));
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
 
+      {/* LEFT EYE SECTION */}
+      <div className="rop-left-eye-section">
+        <h3 className="eye-section-title">LEFT</h3>
 
-      {formData.treatment_type.includes("Anti-VEGF") && (
-        <div className="form-group other-specify">
-          <label>Agent</label>
-          <input
-  name="anti_vegf_agent"
-  value={formData.anti_vegf_agent}
-  placeholder="e.g. Bevacizumab"
-  pattern="[A-Za-z\s]+"
-  title="Only letters allowed"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // allow only letters and spaces
-    if (/^[A-Za-z\s]*$/.test(value)) {
-      setFormData(prev => ({
-        ...prev,
-        anti_vegf_agent: value
-      }));
-    }
-  }}
-/>
+        {/* 9. Max ROP (LE) */}
+        <div className="rop-stage-block">
+          <label className="summary-title">9. Max ROP (LE)</label>
+          <div className="stage-pill-group">
+            {["None","1","2","3","4A","4B","5"].map(stage => (
+              <label
+                key={stage}
+                className={`stage-pill ${formData.worst_stage_le === stage ? "active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="worst_stage_le"
+                  value={stage}
+                  checked={formData.worst_stage_le === stage}
+                  onChange={handleChange}
+                />
+                {stage}
+              </label>
+            ))}
+          </div>
         </div>
-      )}
 
-      <div style={{ marginTop: "20px" }}>
-      <div className="form-row">
-
-        <div className="form-group">
-          <label>Bilateral Treatment</label>
-          <select
-            name="bilateral_treatment"
-            value={formData.bilateral_treatment}
+        {/* 10 & 11: Plus Disease and A-ROP side by side */}
+        <div className="rop-toggle-row">
+          <YesNoToggle
+            label="10. Plus Disease (LE)"
+            name="plus_disease_le"
+            value={formData.plus_disease_le}
             onChange={handleChange}
-          >
-            <option value="">-- Select --</option>
-            <option>Yes</option>
-            <option>No</option>
-          </select>
+          />
+          <YesNoToggle
+            label="11. A-ROP (LE)"
+            name="a_rop_le"
+            value={formData.a_rop_le}
+            onChange={handleChange}
+          />
         </div>
 
-        <div className="form-group">
-          <label>PMA at Treatment</label>
-          <input
-  name="pma_at_treatment"
-  value={formData.pma_at_treatment || ""}
-  readOnly
-/>
+        {/* 12. Max Zone (LE) */}
+        <div className="pn-adverse-card">
+          <h4>12. Max Zone (LE)</h4>
+          <div className="pn-checkbox-grid">
+            {["Zone I","Zone II","Zone III"].map(zone => (
+              <label className="checkbox-item" key={zone}>
+                <input
+                  type="radio"
+                  name="worst_zone_le"
+                  value={zone}
+                  checked={formData.worst_zone_le === zone}
+                  onChange={handleChange}
+                />
+                {zone}
+              </label>
+            ))}
+          </div>
         </div>
 
+        {/* 13. Treatment Required (LE) */}
+        <div className="pn-adverse-card">
+          <YesNoToggle
+            label="13. Treatment Required (LE)"
+            name="treatment_required_le"
+            value={formData.treatment_required_le}
+            onChange={handleChange}
+          />
+        </div>
+
+        {/* 14 & 15: Treatment Date and PMA */}
+        <div className="pn-adverse-card">
+          <div className="form-row">
+            <div className="form-group">
+              <label>14. Treatment Date (LE)</label>
+              <input
+                type="date"
+                name="treatment_le_date"
+                value={formData.treatment_le_date}
+                onChange={handleChange}
+                max={toDateOnlyValue(new Date())}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>15. PMA at treatment (LE)</label>
+              <input
+                name="pma_at_treatment_le"
+                value={formData.pma_at_treatment_le || ""}
+                readOnly
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 16. Treatment Type (LE) */}
+        <div className="pn-adverse-card">
+          <h4>16. Treatment Type (LE)</h4>
+          <div className="pn-checkbox-grid">
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Laser")}
+                onChange={() => handleCheckbox("treatment_type_le","Laser")}
+              />
+              Laser photocoagulation
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Anti-VEGF")}
+                onChange={() => handleCheckbox("treatment_type_le","Anti-VEGF")}
+              />
+              Anti-VEGF
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Vitrectomy")}
+                onChange={() => handleCheckbox("treatment_type_le","Vitrectomy")}
+              />
+              Vitrectomy
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Combination")}
+                onChange={() => handleCheckbox("treatment_type_le","Combination")}
+              />
+              Combination
+            </label>
+          </div>
+        </div>
       </div>
-
-    </div></div>
+    </>
   )}
 
 
-  {/* Outcome */}
+  {/* 17. Outcome */}
   <div className="pn-adverse-card">
-
     <div className="form-group">
-
-      <label>Outcome</label>
-
+      <label>17. Outcome</label>
       <select
         name="outcome"
         value={formData.outcome}
@@ -870,94 +1033,82 @@ onChange={handleChange}
         <option>Retinal detachment</option>
         <option>Other</option>
       </select>
-
     </div>
-
 
     {formData.outcome === "Other" && (
       <div className="form-group other-specify">
         <label>Specify Outcome</label>
         <input
-  name="outcome_other_text"
-  value={formData.outcome_other_text}
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // allow only letters and spaces
-    if (/^[A-Za-z\s]*$/.test(value)) {
-      setFormData(prev => ({
-        ...prev,
-        outcome_other_text: value
-      }));
-    }
-  }}
-  placeholder="Specify outcome"
-/>
+          name="outcome_other_text"
+          value={formData.outcome_other_text}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (/^[A-Za-z\s]*$/.test(value)) {
+              setFormData(prev => ({
+                ...prev,
+                outcome_other_text: value
+              }));
+            }
+          }}
+          placeholder="Specify outcome"
+        />
       </div>
     )}
-
   </div>
 
-
-  {/* Final Screening */}
+  {/* 18. Composite Outcome */}
   <div className="pn-adverse-card">
+    <YesNoToggle
+      label="18. ROP requiring treatment (for Composite Outcome)"
+      name="rop_treatment_composite"
+      value={formData.rop_treatment_composite}
+      onChange={handleChange}
+    />
+  </div>
 
+  {/* 19 & 20. Final Screening */}
+  <div className="pn-adverse-card">
     <div className="form-row">
-
       <div className="form-group">
-        <label>Final Screening Date</label>
+        <label>19. Final screening date</label>
         <input
-  type="date"
-  name="final_screening_date"
-  value={formData.final_screening_date}
-  onChange={handleChange}
-  max={toDateOnlyValue(new Date())}
-/>
+          type="date"
+          name="final_screening_date"
+          value={formData.final_screening_date}
+          onChange={handleChange}
+          max={toDateOnlyValue(new Date())}
+        />
       </div>
 
       <div className="form-group">
-        <label>PMA at Discharge</label>
+        <label>20. PMA at discharge from screening</label>
         <input
-  name="pma_discharge"
-  value={formData.pma_discharge || ""}
-  readOnly
-/>
+          name="pma_discharge"
+          value={formData.pma_discharge || ""}
+          readOnly
+          placeholder="weeks"
+        />
       </div>
-
     </div>
-
   </div>
 
-
-  {/* Composite Outcome */}
-  <div className="pn-adverse-card">
-
-    <div className="form-group">
-
-      <label>ROP requiring treatment (Composite Outcome)</label>
-
-      <select
-        name="rop_treatment_composite"
-        value={formData.rop_treatment_composite}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-
-    </div>
-
-  </div>
 </div>
-</div>
+        </div>
 
-      {/* ================= COMPLETION ================= */}
-      <div style={{ marginTop: "20px" }}>
-      <div className="form-section soft-blue">
-  <h3>Completion Details</h3>
+      {/* ═══ COMPLETION ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <CheckSquare size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Completion Details</h3>
+            <p className="section-subtitle-card">Form verification and signature</p>
+          </div>
+        </div>
 
-  <div className="form-row">
+        <div className="section-body-card">
+          <div className="form-row">
     <div className="form-group">
       <label>Completed by<span className="required">*</span></label>
       <select
@@ -997,12 +1148,69 @@ onChange={handleChange}
       />
     </div>
   </div>
-</div></div>
-
-      <button className="submit-btn" type="submit">
-        Save & Continue
-      </button>
+        </div>
+      </div>
     </form>
-    
+
+      {/* ══ STICKY FOOTER NAVIGATION BAR ══ */}
+      <div className="form-navigation">
+        {/* ← Back to Form F */}
+        <button 
+          type="button" 
+          className="btn btn-secondary btn-outline"
+          onClick={() => navigate(`/form-f/${formData.enrollment_id}`)}
+        >
+          <ArrowLeft size={15}/> Form F
+        </button>
+
+        {/* Save */}
+        <button 
+          type="button" 
+          className="btn btn-save btn-outline-blue"
+          onClick={(e) => {
+            e.preventDefault();
+            handleSubmit(e);
+          }}
+        >
+          <Save size={15}/> Save
+        </button>
+
+        {/* Save for Later */}
+        <button 
+          type="button" 
+          className="btn btn-draft"
+          onClick={async (e) => {
+            e.preventDefault();
+            await handleSubmit(e);
+            navigate("/dashboard");
+          }}
+        >
+          <Save size={15}/> Save for Later
+        </button>
+
+        {/* Step indicator */}
+        <div className="footer-step-indicator">
+          <span className="step-text">FORM I — ROP SCREENING</span>
+          <div className="step-progress-line">
+            <div className="progress-segment active" />
+          </div>
+        </div>
+
+        {/* Next to Form H → */}
+        <button 
+          type="button" 
+          className="btn btn-primary"
+          onClick={async (e) => {
+            e.preventDefault();
+            await handleSubmit(e);
+            navigate(`/form-h/${formData.enrollment_id}`);
+          }}
+        >
+          Form H <ArrowRight size={15}/>
+        </button>
+      </div>
+
+      </div>
+    </div>
   );
 }

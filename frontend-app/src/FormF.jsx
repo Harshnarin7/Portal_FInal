@@ -10,6 +10,7 @@ import {
   AlertCircle, Info, Activity, TrendingUp, ClipboardList
 } from "lucide-react";
 import "./styles/FormF.css";
+import NotesBox from "./components/NotesBox";
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS
@@ -770,7 +771,7 @@ export default function FormF() {
       setMessage("❌ Error saving before navigation.");
       return; // Don't navigate if save failed
     }
-    navigate(`/form-i/${enrollmentId}`);
+    navigate(`/form-g/${enrollmentId}`);
   };
 
   const schedule = scheduleKey ? SCHEDULES[scheduleKey] : null;
@@ -809,16 +810,6 @@ export default function FormF() {
                 <span className="fh-context-field-value">{f.value}</span>
               </div>
             ))}
-            <div className="fh-context-field fh-context-field--last">
-              <span className="fh-context-field-label">Status</span>
-              <div className="fh-status-badge">
-                <span className="fh-status-dot" style={{
-                  background:patientInfo.status==="Discharged"?"#94A3B8":"#10B981",
-                  boxShadow:patientInfo.status==="Discharged"?"0 0 5px #94A3B8":"0 0 5px #10B981",
-                }}/>
-                <span>{patientInfo.status}</span>
-              </div>
-            </div>
           </div>
           {isSaved && !isSubmitted && (
             <button type="button"
@@ -924,6 +915,7 @@ export default function FormF() {
             </div>
             {isFieldEditable && (
               <button type="button" className="fh-btn-add-scan"
+                style={{ width: "fit-content", alignSelf: "flex-start" }}
                 onClick={()=>{setEditingScan(null);setShowScanModal(true);}}>
                 <Plus size={12}/> Add Scan
               </button>
@@ -936,6 +928,7 @@ export default function FormF() {
               <p>No cranial ultrasound scans recorded yet.</p>
               {isFieldEditable && (
                 <button type="button" className="fh-btn fh-btn--primary"
+                  style={{ width: "fit-content" }}
                   onClick={()=>{setEditingScan(null);setShowScanModal(true);}}>
                   <Plus size={14}/> Record First Scan
                 </button>
@@ -1230,6 +1223,8 @@ export default function FormF() {
           </div>
         </div>
 
+        <NotesBox formKey={`form_f_${enrollmentId || "new"}`} />
+
         {message && (
           <div className={`fh-message${message.startsWith("✅")?" fh-message--success":" fh-message--error"}`}>
             {message}
@@ -1253,13 +1248,16 @@ export default function FormF() {
         />
       )}
 
-      {/* ══ IMPROVEMENT 8: FOOTER matching Form A–G style ══ */}
+      {/* ══ STICKY FOOTER ══ */}
       <div className="form-navigation">
+
+        {/* ← Back */}
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={()=>navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
-          <ArrowLeft size={15}/> Metab-Renal-Vasc-Eye
+          onClick={() => navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
+          <ArrowLeft size={15}/> Metab Helper Form
         </button>
 
+        {/* Save */}
         {!isSubmitted && (
           <button type="button" className="btn btn-save btn-outline-blue"
             onClick={handleSaveDraft}>
@@ -1267,22 +1265,38 @@ export default function FormF() {
           </button>
         )}
 
+        {/* Save for Later */}
+        {!isSubmitted && (
+          <button type="button" className="btn btn-draft"
+            onClick={async () => {
+              await handleSaveDraft();
+              setMessage("Draft saved — return any time to complete");
+            }}>
+            <Save size={15}/> Save for Later
+          </button>
+        )}
+
+        {/* Locked badge */}
         {isSubmitted && (
           <div className="rcn-locked-badge"><Lock size={13}/> Form Locked</div>
         )}
 
+        {/* Step indicator */}
         <div className="footer-step-indicator">
-          <span className="step-text">FORM H — CrUSG</span>
+          <span className="step-text">STEP 6 OF 17</span>
           <div className="step-progress-line">
-            {Array.from({length:8},(_,i)=>(
-              <div key={i} className="progress-segment active"/>
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="progress-segment active" />
             ))}
           </div>
         </div>
 
-        <button type="button" className="btn btn-primary" onClick={handleNext}>
-          ROP Screening <ArrowRight size={15}/>
+        {/* Next → */}
+        <button type="button" className="btn btn-primary"
+          onClick={handleNext} disabled={!isSaved}>
+          Form G <ArrowRight size={15}/>
         </button>
+
       </div>
     </>
   );

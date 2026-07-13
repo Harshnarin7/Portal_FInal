@@ -1591,3 +1591,181 @@
   font-size: 14px !important;
   white-space: nowrap;
 }
+
+/* ── Missed day marker on timeline buttons ─────────────────── */
+.rcn-day--missed { border: 1.5px solid rgba(220,38,38,0.45) !important; }
+.rcn-day-missed-flag {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  color: #DC2626;
+}
+.rcn-day { position: relative; }
+
+/* ── Missed-days summary banner ────────────────────────────── */
+.rcn-missed-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  border: 1.5px solid #FECACA;
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.rcn-missed-banner svg { flex-shrink: 0; }
+
+/* ── Day 1 date admin-unlock button ────────────────────────── */
+.rcn-day1-admin-unlock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid #FCD34D;
+  background: #FFFBEB;
+  color: #B45309;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.rcn-day1-admin-unlock:hover { background: #FEF3C7; }
+
+/* ── Late-entry / override footer badges ───────────────────── */
+.rcn-locked-badge--late {
+  background: #FFFBEB;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+.rcn-locked-badge--override {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+  color: #1D4ED8;
+}
+
+/* ── History / audit trail button ──────────────────────────── */
+.rcn-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  margin-left: 8px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #E2E8F0;
+  background: #F8FAFC;
+  color: #475569;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rcn-history-btn:hover { background: #F1F5F9; border-color: #CBD5E1; }
+
+/* ── Edit button (enable editing) ───────────────────────────── */
+.btn-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1.5px solid #BFDBFE;
+  background: #EFF6FF;
+  color: #1D4ED8;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-edit:hover {
+  background: #DBEAFE;
+  border-color: #93C5FD;
+}
+.btn-outline-blue {
+  border-color: #BFDBFE;
+  background: #EFF6FF;
+  color: #1D4ED8;
+}
+.btn-outline-blue:hover {
+  background: #DBEAFE;
+  border-color: #60A5FA;
+}
+
+/* ── Override (unlock past day) button ─────────────────────── */
+.rcn-override-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1.5px solid #FCD34D;
+  background: #FFFBEB;
+  color: #92400E;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.rcn-override-btn:hover { background: #FEF3C7; }
+
+/* ── Audit trail modal list ─────────────────────────────────── */
+.rcn-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.rcn-audit-entry {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  font-size: 12px;
+}
+.rcn-audit-entry-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.rcn-audit-action {
+  font-weight: 700;
+  color: #0F172A;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.rcn-audit-time { color: #64748B; font-size: 11px; }
+.rcn-audit-user { color: #475569; }
+.rcn-audit-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: #94A3B8;
+  font-size: 12px;
+}
+
+/* ── Override reason textarea ───────────────────────────────── */
+.rcn-override-textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: #0F172A;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+.rcn-override-textarea:focus { border-color: #0F4C81; }

@@ -363,7 +363,7 @@ const handleCompletedByChange = (e) => {
     alert("✅ Form G submitted successfully");
     
 
-    navigate(`/form-h/${formData.enrollment_id}`);
+    navigate(`/form-j/${formData.enrollment_id}`);
   } catch (err) {
     console.error(err.response?.data || err);
     alert("❌ Error submitting Form G");

@@ -10,7 +10,8 @@ import { useAuth } from "./context/AuthContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
-  Lock, Shield, FileCheck, Copy,
+  Lock, Shield, FileCheck, Copy, Edit,
+  AlertOctagon, History, Unlock,
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════════════

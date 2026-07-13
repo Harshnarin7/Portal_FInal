@@ -116,6 +116,19 @@ RESP_CV_NEURO_DAY_COLUMN_PATCHES = [
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS desaturation_count VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS severe_desaturation_count VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS fluid_bolus VARCHAR",
+    # Site-monitor override: temporarily reopens a locked (past/submitted) day for correction
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS override_by VARCHAR",
+]
+
+# Day 1 date is the shared anchor for every daily/NICU-day form (currently used
+# by the Resp/CV/Neuro helper log) — stored once per enrollment on nicu_admission
+# instead of per-browser localStorage, and locked once any daily data exists.
+NICU_ADMISSION_DAY1_PATCHES = [
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS day1_date DATE",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS day1_date_set_by VARCHAR",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS day1_date_set_at TIMESTAMP",
 ]
 
 
@@ -132,6 +145,8 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in POSTNATAL_DAY1_COLUMN_PATCHES:
             conn.execute(text(stmt))
         for stmt in RESP_CV_NEURO_DAY_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in NICU_ADMISSION_DAY1_PATCHES:
             conn.execute(text(stmt))
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))
