@@ -127,27 +127,58 @@ class FirebaseScreeningImportCreate(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    email: str
+    email: str | None = None
     password: str
     role: str
     site_name: str | None = None
+    full_name: str | None = None
+    mobile: str | None = None
 
 
 class UserOut(BaseModel):
     id: int
     username: str
-    email: str
+    email: str | None
     role: str
     site_name: str | None
+    full_name: str | None
+    mobile: str | None
+    must_change_password: bool
     is_active: bool
 
     class Config:
         from_attributes = True
 
 
-class LoginRequest(BaseModel):
+class UserProfileOut(BaseModel):
+    """Shape expected by the Flutter app's UserProfile.fromJson (/auth/me,
+    and the `user` field of the login response)."""
+    id: str
     username: str
+    email: str
+    full_name: str
+    mobile: str | None
+    role: str  # uppercase token, see deps.MOBILE_ROLE_MAP
+    site_id: str | None
+    site_name: str | None
+    must_change_password: bool
+    last_login_at: str | None
+
+
+class LoginRequest(BaseModel):
+    # Accepts both the web login form (username) and the mobile app
+    # (email_or_username + device metadata); everything but the credentials
+    # is optional so either client can call the same endpoint.
+    username: str | None = None
+    email_or_username: str | None = None
     password: str
+    device_id: str | None = None
+    device_name: str | None = None
+    device_os: str | None = None
+    app_version: str | None = None
+
+    def identifier(self) -> str:
+        return (self.email_or_username or self.username or "").strip()
 
 
 class LoginResponse(BaseModel):
@@ -157,6 +188,13 @@ class LoginResponse(BaseModel):
     role: str
     site_name: str | None
     expires_in_minutes: int = 480
+    user: UserProfileOut
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
 
 
 class RefreshTokenRequest(BaseModel):

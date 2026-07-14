@@ -25,7 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
-from deps import get_current_user, is_superadmin
+from deps import get_current_user, is_superadmin, is_global
 from models import User
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -383,13 +383,13 @@ def get_consort_flow(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    superadmin = is_superadmin(current_user)
+    global_view = is_global(current_user)
 
-    if format == "csv" and not superadmin:
+    if format == "csv" and not is_superadmin(current_user):
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="CSV export is superadmin-only")
 
-    sites = ALL_SITES if superadmin else [current_user.site_name] if current_user.site_name else []
+    sites = ALL_SITES if global_view else [current_user.site_name] if current_user.site_name else []
 
     counts_by_site, refusal_reasons_by_site = _compute_screening_boxes(db)
     followup_boxes, followup_ltfu_reasons = _compute_followup_boxes(db)

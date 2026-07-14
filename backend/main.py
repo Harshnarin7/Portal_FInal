@@ -25,12 +25,28 @@ from models import (
 from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
-from deps import get_current_user, is_superadmin, require_superadmin, ensure_same_site
+from deps import (
+    get_current_user, is_superadmin, require_superadmin, ensure_same_site,
+    ALL_ROLES, ROLE_SUPERADMIN,
+)
 from routers import enrollment
 from routers import pii as pii_router
 from routers import staff as staff_router
 from routers import audit as audit_router
 from routers import dashboard as dashboard_router
+from routers import auth as auth_router
+import secrets
+import string
+
+
+def generate_temp_password(length: int = 12) -> str:
+    """Strong temp password: mixed case + digit + symbol guaranteed, rest random."""
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        pwd = "".join(secrets.choice(alphabet) for _ in range(length - 2))
+        pwd += secrets.choice(string.digits) + secrets.choice("!@#$%&*")
+        if any(c.islower() for c in pwd) and any(c.isupper() for c in pwd):
+            return pwd
 from audit_service import (
     record_audit,
     row_snapshot,
@@ -40,6 +56,7 @@ from audit_service import (
 )
 from schema_patches import apply_schema_patches
 from staff_service import seed_site_staff
+from user_service import seed_login_users
 import security_monitor
 from pii_service import (
     SCREENING_PII_FIELDS,
@@ -88,6 +105,7 @@ Base.metadata.create_all(bind=engine)
 # ============================================================================
 
 app = FastAPI(title="PORTAL Trial API")
+app.include_router(auth_router.router)
 app.include_router(enrollment.router)
 app.include_router(pii_router.router)
 app.include_router(staff_router.router)
@@ -128,6 +146,14 @@ def on_startup_migrations():
         seeded = seed_site_staff(db)
         if seeded:
             logger.info("Seeded %s site staff record(s)", seeded)
+        new_accounts = seed_login_users(db)
+        if new_accounts:
+            logger.info(
+                "Seeded %s login account(s) — temp passwords written to "
+                "backend/credentials/ on this server, NOT logged. Retrieve "
+                "and delete that file after distributing passwords.",
+                new_accounts,
+            )
     except Exception as exc:
         logger.warning("Startup migration skipped or failed: %s", exc)
     finally:
@@ -271,14 +297,15 @@ def create_user(
     current_user: User = Depends(get_current_user),
 ):
     require_superadmin(current_user)
-    if is_superadmin(current_user) is False and user.role == "superadmin":
-        raise HTTPException(status_code=403, detail="Cannot create this role")
-    if (user.role or "").lower() == "superadmin" and not is_superadmin(current_user):
+    role = (user.role or "").lower()
+    if role not in ALL_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unknown role '{user.role}'")
+    if role == ROLE_SUPERADMIN and not is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="Cannot create a superadmin user")
 
-    existing = db.query(User).filter(
-        (User.username == user.username) | (User.email == user.email)
-    ).first()
+    existing = db.query(User).filter(User.username == user.username).first()
+    if not existing and user.email:
+        existing = db.query(User).filter(User.email == user.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username or email already exists")
 
@@ -288,8 +315,11 @@ def create_user(
         username=user.username,
         email=user.email,
         hashed_password=hashed_pwd,
-        role=user.role,
-        site_name=user.site_name
+        role=role,
+        site_name=user.site_name,
+        full_name=user.full_name or user.username,
+        mobile=user.mobile,
+        must_change_password=True,
     )
 
     db.add(db_user)
@@ -298,74 +328,31 @@ def create_user(
 
     return db_user
 
-# ============================================================================
-# FIX A6: RATE LIMITED LOGIN ENDPOINT
-# ============================================================================
 
-@app.post("/auth/login", response_model=LoginResponse)
-@limiter.limit("5/15 minutes")
-async def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
-    """
-    User login endpoint with brute force protection.
-    
-    âœ… SECURITY FIXES:
-    - Rate limited to 5 attempts per 15 minutes per IP
-    - Logs failed attempts
-    - Returns 429 Too Many Requests when limit exceeded
-    """
-    user = db.query(User).filter(User.username == data.username).first()
-    
-    client_ip = get_remote_address(request)
+@app.post("/users/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-triggered reset: generates a new temp password and forces
+    a change on next login. Exists because staff accounts are username-only
+    (no real email), so there's no self-serve forgot-password/OTP flow."""
+    require_superadmin(current_user)
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    if not user or not verify_password(data.password, user.hashed_password):
-        security_monitor.record_failed_login(client_ip, data.username)
-        logger.warning(
-            "Failed login attempt for user '%s' from IP: %s",
-            data.username,
-            client_ip,
-        )
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    temp_password = generate_temp_password()
+    target.hashed_password = hash_password(temp_password)
+    target.must_change_password = True
+    db.commit()
 
-    security_monitor.record_successful_login(user.username, client_ip)
-    logger.info("Successful login for user '%s'", user.username)
-
-    claims = {
-        "sub": user.username,
-        "role": user.role,
-        "site_name": user.site_name,
-    }
-    access_token = create_access_token(claims)
-    refresh_token = create_refresh_token(claims)
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "role": user.role,
-        "site_name": user.site_name,
-        "expires_in_minutes": ACCESS_TOKEN_EXPIRE_MINUTES,
-    }
+    return {"username": target.username, "temp_password": temp_password}
 
 
-@app.post("/auth/refresh", response_model=TokenRefreshResponse)
-def refresh_access_token(body: RefreshTokenRequest, db: Session = Depends(get_db)):
-    try:
-        payload = verify_refresh_token(body.refresh_token)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
-    user = db.query(User).filter(User.username == payload["sub"]).first()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-
-    claims = {
-        "sub": user.username,
-        "role": user.role,
-        "site_name": user.site_name,
-    }
-    return {
-        "access_token": create_access_token(claims),
-        "expires_in_minutes": ACCESS_TOKEN_EXPIRE_MINUTES,
-    }
+# NOTE: /auth/login, /auth/refresh, /auth/me, /auth/logout, /auth/change-password
+# now live in routers/auth.py (shared by the web portal and the Flutter app).
 
 # ============================================================================
 # FORM A â€” SCREENING ENDPOINTS
@@ -2390,167 +2377,6 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
-
-
-# ── Shared cross-patient "records" list logic (Helper Forms 2/3/4) ───────────
-def _list_helper_form_records_generic(
-    request, db, current_user, model, completion_fn, endpoint_path,
-    date_filter="today", status="all", site=None, search="", page=1, per_page=25,
-):
-    """Same cross-patient daily-log listing as /resp-cv-neuro/records, but
-    parameterized over the day-log model and its completion-% function so
-    Helper Forms 2, 3, and 4 can all share one implementation."""
-    per_page = min(max(per_page, 1), 100)
-    page = max(page, 1)
-
-    screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
-    if not is_superadmin(current_user):
-        screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
-    elif site:
-        screening_query = screening_query.filter(Screening.site_name == site)
-
-    accessible = {s.enrollment_id: s for s in screening_query.all() if s.enrollment_id}
-    if not accessible:
-        return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
-
-    logs = (
-        db.query(model)
-        .filter(model.enrollment_id.in_(accessible.keys()))
-        .all()
-    )
-
-    dob_map = {
-        r.enrollment_id: r.date_of_birth
-        for r in db.query(BirthResuscitation.enrollment_id, BirthResuscitation.date_of_birth)
-        .filter(BirthResuscitation.enrollment_id.in_(accessible.keys()))
-        .all()
-    }
-
-    pii_map = {}
-    for p in db.query(ParticipantPII).filter(ParticipantPII.enrollment_id.in_(accessible.keys())).all():
-        screening = accessible.get(p.enrollment_id)
-        site_name = screening.site_name if screening else None
-        if can_view_pii_for_site(current_user, site_name):
-            name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
-            pii_map[p.enrollment_id] = name or None
-
-    today = date.today()
-    if date_filter == "today":
-        date_range = (today, today)
-    elif date_filter == "yesterday":
-        y = today - timedelta(days=1)
-        date_range = (y, y)
-    elif date_filter == "last7":
-        date_range = (today - timedelta(days=6), today)
-    else:
-        date_range = None
-
-    status_pending = {"empty", "draft", "complete", "late"}
-    search_lower = search.strip().lower()
-
-    rows: list[HelperFormRecordOut] = []
-    for log in logs:
-        screening = accessible.get(log.enrollment_id)
-        dob = dob_map.get(log.enrollment_id)
-        calendar_date = (dob + timedelta(days=log.nicu_day - 1)) if dob else None
-
-        if date_range and (calendar_date is None or not (date_range[0] <= calendar_date <= date_range[1])):
-            continue
-
-        log_status = log.submission_status or "empty"
-        if status == "pending" and log_status not in status_pending:
-            continue
-        if status == "completed" and log_status != "submitted":
-            continue
-        if status not in ("all", "pending", "completed") and log_status != status:
-            continue
-
-        mother_name = pii_map.get(log.enrollment_id)
-
-        if search_lower:
-            haystack = " ".join(filter(None, [
-                log.enrollment_id,
-                screening.screening_id if screening else None,
-                mother_name,
-            ])).lower()
-            if search_lower not in haystack:
-                continue
-
-        rows.append(HelperFormRecordOut(
-            enrollment_id=log.enrollment_id,
-            screening_id=screening.screening_id if screening else None,
-            site_name=screening.site_name if screening else None,
-            nicu_day=log.nicu_day,
-            calendar_date=calendar_date,
-            mother_name=mother_name,
-            submission_status=log_status,
-            completion_pct=completion_fn(log),
-            saved_at=log.saved_at,
-            saved_by=log.saved_by,
-            submitted_at=log.submitted_at,
-            submitted_by=log.submitted_by,
-            created_at=log.created_at,
-            updated_at=log.updated_at,
-        ))
-
-    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
-
-    total = len(rows)
-    start = (page - 1) * per_page
-    page_rows = rows[start:start + per_page]
-
-    if total >= 50:
-        security_monitor.record_bulk_access(
-            current_user.username,
-            endpoint_path,
-            total,
-            get_remote_address(request),
-        )
-
-    return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
-
-
-def _latest_update_generic(db, current_user, model):
-    """Same lightweight polling logic as /resp-cv-neuro/records/latest-update,
-    parameterized over the day-log model."""
-    query = (
-        db.query(func.max(model.updated_at))
-        .join(Screening, Screening.enrollment_id == model.enrollment_id)
-        .filter(Screening.is_deleted.isnot(True))
-    )
-    if not is_superadmin(current_user):
-        query = query.filter(Screening.site_name == current_user.site_name)
-    return {"latest_updated_at": query.scalar()}
-
-
-# ── GET records (cross-patient list — Helper Form 3: Infect/GI/Hema) ────────
-@app.get("/infect-gi-hema/records", response_model=HelperFormRecordsPage)
-def list_infect_gi_hema_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",
-    status:       str     = "all",
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
-):
-    return _list_helper_form_records_generic(
-        request, db, current_user, InfectGIHemaDayLog, _infect_completion_pct,
-        "/infect-gi-hema/records",
-        date_filter=date_filter, status=status, site=site, search=search,
-        page=page, per_page=per_page,
-    )
-
-
-@app.get("/infect-gi-hema/records/latest-update")
-def get_infect_gi_hema_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    return _latest_update_generic(db, current_user, InfectGIHemaDayLog)
-
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 3. ADD TO main.py  (imports + routes)
 #
@@ -2699,36 +2525,6 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
-
-
-# ── GET records (cross-patient list — Helper Form 4: Metab/Renal/Vasc/Eye) ──
-@app.get("/metab-renal-vasc-eye/records", response_model=HelperFormRecordsPage)
-def list_metab_renal_vasc_eye_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",
-    status:       str     = "all",
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
-):
-    return _list_helper_form_records_generic(
-        request, db, current_user, MetabRenalVascEyeDayLog, _metab_completion_pct,
-        "/metab-renal-vasc-eye/records",
-        date_filter=date_filter, status=status, site=site, search=search,
-        page=page, per_page=per_page,
-    )
-
-
-@app.get("/metab-renal-vasc-eye/records/latest-update")
-def get_metab_renal_vasc_eye_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    return _latest_update_generic(db, current_user, MetabRenalVascEyeDayLog)
-
 # ============================================================================
 # FORM H â€” CRANIAL USG ENDPOINTS
 # Add these to main.py

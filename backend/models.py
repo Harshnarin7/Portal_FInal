@@ -13,12 +13,17 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     username = Column(String, unique=True, index=True, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=True)  # optional — login is by username
 
     hashed_password = Column(String, nullable=False)
 
     role = Column(String, nullable=False)
-    site_name = Column(String, nullable=True)  # NULL for super admin
+    site_name = Column(String, nullable=True)  # NULL for superadmin / project_scientist (global)
+
+    full_name = Column(String, nullable=True)
+    mobile = Column(String, nullable=True)
+    must_change_password = Column(Boolean, default=True)
+    last_login_at = Column(DateTime, nullable=True)
 
     is_active = Column(Boolean, default=True)
 
