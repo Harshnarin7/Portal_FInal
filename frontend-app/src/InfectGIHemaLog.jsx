@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════════════
-   CONSTANTS — same pattern as RespCVNeuroLog
+   CONSTANTS — identical to Helper Form 2
 ══════════════════════════════════════════════════════ */
 
 const STATUS = {
@@ -45,7 +45,7 @@ const LEGEND_ITEMS = [
 ];
 
 /* ══════════════════════════════════════════════════════
-   SHARED SUB-COMPONENTS (identical to RespCVNeuroLog)
+   SHARED SUB-COMPONENTS (identical to Helper Form 2)
 ══════════════════════════════════════════════════════ */
 
 function ProgressRing({ percent }) {
@@ -177,6 +177,20 @@ function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen 
   );
 }
 
+/* ══════════════════════════════════════════════════════
+   HELPER FUNCTIONS FOR GESTATION
+══════════════════════════════════════════════════════ */
+const totalGestationDays = (weeks, days) => {
+  if (weeks === null || weeks === undefined || weeks === "") return null;
+  if (days === null || days === undefined || days === "") return null;
+  const w = Number(weeks);
+  const d = Number(days);
+  return Number.isNaN(w) || Number.isNaN(d) ? null : w * 7 + d;
+};
+
+const formatGestation = (weeks, days) =>
+  weeks !== null && weeks !== undefined && weeks !== "" ? `${weeks}+${days ?? 0} wks` : "";
+
 function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
   return (
     <div className="rcn-modal-overlay">
@@ -272,10 +286,17 @@ export default function InfectGIHemaLog() {
   const { markFormCompleted } = useFormProgress();
   const { patientData }  = usePatient();
   const { user }         = useAuth();
+  const userRole         = user?.role || "site_user";
+  const isSuperadmin     = (userRole || "").toLowerCase() === "superadmin";
 
   /* ── UI state ── */
   const [activeDay, setActiveDay]         = useState(1);
   const [totalDays, setTotalDays]         = useState(14);
+  // Day 1 date — manually entered, drives all day date labels.
+  // NOT auto-filled from birth date. User manually sets in helper form.
+  const [day1Date, setDay1Date] = useState(() =>
+    enrollmentId ? (localStorage.getItem(`igh_day1_${enrollmentId}`) || "") : ""
+  );
   const [completedDays, setCompletedDays] = useState([]);
   const [dayStatuses, setDayStatuses]     = useState({});
   const [dayMeta, setDayMeta]             = useState({});
@@ -293,11 +314,28 @@ export default function InfectGIHemaLog() {
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copySourceDay, setCopySourceDay] = useState([]);
 
+  /* ── Day 1 Date — backend-synced lock state ── */
+  const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
+  const [day1DateSetBy, setDay1DateSetBy]     = useState("");
+  const [day1EditArmed, setDay1EditArmed]     = useState(false); // superadmin explicit unlock
+
+  /* ── Site-monitor override ── */
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overrideReason, setOverrideReason]       = useState("");
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [overrideUntil, setOverrideUntil]          = useState(null); // active day's override expiry
+
   /* ── Patient info ── */
   const [patientInfo, setPatientInfo] = useState({
     enrollmentId: enrollmentId || "",
-    babyUid: "", gestationalAge: "",
-    admissionDate: "", dischargeDate: "", status: "In NICU",
+    babyUid: "",
+    babyName: "",
+    motherName: "",
+    gestationalAge: "",
+    gestationSource: "",
+    admissionDate: "",
+    dischargeDate: "",
+    status: "In NICU",
   });
 
   /* ════════════════════════════════════════════════
@@ -351,8 +389,47 @@ export default function InfectGIHemaLog() {
   const necYes    = giData.nec_suspected     === true;
   const jaundiceYes = hemaData.jaundice      === true;
 
+  /* ── Calendar-based day locking ──
+     todayNicuDay = which NICU day number corresponds to the real
+     device date, given day1Date (manually entered Day 1 Date).
+     Days after it are "future" (no data allowed yet); days before
+     it are "past" (view-only, even if never submitted).
+
+     IMPORTANT: day1Date is NOT the birth date - it's the manually
+     entered "Day 1 Date" in the helper form, which may be different
+     from the actual date of birth. */
+  const todayNicuDay = useMemo(() => {
+    if (!day1Date) return null;
+    const base = new Date(day1Date + "T00:00:00");
+    if (isNaN(base.getTime())) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    base.setHours(0, 0, 0, 0);
+    return Math.floor((today - base) / 86400000) + 1;
+  }, [day1Date]);
+
+  const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
+  const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
+  // Same-morning grace window: yesterday's day stays open until 08:00 today
+  // so a nurse finishing a late-night shift can still complete it.
+  const IGH_LATE_GRACE_HOUR = 8;
+  const isLateGraceActiveDay =
+    todayNicuDay != null && activeDay === todayNicuDay - 1 &&
+    new Date().getHours() < IGH_LATE_GRACE_HOUR;
+  // Site-monitor override reopens an otherwise-locked day for a limited window.
+  const isOverrideActiveDay =
+    overrideUntil != null && new Date() < new Date(overrideUntil);
+
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
-  const isFieldEditable = !isSubmitted && (!isSaved || isEditing);
+  const isFieldEditable =
+    (!isSubmitted || isOverrideActiveDay) &&
+    (!isSaved || isEditing);
+
+  // Day 1 Date drives every day's calendar label and the future/past
+  // lock above, so once any daily data exists it must stop moving.
+  const day1DateLockedLocal = completedDays.length > 0 ||
+    Object.values(dayStatuses).some(st => st && st !== STATUS.EMPTY);
+  const day1DateLocked = (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
 
   /* ══════════════════════════════════════════════
      PROGRESS CALCULATION
@@ -408,30 +485,93 @@ export default function InfectGIHemaLog() {
   useEffect(() => {
     if (!enrollmentId) return;
     const load = async () => {
+      // Day 1 Date — backend is source of truth (shared across
+      // devices/nurses); localStorage is kept only as an instant-paint cache.
+      try {
+        const d1Res = await api.get(`/nicu-admission/${enrollmentId}/day1-date`);
+        const d1 = d1Res?.data || {};
+        setDay1DateLockedRemote(!!d1.locked);
+        setDay1DateSetBy(d1.day1_date_set_by || "");
+        if (d1.day1_date) {
+          setDay1Date(d1.day1_date);
+          localStorage.setItem(`igh_day1_${enrollmentId}`, d1.day1_date);
+        }
+      } catch (_) {
+        // Endpoint optional / older backend — fall back to localStorage
+      }
+
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
-        const ga = b.gestation_weeks && b.gestation_days
-          ? `${b.gestation_weeks}+${b.gestation_days} wks` : "";
-        const admitDate = b.date_of_birth ? new Date(b.date_of_birth) : null;
-        const today = new Date();
-        const dayNum = admitDate ? Math.max(1, Math.floor((today - admitDate) / 86400000) + 1) : 1;
+        
+        // Load gestation with NBS correction check (same logic as FiO2 form)
+        let gestWeeks = b?.gestation_weeks;
+        let gestDays = b?.gestation_days ?? 0;
+        let gestSource = b?.gestation_source || "Form B";
+
+        try {
+          const dRes = await api.get(`/postnatal-day1/${enrollmentId}`);
+          const d = dRes?.data || {};
+          const originalWeeks = b?.original_gestation_weeks ?? b?.gestation_weeks;
+          const originalDays = b?.original_gestation_days ?? b?.gestation_days ?? 0;
+          const originalTotal = totalGestationDays(originalWeeks, originalDays);
+          const nbsTotal = totalGestationDays(d?.gestation_weeks, d?.gestation_days);
+          const useNbs = d?.ga_method === "NBS" && nbsTotal !== null && (
+            originalTotal === null || Math.abs(nbsTotal - originalTotal) > 14
+          );
+          if (useNbs) {
+            gestWeeks = d.gestation_weeks;
+            gestDays = d.gestation_days ?? 0;
+            gestSource = "Form D NBS";
+          }
+        } catch (_) {
+          // Form D not available or no NBS correction — use Form B values
+        }
+
+        const ga = formatGestation(gestWeeks, gestDays);
+
+        // Calculate discharge day if discharged (only for discharge cutoff)
         let dischDay = null;
-        if (b.discharge_date) {
+        if (b.discharge_date && b.date_of_birth) {
+          const admitDate = new Date(b.date_of_birth);
           const dd = new Date(b.discharge_date);
-          dischDay = admitDate ? Math.max(1, Math.floor((dd - admitDate) / 86400000) + 1) : null;
+          dischDay = Math.max(1, Math.floor((dd - admitDate) / 86400000) + 1);
           setDischargeDay(dischDay);
         }
+
+        // Start with 14 days shown by default
+        // Don't calculate based on birth date - use Day 1 Date instead
+        const maxDay = dischDay || 14;
+
         setPatientInfo(prev => ({
           ...prev, enrollmentId,
-          babyUid: b.baby_uid || "", gestationalAge: ga,
+          babyUid: b.baby_uid || "", 
+          gestationalAge: ga,
+          gestationSource: gestSource,
           admissionDate: b.date_of_birth || "",
           dischargeDate: b.discharge_date || "",
           status: b.discharge_date ? "Discharged" : "In NICU",
         }));
-        setActiveDay(dayNum);
-        setTotalDays(dischDay || Math.max(14, dayNum + 3));
+        // Don't auto-fill Day 1 date from birth date
+        // User must manually set it in the helper form
+        // Keep active day at 1 (user manually selects which day to fill)
+        setTotalDays(maxDay);
       } catch (_) {}
+
+      // Load PII — mother_first_name, mother_surname, baby_name
+      // (PII fields are NOT available on birth-resuscitation response
+      //  since they are stored encrypted; the /pii endpoint decrypts them)
+      try {
+        const piiRes = await api.get(`/pii/enrollment/${enrollmentId}`);
+        const p = piiRes?.data || {};
+        const motherName = `${p.mother_first_name || ""} ${p.mother_surname || ""}`.trim();
+        setPatientInfo(prev => ({
+          ...prev,
+          motherName: motherName || "",
+          babyName:   p.baby_name || "",
+        }));
+      } catch (_) {}
+
       // Load summary
       try {
         const summRes = await api.get(`/infect-gi-hema/${enrollmentId}/summary`);
@@ -496,6 +636,7 @@ export default function InfectGIHemaLog() {
           setSavedBy(d.saved_by || "");
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
+          setOverrideUntil(d.override_unlocked_until || null);
           setIsSaved(true); setIsEditing(false);
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
@@ -519,6 +660,7 @@ export default function InfectGIHemaLog() {
       platelet_transfusion: null, ffp_cryo: null });
     setIsSaved(false); setIsEditing(false);
     setSavedAt(null); setSavedBy(""); setSubmittedAt(null); setSubmittedBy("");
+    setOverrideUntil(null);
     setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.EMPTY }));
   };
 
@@ -532,7 +674,8 @@ export default function InfectGIHemaLog() {
 
   /* ── Save ── */
   const handleSave = async () => {
-    if (!enrollmentId || isSubmitted) return;
+    if (!enrollmentId) return;
+    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
@@ -542,8 +685,7 @@ export default function InfectGIHemaLog() {
       markFormCompleted("infect_gi_hema");
       setIsSaved(true); setIsEditing(false);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
-      const isLate = new Date(now).getHours() >= 8 && completionPct < 100;
-      const newSt  = completionPct === 100 ? STATUS.COMPLETE : isLate ? STATUS.LATE : STATUS.DRAFT;
+      const newSt = completionPct === 100 ? STATUS.COMPLETE : STATUS.DRAFT;
       setDayStatuses(prev => ({ ...prev, [activeDay]: newSt }));
       setDayMeta(prev => ({ ...prev, [activeDay]: { pct: completionPct, savedAt: now } }));
       if (!completedDays.includes(activeDay))
@@ -619,22 +761,12 @@ export default function InfectGIHemaLog() {
     } finally { setLoading(false); }
   };
 
-  const [showDischargeConfirm, setShowDischargeConfirm] = useState(false);
-  const handleDischarge = async () => {
-    setShowDischargeConfirm(false);
-    try {
-      await api.patch(`/enrollment/${enrollmentId}/discharge`, {
-        discharge_date: toDateOnlyValue(new Date()),
-        discharge_day: activeDay,
-      });
-      setDischargeDay(activeDay);
-      setPatientInfo(prev => ({ ...prev, status: "Discharged" }));
-      setMessage("✅ Patient marked as discharged from Day " + activeDay);
-      setTimeout(() => setMessage(""), 4000);
-    } catch (_) { setMessage("❌ Could not record discharge"); }
-  };
-
   const days = Array.from({ length: totalDays }, (_, i) => i + 1);
+  // Past days with genuinely no data at all — surfaced as a "missed" warning.
+  const missedDays = days.filter(d =>
+    todayNicuDay != null && d < todayNicuDay &&
+    (dayStatuses[d] || STATUS.EMPTY) === STATUS.EMPTY
+  );
 
   /* ════════════════════ RENDER ════════════════════ */
   return (
@@ -648,86 +780,150 @@ export default function InfectGIHemaLog() {
 
       <div className={`rcn-page${isSaved && !isEditing ? " rcn-readonly" : ""}`}>
 
-        {/* ── Patient Context Bar ── */}
-        <div className="rcn-context-bar">
-          <div className="rcn-context-trial">
-            <div className="rcn-context-trial-icon">⊕</div>
-            <div className="rcn-context-trial-info">
-              <span className="rcn-context-trial-name">PORTAL TRIAL</span>
-              <span className="rcn-context-trial-sub">Helper Form 3</span>
+        {/* ══ PATIENT INFO HEADER ══ */}
+        <div className="rcn-patient-header">
+          <div className="rcn-patient-header-title">
+            <div className="rcn-patient-header-badge">HELPER FORM 3</div>
+            <h2 className="rcn-patient-header-form-name">Infection / GI / Hematology Daily Log</h2>
+            <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
+          </div>
+          <div className="rcn-patient-cards">
+            <div className="rcn-pcard rcn-pcard--blue">
+              <span className="rcn-pcard-icon">🪪</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Enrolment ID</span>
+                <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--violet">
+              <span className="rcn-pcard-icon">🤱</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Mother's Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.motherName || "—"}
+                </span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--teal">
+              <span className="rcn-pcard-icon">🧬</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">
+                  Gestation{patientInfo.gestationSource === "Form D NBS" ? " (NBS)" : ""}
+                </span>
+                <span className="rcn-pcard-value">{patientInfo.gestationalAge || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--amber">
+              <span className="rcn-pcard-icon">🏷️</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby UID</span>
+                <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--rose">
+              <span className="rcn-pcard-icon">👶</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Baby Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.babyName || <span className="rcn-pcard-empty">if available</span>}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="rcn-context-fields">
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">Enrolment ID</span>
-              <span className="rcn-context-field-value">{patientInfo.enrollmentId || "—"}</span>
-            </div>
-            {patientInfo.babyUid && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Baby UID</span>
-                <span className="rcn-context-field-value">{patientInfo.babyUid}</span>
-              </div>
-            )}
-            {patientInfo.gestationalAge && (
-              <div className="rcn-context-field">
-                <span className="rcn-context-field-label">Gestational Age</span>
-                <span className="rcn-context-field-value">{patientInfo.gestationalAge}</span>
-              </div>
-            )}
-            <div className="rcn-context-field">
-              <span className="rcn-context-field-label">NICU Day</span>
-              <span className="rcn-context-field-value">Day {activeDay}</span>
-            </div>
-            <div className="rcn-context-field rcn-context-field--last">
-              <span className="rcn-context-field-label">Status</span>
-              <div className="rcn-status-badge">
-                <span className="rcn-status-dot" style={{
-                  background: patientInfo.status === "Discharged" ? "#94A3B8" : "#10B981",
-                  boxShadow: patientInfo.status === "Discharged" ? "0 0 5px #94A3B8" : "0 0 5px #10B981",
-                }} />
-                <span>{patientInfo.status}</span>
-              </div>
-            </div>
-          </div>
-          {isSaved && !isSubmitted && (
-            <button type="button"
-              className={`rcn-edit-btn${isEditing ? " rcn-edit-btn--active" : ""}`}
-              onClick={() => setIsEditing(p => !p)} style={{ flexShrink: 0 }}>
-              {isEditing ? "✓ Done" : "Edit"}
-            </button>
-          )}
         </div>
 
-        {/* ── Day Timeline ── */}
+        {/* ══ DAY TIMELINE ══ */}
         <div className="rcn-timeline-wrap">
-          <span className="rcn-timeline-label">Days</span>
+          <div className="rcn-timeline-header">
+            <span className="rcn-timeline-label">Days</span>
+            <div className="rcn-day1-picker">
+              <label className="rcn-day1-picker-label">
+                Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
+              </label>
+              <input
+                type="date"
+                className="rcn-day1-picker-input"
+                value={day1Date}
+                readOnly={day1DateLocked}
+                disabled={day1DateLocked}
+                title={day1DateLocked
+                  ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
+                  : "Set once, from the baby's date of birth"}
+                onChange={async e => {
+                  if (day1DateLocked) return;
+                  const v = e.target.value;
+                  setDay1Date(v);
+                  if (enrollmentId) localStorage.setItem(`igh_day1_${enrollmentId}`, v);
+                  try {
+                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
+                    setDay1EditArmed(false);
+                    setDay1DateSetBy(user?.username || "");
+                  } catch (err) {
+                    setMessage("⚠️ Could not save Day 1 Date — " +
+                      (err?.response?.data?.detail || "it may already be locked"));
+                  }
+                }}
+              />
+              {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
+                <button
+                  type="button"
+                  className="rcn-day1-admin-unlock"
+                  title="Superadmin: unlock Day 1 Date for correction"
+                  onClick={() => {
+                    if (window.confirm(
+                      "Changing Day 1 Date after daily data exists can reshuffle which days are " +
+                      "counted as past/future for every nurse. Continue only for a genuine correction."
+                    )) setDay1EditArmed(true);
+                  }}
+                >
+                  <Unlock size={12} />
+                </button>
+              )}
+            </div>
+          </div>
           <div className="rcn-timeline">
             {days.map(d => {
               const isActive    = d === activeDay;
-              const isFuture    = d > activeDay;
               const isDischarge = dischargeDay && d > dischargeDay;
+              const isFuture    = todayNicuDay != null && d > todayNicuDay;
+              const isLocked    = isDischarge || isFuture;
               const st          = dayStatuses[d] || STATUS.EMPTY;
+              const isMissed    = !isDischarge && missedDays.includes(d);
               const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
               const meta        = dayMeta[d] || {};
               return (
-                <button key={d} type="button"
-                  className={["rcn-day",
+                <button
+                  key={d}
+                  type="button"
+                  className={[
+                    "rcn-day",
                     isActive    ? "rcn-day--active"    : "",
-                    isFuture    ? "rcn-day--future"    : "",
                     isDischarge ? "rcn-day--discharged": "",
+                    isFuture    ? "rcn-day--future"    : "",
+                    isMissed    ? "rcn-day--missed"    : "",
                     `rcn-day--${st}`,
                   ].filter(Boolean).join(" ")}
-                  onClick={() => !isFuture && !isDischarge && setActiveDay(d)}
-                  title={isDischarge ? `Day ${d} — Discharged` : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`}
-                  style={!isActive && !isFuture && !isDischarge ? { borderColor: cfg.color + "66" } : {}}
+                  onClick={() => !isLocked && setActiveDay(d)}
+                  disabled={isFuture}
+                  title={
+                    isDischarge ? `Day ${d} — Patient discharged`
+                    : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
+                    : isMissed   ? `Day ${d} — no data was ever entered (missed)`
+                    : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
+                  }
+                  style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
                 >
+                  {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
                   <span className="rcn-day-d">D</span>
                   <span className="rcn-day-num">{d}</span>
-                  <span className="rcn-day-dot" style={!isActive ? { background: cfg.dot } : {}} />
+                  {isFuture
+                    ? <Lock size={10} className="rcn-day-dot" />
+                    : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
+                  }
                   <span className="rcn-day-date">
                     {isDischarge ? "🏠" : (() => {
-                      if (!patientInfo.admissionDate) return "";
-                      const base = new Date(patientInfo.admissionDate);
+                      if (!day1Date) return "";
+                      const base = new Date(day1Date);
                       base.setDate(base.getDate() + d - 1);
                       return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
                     })()}
@@ -735,7 +931,26 @@ export default function InfectGIHemaLog() {
                 </button>
               );
             })}
+
+            {/* ── Add next day ── */}
+            {!dischargeDay && (
+              <button
+                type="button"
+                className="rcn-day-add"
+                onClick={() => {
+                  const next = totalDays + 1;
+                  setTotalDays(next);
+                  setActiveDay(next);
+                }}
+                title={`Add Day ${totalDays + 1}`}
+              >
+                <span className="rcn-day-add-plus">+</span>
+                <span className="rcn-day-add-label">Day</span>
+              </button>
+            )}
           </div>
+
+          {/* ── Status legend ── */}
           <div className="rcn-timeline-legend">
             {LEGEND_ITEMS.map(item => (
               <span key={item.label} className="rcn-legend-item">
@@ -744,6 +959,17 @@ export default function InfectGIHemaLog() {
               </span>
             ))}
           </div>
+
+          {/* ── Missed-day alert ── */}
+          {missedDays.length > 0 && (
+            <div className="rcn-missed-banner">
+              <AlertOctagon size={13} />
+              <span>
+                {missedDays.length} day{missedDays.length > 1 ? "s" : ""} with no data entered
+                (Day {missedDays.join(", Day ")}) — these are now permanently locked.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* ── Daily Summary Card ── */}
@@ -754,7 +980,7 @@ export default function InfectGIHemaLog() {
               <Clock size={13} />
               <span>{isSaved ? "Completed" : "Not yet started"} — complete by 08:00 AM rounds</span>
             </div>
-            {!isSubmitted && activeDay > 1 && (
+            {!isSubmitted && !isFutureActiveDay && !isPastActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"
                 onClick={() => {
                   const available = Object.keys(dayStatuses).map(Number)
@@ -803,13 +1029,13 @@ export default function InfectGIHemaLog() {
                 <span style={{ fontSize: 18 }}>🏠</span>
                 <div className="rcn-status-banner-text">
                   <strong>Patient Discharged</strong>
-                  <span>Day {dischargeDay} was the last NICU day.</span>
+                  <span>Day {dischargeDay} was the last NICU day. Data entry beyond this point is locked.</span>
                 </div>
               </div>
             )}
 
             {/* Submitted banner */}
-            {isSubmitted && (
+            {currentDayStatusSubmitted(dayStatuses, activeDay) && (
               <div className="rcn-status-banner rcn-status-banner--submitted">
                 <Lock size={15} />
                 <div className="rcn-status-banner-text">
@@ -825,7 +1051,7 @@ export default function InfectGIHemaLog() {
                 <AlertTriangle size={15} />
                 <div className="rcn-status-banner-text">
                   <strong>{completionPct}% complete</strong>
-                  <span>Fill all fields to unlock Submit</span>
+                  <span>Fill all fields to unlock the Submit button and lock this day's data</span>
                 </div>
                 <span className="rcn-status-banner-badge">{totalFields - totalAnswered} remaining</span>
               </div>
@@ -928,7 +1154,7 @@ export default function InfectGIHemaLog() {
                 </div>
               )}
 
-              <div className="rcn-yn-list" style={{ marginTop: jaundiceYes ? 0 : 0 }}>
+              <div className="rcn-yn-list">
                 <NumRow label="Peak TSB (mg/dL)"     value={hemaData.peak_tsb}            onChange={v => setHema("peak_tsb", v)}            disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" />
                 <YNRow label="Exchange Transfusion"   value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
                 <YNRow label="PRBC Transfusion"       value={hemaData.prbc_transfusion}    onChange={v => setHema("prbc_transfusion", v)}    disabled={!isFieldEditable} />
@@ -958,46 +1184,159 @@ export default function InfectGIHemaLog() {
           onConfirm={handleSubmit} onCancel={() => setShowModal(false)} submitting={submitting} />
       )}
 
-      {/* ── Sticky Footer ── */}
+      {/* ══ SITE-MONITOR OVERRIDE MODAL ══ */}
+      {showOverrideModal && (
+        <div className="rcn-modal-overlay" onClick={() => !overrideSubmitting && setShowOverrideModal(false)}>
+          <div className="rcn-modal" onClick={e => e.stopPropagation()}>
+            <div className="rcn-modal-header">
+              <div className="rcn-modal-icon"><Unlock size={18} /></div>
+              <div>
+                <h3 className="rcn-modal-title">Override &amp; Unlock Day {activeDay}</h3>
+                <p className="rcn-modal-subtitle">Temporarily reopens this locked day for a correction</p>
+              </div>
+              <button className="rcn-modal-close" type="button" onClick={() => setShowOverrideModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rcn-modal-body">
+              <p style={{ fontSize: 12.5, color: "#475569", marginTop: 0 }}>
+                This reopens Day {activeDay} for 2 hours so it can be corrected. The reason below
+                is saved to the audit trail.
+              </p>
+              <textarea
+                className="rcn-override-textarea"
+                placeholder="Reason for correction (required)…"
+                value={overrideReason}
+                onChange={e => setOverrideReason(e.target.value)}
+              />
+            </div>
+            <div className="rcn-modal-footer">
+              <button className="rcn-modal-btn rcn-modal-btn--cancel" type="button"
+                onClick={() => setShowOverrideModal(false)} disabled={overrideSubmitting}>
+                Cancel
+              </button>
+              <button
+                className="rcn-modal-btn rcn-modal-btn--confirm"
+                type="button"
+                disabled={!overrideReason.trim() || overrideSubmitting}
+                onClick={async () => {
+                  setOverrideSubmitting(true);
+                  try {
+                    const res = await api.patch(
+                      `/infect-gi-hema/${enrollmentId}/${activeDay}/override-unlock`,
+                      { reason: overrideReason.trim(), hours: 2 }
+                    );
+                    setOverrideUntil(res?.data?.override_unlocked_until || null);
+                    setOverrideReason("");
+                    setShowOverrideModal(false);
+                    setMessage(`🔓 Day ${activeDay} reopened for 2 hours`);
+                  } catch (err) {
+                    setMessage("⚠️ Could not unlock — " + (err?.response?.data?.detail || "try again"));
+                  } finally {
+                    setOverrideSubmitting(false);
+                  }
+                }}
+              >
+                {overrideSubmitting ? "Unlocking…" : "Unlock Day"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ STICKY FOOTER ══ */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
           onClick={() => navigate(`/vs6-1/${enrollmentId}`)}>
           <ArrowLeft size={15} /> Resp-CV-Neuro
         </button>
 
-        {!isSubmitted && (
+        {/* Save — always visible when editing */}
+        {isFieldEditable && (
           <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSave}>
             <Save size={15} /> Save
           </button>
         )}
 
-        {!isSubmitted && (
-          <button type="button" className="btn btn-submit-day"
-            onClick={() => canSubmit && setShowModal(true)}
-            disabled={!canSubmit}
-            title={completionPct < 100 ? `Fill all fields (${completionPct}% done)` : "Submit and lock this day"}>
-            <Shield size={15} />
-            {canSubmit ? `Submit Day ${activeDay}` : `Submit (${completionPct}%)`}
+        {/* Edit button — enable editing of saved draft */}
+        {isSaved && !isEditing && !isSubmitted && !isPastActiveDay && (
+          <button
+            type="button"
+            className="btn btn-edit btn-outline-blue"
+            onClick={() => setIsEditing(true)}
+            title="Enable editing of saved data"
+          >
+            <Edit size={13} /> Edit Day {activeDay}
           </button>
         )}
 
-        {isSubmitted && (
-          <div className="rcn-locked-badge"><Lock size={13} /> Day {activeDay} Locked</div>
-        )}
-
-        {!dischargeDay && (
-          showDischargeConfirm ? (
-            <div className="rcn-discharge-confirm">
-              <span>Discharge after Day {activeDay}?</span>
-              <button type="button" className="rcn-discharge-yes" onClick={handleDischarge}>Yes</button>
-              <button type="button" className="rcn-discharge-no" onClick={() => setShowDischargeConfirm(false)}>No</button>
+        {/* Submit / status area */}
+        {isOverrideActiveDay ? (
+          <>
+            <div className="rcn-locked-badge rcn-locked-badge--override" title="Temporarily reopened by a site monitor">
+              <Unlock size={13} /> Day {activeDay} Reopened (Override)
             </div>
+            {canSubmit ? (
+              <button type="button" className="btn btn-submit-day" onClick={() => setShowModal(true)}
+                title="Submit and lock this day">
+                <Shield size={15} /> Submit Day {activeDay}
+              </button>
+            ) : (
+              <button type="button" className="btn btn-draft" onClick={handleSave}>
+                <Save size={15} /> Save Correction
+              </button>
+            )}
+          </>
+        ) : isSubmitted ? (
+          <div className="rcn-locked-badge">
+            <Lock size={13} /> Day {activeDay} Locked
+          </div>
+        ) : isFutureActiveDay ? (
+          <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
+            <Lock size={13} /> Day {activeDay} Not Available Yet
+          </div>
+        ) : isPastActiveDay && isLateGraceActiveDay ? (
+          canSubmit ? (
+            <button type="button" className="btn btn-submit-day" onClick={() => setShowModal(true)}
+              title="Submit and lock this day">
+              <Shield size={15} /> Submit Day {activeDay} (Late)
+            </button>
           ) : (
-            <button type="button" className="btn rcn-btn-discharge"
-              onClick={() => setShowDischargeConfirm(true)}>
-              🏠 Discharge
+            <button type="button" className="btn btn-draft" onClick={handleSave}
+              title={`Grace window open until ${IGH_LATE_GRACE_HOUR}:00 AM`}>
+              <Save size={15} /> Save (Late Entry)
             </button>
           )
+        ) : isPastActiveDay ? (
+          <>
+            <div className="rcn-locked-badge" title="This day's window has passed — view only">
+              <Lock size={13} /> Day {activeDay} Locked (Past Day)
+            </div>
+            {isSuperadmin && (
+              <button
+                type="button"
+                className="rcn-override-btn"
+                onClick={() => setShowOverrideModal(true)}
+                title="Reopen this day temporarily for a correction"
+              >
+                <Unlock size={13} /> Override &amp; Unlock
+              </button>
+            )}
+          </>
+        ) : canSubmit ? (
+          <button
+            type="button"
+            className="btn btn-submit-day"
+            onClick={() => setShowModal(true)}
+            title="Submit and lock this day"
+          >
+            <Shield size={15} /> Submit Day {activeDay}
+          </button>
+        ) : (
+          <button type="button" className="btn btn-draft"
+            onClick={handleSave}>
+            <Save size={15} /> Save for Later
+          </button>
         )}
 
         <div className="footer-step-indicator">
@@ -1016,4 +1355,9 @@ export default function InfectGIHemaLog() {
       </div>
     </>
   );
+}
+
+// small helper kept local so the "Submitted" banner logic matches Form 2's currentDayStatus check
+function currentDayStatusSubmitted(dayStatuses, activeDay) {
+  return (dayStatuses[activeDay] || "empty") === "submitted";
 }
