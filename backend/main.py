@@ -184,6 +184,7 @@ def rate_limit_error_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
         status_code=429,
         content={
+            "detail": "Too many attempts. Please wait a few minutes and try again.",
             "error": "Rate limit exceeded",
             "message": "Too many requests. Please try again later.",
         },
