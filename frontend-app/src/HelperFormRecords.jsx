@@ -1,6 +1,9 @@
-// src/HelperFormRecords.jsx — PORTAL Trial Helper Form 2 (Resp/CV/Neuro) Records
+// src/HelperFormRecords.jsx — PORTAL Trial Helper Form Records (Forms 2, 3 & 4)
 // Cross-patient daily-log work queue: today's work first, historical data
 // reachable without cluttering it. Mirrors ViewEntries.jsx's page shell.
+// A form switcher lets the same page/queue serve Helper Form 2 (Resp/CV/Neuro),
+// Helper Form 3 (Infect/GI/Hema), and Helper Form 4 (Metab/Renal/Vasc/Eye) —
+// each backed by its own /records + /records/latest-update API pair.
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +14,35 @@ import {
   HeartPulse, CheckCircle2, Clock, AlertTriangle, Bell, ArrowUpDown,
 } from "lucide-react";
 import "./HelperFormRecords.css";
+
+/* ── Helper form definitions — one entry per form this page can display ── */
+const FORM_DEFS = {
+  vs6_1: {
+    key: "vs6_1",
+    apiPrefix: "/resp-cv-neuro",
+    recordRoute: "/vs6-1",
+    tabLabel: "Helper 2",
+    breadcrumb: "Helper Form 2 · Resp / CV / Neuro",
+    subtitle: "Daily NICU log entries across all patients and sites",
+  },
+  infect_gi_hema: {
+    key: "infect_gi_hema",
+    apiPrefix: "/infect-gi-hema",
+    recordRoute: "/infect-gi-hema-log",
+    tabLabel: "Helper 3",
+    breadcrumb: "Helper Form 3 · Infect / GI / Hema",
+    subtitle: "Daily infection, GI & hematology log entries across all patients and sites",
+  },
+  metab_renal_vasc_eye: {
+    key: "metab_renal_vasc_eye",
+    apiPrefix: "/metab-renal-vasc-eye",
+    recordRoute: "/metab-renal-vasc-eye-log",
+    tabLabel: "Helper 4",
+    breadcrumb: "Helper Form 4 · Metab / Renal / Vasc / Eye",
+    subtitle: "Daily metabolic, renal, vascular & ophthalmology log entries across all patients and sites",
+  },
+};
+const FORM_ORDER = ["vs6_1", "infect_gi_hema", "metab_renal_vasc_eye"];
 
 const QUICK_FILTERS = [
   { key: "today",     label: "Today",       date_filter: "today",     status: "all" },
@@ -100,6 +132,9 @@ export default function HelperFormRecords() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [activeForm, setActiveForm] = useState("vs6_1");
+  const formDef = FORM_DEFS[activeForm];
+
   const [records,   setRecords]   = useState([]);
   const [total,     setTotal]     = useState(0);
   const [loading,   setLoading]   = useState(true);
@@ -135,7 +170,7 @@ export default function HelperFormRecords() {
         per_page: perPage,
       };
       if (siteFilter) params.site = siteFilter;
-      const res = await api.get("/resp-cv-neuro/records", { params });
+      const res = await api.get(`${formDef.apiPrefix}/records`, { params });
       let rows = res.data.records || [];
 
       if (quickFilter === "mine" && user?.name) {
@@ -163,18 +198,22 @@ export default function HelperFormRecords() {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter.date_filter, activeFilter.status, debouncedSearch, page, perPage, siteFilter, quickFilter, user]);
+  }, [formDef.apiPrefix, activeFilter.date_filter, activeFilter.status, debouncedSearch, page, perPage, siteFilter, quickFilter, user]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords]);
 
-  // Reset to page 1 whenever a filter/search/site changes
-  useEffect(() => { setPage(1); }, [quickFilter, siteFilter, debouncedSearch, perPage]);
+  // Reset to page 1 whenever a filter/search/site/form changes
+  useEffect(() => { setPage(1); }, [activeForm, quickFilter, siteFilter, debouncedSearch, perPage]);
+
+  // Reset poll baseline whenever the active helper form changes, so stale
+  // "new records" banners from the previous form's endpoint don't linger.
+  useEffect(() => { setLatestSeen(null); setNewAvailable(false); }, [activeForm]);
 
   /* ── Background polling — cheap "new records" detection ── */
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await api.get("/resp-cv-neuro/records/latest-update");
+        const res = await api.get(`${formDef.apiPrefix}/records/latest-update`);
         const latest = res.data.latest_updated_at ? new Date(res.data.latest_updated_at).getTime() : null;
         if (latest && latestSeen && latest > latestSeen) setNewAvailable(true);
         if (latest && !latestSeen) setLatestSeen(latest);
@@ -182,7 +221,7 @@ export default function HelperFormRecords() {
     };
     pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
     return () => clearInterval(pollRef.current);
-  }, [latestSeen]);
+  }, [formDef.apiPrefix, latestSeen]);
 
   /* ── Client-side sort (page-local; server already filters/paginates) ── */
   const sorted = useMemo(() => {
@@ -219,14 +258,14 @@ export default function HelperFormRecords() {
   ]), [records, total]);
 
   const openRecord = (r) => {
-    navigate(`/vs6-1/${r.enrollment_id}`);
+    navigate(`${formDef.recordRoute}/${r.enrollment_id}`);
   };
 
   if (loading && records.length === 0) {
     return (
       <div className="hr-loading">
         <RefreshCw size={22} className="hr-spin" />
-        <span>Loading Helper Form records…</span>
+        <span>Loading {formDef.breadcrumb} records…</span>
       </div>
     );
   }
@@ -236,9 +275,9 @@ export default function HelperFormRecords() {
       {/* ── Page header ── */}
       <div className="hr-header">
         <div>
-          <div className="hr-breadcrumb"><HeartPulse size={15}/> Helper Form 2 · Resp / CV / Neuro</div>
+          <div className="hr-breadcrumb"><HeartPulse size={15}/> {formDef.breadcrumb}</div>
           <h1 className="hr-title">Helper Form Records</h1>
-          <p className="hr-subtitle">Daily NICU log entries across all patients and sites</p>
+          <p className="hr-subtitle">{formDef.subtitle}</p>
         </div>
         <div className="hr-header-right">
           <button
@@ -249,6 +288,19 @@ export default function HelperFormRecords() {
             <RefreshCw size={16}/>
           </button>
         </div>
+      </div>
+
+      {/* ── Helper form switcher ── */}
+      <div className="hr-form-tabs">
+        {FORM_ORDER.map(key => (
+          <button
+            key={key}
+            className={`hr-form-tab${activeForm === key ? " hr-form-tab--active" : ""}`}
+            onClick={() => setActiveForm(key)}
+          >
+            {FORM_DEFS[key].tabLabel}
+          </button>
+        ))}
       </div>
 
       {/* ── New records banner ── */}
