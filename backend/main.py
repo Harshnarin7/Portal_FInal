@@ -2390,6 +2390,167 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+# ── Shared cross-patient "records" list logic (Helper Forms 2/3/4) ───────────
+def _list_helper_form_records_generic(
+    request, db, current_user, model, completion_fn, endpoint_path,
+    date_filter="today", status="all", site=None, search="", page=1, per_page=25,
+):
+    """Same cross-patient daily-log listing as /resp-cv-neuro/records, but
+    parameterized over the day-log model and its completion-% function so
+    Helper Forms 2, 3, and 4 can all share one implementation."""
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+
+    screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
+    if not is_superadmin(current_user):
+        screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
+    elif site:
+        screening_query = screening_query.filter(Screening.site_name == site)
+
+    accessible = {s.enrollment_id: s for s in screening_query.all() if s.enrollment_id}
+    if not accessible:
+        return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
+
+    logs = (
+        db.query(model)
+        .filter(model.enrollment_id.in_(accessible.keys()))
+        .all()
+    )
+
+    dob_map = {
+        r.enrollment_id: r.date_of_birth
+        for r in db.query(BirthResuscitation.enrollment_id, BirthResuscitation.date_of_birth)
+        .filter(BirthResuscitation.enrollment_id.in_(accessible.keys()))
+        .all()
+    }
+
+    pii_map = {}
+    for p in db.query(ParticipantPII).filter(ParticipantPII.enrollment_id.in_(accessible.keys())).all():
+        screening = accessible.get(p.enrollment_id)
+        site_name = screening.site_name if screening else None
+        if can_view_pii_for_site(current_user, site_name):
+            name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
+            pii_map[p.enrollment_id] = name or None
+
+    today = date.today()
+    if date_filter == "today":
+        date_range = (today, today)
+    elif date_filter == "yesterday":
+        y = today - timedelta(days=1)
+        date_range = (y, y)
+    elif date_filter == "last7":
+        date_range = (today - timedelta(days=6), today)
+    else:
+        date_range = None
+
+    status_pending = {"empty", "draft", "complete", "late"}
+    search_lower = search.strip().lower()
+
+    rows: list[HelperFormRecordOut] = []
+    for log in logs:
+        screening = accessible.get(log.enrollment_id)
+        dob = dob_map.get(log.enrollment_id)
+        calendar_date = (dob + timedelta(days=log.nicu_day - 1)) if dob else None
+
+        if date_range and (calendar_date is None or not (date_range[0] <= calendar_date <= date_range[1])):
+            continue
+
+        log_status = log.submission_status or "empty"
+        if status == "pending" and log_status not in status_pending:
+            continue
+        if status == "completed" and log_status != "submitted":
+            continue
+        if status not in ("all", "pending", "completed") and log_status != status:
+            continue
+
+        mother_name = pii_map.get(log.enrollment_id)
+
+        if search_lower:
+            haystack = " ".join(filter(None, [
+                log.enrollment_id,
+                screening.screening_id if screening else None,
+                mother_name,
+            ])).lower()
+            if search_lower not in haystack:
+                continue
+
+        rows.append(HelperFormRecordOut(
+            enrollment_id=log.enrollment_id,
+            screening_id=screening.screening_id if screening else None,
+            site_name=screening.site_name if screening else None,
+            nicu_day=log.nicu_day,
+            calendar_date=calendar_date,
+            mother_name=mother_name,
+            submission_status=log_status,
+            completion_pct=completion_fn(log),
+            saved_at=log.saved_at,
+            saved_by=log.saved_by,
+            submitted_at=log.submitted_at,
+            submitted_by=log.submitted_by,
+            created_at=log.created_at,
+            updated_at=log.updated_at,
+        ))
+
+    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
+
+    total = len(rows)
+    start = (page - 1) * per_page
+    page_rows = rows[start:start + per_page]
+
+    if total >= 50:
+        security_monitor.record_bulk_access(
+            current_user.username,
+            endpoint_path,
+            total,
+            get_remote_address(request),
+        )
+
+    return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
+
+
+def _latest_update_generic(db, current_user, model):
+    """Same lightweight polling logic as /resp-cv-neuro/records/latest-update,
+    parameterized over the day-log model."""
+    query = (
+        db.query(func.max(model.updated_at))
+        .join(Screening, Screening.enrollment_id == model.enrollment_id)
+        .filter(Screening.is_deleted.isnot(True))
+    )
+    if not is_superadmin(current_user):
+        query = query.filter(Screening.site_name == current_user.site_name)
+    return {"latest_updated_at": query.scalar()}
+
+
+# ── GET records (cross-patient list — Helper Form 3: Infect/GI/Hema) ────────
+@app.get("/infect-gi-hema/records", response_model=HelperFormRecordsPage)
+def list_infect_gi_hema_records(
+    request:      Request,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+    date_filter:  str     = "today",
+    status:       str     = "all",
+    site:         str | None = None,
+    search:       str     = "",
+    page:         int     = 1,
+    per_page:     int     = 25,
+):
+    return _list_helper_form_records_generic(
+        request, db, current_user, InfectGIHemaDayLog, _infect_completion_pct,
+        "/infect-gi-hema/records",
+        date_filter=date_filter, status=status, site=site, search=search,
+        page=page, per_page=per_page,
+    )
+
+
+@app.get("/infect-gi-hema/records/latest-update")
+def get_infect_gi_hema_latest_update(
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    return _latest_update_generic(db, current_user, InfectGIHemaDayLog)
+
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 3. ADD TO main.py  (imports + routes)
 #
@@ -2538,6 +2699,36 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+# ── GET records (cross-patient list — Helper Form 4: Metab/Renal/Vasc/Eye) ──
+@app.get("/metab-renal-vasc-eye/records", response_model=HelperFormRecordsPage)
+def list_metab_renal_vasc_eye_records(
+    request:      Request,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+    date_filter:  str     = "today",
+    status:       str     = "all",
+    site:         str | None = None,
+    search:       str     = "",
+    page:         int     = 1,
+    per_page:     int     = 25,
+):
+    return _list_helper_form_records_generic(
+        request, db, current_user, MetabRenalVascEyeDayLog, _metab_completion_pct,
+        "/metab-renal-vasc-eye/records",
+        date_filter=date_filter, status=status, site=site, search=search,
+        page=page, per_page=per_page,
+    )
+
+
+@app.get("/metab-renal-vasc-eye/records/latest-update")
+def get_metab_renal_vasc_eye_latest_update(
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    return _latest_update_generic(db, current_user, MetabRenalVascEyeDayLog)
+
 # ============================================================================
 # FORM H â€” CRANIAL USG ENDPOINTS
 # Add these to main.py

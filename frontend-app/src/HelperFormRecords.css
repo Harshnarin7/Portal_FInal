@@ -33,6 +33,15 @@
   --hr-font:       'Inter', 'Segoe UI', sans-serif;
 }
 
+/* ── Local button reset ──────────────────────────────────────
+   A global, unscoped `button { width: 100%; ... }` rule elsewhere in the
+   app leaks into every page since CRA bundles all component CSS together.
+   Neutralize just the `width` here — individual .hr-* button classes below
+   still set their own padding/background/border-radius normally. */
+.hr-wrap button {
+  width: auto;
+}
+
 /* ── Loading ── */
 .hr-loading {
   display: flex; align-items: center; justify-content: center;
@@ -81,6 +90,27 @@
 }
 .hr-btn-refresh:hover { background: var(--hr-primary-lt); color: var(--hr-primary); }
 .hr-btn-refresh.hr-spin-icon svg { animation: hr-spin 0.8s linear infinite; }
+
+/* ============================================================
+   HELPER FORM SWITCHER
+   ============================================================ */
+.hr-form-tabs {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  width: fit-content;
+}
+.hr-form-tab {
+  width: auto; flex: 0 0 auto;
+  padding: 7px 18px; border-radius: 20px;
+  background: var(--hr-surface); border: 1px solid var(--hr-border);
+  font-size: 12.5px; font-weight: 600; color: var(--hr-muted);
+  cursor: pointer; font-family: var(--hr-font); white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.hr-form-tab:hover { border-color: #cbd5e1; background: #f8fafc; }
+.hr-form-tab--active {
+  background: var(--hr-primary); border-color: var(--hr-primary); color: #fff;
+  font-weight: 700;
+}
 
 /* ============================================================
    KPI STRIP
@@ -145,7 +175,7 @@
   display: flex; flex-direction: row; align-items: center;
   justify-content: space-between; gap: 16px;
   background: var(--hr-surface); border: 1px solid var(--hr-border);
-  border-radius: 12px; padding: 10px 16px; flex-wrap: wrap;
+  border-radius: 12px; padding: 12px 16px; flex-wrap: wrap;
 }
 .hr-search-wrap { position: relative; width: 300px; flex-shrink: 0; }
 .hr-search-icon {
@@ -166,26 +196,27 @@
 .hr-search::placeholder { color: #94a3b8; }
 
 .hr-filters {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 8px;
   flex-wrap: nowrap; overflow-x: auto; flex-grow: 1; justify-content: flex-end;
 }
 .hr-filters::-webkit-scrollbar { height: 0; }
 .hr-filter {
-  padding: 6px 14px; border-radius: 20px;
+  padding: 7px 15px; border-radius: 20px;
   background: var(--hr-surface); border: 1px solid var(--hr-border);
   font-size: 12.5px; font-weight: 600; color: var(--hr-muted);
   cursor: pointer; font-family: var(--hr-font); white-space: nowrap;
   flex-shrink: 0; transition: all 0.15s ease;
 }
-.hr-filter:hover { border-color: #cbd5e1; background: #f8fafc; }
+.hr-filter:hover { border-color: #cbd5e1; background: #f8fafc; color: var(--hr-text); }
 .hr-filter--active {
   background: var(--hr-primary); border-color: var(--hr-primary); color: #fff;
+  font-weight: 700; box-shadow: 0 1px 4px rgba(0,97,148,0.35);
 }
 .hr-filter-sep { width: 1px; height: 20px; background: var(--hr-border); margin: 0 4px; flex-shrink: 0; }
 .hr-site-select {
-  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--hr-border);
+  padding: 7px 12px; border-radius: 8px; border: 1px solid var(--hr-border);
   background: #f8fafc; font-size: 12.5px; font-weight: 600; color: var(--hr-muted);
-  font-family: var(--hr-font); cursor: pointer;
+  font-family: var(--hr-font); cursor: pointer; flex-shrink: 0;
 }
 
 /* ============================================================
