@@ -1236,39 +1236,41 @@ class InfectGIHemaDayLog(Base):
     enrollment_id = Column(String, index=True, nullable=False)
     nicu_day      = Column(Integer, nullable=False, index=True)
 
-    # ── INFECTION ────────────────────────────────────────────
-    sepsis_suspected        = Column(Boolean, nullable=True)
-    blood_culture_sent      = Column(Boolean, nullable=True)
-    blood_culture_positive  = Column(Boolean, nullable=True)
-    eos                     = Column(Boolean, nullable=True)
-    los                     = Column(Boolean, nullable=True)
-    antibiotics             = Column(Boolean, nullable=True)
-    antibiotic_day          = Column(Boolean, nullable=True)
-    lp_done                 = Column(Boolean, nullable=True)
-    csf_culture_positive    = Column(Boolean, nullable=True)
-    clabsi                  = Column(Boolean, nullable=True)
-    vap                     = Column(Boolean, nullable=True)
+    # ── INFECTION (Fields 1-9) ───────────────────────────────
+    sepsis_suspected        = Column(Boolean, nullable=True)  # #1
+    blood_culture_sent      = Column(Boolean, nullable=True)  # #2
+    blood_culture_positive  = Column(Boolean, nullable=True)  # #3
+    antibiotics             = Column(Boolean, nullable=True)  # #4
+    lp_done                 = Column(Boolean, nullable=True)  # #5
+    meningitis              = Column(Boolean, nullable=True)  # #6 Y/N
+    meningitis_type         = Column(String,  nullable=True)  # #7 Probable/Proven
+    clabsi                  = Column(Boolean, nullable=True)  # #8
+    vap                     = Column(Boolean, nullable=True)  # #9
 
-    # ── GASTROINTESTINAL ─────────────────────────────────────
-    npo                     = Column(Boolean, nullable=True)
-    enteral_feeds_started   = Column(Boolean, nullable=True)
-    feed_volume             = Column(Float,   nullable=True)   # ml/kg/day
-    full_feeds              = Column(Boolean, nullable=True)
-    parenteral_nutrition    = Column(Boolean, nullable=True)
-    probiotic               = Column(Boolean, nullable=True)
-    feed_intolerance        = Column(Boolean, nullable=True)
-    nec_suspected           = Column(Boolean, nullable=True)
-    nec_confirmed_stage     = Column(String,  nullable=True)   # "Stage I/II/III"
-    nec_surgery             = Column(Boolean, nullable=True)
+    # ── GASTROINTESTINAL (Fields 10-22) ──────────────────────
+    npo                        = Column(Boolean, nullable=True)  # #10
+    men                        = Column(Boolean, nullable=True)  # #11 Minimal Enteral Nutrition
+    enteral_feeds_received     = Column(Boolean, nullable=True)  # #12
+    feed_type                  = Column(String,  nullable=True)  # #13 "PDHM,EBM,FM"
+    cumulative_feed_volume     = Column(Float,   nullable=True)  # #14 ml/kg/day
+    feed_volume                = Column(Float,   nullable=True)  # #15 ml/kg/day
+    iv_fluids                  = Column(Boolean, nullable=True)  # #16
+    parenteral_nutrition       = Column(Boolean, nullable=True)  # #17
+    probiotic                  = Column(Boolean, nullable=True)  # #18
+    feed_intolerance           = Column(Boolean, nullable=True)  # #19
+    nec_suspected              = Column(Boolean, nullable=True)  # #20
+    nec_confirmed_stage        = Column(String,  nullable=True)  # #21 "Stage I/II/III"
+    cholestasis                = Column(Boolean, nullable=True)  # #22
 
-    # ── HEMATOLOGY ───────────────────────────────────────────
-    jaundice                = Column(Boolean, nullable=True)
-    phototherapy            = Column(Boolean, nullable=True)
-    peak_tsb                = Column(Float,   nullable=True)   # mg/dL
-    exchange_transfusion    = Column(Boolean, nullable=True)
-    prbc_transfusion        = Column(Boolean, nullable=True)
-    platelet_transfusion    = Column(Boolean, nullable=True)
-    ffp_cryo                = Column(Boolean, nullable=True)
+    # ── HEMATOLOGY (Fields 23-30) ────────────────────────────
+    hb_value                = Column(Float,   nullable=True)  # #23 g/dL
+    jaundice                = Column(Boolean, nullable=True)  # #24
+    phototherapy            = Column(Boolean, nullable=True)  # #25 (conditional)
+    peak_tsb                = Column(Float,   nullable=True)  # #26 mg/dL
+    exchange_transfusion    = Column(Boolean, nullable=True)  # #27
+    prbc_transfusion        = Column(Boolean, nullable=True)  # #28
+    platelet_transfusion    = Column(Boolean, nullable=True)  # #29
+    ffp_cryo                = Column(Boolean, nullable=True)  # #30
 
     # ── SUBMISSION WORKFLOW ───────────────────────────────────
     submission_status = Column(String,   nullable=True, default="empty")

@@ -145,6 +145,26 @@ function TextRow({ label, value, onChange, disabled, placeholder = "Enter value"
   );
 }
 
+/* Multi-select pills (for feed type: PDHM, EBM, FM) */
+function PillMulti({ options, value=[], onChange, disabled }) {
+  const toggle = (opt) => {
+    if (disabled) return;
+    const next = value.includes(opt) ? value.filter(v => v !== opt) : [...value, opt];
+    onChange(next);
+  };
+  return (
+    <div className="rcn-pills">
+      {options.map(opt => (
+        <button key={opt} type="button"
+          className={`rcn-pill${value.includes(opt) ? " rcn-pill--on" : ""}`}
+          onClick={() => toggle(opt)} disabled={disabled}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
@@ -339,55 +359,58 @@ export default function InfectGIHemaLog() {
   });
 
   /* ════════════════════════════════════════════════
-     SECTION 1 — INFECTION
+     SECTION 1 — INFECTION (Fields 1-9)
   ════════════════════════════════════════════════ */
   const [infData, setInfData] = useState({
-    sepsis_suspected:        null,
-    blood_culture_sent:      null,
-    blood_culture_positive:  null,
-    eos:                     null,
-    los:                     null,
-    antibiotics:             null,
-    antibiotic_day:          null,
-    lp_done:                 null,
-    csf_culture_positive:    null,
-    clabsi:                  null,
-    vap:                     null,
+    sepsis_suspected:        null,  // 1
+    blood_culture_sent:      null,  // 2
+    blood_culture_positive:  null,  // 3 (Blood culture result)
+    antibiotics:             null,  // 4
+    lp_done:                 null,  // 5
+    meningitis:              null,  // 6 (Y/N)
+    meningitis_type:         null,  // 7 (Probable/Proven - conditional on meningitis=Yes)
+    clabsi:                  null,  // 8
+    vap:                     null,  // 9
   });
 
   /* ════════════════════════════════════════════════
-     SECTION 2 — GASTROINTESTINAL
+     SECTION 2 — GASTROINTESTINAL (Fields 10-22)
   ════════════════════════════════════════════════ */
   const [giData, setGiData] = useState({
-    npo:                     null,
-    enteral_feeds_started:   null,
-    feed_volume:             null,   // numeric ml/kg/day
-    full_feeds:              null,
-    parenteral_nutrition:    null,
-    probiotic:               null,
-    feed_intolerance:        null,
-    nec_suspected:           null,
-    nec_confirmed_stage:     null,   // text — conditional
-    nec_surgery:             null,   // conditional
+    npo:                     null,  // 10
+    men:                     null,  // 11 (Minimal Enteral Nutrition)
+    enteral_feeds_received:  null,  // 12 (renamed from enteral_feeds_started)
+    feed_type:               [],    // 13 (PDHM, EBM, FM - multi-select)
+    cumulative_feed_volume:  null,  // 14 (ml - numeric)
+    feed_volume:             null,  // 15 (ml/kg/d - auto calculated)
+    iv_fluids:               null,  // 16
+    parenteral_nutrition:    null,  // 17
+    probiotic:               null,  // 18
+    feed_intolerance:        null,  // 19
+    nec_suspected:           null,  // 20
+    nec_confirmed_stage:     null,  // 21 (text — conditional on nec_suspected=Yes)
+    cholestasis:             null,  // 22
   });
 
   /* ════════════════════════════════════════════════
-     SECTION 3 — HEMATOLOGY
+     SECTION 3 — HEMATOLOGY (Fields 23-30)
   ════════════════════════════════════════════════ */
   const [hemaData, setHemaData] = useState({
-    jaundice:                null,
-    phototherapy:            null,   // conditional on jaundice
-    peak_tsb:                null,   // numeric mg/dL
-    exchange_transfusion:    null,
-    prbc_transfusion:        null,
-    platelet_transfusion:    null,
-    ffp_cryo:                null,
+    hb_value:                null,  // 23 (Hb value - numeric)
+    jaundice:                null,  // 24
+    phototherapy:            null,  // 25 (conditional on jaundice=Yes)
+    peak_tsb:                null,  // 26 (mg/dL - numeric)
+    exchange_transfusion:    null,  // 27
+    prbc_transfusion:        null,  // 28
+    platelet_transfusion:    null,  // 29
+    ffp_cryo:                null,  // 30 (FFP/Cryo transfusion)
   });
 
   /* ── Derived visibility flags ── */
-  const sepsisYes = infData.sepsis_suspected === true;
-  const necYes    = giData.nec_suspected     === true;
-  const jaundiceYes = hemaData.jaundice      === true;
+  const sepsisYes    = infData.sepsis_suspected === true;
+  const meningitisYes = infData.meningitis === true;
+  const necYes       = giData.nec_suspected === true;
+  const jaundiceYes  = hemaData.jaundice === true;
 
   /* ── Calendar-based day locking ──
      todayNicuDay = which NICU day number corresponds to the real
@@ -436,36 +459,44 @@ export default function InfectGIHemaLog() {
      Hidden/conditional fields excluded from total
   ══════════════════════════════════════════════ */
 
-  // Infection base: 7 always visible
-  const INF_BASE    = ["sepsis_suspected","antibiotics","antibiotic_day","lp_done","csf_culture_positive","clabsi","vap"];
-  const INF_SEPSIS  = ["blood_culture_sent","blood_culture_positive","eos","los"];
+  // Helper to check if value is answered
+  const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
-  const infTotal    = INF_BASE.length + (sepsisYes ? INF_SEPSIS.length : 0);
+  // Infection: 6 base + 3 conditional (sepsis) + 1 conditional (meningitis)
+  // Fields 1-9: sepsis_suspected, blood_culture_sent, blood_culture_positive, antibiotics, lp_done, meningitis, meningitis_type, clabsi, vap
+  const INF_BASE    = ["sepsis_suspected","antibiotics","lp_done","meningitis","clabsi","vap"];
+  const INF_SEPSIS  = ["blood_culture_sent","blood_culture_positive"];
+  const INF_MENING  = ["meningitis_type"];
+
+  const infTotal    = INF_BASE.length + (sepsisYes ? INF_SEPSIS.length : 0) + (meningitisYes ? INF_MENING.length : 0);
   const infAnswered = Math.min(
-    INF_BASE.filter(k => infData[k] !== null).length
-    + (sepsisYes ? INF_SEPSIS.filter(k => infData[k] !== null).length : 0),
+    INF_BASE.filter(k => ans(infData[k])).length
+    + (sepsisYes ? INF_SEPSIS.filter(k => ans(infData[k])).length : 0)
+    + (meningitisYes ? INF_MENING.filter(k => ans(infData[k])).length : 0),
     infTotal
   );
 
-  // GI base: 8 always visible
-  const GI_BASE  = ["npo","enteral_feeds_started","feed_volume","full_feeds","parenteral_nutrition","probiotic","feed_intolerance","nec_suspected"];
-  const GI_NEC   = ["nec_confirmed_stage","nec_surgery"];
+  // GI: 12 base + 1 conditional (NEC)
+  // Fields 10-22: npo, men, enteral_feeds_received, feed_type, cumulative_feed_volume, feed_volume, iv_fluids, parenteral_nutrition, probiotic, feed_intolerance, nec_suspected, nec_confirmed_stage, cholestasis
+  const GI_BASE  = ["npo","men","enteral_feeds_received","feed_type","cumulative_feed_volume","feed_volume","iv_fluids","parenteral_nutrition","probiotic","feed_intolerance","nec_suspected","cholestasis"];
+  const GI_NEC   = ["nec_confirmed_stage"];
 
   const giTotal    = GI_BASE.length + (necYes ? GI_NEC.length : 0);
   const giAnswered = Math.min(
-    GI_BASE.filter(k => giData[k] !== null && giData[k] !== "").length
-    + (necYes ? GI_NEC.filter(k => giData[k] !== null && giData[k] !== "").length : 0),
+    GI_BASE.filter(k => ans(giData[k])).length
+    + (necYes ? GI_NEC.filter(k => ans(giData[k])).length : 0),
     giTotal
   );
 
-  // Hematology base: 6 always visible
-  const HEMA_BASE    = ["jaundice","peak_tsb","exchange_transfusion","prbc_transfusion","platelet_transfusion","ffp_cryo"];
+  // Hematology: 7 base + 1 conditional (jaundice)
+  // Fields 23-30: hb_value, jaundice, phototherapy, peak_tsb, exchange_transfusion, prbc_transfusion, platelet_transfusion, ffp_cryo
+  const HEMA_BASE    = ["hb_value","jaundice","peak_tsb","exchange_transfusion","prbc_transfusion","platelet_transfusion","ffp_cryo"];
   const HEMA_JAUNDICE= ["phototherapy"];
 
   const hemaTotal    = HEMA_BASE.length + (jaundiceYes ? HEMA_JAUNDICE.length : 0);
   const hemaAnswered = Math.min(
-    HEMA_BASE.filter(k => hemaData[k] !== null && hemaData[k] !== "").length
-    + (jaundiceYes ? HEMA_JAUNDICE.filter(k => hemaData[k] !== null).length : 0),
+    HEMA_BASE.filter(k => ans(hemaData[k])).length
+    + (jaundiceYes ? HEMA_JAUNDICE.filter(k => ans(hemaData[k])).length : 0),
     hemaTotal
   );
 
@@ -600,28 +631,33 @@ export default function InfectGIHemaLog() {
             sepsis_suspected:        d.sepsis_suspected        ?? null,
             blood_culture_sent:      d.blood_culture_sent      ?? null,
             blood_culture_positive:  d.blood_culture_positive  ?? null,
-            eos:                     d.eos                     ?? null,
-            los:                     d.los                     ?? null,
             antibiotics:             d.antibiotics             ?? null,
-            antibiotic_day:          d.antibiotic_day          ?? null,
             lp_done:                 d.lp_done                 ?? null,
-            csf_culture_positive:    d.csf_culture_positive    ?? null,
+            meningitis:              d.meningitis              ?? null,
+            meningitis_type:         d.meningitis_type         ?? null,
             clabsi:                  d.clabsi                  ?? null,
             vap:                     d.vap                     ?? null,
           });
           setGiData({
-            npo:                   d.npo                   ?? null,
-            enteral_feeds_started: d.enteral_feeds_started ?? null,
-            feed_volume:           d.feed_volume           ?? null,
-            full_feeds:            d.full_feeds            ?? null,
-            parenteral_nutrition:  d.parenteral_nutrition  ?? null,
-            probiotic:             d.probiotic             ?? null,
-            feed_intolerance:      d.feed_intolerance      ?? null,
-            nec_suspected:         d.nec_suspected         ?? null,
-            nec_confirmed_stage:   d.nec_confirmed_stage   ?? null,
-            nec_surgery:           d.nec_surgery           ?? null,
+            npo:                     d.npo                     ?? null,
+            men:                     d.men                     ?? null,
+            enteral_feeds_received:  d.enteral_feeds_received  ?? null,
+            feed_type:               d.feed_type
+              ? (Array.isArray(d.feed_type) ? d.feed_type
+                : d.feed_type.split(",").map(s=>s.trim()).filter(Boolean))
+              : [],
+            cumulative_feed_volume:  d.cumulative_feed_volume  ?? null,
+            feed_volume:             d.feed_volume             ?? null,
+            iv_fluids:               d.iv_fluids               ?? null,
+            parenteral_nutrition:    d.parenteral_nutrition    ?? null,
+            probiotic:               d.probiotic               ?? null,
+            feed_intolerance:        d.feed_intolerance        ?? null,
+            nec_suspected:           d.nec_suspected           ?? null,
+            nec_confirmed_stage:     d.nec_confirmed_stage     ?? null,
+            cholestasis:             d.cholestasis             ?? null,
           });
           setHemaData({
+            hb_value:             d.hb_value             ?? null,
             jaundice:             d.jaundice             ?? null,
             phototherapy:         d.phototherapy         ?? null,
             peak_tsb:             d.peak_tsb             ?? null,
@@ -650,12 +686,13 @@ export default function InfectGIHemaLog() {
 
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
-      eos: null, los: null, antibiotics: null, antibiotic_day: null,
-      lp_done: null, csf_culture_positive: null, clabsi: null, vap: null });
-    setGiData({ npo: null, enteral_feeds_started: null, feed_volume: null, full_feeds: null,
+      antibiotics: null, lp_done: null, meningitis: null, meningitis_type: null,
+      clabsi: null, vap: null });
+    setGiData({ npo: null, men: null, enteral_feeds_received: null, feed_type: [],
+      cumulative_feed_volume: null, feed_volume: null, iv_fluids: null,
       parenteral_nutrition: null, probiotic: null, feed_intolerance: null,
-      nec_suspected: null, nec_confirmed_stage: null, nec_surgery: null });
-    setHemaData({ jaundice: null, phototherapy: null, peak_tsb: null,
+      nec_suspected: null, nec_confirmed_stage: null, cholestasis: null });
+    setHemaData({ hb_value: null, jaundice: null, phototherapy: null, peak_tsb: null,
       exchange_transfusion: null, prbc_transfusion: null,
       platelet_transfusion: null, ffp_cryo: null });
     setIsSaved(false); setIsEditing(false);
@@ -666,7 +703,10 @@ export default function InfectGIHemaLog() {
 
   const getPayload = () => ({
     enrollment_id: enrollmentId, nicu_day: activeDay,
-    ...infData, ...giData, ...hemaData,
+    ...infData,
+    ...giData,
+    feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
+    ...hemaData,
     submission_status: STATUS.DRAFT,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Nurse",
@@ -739,17 +779,23 @@ export default function InfectGIHemaLog() {
       setInfData({ sepsis_suspected: d.sepsis_suspected ?? null,
         blood_culture_sent: d.blood_culture_sent ?? null,
         blood_culture_positive: d.blood_culture_positive ?? null,
-        eos: d.eos ?? null, los: d.los ?? null,
-        antibiotics: d.antibiotics ?? null, antibiotic_day: d.antibiotic_day ?? null,
-        lp_done: d.lp_done ?? null, csf_culture_positive: d.csf_culture_positive ?? null,
+        antibiotics: d.antibiotics ?? null, lp_done: d.lp_done ?? null,
+        meningitis: d.meningitis ?? null, meningitis_type: d.meningitis_type ?? null,
         clabsi: d.clabsi ?? null, vap: d.vap ?? null });
-      setGiData({ npo: d.npo ?? null, enteral_feeds_started: d.enteral_feeds_started ?? null,
-        feed_volume: d.feed_volume ?? null, full_feeds: d.full_feeds ?? null,
+      setGiData({ npo: d.npo ?? null, men: d.men ?? null,
+        enteral_feeds_received: d.enteral_feeds_received ?? null,
+        feed_type: d.feed_type
+          ? (Array.isArray(d.feed_type) ? d.feed_type
+            : d.feed_type.split(",").map(s=>s.trim()).filter(Boolean))
+          : [],
+        cumulative_feed_volume: d.cumulative_feed_volume ?? null,
+        feed_volume: d.feed_volume ?? null, iv_fluids: d.iv_fluids ?? null,
         parenteral_nutrition: d.parenteral_nutrition ?? null, probiotic: d.probiotic ?? null,
         feed_intolerance: d.feed_intolerance ?? null, nec_suspected: d.nec_suspected ?? null,
-        nec_confirmed_stage: d.nec_confirmed_stage ?? null, nec_surgery: d.nec_surgery ?? null });
-      setHemaData({ jaundice: d.jaundice ?? null, phototherapy: d.phototherapy ?? null,
-        peak_tsb: d.peak_tsb ?? null, exchange_transfusion: d.exchange_transfusion ?? null,
+        nec_confirmed_stage: d.nec_confirmed_stage ?? null, cholestasis: d.cholestasis ?? null });
+      setHemaData({ hb_value: d.hb_value ?? null, jaundice: d.jaundice ?? null,
+        phototherapy: d.phototherapy ?? null, peak_tsb: d.peak_tsb ?? null,
+        exchange_transfusion: d.exchange_transfusion ?? null,
         prbc_transfusion: d.prbc_transfusion ?? null, platelet_transfusion: d.platelet_transfusion ?? null,
         ffp_cryo: d.ffp_cryo ?? null });
       setIsSaved(false);
@@ -1057,87 +1103,141 @@ export default function InfectGIHemaLog() {
               </div>
             )}
 
-            {/* ════ INFECTION ════ */}
+            {/* ════ INFECTION (Fields 1-9) ════ */}
             <SectionCard iconEmoji="🦠" title="Infection Assessment"
               answered={infAnswered} total={infTotal} defaultOpen={true}>
 
-              <div className="rcn-field-group">
-                <label className="rcn-field-label">Sepsis</label>
-                <div className="rcn-yn-list">
-                  <YNRow label="Sepsis Suspected" value={infData.sepsis_suspected}
-                    onChange={v => {
-                      setInf("sepsis_suspected", v);
-                      if (v !== true) {
-                        setInfData(p => ({ ...p, blood_culture_sent: null,
-                          blood_culture_positive: null, eos: null, los: null }));
-                      }
-                    }} disabled={!isFieldEditable} />
-                </div>
+              <div className="rcn-yn-list">
+                <YNRow label="1. Sepsis Suspected" value={infData.sepsis_suspected}
+                  onChange={v => {
+                    setInf("sepsis_suspected", v);
+                    if (v !== true) {
+                      setInfData(p => ({ ...p, blood_culture_sent: null,
+                        blood_culture_positive: null }));
+                    }
+                  }} disabled={!isFieldEditable} />
               </div>
 
               {sepsisYes && (
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">If Sepsis Suspected</div>
+                  <div className="rcn-subsection-title">2-3. If Sepsis Suspected</div>
                   <div className="rcn-yn-list">
-                    <CultureStatusRow sent={infData.blood_culture_sent} positive={infData.blood_culture_positive}
-                      onChange={({ sent, positive }) => setInfData(p => ({ ...p, blood_culture_sent: sent, blood_culture_positive: positive }))}
-                      disabled={!isFieldEditable} />
-                    <YNRow label="EOS (≤72h)"             value={infData.eos}                    onChange={v => setInf("eos", v)}                    disabled={!isFieldEditable} />
-                    <YNRow label="LOS (>72h)"             value={infData.los}                    onChange={v => setInf("los", v)}                    disabled={!isFieldEditable} />
+                    <YNRow label="2. Blood Culture Sent" value={infData.blood_culture_sent}
+                      onChange={v => setInf("blood_culture_sent", v)} disabled={!isFieldEditable} />
+                    <YNRow label="3. Blood Culture Positive" value={infData.blood_culture_positive}
+                      onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable} />
                   </div>
                 </div>
               )}
 
-              <div className="rcn-field-group">
-                <label className="rcn-field-label">Treatment &amp; Monitoring</label>
-                <div className="rcn-yn-list">
-                  <YNRow label="Antibiotics"          value={infData.antibiotics}          onChange={v => setInf("antibiotics", v)}          disabled={!isFieldEditable} />
-                  <NumRow label="Antibiotic Day"       value={infData.antibiotic_day}       onChange={v => setInf("antibiotic_day", v)}       disabled={!isFieldEditable} />
-                  <YNRow label="LP Done"               value={infData.lp_done}              onChange={v => setInf("lp_done", v)}              disabled={!isFieldEditable} />
-                  <YNRow label="CSF Culture Positive"  value={infData.csf_culture_positive} onChange={v => setInf("csf_culture_positive", v)} disabled={!isFieldEditable} />
-                  <YNRow label="CLABSI"                value={infData.clabsi}               onChange={v => setInf("clabsi", v)}               disabled={!isFieldEditable} />
-                  <YNRow label="VAP"                   value={infData.vap}                  onChange={v => setInf("vap", v)}                  disabled={!isFieldEditable} />
+              <div className="rcn-yn-list">
+                <YNRow label="4. Antibiotics"          value={infData.antibiotics}    onChange={v => setInf("antibiotics", v)}    disabled={!isFieldEditable} />
+                <YNRow label="5. LP Done"              value={infData.lp_done}        onChange={v => setInf("lp_done", v)}        disabled={!isFieldEditable} />
+                <YNRow label="6. Meningitis (Y/N)"     value={infData.meningitis}
+                  onChange={v => {
+                    setInf("meningitis", v);
+                    if (v !== true) {
+                      setInfData(p => ({ ...p, meningitis_type: null }));
+                    }
+                  }} disabled={!isFieldEditable} />
+              </div>
+
+              {meningitisYes && (
+                <div className="rcn-subsection">
+                  <div className="rcn-subsection-title">7. If Meningitis</div>
+                  <div className="rcn-yn-list">
+                    <div className="rcn-yn-row">
+                      <span className="rcn-yn-label">Meningitis Type</span>
+                      <select
+                        className="rcn-status-select"
+                        value={infData.meningitis_type || ""}
+                        disabled={!isFieldEditable}
+                        onChange={e => setInf("meningitis_type", e.target.value || null)}
+                      >
+                        <option value="">Select type</option>
+                        <option value="Probable">Probable</option>
+                        <option value="Proven">Proven</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              <div className="rcn-yn-list">
+                <YNRow label="8. CLABSI"                value={infData.clabsi}               onChange={v => setInf("clabsi", v)}               disabled={!isFieldEditable} />
+                <YNRow label="9. VAP"                   value={infData.vap}                  onChange={v => setInf("vap", v)}                  disabled={!isFieldEditable} />
               </div>
             </SectionCard>
 
-            {/* ════ GASTROINTESTINAL ════ */}
+            {/* ════ GASTROINTESTINAL (Fields 10-22) ════ */}
             <SectionCard iconEmoji="🍽️" title="Gastrointestinal Assessment"
               answered={giAnswered} total={giTotal} defaultOpen={true}>
 
               <div className="rcn-yn-list">
-                <YNRow label="NPO"                   value={giData.npo}                   onChange={v => setGi("npo", v)}                   disabled={!isFieldEditable} />
-                <YNRow label="Enteral Feeds Started"  value={giData.enteral_feeds_started} onChange={v => setGi("enteral_feeds_started", v)} disabled={!isFieldEditable} />
-                <NumRow label="Feed Volume (ml/kg/day)" value={giData.feed_volume}         onChange={v => setGi("feed_volume", v)}           disabled={!isFieldEditable} unit="ml/kg" placeholder="0" />
-                <YNRow label="Full Feeds (150 ml/kg)"  value={giData.full_feeds}           onChange={v => setGi("full_feeds", v)}            disabled={!isFieldEditable} />
-                <YNRow label="Parenteral Nutrition"    value={giData.parenteral_nutrition} onChange={v => setGi("parenteral_nutrition", v)}  disabled={!isFieldEditable} />
-                <YNRow label="Probiotic"               value={giData.probiotic}            onChange={v => setGi("probiotic", v)}             disabled={!isFieldEditable} />
-                <YNRow label="Feed Intolerance"        value={giData.feed_intolerance}     onChange={v => setGi("feed_intolerance", v)}      disabled={!isFieldEditable} />
-                <YNRow label="NEC Suspected"           value={giData.nec_suspected}
+                <YNRow label="10. NPO" value={giData.npo} onChange={v => setGi("npo", v)} disabled={!isFieldEditable} />
+                <YNRow label="11. MEN (Minimal Enteral Nutrition)" value={giData.men} onChange={v => setGi("men", v)} disabled={!isFieldEditable} />
+                <YNRow label="12. Enteral Feeds Received" value={giData.enteral_feeds_received} onChange={v => setGi("enteral_feeds_received", v)} disabled={!isFieldEditable} />
+              </div>
+
+              <div className="rcn-subsection" style={{marginTop:16}}>
+                <div className="rcn-subsection-title">13. Feed Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span></div>
+                <PillMulti
+                  options={["PDHM","EBM","FM"]}
+                  value={giData.feed_type}
+                  onChange={v => isFieldEditable && setGiData(p => ({ ...p, feed_type: v }))}
+                  disabled={!isFieldEditable}
+                />
+              </div>
+
+              <div className="rcn-yn-list" style={{marginTop:16}}>
+                <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" />
+                <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" />
+                <YNRow label="16. IV Fluids" value={giData.iv_fluids} onChange={v => setGi("iv_fluids", v)} disabled={!isFieldEditable} />
+                <YNRow label="17. Parenteral Nutrition" value={giData.parenteral_nutrition} onChange={v => setGi("parenteral_nutrition", v)} disabled={!isFieldEditable} />
+                <YNRow label="18. Probiotic" value={giData.probiotic} onChange={v => setGi("probiotic", v)} disabled={!isFieldEditable} />
+                <YNRow label="19. Feed Intolerance" value={giData.feed_intolerance} onChange={v => setGi("feed_intolerance", v)} disabled={!isFieldEditable} />
+                <YNRow label="20. NEC Suspected" value={giData.nec_suspected}
                   onChange={v => {
                     setGi("nec_suspected", v);
                     if (v !== true)
-                      setGiData(p => ({ ...p, nec_confirmed_stage: null, nec_surgery: null }));
+                      setGiData(p => ({ ...p, nec_confirmed_stage: null }));
                   }} disabled={!isFieldEditable} />
               </div>
 
               {necYes && (
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">If NEC Suspected</div>
+                  <div className="rcn-subsection-title">21. If NEC Suspected</div>
                   <div className="rcn-yn-list">
-                    <TextRow label="NEC Confirmed Stage" value={giData.nec_confirmed_stage} onChange={v => setGi("nec_confirmed_stage", v)} disabled={!isFieldEditable} placeholder="Stage I / II / III" />
-                    <YNRow label="NEC Surgery"           value={giData.nec_surgery}         onChange={v => setGi("nec_surgery", v)}         disabled={!isFieldEditable} />
+                    <div className="rcn-yn-row">
+                      <span className="rcn-yn-label">NEC Confirmed Stage</span>
+                      <select
+                        className="rcn-status-select"
+                        value={giData.nec_confirmed_stage || ""}
+                        disabled={!isFieldEditable}
+                        onChange={e => setGi("nec_confirmed_stage", e.target.value || null)}
+                      >
+                        <option value="">Select stage</option>
+                        <option value="Stage I">Stage I</option>
+                        <option value="Stage II">Stage II</option>
+                        <option value="Stage III">Stage III</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               )}
+
+              <div className="rcn-yn-list">
+                <YNRow label="22. Cholestasis" value={giData.cholestasis} onChange={v => setGi("cholestasis", v)} disabled={!isFieldEditable} />
+              </div>
             </SectionCard>
 
-            {/* ════ HEMATOLOGY ════ */}
+            {/* ════ HEMATOLOGY (Fields 23-30) ════ */}
             <SectionCard iconEmoji="🩸" title="Hematology Assessment"
               answered={hemaAnswered} total={hemaTotal} defaultOpen={true}>
 
               <div className="rcn-yn-list">
-                <YNRow label="Jaundice" value={hemaData.jaundice}
+                <NumRow label="23. Hb Value (g/dL)" value={hemaData.hb_value} onChange={v => setHema("hb_value", v)} disabled={!isFieldEditable} unit="g/dL" placeholder="0.0" />
+                <YNRow label="24. Jaundice" value={hemaData.jaundice}
                   onChange={v => {
                     setHema("jaundice", v);
                     if (v !== true) setHemaData(p => ({ ...p, phototherapy: null }));
@@ -1146,7 +1246,7 @@ export default function InfectGIHemaLog() {
 
               {jaundiceYes && (
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">If Jaundice</div>
+                  <div className="rcn-subsection-title">25. If Jaundice</div>
                   <div className="rcn-yn-list">
                     <YNRow label="Phototherapy" value={hemaData.phototherapy}
                       onChange={v => setHema("phototherapy", v)} disabled={!isFieldEditable} />
@@ -1155,11 +1255,11 @@ export default function InfectGIHemaLog() {
               )}
 
               <div className="rcn-yn-list">
-                <NumRow label="Peak TSB (mg/dL)"     value={hemaData.peak_tsb}            onChange={v => setHema("peak_tsb", v)}            disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" />
-                <YNRow label="Exchange Transfusion"   value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
-                <YNRow label="PRBC Transfusion"       value={hemaData.prbc_transfusion}    onChange={v => setHema("prbc_transfusion", v)}    disabled={!isFieldEditable} />
-                <YNRow label="Platelet Transfusion"   value={hemaData.platelet_transfusion} onChange={v => setHema("platelet_transfusion", v)} disabled={!isFieldEditable} />
-                <YNRow label="FFP / Cryo Transfusion" value={hemaData.ffp_cryo}            onChange={v => setHema("ffp_cryo", v)}            disabled={!isFieldEditable} />
+                <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" />
+                <YNRow label="27. Exchange Transfusion" value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
+                <YNRow label="28. PRBC Transfusion" value={hemaData.prbc_transfusion} onChange={v => setHema("prbc_transfusion", v)} disabled={!isFieldEditable} />
+                <YNRow label="29. Platelet Transfusion" value={hemaData.platelet_transfusion} onChange={v => setHema("platelet_transfusion", v)} disabled={!isFieldEditable} />
+                <YNRow label="30. FFP / Cryo Transfusion" value={hemaData.ffp_cryo} onChange={v => setHema("ffp_cryo", v)} disabled={!isFieldEditable} />
               </div>
             </SectionCard>
 
