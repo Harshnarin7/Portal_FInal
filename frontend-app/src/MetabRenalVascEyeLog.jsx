@@ -159,6 +159,22 @@ function PillMulti({ options, value=[], onChange, disabled }) {
   );
 }
 
+/* Single-select pills (e.g. Location) */
+function PillSingle({ options, value, onChange, disabled }) {
+  return (
+    <div className="rcn-pills">
+      {options.map(opt => (
+        <button key={opt} type="button"
+          className={`rcn-pill${value === opt ? " rcn-pill--on" : ""}`}
+          onClick={() => !disabled && onChange(value === opt ? null : opt)}
+          disabled={disabled}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════
    HELPER FUNCTIONS FOR GESTATION
 ══════════════════════════════════════════════════════ */
@@ -321,31 +337,37 @@ export default function MetabRenalVascEyeLog() {
      SECTION STATES
   ═══════════════════════════════════════ */
 
-  // ⚡ METABOLIC
+  // ⚡ METABOLIC (4.1, items 1-10)
   const [metabData, setMetabData] = useState({
-    hypoglycemia:          null,
-    hypoglycemia_rx:       null,
-    hyperglycemia:         null,
-    insulin:               null,
-    metabolic_acidosis:    null,
-    dyselectrolytemia:     null,
-    dyselectrolytemia_type:[], // multi-select: ["Na","K","Ca"]
-    osteopenia_suspected:  null,
+    lowest_glucose:         null, // #1
+    hypoglycemia_episodes:  null, // #2
+    hypoglycemia_rx:        null, // #3
+    highest_glucose:        null, // #4
+    insulin:                null, // #5
+    metabolic_acidosis:     null, // #6
+    sodium_value:           null, // #7
+    potassium_value:        null, // #8
+    ionized_calcium_value:  null, // #9
+    osteopenia_suspected:   null, // #10
   });
 
-  // 💧 RENAL
+  // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
-    aki_suspected:         null,
-    aki_kdigo_stage:       null, // "Stage 1/2/3"
-    creatinine:            null, // numeric mg/dL
-    urine_output_low:      null,
-    dialysis_crrt:         null,
+    aki_stage:              null, // #11 — e.g. "Stage 1/2/3"
+    creatinine:             null, // #12 — numeric mg/dL
+    urine_output_total:     null, // #13
+    dialysis_crrt:          null, // #14
   });
 
-  // 🌡️ THERMOREGULATION
+  // 🌡️ THERMOREGULATION (4.3, item 15)
   const [thermoData, setThermoData] = useState({
-    hypothermia:           null,
-    hyperthermia:          null,
+    axillary_temperature:   null, // #15
+  });
+
+  // 📍 LOCATION & OUTCOME (4.6, 4.7)
+  const [tailData, setTailData] = useState({
+    location:               null, // DR, NICU, Step-down/Nursery, KMC-N, Other
+    survived_the_day:       null,
   });
 
   // 🩺 VASCULAR ACCESS
@@ -370,8 +392,6 @@ export default function MetabRenalVascEyeLog() {
   });
 
   /* ── Visibility flags ── */
-  const dyselectYes = metabData.dyselectrolytemia === true;
-  const akiYes      = renalData.aki_suspected     === true;
   const ropYes      = eyeData.rop_detected        === true;
 
   /* ── Calendar-based day locking ──
@@ -421,30 +441,22 @@ export default function MetabRenalVascEyeLog() {
   ═══════════════════════════════════════ */
   const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
-  // Metabolic: 7 base + 1 conditional
-  const METAB_BASE   = ["hypoglycemia","hypoglycemia_rx","hyperglycemia","insulin","metabolic_acidosis","dyselectrolytemia","osteopenia_suspected"];
-  const METAB_DYSELE = ["dyselectrolytemia_type"];
-  const metabTotal   = METAB_BASE.length + (dyselectYes ? METAB_DYSELE.length : 0);
-  const metabAnswered= Math.min(
-    METAB_BASE.filter(k => ans(metabData[k])).length
-    + (dyselectYes ? (ans(metabData.dyselectrolytemia_type) ? 1 : 0) : 0),
-    metabTotal
-  );
+  // Metabolic: 10 fields (items 1-10)
+  const METAB_BASE   = ["lowest_glucose","hypoglycemia_episodes","hypoglycemia_rx","highest_glucose",
+                        "insulin","metabolic_acidosis","sodium_value","potassium_value",
+                        "ionized_calcium_value","osteopenia_suspected"];
+  const metabTotal   = METAB_BASE.length;
+  const metabAnswered= METAB_BASE.filter(k => ans(metabData[k])).length;
 
-  // Renal: 4 base + 1 conditional
-  const RENAL_BASE  = ["aki_suspected","creatinine","urine_output_low","dialysis_crrt"];
-  const RENAL_AKI   = ["aki_kdigo_stage"];
-  const renalTotal  = RENAL_BASE.length + (akiYes ? RENAL_AKI.length : 0);
-  const renalAnswered = Math.min(
-    RENAL_BASE.filter(k => ans(renalData[k])).length
-    + (akiYes ? (ans(renalData.aki_kdigo_stage) ? 1 : 0) : 0),
-    renalTotal
-  );
+  // Renal: 4 fields (items 11-14)
+  const RENAL_BASE  = ["aki_stage","creatinine","urine_output_total","dialysis_crrt"];
+  const renalTotal  = RENAL_BASE.length;
+  const renalAnswered = RENAL_BASE.filter(k => ans(renalData[k])).length;
 
-  // Thermoregulation: 2 fields always
-  const THERMO_KEYS    = ["hypothermia","hyperthermia"];
+  // Thermoregulation: 1 field (item 15)
+  const THERMO_KEYS    = ["axillary_temperature"];
   const thermoTotal    = THERMO_KEYS.length;
-  const thermoAnswered = Math.min(THERMO_KEYS.filter(k => ans(thermoData[k])).length, thermoTotal);
+  const thermoAnswered = THERMO_KEYS.filter(k => ans(thermoData[k])).length;
 
   // Vascular: 7 fields always
   const VASC_KEYS    = ["picc_in_situ","uvc_in_situ","uac_in_situ","peripheral_iv","peripheral_arterial","extravasation_injury","line_complication"];
@@ -461,8 +473,13 @@ export default function MetabRenalVascEyeLog() {
     eyeTotal
   );
 
-  const totalAnswered = metabAnswered + renalAnswered + thermoAnswered + vascAnswered + eyeAnswered;
-  const totalFields   = metabTotal + renalTotal + thermoTotal + vascTotal + eyeTotal;
+  // Location & Survived the day: 2 fields (4.6, 4.7)
+  const TAIL_KEYS    = ["location","survived_the_day"];
+  const tailTotal    = TAIL_KEYS.length;
+  const tailAnswered = TAIL_KEYS.filter(k => ans(tailData[k])).length;
+
+  const totalAnswered = metabAnswered + renalAnswered + thermoAnswered + vascAnswered + eyeAnswered + tailAnswered;
+  const totalFields   = metabTotal + renalTotal + thermoTotal + vascTotal + eyeTotal + tailTotal;
   const completionPct = totalFields > 0 ? Math.min(100, Math.round((totalAnswered / totalFields) * 100)) : 0;
   const canSubmit     = completionPct === 100 && !isSubmitted;
 
@@ -472,6 +489,7 @@ export default function MetabRenalVascEyeLog() {
   const setThermo= (k, v) => isFieldEditable && setThermoData(p => ({ ...p, [k]: v }));
   const setVasc  = (k, v) => isFieldEditable && setVascData(p => ({ ...p, [k]: v }));
   const setEye   = (k, v) => isFieldEditable && setEyeData(p => ({ ...p, [k]: v }));
+  const setTail  = (k, v) => isFieldEditable && setTailData(p => ({ ...p, [k]: v }));
 
   /* ── Load patient info ── */
   useEffect(() => {
@@ -587,28 +605,25 @@ export default function MetabRenalVascEyeLog() {
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
           setMetabData({
-            hypoglycemia:           d.hypoglycemia           ?? null,
+            lowest_glucose:         d.lowest_glucose         ?? null,
+            hypoglycemia_episodes:  d.hypoglycemia_episodes  ?? null,
             hypoglycemia_rx:        d.hypoglycemia_rx        ?? null,
-            hyperglycemia:          d.hyperglycemia          ?? null,
+            highest_glucose:        d.highest_glucose        ?? null,
             insulin:                d.insulin                ?? null,
             metabolic_acidosis:     d.metabolic_acidosis     ?? null,
-            dyselectrolytemia:      d.dyselectrolytemia      ?? null,
-            dyselectrolytemia_type: d.dyselectrolytemia_type
-              ? (Array.isArray(d.dyselectrolytemia_type) ? d.dyselectrolytemia_type
-                : d.dyselectrolytemia_type.split(",").map(s=>s.trim()).filter(Boolean))
-              : [],
+            sodium_value:           d.sodium_value           ?? null,
+            potassium_value:        d.potassium_value        ?? null,
+            ionized_calcium_value:  d.ionized_calcium_value  ?? null,
             osteopenia_suspected:   d.osteopenia_suspected   ?? null,
           });
           setRenalData({
-            aki_suspected:          d.aki_suspected    ?? null,
-            aki_kdigo_stage:        d.aki_kdigo_stage  || null,
-            creatinine:             d.creatinine       ?? null,
-            urine_output_low:       d.urine_output_low ?? null,
-            dialysis_crrt:          d.dialysis_crrt    ?? null,
+            aki_stage:              d.aki_stage          || null,
+            creatinine:             d.creatinine         ?? null,
+            urine_output_total:     d.urine_output_total ?? null,
+            dialysis_crrt:          d.dialysis_crrt      ?? null,
           });
           setThermoData({
-            hypothermia: d.hypothermia ?? null,
-            hyperthermia:d.hyperthermia ?? null,
+            axillary_temperature: d.axillary_temperature ?? null,
           });
           setVascData({
             picc_in_situ:         d.picc_in_situ         ?? null,
@@ -627,6 +642,10 @@ export default function MetabRenalVascEyeLog() {
             plus_disease:      d.plus_disease      ?? null,
             rop_treatment:     d.rop_treatment     ?? null,
           });
+          setTailData({
+            location:          d.location          || null,
+            survived_the_day:  d.survived_the_day  ?? null,
+          });
           const st = d.submission_status || STATUS.DRAFT;
           setDayStatuses(prev => ({ ...prev, [activeDay]: st }));
           setSavedAt(d.saved_at||null); setSavedBy(d.saved_by||"");
@@ -644,13 +663,15 @@ export default function MetabRenalVascEyeLog() {
   }, [enrollmentId, activeDay]);
 
   const resetFormState = () => {
-    setMetabData({ hypoglycemia:null,hypoglycemia_rx:null,hyperglycemia:null,insulin:null,
-      metabolic_acidosis:null,dyselectrolytemia:null,dyselectrolytemia_type:[],osteopenia_suspected:null });
-    setRenalData({ aki_suspected:null,aki_kdigo_stage:null,creatinine:null,urine_output_low:null,dialysis_crrt:null });
-    setThermoData({ hypothermia:null,hyperthermia:null });
+    setMetabData({ lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
+      insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+      ionized_calcium_value:null,osteopenia_suspected:null });
+    setRenalData({ aki_stage:null,creatinine:null,urine_output_total:null,dialysis_crrt:null });
+    setThermoData({ axillary_temperature:null });
     setVascData({ picc_in_situ:null,uvc_in_situ:null,uac_in_situ:null,peripheral_iv:null,
       peripheral_arterial:null,extravasation_injury:null,line_complication:null });
     setEyeData({ rop_screening_due:null,rop_screened:null,rop_detected:null,rop_stage:null,plus_disease:null,rop_treatment:null });
+    setTailData({ location:null,survived_the_day:null });
     setIsSaved(false); setIsEditing(false);
     setSavedAt(null); setSavedBy(""); setSubmittedAt(null); setSubmittedBy("");
     setOverrideUntil(null);
@@ -659,9 +680,7 @@ export default function MetabRenalVascEyeLog() {
 
   const buildPayload = (now) => ({
     enrollment_id: enrollmentId, nicu_day: activeDay,
-    ...metabData,
-    dyselectrolytemia_type: metabData.dyselectrolytemia_type.join(","),
-    ...renalData, ...thermoData, ...vascData, ...eyeData,
+    ...metabData, ...renalData, ...thermoData, ...vascData, ...eyeData, ...tailData,
     submission_status: STATUS.DRAFT,
     saved_at: now,
     saved_by: user?.name || user?.username || "Nurse",
@@ -727,17 +746,16 @@ export default function MetabRenalVascEyeLog() {
         setTimeout(() => setMessage(""), 3000); return;
       }
       setMetabData({
-        hypoglycemia: d.hypoglycemia??null, hypoglycemia_rx: d.hypoglycemia_rx??null,
-        hyperglycemia: d.hyperglycemia??null, insulin: d.insulin??null,
-        metabolic_acidosis: d.metabolic_acidosis??null, dyselectrolytemia: d.dyselectrolytemia??null,
-        dyselectrolytemia_type: d.dyselectrolytemia_type
-          ? (Array.isArray(d.dyselectrolytemia_type) ? d.dyselectrolytemia_type
-            : d.dyselectrolytemia_type.split(",").map(s=>s.trim()).filter(Boolean)) : [],
+        lowest_glucose: d.lowest_glucose??null, hypoglycemia_episodes: d.hypoglycemia_episodes??null,
+        hypoglycemia_rx: d.hypoglycemia_rx??null, highest_glucose: d.highest_glucose??null,
+        insulin: d.insulin??null, metabolic_acidosis: d.metabolic_acidosis??null,
+        sodium_value: d.sodium_value??null, potassium_value: d.potassium_value??null,
+        ionized_calcium_value: d.ionized_calcium_value??null,
         osteopenia_suspected: d.osteopenia_suspected??null,
       });
-      setRenalData({ aki_suspected: d.aki_suspected??null, aki_kdigo_stage: d.aki_kdigo_stage||null,
-        creatinine: d.creatinine??null, urine_output_low: d.urine_output_low??null, dialysis_crrt: d.dialysis_crrt??null });
-      setThermoData({ hypothermia: d.hypothermia??null, hyperthermia: d.hyperthermia??null });
+      setRenalData({ aki_stage: d.aki_stage||null, creatinine: d.creatinine??null,
+        urine_output_total: d.urine_output_total??null, dialysis_crrt: d.dialysis_crrt??null });
+      setThermoData({ axillary_temperature: d.axillary_temperature??null });
       setVascData({ picc_in_situ: d.picc_in_situ??null, uvc_in_situ: d.uvc_in_situ??null,
         uac_in_situ: d.uac_in_situ??null, peripheral_iv: d.peripheral_iv??null,
         peripheral_arterial: d.peripheral_arterial??null, extravasation_injury: d.extravasation_injury??null,
@@ -745,6 +763,7 @@ export default function MetabRenalVascEyeLog() {
       setEyeData({ rop_screening_due: d.rop_screening_due??null, rop_screened: d.rop_screened??null,
         rop_detected: d.rop_detected??null, rop_stage: d.rop_stage||null,
         plus_disease: d.plus_disease??null, rop_treatment: d.rop_treatment??null });
+      setTailData({ location: d.location||null, survived_the_day: d.survived_the_day??null });
       setIsSaved(false);
       setMessage(`📋 Copied from Day ${sourceDay} — review and save`);
       setTimeout(() => setMessage(""), 4000);
@@ -1051,31 +1070,24 @@ export default function MetabRenalVascEyeLog() {
             <SectionCard iconEmoji="⚡" title="Metabolic Assessment"
               answered={metabAnswered} total={metabTotal} defaultOpen={true}>
               <div className="rcn-yn-list">
-                <YNRow label="Hypoglycemia (<45 mg/dL)"    value={metabData.hypoglycemia}       onChange={v=>setMetab("hypoglycemia",v)}       disabled={!isFieldEditable}/>
-                <YNRow label="Hypoglycemia Rx"              value={metabData.hypoglycemia_rx}    onChange={v=>setMetab("hypoglycemia_rx",v)}    disabled={!isFieldEditable}/>
-                <YNRow label="Hyperglycemia (>180 mg/dL)"  value={metabData.hyperglycemia}      onChange={v=>setMetab("hyperglycemia",v)}      disabled={!isFieldEditable}/>
-                <YNRow label="Insulin"                      value={metabData.insulin}            onChange={v=>setMetab("insulin",v)}            disabled={!isFieldEditable}/>
-                <YNRow label="Metabolic Acidosis (pH <7.2)" value={metabData.metabolic_acidosis} onChange={v=>setMetab("metabolic_acidosis",v)} disabled={!isFieldEditable}/>
-                <YNRow label="Dyselectrolytemia"            value={metabData.dyselectrolytemia}
-                  onChange={v => {
-                    setMetab("dyselectrolytemia", v);
-                    if (v !== true) setMetabData(p => ({ ...p, dyselectrolytemia_type: [] }));
-                  }} disabled={!isFieldEditable}/>
-              </div>
-
-              {dyselectYes && (
-                <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">Dyselectrolytemia Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span></div>
-                  <PillMulti
-                    options={["Na","K","Ca"]}
-                    value={metabData.dyselectrolytemia_type}
-                    onChange={v => isFieldEditable && setMetabData(p => ({ ...p, dyselectrolytemia_type: v }))}
-                    disabled={!isFieldEditable}
-                  />
-                </div>
-              )}
-
-              <div className="rcn-yn-list" style={{marginTop:0}}>
+                <NumRow label="Lowest Glucose (if <45 mg/dL)" value={metabData.lowest_glucose}
+                  onChange={v=>setMetab("lowest_glucose",v)} disabled={!isFieldEditable} unit="mg/dL"/>
+                <NumRow label="No. of Hypoglycemia Episodes" value={metabData.hypoglycemia_episodes}
+                  onChange={v=>setMetab("hypoglycemia_episodes",v)} disabled={!isFieldEditable}/>
+                <YNRow label="Hypoglycemia Rx" value={metabData.hypoglycemia_rx}
+                  onChange={v=>setMetab("hypoglycemia_rx",v)} disabled={!isFieldEditable}/>
+                <NumRow label="Highest Glucose (if >180 mg/dL)" value={metabData.highest_glucose}
+                  onChange={v=>setMetab("highest_glucose",v)} disabled={!isFieldEditable} unit="mg/dL"/>
+                <YNRow label="Hyperglycemia Rx (Insulin)" value={metabData.insulin}
+                  onChange={v=>setMetab("insulin",v)} disabled={!isFieldEditable}/>
+                <YNRow label="Metabolic Acidosis (pH <7.2)" value={metabData.metabolic_acidosis}
+                  onChange={v=>setMetab("metabolic_acidosis",v)} disabled={!isFieldEditable}/>
+                <NumRow label="Sodium Value (<135 or >142)" value={metabData.sodium_value}
+                  onChange={v=>setMetab("sodium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
+                <NumRow label="Potassium Value (<3.5 or >6)" value={metabData.potassium_value}
+                  onChange={v=>setMetab("potassium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
+                <NumRow label="Ionized Calcium Value (<0.9 or >1.2)" value={metabData.ionized_calcium_value}
+                  onChange={v=>setMetab("ionized_calcium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
                 <YNRow label="Osteopenia Suspected" value={metabData.osteopenia_suspected}
                   onChange={v=>setMetab("osteopenia_suspected",v)} disabled={!isFieldEditable}/>
               </div>
@@ -1084,32 +1096,22 @@ export default function MetabRenalVascEyeLog() {
             {/* ════ RENAL ════ */}
             <SectionCard iconEmoji="💧" title="Renal Assessment"
               answered={renalAnswered} total={renalTotal} defaultOpen={true}>
-              <div className="rcn-yn-list">
-                <YNRow label="AKI Suspected" value={renalData.aki_suspected}
-                  onChange={v => {
-                    setRenal("aki_suspected", v);
-                    if (v !== true) setRenalData(p => ({ ...p, aki_kdigo_stage: null }));
-                  }} disabled={!isFieldEditable}/>
+              <div className="rcn-subsection" style={{marginTop:0}}>
+                <div className="rcn-subsection-title">AKI (e.g. KDIGO Stage)</div>
+                <StageCards
+                  options={["Stage 1","Stage 2","Stage 3"]}
+                  value={renalData.aki_stage}
+                  onChange={v => isFieldEditable && setRenalData(p=>({...p,aki_stage:v}))}
+                  disabled={!isFieldEditable}
+                />
               </div>
 
-              {akiYes && (
-                <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">AKI KDIGO Stage</div>
-                  <StageCards
-                    options={["Stage 1","Stage 2","Stage 3"]}
-                    value={renalData.aki_kdigo_stage}
-                    onChange={v => isFieldEditable && setRenalData(p=>({...p,aki_kdigo_stage:v}))}
-                    disabled={!isFieldEditable}
-                  />
-                </div>
-              )}
-
               <div className="rcn-yn-list">
-                <NumRow label="Creatinine (mg/dL)" value={renalData.creatinine}
+                <NumRow label="Serum Creatinine (mg/dL)" value={renalData.creatinine}
                   onChange={v=>setRenal("creatinine",v)} disabled={!isFieldEditable}
                   unit="mg/dL" placeholder="0.00"/>
-                <YNRow label="Urine Output <1 ml/kg/hr" value={renalData.urine_output_low}
-                  onChange={v=>setRenal("urine_output_low",v)} disabled={!isFieldEditable}/>
+                <NumRow label="Urine Output Total (8am–8am, mL/kg/hr)" value={renalData.urine_output_total}
+                  onChange={v=>setRenal("urine_output_total",v)} disabled={!isFieldEditable}/>
                 <YNRow label="Dialysis / CRRT" value={renalData.dialysis_crrt}
                   onChange={v=>setRenal("dialysis_crrt",v)} disabled={!isFieldEditable}/>
               </div>
@@ -1119,8 +1121,8 @@ export default function MetabRenalVascEyeLog() {
             <SectionCard iconEmoji="🌡️" title="Thermoregulation"
               answered={thermoAnswered} total={thermoTotal} defaultOpen={true}>
               <div className="rcn-yn-list">
-                <YNRow label="Hypothermia (<36°C)"    value={thermoData.hypothermia}  onChange={v=>setThermo("hypothermia",v)}  disabled={!isFieldEditable}/>
-                <YNRow label="Hyperthermia (>37.5°C)" value={thermoData.hyperthermia} onChange={v=>setThermo("hyperthermia",v)} disabled={!isFieldEditable}/>
+                <NumRow label="Axillary Temperature (<36.5 or >37.5)" value={thermoData.axillary_temperature}
+                  onChange={v=>setThermo("axillary_temperature",v)} disabled={!isFieldEditable} unit="°C"/>
               </div>
             </SectionCard>
 
@@ -1169,6 +1171,24 @@ export default function MetabRenalVascEyeLog() {
                   </div>
                 </div>
               )}
+            </SectionCard>
+
+            {/* ════ LOCATION & OUTCOME ════ */}
+            <SectionCard iconEmoji="📍" title="Location & Outcome"
+              answered={tailAnswered} total={tailTotal} defaultOpen={true}>
+              <div className="rcn-subsection" style={{marginTop:0}}>
+                <div className="rcn-subsection-title">Location</div>
+                <PillSingle
+                  options={["DR","NICU","Step-down/Nursery","KMC-N","Other"]}
+                  value={tailData.location}
+                  onChange={v => setTail("location", v)}
+                  disabled={!isFieldEditable}
+                />
+              </div>
+              <div className="rcn-yn-list">
+                <YNRow label="Survived the Day" value={tailData.survived_the_day}
+                  onChange={v=>setTail("survived_the_day",v)} disabled={!isFieldEditable}/>
+              </div>
             </SectionCard>
 
           </div>

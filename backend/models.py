@@ -1295,44 +1295,67 @@ class MetabRenalVascEyeDayLog(Base):
     enrollment_id = Column(String, index=True, nullable=False)
     nicu_day      = Column(Integer, nullable=False, index=True)
  
-    # ── METABOLIC ────────────────────────────────────────────
+    # ── 4.1 METABOLIC (items 1-10) ────────────────────────────
+    lowest_glucose         = Column(String,  nullable=True)  # mg/dL, if <45     #1
+    hypoglycemia_episodes  = Column(String,  nullable=True)  # count             #2
+    hypoglycemia_rx        = Column(Boolean, nullable=True)                      # 3
+    highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >180    #4
+    insulin                = Column(Boolean, nullable=True)  # Hyperglycemia Rx  #5
+    metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6
+    sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7
+    potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8
+    ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9
+    osteopenia_suspected   = Column(Boolean, nullable=True)                      # 10
+
+    # Legacy — superseded by the numbered fields above
     hypoglycemia           = Column(Boolean, nullable=True)
-    hypoglycemia_rx        = Column(Boolean, nullable=True)
     hyperglycemia          = Column(Boolean, nullable=True)
-    insulin                = Column(Boolean, nullable=True)
-    metabolic_acidosis     = Column(Boolean, nullable=True)
     dyselectrolytemia      = Column(Boolean, nullable=True)
     dyselectrolytemia_type = Column(String,  nullable=True)  # "Na,K,Ca"
-    osteopenia_suspected   = Column(Boolean, nullable=True)
- 
-    # ── RENAL ─────────────────────────────────────────────────
+
+    # ── 4.2 RENAL (items 11-14) ───────────────────────────────
+    aki_stage              = Column(String,  nullable=True)  # AKI / KDIGO stage #11
+    creatinine             = Column(Float,   nullable=True)  # mg/dL             #12
+    urine_output_total     = Column(String,  nullable=True)  # 8am-2pm+2pm-8pm+8pm-8am #13
+    dialysis_crrt          = Column(Boolean, nullable=True)                      # 14
+
+    # Legacy — superseded by aki_stage / urine_output_total above
     aki_suspected          = Column(Boolean, nullable=True)
     aki_kdigo_stage        = Column(String,  nullable=True)  # "Stage 1/2/3"
-    creatinine             = Column(Float,   nullable=True)  # mg/dL
     urine_output_low       = Column(Boolean, nullable=True)
-    dialysis_crrt          = Column(Boolean, nullable=True)
- 
-    # ── THERMOREGULATION ─────────────────────────────────────
+
+    # ── 4.3 THERMOREGULATION (item 15) ────────────────────────
+    axillary_temperature   = Column(String,  nullable=True)  # <36.5 or >37.5    #15
+
+    # Legacy — superseded by axillary_temperature above
     hypothermia            = Column(Boolean, nullable=True)
     hyperthermia           = Column(Boolean, nullable=True)
  
-    # ── VASCULAR ACCESS ───────────────────────────────────────
-    picc_in_situ           = Column(Boolean, nullable=True)
-    uvc_in_situ            = Column(Boolean, nullable=True)
-    uac_in_situ            = Column(Boolean, nullable=True)
-    peripheral_iv          = Column(Boolean, nullable=True)
-    peripheral_arterial    = Column(Boolean, nullable=True)
-    extravasation_injury   = Column(Boolean, nullable=True)
-    line_complication      = Column(Boolean, nullable=True)
+    # ── 4.4 VASCULAR ACCESS (items 16-22) ─────────────────────
+    picc_in_situ           = Column(Boolean, nullable=True)  # 16
+    uvc_in_situ            = Column(Boolean, nullable=True)  # 17
+    uac_in_situ            = Column(Boolean, nullable=True)  # 18
+    peripheral_iv          = Column(Boolean, nullable=True)  # 19
+    peripheral_arterial    = Column(Boolean, nullable=True)  # 20
+    extravasation_injury   = Column(Boolean, nullable=True)  # 21
+    line_complication      = Column(Boolean, nullable=True)  # 22
  
-    # ── OPHTHALMOLOGY ─────────────────────────────────────────
-    rop_screening_due      = Column(Boolean, nullable=True)
-    rop_screened           = Column(Boolean, nullable=True)
-    rop_detected           = Column(Boolean, nullable=True)
+    # ── 4.5 OPHTHALMOLOGY (items 23-25) ───────────────────────
+    rop_screening_due      = Column(Boolean, nullable=True)  # 23
+    rop_screened           = Column(Boolean, nullable=True)  # 24
+    rop_detected           = Column(Boolean, nullable=True)  # 25
+
+    # Supplementary detail fields shown when ROP is detected (not separately numbered)
     rop_stage              = Column(String,  nullable=True)  # "Stage 1"–"Stage 5"
     plus_disease           = Column(Boolean, nullable=True)
     rop_treatment          = Column(Boolean, nullable=True)
- 
+
+    # ── 4.6 LOCATION ───────────────────────────────────────────
+    location               = Column(String,  nullable=True)  # DR, NICU, Step-down/Nursery, KMC-N, Other
+
+    # ── 4.7 SURVIVED THE DAY ───────────────────────────────────
+    survived_the_day       = Column(Boolean, nullable=True)
+
     # ── WORKFLOW ──────────────────────────────────────────────
     submission_status = Column(String,   nullable=True, default="empty")
     saved_at          = Column(DateTime, nullable=True)
