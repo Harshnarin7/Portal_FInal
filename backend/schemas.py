@@ -1531,39 +1531,41 @@ class InfectGIHemaDayCreate(BaseModel):
     enrollment_id: str
     nicu_day:      int
 
-    # Infection
-    sepsis_suspected:       Optional[bool]  = None
-    blood_culture_sent:     Optional[bool]  = None
-    blood_culture_positive: Optional[bool]  = None
-    eos:                    Optional[bool]  = None
-    los:                    Optional[bool]  = None
-    antibiotics:            Optional[bool]  = None
-    antibiotic_day:         Optional[bool]  = None
-    lp_done:                Optional[bool]  = None
-    csf_culture_positive:   Optional[bool]  = None
-    clabsi:                 Optional[bool]  = None
-    vap:                    Optional[bool]  = None
+    # ── INFECTION (Fields 1-9) ───────────────────────────────
+    sepsis_suspected:       Optional[bool]  = None  # #1
+    blood_culture_sent:     Optional[bool]  = None  # #2
+    blood_culture_positive: Optional[bool]  = None  # #3
+    antibiotics:            Optional[bool]  = None  # #4
+    lp_done:                Optional[bool]  = None  # #5
+    meningitis:             Optional[bool]  = None  # #6 Y/N
+    meningitis_type:        Optional[str]   = None  # #7 Probable/Proven
+    clabsi:                 Optional[bool]  = None  # #8
+    vap:                    Optional[bool]  = None  # #9
 
-    # GI
-    npo:                    Optional[bool]  = None
-    enteral_feeds_started:  Optional[bool]  = None
-    feed_volume:            Optional[float] = None
-    full_feeds:             Optional[bool]  = None
-    parenteral_nutrition:   Optional[bool]  = None
-    probiotic:              Optional[bool]  = None
-    feed_intolerance:       Optional[bool]  = None
-    nec_suspected:          Optional[bool]  = None
-    nec_confirmed_stage:    Optional[str]   = None
-    nec_surgery:            Optional[bool]  = None
+    # ── GASTROINTESTINAL (Fields 10-22) ──────────────────────
+    npo:                     Optional[bool]  = None  # #10
+    men:                     Optional[bool]  = None  # #11 Minimal Enteral Nutrition
+    enteral_feeds_received:  Optional[bool]  = None  # #12
+    feed_type:               Optional[str]   = None  # #13 "PDHM,EBM,FM"
+    cumulative_feed_volume:  Optional[float] = None  # #14 ml/kg/day
+    feed_volume:             Optional[float] = None  # #15 ml/kg/day
+    iv_fluids:               Optional[bool]  = None  # #16
+    parenteral_nutrition:    Optional[bool]  = None  # #17
+    probiotic:               Optional[bool]  = None  # #18
+    feed_intolerance:        Optional[bool]  = None  # #19
+    nec_suspected:           Optional[bool]  = None  # #20
+    nec_confirmed_stage:     Optional[str]   = None  # #21 "Stage I/II/III"
+    cholestasis:             Optional[bool]  = None  # #22
 
-    # Hematology
-    jaundice:               Optional[bool]  = None
-    phototherapy:           Optional[bool]  = None
-    peak_tsb:               Optional[float] = None
-    exchange_transfusion:   Optional[bool]  = None
-    prbc_transfusion:       Optional[bool]  = None
-    platelet_transfusion:   Optional[bool]  = None
-    ffp_cryo:               Optional[bool]  = None
+    # ── HEMATOLOGY (Fields 23-30) ────────────────────────────
+    hb_value:               Optional[float] = None  # #23 g/dL
+    jaundice:               Optional[bool]  = None  # #24
+    phototherapy:           Optional[bool]  = None  # #25 (conditional)
+    peak_tsb:               Optional[float] = None  # #26 mg/dL
+    exchange_transfusion:   Optional[bool]  = None  # #27
+    prbc_transfusion:       Optional[bool]  = None  # #28
+    platelet_transfusion:   Optional[bool]  = None  # #29
+    ffp_cryo:               Optional[bool]  = None  # #30
 
     # Workflow
     submission_status:      Optional[str]      = "draft"

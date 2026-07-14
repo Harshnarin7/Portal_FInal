@@ -2074,42 +2074,81 @@ def discharge_enrollment(
 # ============================================================================
 
 def _infect_completion_pct(r) -> int:
-    """Compute completion % respecting conditional field visibility."""
+    """Compute completion % for all 30 fields with proper conditional logic."""
 
-    def ans(v): return v is not None and v != ""
+    def ans(v):
+        """Check if value is answered (handles arrays/strings/None)."""
+        if v is None or v == "":
+            return False
+        if isinstance(v, list):
+            return len(v) > 0
+        return True
 
-    # Infection base (always visible): 7 fields
-    inf_base   = ["sepsis_suspected","antibiotics","antibiotic_day",
-                   "lp_done","csf_culture_positive","clabsi","vap"]
-    inf_sepsis = ["blood_culture_sent","blood_culture_positive","eos","los"]
+    # ── INFECTION (Fields 1-9) ──────────────────────────────────
+    # Base fields (always visible): 6 fields
+    INF_BASE = ["sepsis_suspected", "antibiotics", "lp_done", "clabsi", "vap"]  # 1,4,5,8,9
+    # Sepsis conditional fields: 2 fields (visible when sepsis_suspected = Yes)
+    INF_SEPSIS = ["blood_culture_sent", "blood_culture_positive"]  # 2,3
+    # Meningitis field: 1 field (visible when meningitis = Yes)
+    INF_MENING = ["meningitis_type"]  # 7
 
     sepsis_yes = getattr(r, "sepsis_suspected", None) is True
-    inf_total  = len(inf_base) + (len(inf_sepsis) if sepsis_yes else 0)
-    inf_done   = (sum(1 for k in inf_base   if ans(getattr(r, k, None)))
-                + (sum(1 for k in inf_sepsis if ans(getattr(r, k, None))) if sepsis_yes else 0))
+    meningitis_yes = getattr(r, "meningitis", None) is True
 
-    # GI base: 8 always visible
-    gi_base = ["npo","enteral_feeds_started","feed_volume","full_feeds",
-               "parenteral_nutrition","probiotic","feed_intolerance","nec_suspected"]
-    gi_nec  = ["nec_confirmed_stage","nec_surgery"]
+    inf_total = (
+        len(INF_BASE)
+        + 1  # meningitis Y/N (#6)
+        + (len(INF_SEPSIS) if sepsis_yes else 0)
+        + (len(INF_MENING) if meningitis_yes else 0)
+    )
+    inf_done = (
+        sum(1 for k in INF_BASE if ans(getattr(r, k, None)))
+        + (1 if ans(getattr(r, "meningitis", None)) else 0)
+        + (sum(1 for k in INF_SEPSIS if ans(getattr(r, k, None))) if sepsis_yes else 0)
+        + (sum(1 for k in INF_MENING if ans(getattr(r, k, None))) if meningitis_yes else 0)
+    )
 
-    nec_yes   = getattr(r, "nec_suspected", None) is True
-    gi_total  = len(gi_base) + (len(gi_nec) if nec_yes else 0)
-    gi_done   = (sum(1 for k in gi_base if ans(getattr(r, k, None)))
-               + (sum(1 for k in gi_nec  if ans(getattr(r, k, None))) if nec_yes else 0))
+    # ── GASTROINTESTINAL (Fields 10-22) ────────────────────────
+    # Base fields (always visible): 12 fields
+    GI_BASE = [
+        "npo", "men", "feed_type",
+        "cumulative_feed_volume", "feed_volume", "iv_fluids",
+        "parenteral_nutrition", "probiotic", "feed_intolerance",
+        "nec_suspected", "cholestasis"
+    ]  # 10-11, 13-20, 22
+    
+    # Handle field rename: enteral_feeds_received (new) or enteral_feeds_started (old)
+    enteral_feeds_field = "enteral_feeds_received" if hasattr(r, "enteral_feeds_received") else "enteral_feeds_started"
+    
+    # NEC conditional field: 1 field (visible when nec_suspected = Yes)
+    GI_NEC = ["nec_confirmed_stage"]  # 21
 
-    # Hematology base: 6 always visible
-    hema_base    = ["jaundice","peak_tsb","exchange_transfusion",
-                    "prbc_transfusion","platelet_transfusion","ffp_cryo"]
-    hema_jaundice= ["phototherapy"]
+    nec_yes = getattr(r, "nec_suspected", None) is True
+    gi_total = len(GI_BASE) + 1 + (len(GI_NEC) if nec_yes else 0)  # +1 for enteral_feeds field
+    gi_done = (
+        sum(1 for k in GI_BASE if ans(getattr(r, k, None)))
+        + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)  # Check either old or new field name
+        + (sum(1 for k in GI_NEC if ans(getattr(r, k, None))) if nec_yes else 0)
+    )
+
+    # ── HEMATOLOGY (Fields 23-30) ──────────────────────────────
+    # Base fields (always visible): 7 fields
+    HEMA_BASE = [
+        "hb_value", "jaundice", "peak_tsb", "exchange_transfusion",
+        "prbc_transfusion", "platelet_transfusion", "ffp_cryo"
+    ]  # 23,24,26-30
+    # Jaundice conditional field: 1 field (visible when jaundice = Yes)
+    HEMA_JAUNDICE = ["phototherapy"]  # 25
 
     jaundice_yes = getattr(r, "jaundice", None) is True
-    hema_total   = len(hema_base) + (len(hema_jaundice) if jaundice_yes else 0)
-    hema_done    = (sum(1 for k in hema_base    if ans(getattr(r, k, None)))
-                  + (sum(1 for k in hema_jaundice if ans(getattr(r, k, None))) if jaundice_yes else 0))
+    hema_total = len(HEMA_BASE) + (len(HEMA_JAUNDICE) if jaundice_yes else 0)
+    hema_done = (
+        sum(1 for k in HEMA_BASE if ans(getattr(r, k, None)))
+        + (sum(1 for k in HEMA_JAUNDICE if ans(getattr(r, k, None))) if jaundice_yes else 0)
+    )
 
     total_fields = inf_total + gi_total + hema_total
-    total_done   = inf_done + gi_done + hema_done
+    total_done = inf_done + gi_done + hema_done
 
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
@@ -2150,16 +2189,36 @@ def get_infect_gi_hema_summary(
         .order_by(InfectGIHemaDayLog.nicu_day)
         .all()
     )
-    return [
-        {
-            "nicu_day":          r.nicu_day,
-            "submission_status": r.submission_status or "empty",
-            "completion_pct":    _infect_completion_pct(r),
-            "saved_at":          r.saved_at,
-            "submitted_at":      r.submitted_at,
-        }
-        for r in records
-    ]
+    
+    print(f"DEBUG: Found {len(records)} records for enrollment {enrollment_id}")
+    
+    result = []
+    for r in records:
+        try:
+            print(f"DEBUG: Processing day {r.nicu_day}")
+            print(f"  - nicu_day type: {type(r.nicu_day)}, value: {r.nicu_day}")
+            print(f"  - submission_status type: {type(r.submission_status)}, value: {r.submission_status}")
+            
+            completion_pct = _infect_completion_pct(r)
+            print(f"  - completion_pct: {completion_pct}")
+            
+            item = {
+                "nicu_day":          r.nicu_day,
+                "submission_status": r.submission_status or "empty",
+                "completion_pct":    completion_pct,
+                "saved_at":          r.saved_at,
+                "submitted_at":      r.submitted_at,
+            }
+            print(f"  - item created successfully: {item}")
+            result.append(item)
+        except Exception as e:
+            import traceback
+            print(f"ERROR processing day {r.nicu_day}: {e}")
+            print(traceback.format_exc())
+            raise
+    
+    print(f"DEBUG: Returning result with {len(result)} items")
+    return result
 
 
 # â”€â”€ POST create day (upsert) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
