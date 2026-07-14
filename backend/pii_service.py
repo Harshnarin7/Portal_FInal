@@ -59,7 +59,7 @@ def utc_now():
 
 def can_view_pii(user) -> bool:
     role = (user.role or "").lower()
-    return role in PII_VIEW_ROLES or role == "site_user"
+    return role in PII_VIEW_ROLES or bool(user.site_name)
 
 
 def can_view_pii_for_site(user, site_name: str | None) -> bool:
@@ -68,6 +68,9 @@ def can_view_pii_for_site(user, site_name: str | None) -> bool:
     role = (user.role or "").lower()
     if role in PII_VIEW_ROLES:
         return True
+    # Any same-site user (regardless of the exact role string — nurse,
+    # screener, site_user, etc.) can view PII for their own site, matching
+    # the access rule used for screenings/enrollment elsewhere in the app.
     return bool(user.site_name and site_name and user.site_name == site_name)
 
 

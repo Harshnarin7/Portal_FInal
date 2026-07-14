@@ -1697,6 +1697,23 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     saved_at:               Optional[datetime] = None
     saved_by:               Optional[str]      = None
 
+    # The frontend's numeric inputs (Lowest/Highest Glucose, Sodium, Potassium,
+    # Ionized Calcium, Urine Output Total, Axillary Temperature, Hypoglycemia
+    # Episodes) send JS numbers, but these are stored as VARCHAR to allow
+    # free-text entry (e.g. a range). Coerce int/float -> str here so a
+    # numeric value from the form doesn't fail validation with a 422.
+    @field_validator(
+        "lowest_glucose", "hypoglycemia_episodes", "highest_glucose",
+        "sodium_value", "potassium_value", "ionized_calcium_value",
+        "urine_output_total", "axillary_temperature",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_numeric_to_str(cls, v):
+        if isinstance(v, (int, float)):
+            return str(v)
+        return v
+
 class MetabRenalVascEyeDaySubmit(BaseModel):
     submission_status: str
     submitted_at:      datetime
