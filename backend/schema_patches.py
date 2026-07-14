@@ -150,6 +150,17 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
 ]
 
 
+USERS_COLUMN_PATCHES = [
+    # Auth/role-hierarchy rollout: username-only login, temp-password flow,
+    # and the fields the Flutter app's UserProfile model already expects.
+    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile VARCHAR",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
+]
+
+
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
         return
@@ -169,4 +180,6 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))
         for stmt in METAB_RENAL_VASC_EYE_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in USERS_COLUMN_PATCHES:
             conn.execute(text(stmt))

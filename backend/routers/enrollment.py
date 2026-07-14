@@ -7,12 +7,12 @@ from models import (
     PostnatalDay1,
     User,
 )
-from deps import get_current_user, get_db
+from deps import get_current_user, get_db, is_global
 
 router = APIRouter(prefix="/enrollment", tags=["Enrollment Progress"])
 
 def ensure_screening_access(screening: Screening, user: User):
-    if (user.role or "").lower() == "superadmin":
+    if is_global(user):
         return
     if not user.site_name or screening.site_name != user.site_name:
         raise HTTPException(status_code=403, detail="Access denied for this site")
