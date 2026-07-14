@@ -1,0 +1,51 @@
+diff --git a/backend/pii_service.py b/backend/pii_service.py
+index eeb9923..b382a53 100644
+--- a/backend/pii_service.py
++++ b/backend/pii_service.py
+@@ -59,7 +59,7 @@ def utc_now():
+ 
+ def can_view_pii(user) -> bool:
+     role = (user.role or "").lower()
+-    return role in PII_VIEW_ROLES or role == "site_user"
++    return role in PII_VIEW_ROLES or bool(user.site_name)
+ 
+ 
+ def can_view_pii_for_site(user, site_name: str | None) -> bool:
+@@ -68,6 +68,9 @@ def can_view_pii_for_site(user, site_name: str | None) -> bool:
+     role = (user.role or "").lower()
+     if role in PII_VIEW_ROLES:
+         return True
++    # Any same-site user (regardless of the exact role string — nurse,
++    # screener, site_user, etc.) can view PII for their own site, matching
++    # the access rule used for screenings/enrollment elsewhere in the app.
+     return bool(user.site_name and site_name and user.site_name == site_name)
+ 
+ 
+diff --git a/backend/schemas.py b/backend/schemas.py
+index ead7027..f15fe9e 100644
+--- a/backend/schemas.py
++++ b/backend/schemas.py
+@@ -1697,6 +1697,23 @@ class MetabRenalVascEyeDayCreate(BaseModel):
+     saved_at:               Optional[datetime] = None
+     saved_by:               Optional[str]      = None
+ 
++    # The frontend's numeric inputs (Lowest/Highest Glucose, Sodium, Potassium,
++    # Ionized Calcium, Urine Output Total, Axillary Temperature, Hypoglycemia
++    # Episodes) send JS numbers, but these are stored as VARCHAR to allow
++    # free-text entry (e.g. a range). Coerce int/float -> str here so a
++    # numeric value from the form doesn't fail validation with a 422.
++    @field_validator(
++        "lowest_glucose", "hypoglycemia_episodes", "highest_glucose",
++        "sodium_value", "potassium_value", "ionized_calcium_value",
++        "urine_output_total", "axillary_temperature",
++        mode="before",
++    )
++    @classmethod
++    def _coerce_numeric_to_str(cls, v):
++        if isinstance(v, (int, float)):
++            return str(v)
++        return v
++
+ class MetabRenalVascEyeDaySubmit(BaseModel):
+     submission_status: str
+     submitted_at:      datetime
