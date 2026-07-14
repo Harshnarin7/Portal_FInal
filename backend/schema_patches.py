@@ -131,6 +131,24 @@ NICU_ADMISSION_DAY1_PATCHES = [
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS day1_date_set_at TIMESTAMP",
 ]
 
+# Helper Form 4 (Metab-Renal-Vasc-Eye) renumbered to match the paper CRF exactly
+# (items 1-25, plus 4.6 Location and 4.7 Survived the day). Old columns are kept
+# so existing rows/data aren't lost — they're just no longer part of the numbered
+# sequence.
+METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS lowest_glucose VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS hypoglycemia_episodes VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS highest_glucose VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS sodium_value VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS potassium_value VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS ionized_calcium_value VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS aki_stage VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_total VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS axillary_temperature VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS location VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS survived_the_day BOOLEAN",
+]
+
 
 def apply_schema_patches(engine: Engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -149,4 +167,6 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in NICU_ADMISSION_DAY1_PATCHES:
             conn.execute(text(stmt))
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in METAB_RENAL_VASC_EYE_COLUMN_PATCHES:
             conn.execute(text(stmt))

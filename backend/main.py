@@ -1098,6 +1098,82 @@ def update_nicu_admission(
     db.refresh(record)
     return record
 
+
+# â”€â”€ Day 1 Date (shared across RespCVNeuro / InfectGIHema / MetabRenalVascEye logs) â”€â”€
+class Day1DateUpdate(BaseModel):
+    day1_date: date
+
+
+def _day1_date_is_locked(db: Session, enrollment_id: str) -> bool:
+    """Day 1 Date locks once any daily log has been entered for this baby,
+    since changing it afterwards would reshuffle which days are past/future."""
+    if db.query(RespCVNeuroDayLog).filter(
+        RespCVNeuroDayLog.enrollment_id == enrollment_id
+    ).first():
+        return True
+    if db.query(InfectGIHemaDayLog).filter(
+        InfectGIHemaDayLog.enrollment_id == enrollment_id
+    ).first():
+        return True
+    if db.query(MetabRenalVascEyeDayLog).filter(
+        MetabRenalVascEyeDayLog.enrollment_id == enrollment_id
+    ).first():
+        return True
+    return False
+
+
+@app.get("/nicu-admission/{enrollment_id}/day1-date")
+def get_day1_date(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(NICUAdmission).filter(
+        NICUAdmission.enrollment_id == enrollment_id
+    ).first()
+    return {
+        "day1_date": record.day1_date if record else None,
+        "day1_date_set_by": record.day1_date_set_by if record else None,
+        "locked": _day1_date_is_locked(db, enrollment_id),
+    }
+
+
+@app.put("/nicu-admission/{enrollment_id}/day1-date")
+def update_day1_date(
+    enrollment_id: str,
+    data: Day1DateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    if _day1_date_is_locked(db, enrollment_id) and not is_superadmin(current_user):
+        raise HTTPException(
+            status_code=409,
+            detail="Day 1 Date is locked because daily data already exists for this baby.",
+        )
+
+    record = db.query(NICUAdmission).filter(
+        NICUAdmission.enrollment_id == enrollment_id
+    ).first()
+    if not record:
+        record = NICUAdmission(enrollment_id=enrollment_id)
+        db.add(record)
+
+    record.day1_date = data.day1_date
+    record.day1_date_set_by = getattr(current_user, "username", None)
+    record.day1_date_set_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(record)
+    return {
+        "day1_date": record.day1_date,
+        "day1_date_set_by": record.day1_date_set_by,
+        "locked": _day1_date_is_locked(db, enrollment_id),
+    }
+
+
 # ============================================================================
 # FORM F â€” NEONATAL MORBIDITIES ENDPOINTS
 # ============================================================================
@@ -2153,29 +2229,9 @@ def _infect_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-@app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
-def get_infect_gi_hema_day(
-    enrollment_id: str,
-    nicu_day:      int,
-    db:            Session = Depends(get_db),
-    current_user:  User    = Depends(get_current_user),
-):
-    require_enrollment_access(enrollment_id, db, current_user)
-    record = (
-        db.query(InfectGIHemaDayLog)
-        .filter(
-            InfectGIHemaDayLog.enrollment_id == enrollment_id,
-            InfectGIHemaDayLog.nicu_day      == nicu_day,
-        )
-        .first()
-    )
-    if not record:
-        raise HTTPException(status_code=404, detail="No data for this day")
-    return record
-
-
 # â”€â”€ GET summary (all days â€” for timeline status indicators) â”€â”€â”€
+# NOTE: this must be declared BEFORE the "/{nicu_day}" route below, otherwise
+# FastAPI matches "summary" against the int path param first and returns 422.
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
 def get_infect_gi_hema_summary(
     enrollment_id: str,
@@ -2219,6 +2275,28 @@ def get_infect_gi_hema_summary(
     
     print(f"DEBUG: Returning result with {len(result)} items")
     return result
+
+
+# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+@app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
+def get_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day:      int,
+    db:            Session = Depends(get_db),
+    current_user:  User    = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+            InfectGIHemaDayLog.nicu_day      == nicu_day,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="No data for this day")
+    return record
 
 
 # â”€â”€ POST create day (upsert) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2321,39 +2399,48 @@ def submit_infect_gi_hema_day(
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
  
 def _metab_completion_pct(r) -> int:
+    """Compute completion % for Helper Form 4 (items 1-25)."""
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
- 
-    metab_base   = ["hypoglycemia","hypoglycemia_rx","hyperglycemia","insulin",
-                    "metabolic_acidosis","dyselectrolytemia","osteopenia_suspected"]
-    metab_dysele = ["dyselectrolytemia_type"]
-    dysele_yes   = getattr(r, "dyselectrolytemia", None) is True
-    metab_total  = len(metab_base) + (len(metab_dysele) if dysele_yes else 0)
-    metab_done   = (sum(1 for k in metab_base if ans(getattr(r, k, None)))
-                  + (1 if dysele_yes and ans(getattr(r, "dyselectrolytemia_type", None)) else 0))
- 
-    renal_base  = ["aki_suspected","creatinine","urine_output_low","dialysis_crrt"]
-    renal_aki   = ["aki_kdigo_stage"]
-    aki_yes     = getattr(r, "aki_suspected", None) is True
-    renal_total = len(renal_base) + (len(renal_aki) if aki_yes else 0)
-    renal_done  = (sum(1 for k in renal_base if ans(getattr(r, k, None)))
-                 + (1 if aki_yes and ans(getattr(r, "aki_kdigo_stage", None)) else 0))
- 
-    thermo_keys = ["hypothermia","hyperthermia"]
-    thermo_done = sum(1 for k in thermo_keys if ans(getattr(r, k, None)))
- 
+
+    # ── 4.1 METABOLIC (items 1-10) ──
+    metab_fields = [
+        "lowest_glucose", "hypoglycemia_episodes", "hypoglycemia_rx",  # 1, 2, 3
+        "highest_glucose", "insulin", "metabolic_acidosis",            # 4, 5, 6
+        "sodium_value", "potassium_value", "ionized_calcium_value",    # 7, 8, 9
+        "osteopenia_suspected",                                        # 10
+    ]
+    metab_done  = sum(1 for k in metab_fields if ans(getattr(r, k, None)))
+    metab_total = len(metab_fields)
+
+    # ── 4.2 RENAL (items 11-14) ──
+    renal_fields = ["aki_stage", "creatinine", "urine_output_total", "dialysis_crrt"]
+    renal_done   = sum(1 for k in renal_fields if ans(getattr(r, k, None)))
+    renal_total  = len(renal_fields)
+
+    # ── 4.3 THERMOREGULATION (item 15) ──
+    thermo_fields = ["axillary_temperature"]
+    thermo_done   = sum(1 for k in thermo_fields if ans(getattr(r, k, None)))
+
+    # ── 4.4 VASCULAR ACCESS (items 16-22) ──
     vasc_keys   = ["picc_in_situ","uvc_in_situ","uac_in_situ","peripheral_iv",
                    "peripheral_arterial","extravasation_injury","line_complication"]
     vasc_done   = sum(1 for k in vasc_keys if ans(getattr(r, k, None)))
- 
+
+    # ── 4.5 OPHTHALMOLOGY (items 23-25) ──
     eye_base    = ["rop_screening_due","rop_screened","rop_detected"]
     eye_rop     = ["rop_stage","plus_disease","rop_treatment"]
     rop_yes     = getattr(r, "rop_detected", None) is True
     eye_total   = len(eye_base) + (len(eye_rop) if rop_yes else 0)
     eye_done    = (sum(1 for k in eye_base if ans(getattr(r, k, None)))
                  + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0))
- 
-    total_fields = metab_total + renal_total + len(thermo_keys) + len(vasc_keys) + eye_total
-    total_done   = metab_done + renal_done + thermo_done + vasc_done + eye_done
+
+    # ── 4.6 LOCATION / 4.7 SURVIVED THE DAY ──
+    tail_fields = ["location", "survived_the_day"]
+    tail_done   = sum(1 for k in tail_fields if ans(getattr(r, k, None)))
+
+    total_fields = (metab_total + renal_total + len(thermo_fields) + len(vasc_keys)
+                    + eye_total + len(tail_fields))
+    total_done   = metab_done + renal_done + thermo_done + vasc_done + eye_done + tail_done
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
  
  

@@ -1595,34 +1595,66 @@ class InfectGIHemaDayOut(InfectGIHemaDayCreate):
 class MetabRenalVascEyeDayCreate(BaseModel):
     enrollment_id: str
     nicu_day:      int
+
+    # 4.1 Metabolic
+    lowest_glucose:         Optional[str]   = None  # #1
+    hypoglycemia_episodes:  Optional[str]   = None  # #2
+    hypoglycemia_rx:        Optional[bool]  = None  # #3
+    highest_glucose:        Optional[str]   = None  # #4
+    insulin:                Optional[bool]  = None  # #5
+    metabolic_acidosis:     Optional[bool]  = None  # #6
+    sodium_value:           Optional[str]   = None  # #7
+    potassium_value:        Optional[str]   = None  # #8
+    ionized_calcium_value:  Optional[str]   = None  # #9
+    osteopenia_suspected:   Optional[bool]  = None  # #10
+
+    # Legacy — superseded by the numbered fields above
     hypoglycemia:           Optional[bool]  = None
-    hypoglycemia_rx:        Optional[bool]  = None
     hyperglycemia:          Optional[bool]  = None
-    insulin:                Optional[bool]  = None
-    metabolic_acidosis:     Optional[bool]  = None
     dyselectrolytemia:      Optional[bool]  = None
     dyselectrolytemia_type: Optional[str]   = None
-    osteopenia_suspected:   Optional[bool]  = None
+
+    # 4.2 Renal
+    aki_stage:              Optional[str]   = None  # #11
+    creatinine:             Optional[float] = None  # #12
+    urine_output_total:     Optional[str]   = None  # #13
+    dialysis_crrt:          Optional[bool]  = None  # #14
+
+    # Legacy — superseded by aki_stage / urine_output_total above
     aki_suspected:          Optional[bool]  = None
     aki_kdigo_stage:        Optional[str]   = None
-    creatinine:             Optional[float] = None
     urine_output_low:       Optional[bool]  = None
-    dialysis_crrt:          Optional[bool]  = None
+
+    # 4.3 Thermoregulation
+    axillary_temperature:   Optional[str]   = None  # #15
+
+    # Legacy — superseded by axillary_temperature above
     hypothermia:            Optional[bool]  = None
     hyperthermia:           Optional[bool]  = None
-    picc_in_situ:           Optional[bool]  = None
-    uvc_in_situ:            Optional[bool]  = None
-    uac_in_situ:            Optional[bool]  = None
-    peripheral_iv:          Optional[bool]  = None
-    peripheral_arterial:    Optional[bool]  = None
-    extravasation_injury:   Optional[bool]  = None
-    line_complication:      Optional[bool]  = None
-    rop_screening_due:      Optional[bool]  = None
-    rop_screened:           Optional[bool]  = None
-    rop_detected:           Optional[bool]  = None
+
+    # 4.4 Vascular access
+    picc_in_situ:           Optional[bool]  = None  # #16
+    uvc_in_situ:            Optional[bool]  = None  # #17
+    uac_in_situ:            Optional[bool]  = None  # #18
+    peripheral_iv:          Optional[bool]  = None  # #19
+    peripheral_arterial:    Optional[bool]  = None  # #20
+    extravasation_injury:   Optional[bool]  = None  # #21
+    line_complication:      Optional[bool]  = None  # #22
+
+    # 4.5 Ophthalmology
+    rop_screening_due:      Optional[bool]  = None  # #23
+    rop_screened:           Optional[bool]  = None  # #24
+    rop_detected:           Optional[bool]  = None  # #25
     rop_stage:              Optional[str]   = None
     plus_disease:           Optional[bool]  = None
     rop_treatment:          Optional[bool]  = None
+
+    # 4.6 Location
+    location:               Optional[str]   = None
+
+    # 4.7 Survived the day
+    survived_the_day:       Optional[bool]  = None
+
     submission_status:      Optional[str]      = "draft"
     saved_at:               Optional[datetime] = None
     saved_by:               Optional[str]      = None
