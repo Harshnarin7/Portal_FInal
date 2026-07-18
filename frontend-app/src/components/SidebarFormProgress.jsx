@@ -11,9 +11,9 @@ const FORMS = [
   { key: "form_d", label: "Form D – Postnatal Day 1" },
   { key: "form_e", label: "Form E – NICU Admission" },
   { key: "form_f", label: "Form F – Cranial USG" },
-  { key: "form_g", label: "Form G – Outcomes" },
+  { key: "form_g", label: "Form G – ROP Screening" },
   { key: "form_h", label: "Form H – Morbidities" },
-  { key: "form_i", label: "Form I – ROP Screening" },
+  { key: "form_i", label: "Form I – Outcomes" },
   { key: "form_j", label: "Form J – Composite Outcome" },
 
   /* Helper forms */

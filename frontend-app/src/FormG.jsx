@@ -1,297 +1,310 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import "./ScreeningForm.css";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/Tables.css";
-import "./styles/FormG.css";
+import "./styles/FormI.css"; // ROP Screening styles — this component is now mounted as Form G
 import { usePatient } from "./context/PatientContext";
 import FormLayout from "./components/FormLayout";
-import { useFormProgress } from "./context/FormProgressContext";
-import { useParams } from "react-router-dom";
+import { User, Info, Calendar, FileText, ShieldAlert, CheckSquare, ArrowLeft, ArrowRight, Save } from "lucide-react";
 
+import { useFormProgress } from "./context/FormProgressContext";
+import { toDateOnlyValue } from "./utils/datetime";
+
+/* ─── YesNoToggle (matching ScreeningForm) ─────────────────── */
+function YesNoToggle({ label, name, value, onChange, disabled = false }) {
+  const fire = (val) => {
+    if (disabled) return;
+    onChange({ target: { name, value: val } });
+  };
+  return (
+    <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
+      <span className="yes-no-label">{label}</span>
+      <div className="yes-no-buttons">
+        <button type="button"
+          className={`yn-btn yn-yes${value === "Yes" ? " yn-active-yes" : ""}`}
+          onClick={() => fire("Yes")} disabled={disabled}>YES</button>
+        <button type="button"
+          className={`yn-btn yn-no${value === "No" ? " yn-active-no" : ""}`}
+          onClick={() => fire("No")} disabled={disabled}>NO</button>
+      </div>
+    </div>
+  );
+}
 export default function FormG() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { patientData, setPatientData } = usePatient() || {};
   const { markFormCompleted } = useFormProgress();
-  const { enrollmentId } = useParams();
-   console.log("URL param enrollmentId:", enrollmentId);
-  console.log("patientData:", patientData);
-  
+  const { patientData } = usePatient();
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
-    baby_uid: "",
-    gestation_weeks: "",
     gestation_days: "",
+gestation_at_birth: "",
+    gestation_weeks: "",
     birth_weight: "",
-    mortality_hospital_time: "",
-    mortality_hospital_date: "",
-    mortality_post_discharge_date: "",
-mortality_post_discharge_time: "",
-dob: "",
+    dob: "",
 
+   
 
-    // ================= MORTALITY OUTCOMES =================
-mortality_hospital: "",
-mortality_hospital_age: "",
-mortality_7_days_date: "",
-mortality_7_days_time: "",
+    screenings: Array.from({ length: 12 }, (_, i) => ({
+      screening_no: i + 1,
+      date: "",
+      dol: "",
+      pma: "",
+      re_stage: "",
+      re_zone: "",
+      le_stage: "",
+      le_zone: "",
+      plus_status: "",
+      next_review: "",
+      signature: "",
+    })),
 
-mortality_28_days_date: "",
-mortality_28_days_time: "",
+    // RIGHT EYE (fields 1-8)
+    worst_stage: "",
+    worst_zone: "",
+    plus_disease: "",
+    a_rop: "",
+    treatment_required: "",
+    treatment_type: [],
+    anti_vegf_agent: "",
+    treatment_re_date: "",
+    pma_at_treatment_re: "",
 
-mortality_post_discharge: "",
-mortality_post_discharge_age: "",
+    // LEFT EYE (fields 9-16)
+    worst_stage_le: "",
+    plus_disease_le: "",
+    a_rop_le: "",
+    worst_zone_le: "",
+    treatment_required_le: "",
+    treatment_le_date: "",
+    pma_at_treatment_le: "",
+    treatment_type_le: [],
 
-mortality_7_days: "",
-mortality_7_days_age: "",
+    // COMMON (fields 17-20)
+    bilateral_treatment: "",
+    outcome: "",
+    outcome_other_text: "",
+    final_screening_date: "",
+    pma_discharge: "",
+    rop_treatment_composite: "",
 
-mortality_28_days: "",
-mortality_28_days_age: "",
-
-// ================= MAJOR MORBIDITIES =================
-bpd_jensen: "",
-bpd_nichd: "",
-
-abnormal_mri: "",
-
-rop_44w: "",
-rop_age_diagnosis: "",
-rop_treated: "",
-
-nec_40w: "",
-nec_stage: "",
-nec_surgical: "",
-
-brain_injury_40w: "",
-ivh_grade_3_or_more: "",
-cpvl_grade_2_or_more: "",
-
-// ================= DR & RESUSCITATION OUTCOMES =================
-
-
-
-
-time_to_spontaneous_breathing: "",
-
-fio2_min_0: "",
-fio2_min_1: "",
-fio2_min_2: "",
-fio2_min_3: "",
-fio2_min_4: "",
-fio2_min_5: "",
-fio2_min_6: "",
-fio2_min_7: "",
-fio2_min_8: "",
-fio2_min_9: "",
-fio2_min_10: "",
-
-
-
-hie_severity: "",
-
-// RESUSCITATION & EARLY OUTCOMES
-switched_100_o2: "",
-cc_epi_volume: "",
-ventilation_required: "",
-intubation_during_resus: "",
-
-hie_grade: "",
-
-resp_support_72h: "",
-mv_days: "",
-cpap_days: "",
-niv_days: "",
-hfnc_days: "",
-// SEPSIS OUTCOMES
-sepsis_eos_72h: "",
-sepsis_overall: "",
-rop_age_days: "",
-
-
-// COMPLETION DETAILS
-completed_by: "",
-designation: "",
-
-completion_date: "",
-
-
-
-
-    // remaining fields will be added section by section
+    completed_by: "",
+    designation: "",
+    
+    completion_date: "",
   });
 
-  const gestationalAgeDisplay =
-  formData.gestation_weeks
-    ? `${formData.gestation_weeks} weeks ${formData.gestation_days || 0} days`
-    : "";
+  /* ================= LOAD ENROLLMENT ID ================= */
+  useEffect(() => {
+  const id =
+    patientData?.enrollment_id ||
+    location.state?.enrollmentId ||
+    localStorage.getItem("current_enrollment_id") ||
+    localStorage.getItem("enrollment_id") ||
+    "";
 
-useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const screeningId = localStorage.getItem("current_screening_id");
-      const enrollmentId = localStorage.getItem("current_enrollment_id");
+  setFormData((p) => ({
+    ...p,
+    enrollment_id: id,
+  }));
+  if (id && (!patientData?.gestation_weeks || !patientData?.gestation_days)) {
+    api.get(`/birth-resuscitation/${id}`).then(res => {
+      const b = res.data || {};
+      const weeks = b.gestation_weeks ?? "";
+      const days = b.gestation_days ?? "";
+      setFormData(p => ({
+        ...p,
+        dob: b.date_of_birth || p.dob,
+        birth_weight: b.birth_weight || p.birth_weight,
+        gestation_weeks: weeks,
+        gestation_days: days,
+        gestation_at_birth: weeks !== "" && days !== "" ? `${weeks} weeks ${days} days` : p.gestation_at_birth,
+      }));
+    }).catch(() => {});
+  }
+}, [patientData, location.state]);
 
-      console.log("Screening ID:", screeningId);
-      console.log("Enrollment ID:", enrollmentId);
+  useEffect(() => {
+  if (!patientData) return;
 
-      // ✅ SCREENING DATA (FIXED)
-      let screeningData = {};
-      try {
-        const res = await api.get(
-          `/screenings/by-screening-id/${screeningId}`
-        );
-        screeningData = res.data || {};
-        console.log("SCREENING:", screeningData);
-      } catch (err) {
-        console.warn("No screening found");
-      }
+  const weeks = patientData.gestation_weeks || "";
+  const days = patientData.gestation_days || "";
 
-      let birthData = {};
+  const gestationFormatted =
+    weeks !== "" && days !== ""
+      ? `${weeks} weeks ${days} days`
+      : "";
 
-try {
-const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
-  birthData = res.data || {};
-  console.log("BIRTH:", birthData);
-  
-} catch (err) {
-  console.warn("No birth data found");
-}
-
-      // ✅ FINAL SET DATA
-      setFormData(prev => ({
-  ...prev,
-  enrollment_id: enrollmentId || "",
-  baby_uid: birthData?.baby_uid || "",
-  gestation_weeks: birthData?.gestation_weeks || screeningData?.gestation_weeks || "",
-  gestation_days: birthData?.gestation_days || screeningData?.gestation_days || "",
-  birth_weight: birthData?.birth_weight || "",
-  dob: birthData?.date_of_birth || "",
-}));
-    } catch (err) {
-      console.error("Error loading Form G:", err);
-    }
-  };
-
-  fetchData();
-}, []);
-
-  
+  setFormData((prev) => ({
+    ...prev,
+    dob: patientData.dob || "",
+    gestation_weeks: weeks,
+    gestation_days: days,
+    gestation_at_birth: gestationFormatted,
+    birth_weight: patientData.birth_weight || "",
+  }));
+}, [patientData]);
 
 
 
 
+  /* ================= HANDLERS ================= */
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((p) => ({
-      ...p,
-      [name]: value,
-    }));
+    setFormData(p => ({ ...p, [name]: value }));
   };
+  const gestationalAgeDisplay = formData.gestation_at_birth || "";
+  const handleScreeningChange = (index, field, value) => {
 
-  const calculateAgeAtDeath = (dob, deathDate) => {
-  if (!dob || !deathDate) return "";
+  const updated = [...formData.screenings];
 
-  const birth = new Date(dob);
-  const death = new Date(deathDate);
+  updated[index][field] = value;
 
-  if (isNaN(birth) || isNaN(death)) return "";
+  if (field === "date") {
+    const { dol, pma } = calculateDOLandPMA(
+      formData.dob,
+      value,
+      formData.gestation_weeks,
+      formData.gestation_days
+    );
 
-  const diff = death.getTime() - birth.getTime();
+    updated[index].dol = dol;
+    updated[index].pma = pma;
+  }
 
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  setFormData(prev => ({
+    ...prev,
+    screenings: updated
+  }));
+};
+  
+  const calculateDOLandPMA = (dob, screeningDate, gaWeeks, gaDays) => {
+  if (!dob || !screeningDate) {
+    return { dol: "", pma: "" };
+  }
 
-  return days >= 0 ? days : "";
+  const dobDate = new Date(dob);
+  const screenDate = new Date(screeningDate);
+
+  const diffTime = screenDate - dobDate;
+  const dol = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  const weeks = Number(gaWeeks) || 0;
+  const days = Number(gaDays) || 0;
+
+  const gaBirthDays = weeks * 7 + days;
+
+  const pmaDays = gaBirthDays + dol;
+
+  const pmaWeeks = Math.floor(pmaDays / 7);
+  const pmaRemainingDays = pmaDays % 7;
+
+  return {
+    dol: dol >= 0 ? dol : "",
+    pma: `${pmaWeeks}w ${pmaRemainingDays}d`
+  };
+};
+
+const calculatePMA = (dob, eventDate, gaWeeks, gaDays) => {
+  if (!dob || !eventDate) return "";
+
+  const dobDate = new Date(dob + "T00:00:00");
+  const event = new Date(eventDate + "T00:00:00");
+
+  if (isNaN(dobDate) || isNaN(event)) return "";
+
+  const diffDays = Math.floor((event - dobDate) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return "";
+
+  const birthDays =
+    (Number(gaWeeks) || 0) * 7 + (Number(gaDays) || 0);
+
+  const totalDays = birthDays + diffDays;
+
+  const weeks = Math.floor(totalDays / 7);
+  const days = totalDays % 7;
+
+  return `${weeks}w ${days}d`;
 };
 
 useEffect(() => {
+  if (formData.treatment_re_date) {
+    const pma = calculatePMA(
+      formData.dob,
+      formData.treatment_re_date,
+      formData.gestation_weeks,
+      formData.gestation_days
+    );
 
-  console.log("DOB:", formData.dob);
-  console.log("Death Date:", formData.mortality_hospital_date);
-
-  if (!formData.mortality_hospital_date || !formData.dob) return;
-
-  const age = calculateAgeAtDeath(
-    formData.dob,
-    formData.mortality_hospital_date
-  );
-
-  setFormData(prev => ({
-    ...prev,
-    mortality_hospital_age: age
-  }));
-
-}, [formData.mortality_hospital_date, formData.dob]);
-
-useEffect(() => {
-
-  if (!formData.mortality_post_discharge_date || !formData.dob) return;
-
-  const age = calculateAgeAtDeath(
-    formData.dob,
-    formData.mortality_post_discharge_date
-  );
-
-  setFormData(prev => ({
-    ...prev,
-    mortality_post_discharge_age: age
-  }));
-
-}, [formData.mortality_post_discharge_date, formData.dob]);
+    setFormData(prev => ({
+      ...prev,
+      pma_at_treatment_re: pma
+    }));
+  }
+}, [
+  formData.treatment_re_date,
+  formData.dob,
+  formData.gestation_weeks,
+  formData.gestation_days
+]);
 
 useEffect(() => {
+  if (formData.treatment_le_date) {
+    const pma = calculatePMA(
+      formData.dob,
+      formData.treatment_le_date,
+      formData.gestation_weeks,
+      formData.gestation_days
+    );
 
-  if (!formData.mortality_7_days_date || !formData.dob) return;
-
-  const age = calculateAgeAtDeath(
-    formData.dob,
-    formData.mortality_7_days_date
-  );
-
-  setFormData(prev => ({
-    ...prev,
-    mortality_7_days_age: age
-  }));
-
-}, [formData.mortality_7_days_date, formData.dob]);
-
-useEffect(() => {
-
-  if (!formData.mortality_28_days_date || !formData.dob) return;
-
-  const age = calculateAgeAtDeath(
-    formData.dob,
-    formData.mortality_28_days_date
-  );
-
-  setFormData(prev => ({
-    ...prev,
-    mortality_28_days_age: age
-  }));
-
-}, [formData.mortality_28_days_date, formData.dob]);
+    setFormData(prev => ({
+      ...prev,
+      pma_at_treatment_le: pma
+    }));
+  }
+}, [
+  formData.treatment_le_date,
+  formData.dob,
+  formData.gestation_weeks,
+  formData.gestation_days
+]);
 
 useEffect(() => {
+  if (formData.final_screening_date) {
+    const pma = calculatePMA(
+      formData.dob,
+      formData.final_screening_date,
+      formData.gestation_weeks,
+      formData.gestation_days
+    );
 
-  if (!formData.rop_age_diagnosis || !formData.dob) return;
+    setFormData(prev => ({
+      ...prev,
+      pma_discharge: pma
+    }));
+  }
+}, [
+  formData.final_screening_date,
+  formData.dob,
+  formData.gestation_weeks,
+  formData.gestation_days
+]);
+const handleCheckbox = (field, value) => {
+  setFormData(prev => {
+    const currentArray = prev[field] || [];
+    return {
+      ...prev,
+      [field]: currentArray.includes(value)
+        ? currentArray.filter(v => v !== value)
+        : [...currentArray, value]
+    };
+  });
+};   
 
-  const age = calculateAgeAtDeath(
-    formData.dob,
-    formData.rop_age_diagnosis
-  );
-
-  setFormData(prev => ({
-    ...prev,
-    rop_age_days: age
-  }));
-
-}, [formData.rop_age_diagnosis, formData.dob]);
-
-  const yesNoToBool = (v) =>
-  v === "Yes" ? true : v === "No" ? false : null;
 const nurses = [
   "Geetika",
         "Navkiran Kaur",
@@ -322,1023 +335,780 @@ const handleCompletedByChange = (e) => {
     designation: getDesignation(name)
   }));
 };
-  const handleSubmit = async (e) => {
+/* ================= SUBMIT ================= */
+const handleSubmit = async (e) => {
   e.preventDefault();
 
+  // ---------- helpers ----------
+  const clean = (v) => (v === "" || v === undefined ? null : v);
+
+  const yesNoToBool = (v) => {
+    if (v === "Yes") return true;
+    if (v === "No") return false;
+    return null;
+  };
+
+  const num = (v) => {
+    if (v === "" || v === undefined || v === null) return null;
+    return Number(v);
+  };
+
+  // ---------- build payload ----------
   const payload = {
-  enrollment_id: formData.enrollment_id,
-  baby_uid: formData.baby_uid,
-  gestation_weeks: formData.gestation_weeks || null,
-  birth_weight: formData.birth_weight || null,
+    enrollment_id: formData.enrollment_id,
 
-  mortality_hospital: yesNoToBool(formData.mortality_hospital),
-  mortality_post_discharge: yesNoToBool(formData.mortality_post_discharge),
-  mortality_7_days: yesNoToBool(formData.mortality_7_days),
-  mortality_28_days: yesNoToBool(formData.mortality_28_days),
+    gestation_weeks: num(formData.gestation_weeks),
+    birth_weight: num(formData.birth_weight),
+    dob: clean(formData.dob),
 
-  bpd_jensen: yesNoToBool(formData.bpd_jensen),
-  bpd_nichd: yesNoToBool(formData.bpd_nichd),
-  abnormal_mri: yesNoToBool(formData.abnormal_mri),
+    risk_factors: formData.risk_factors || [],
 
-  rop: yesNoToBool(formData.rop_44w),
-  nec_stage_2_or_more: yesNoToBool(formData.nec_40w),
-  brain_injury: yesNoToBool(formData.brain_injury_40w),
+    screenings: (formData.screenings || [])
+  .filter(
+    (s) =>
+      s.date ||
+      s.re_stage ||
+      s.le_stage ||
+      s.re_zone ||
+      s.le_zone ||
+      s.plus_status
+  )
+  .map((s) => ({
+    screening_no: s.screening_no,
+    date: clean(s.date),
+    dol: num(s.dol),
+    pma: clean(s.pma),
+    re_stage: clean(s.re_stage),
+    re_zone: clean(s.re_zone),
+    le_stage: clean(s.le_stage),
+    le_zone: clean(s.le_zone),
+    plus_status: clean(s.plus_status),
+    next_review: clean(s.next_review),
+    signature: clean(s.signature),
+  })),
 
-  switched_to_100_o2: yesNoToBool(formData.switched_100_o2),
-  cc_epi_volume: yesNoToBool(formData.cc_epi_volume),
-  ventilation_required: yesNoToBool(formData.ventilation_required),
-  intubation_during_resus: yesNoToBool(formData.intubation_during_resus),
+    worst_stage: clean(formData.worst_stage),
+    worst_zone: clean(formData.worst_zone),
+    plus_disease: yesNoToBool(formData.plus_disease),
+    a_rop: yesNoToBool(formData.a_rop),
 
-  completed_by: formData.completed_by || null,
-  designation: formData.designation || null,
-  
-  completion_date: formData.completion_date || null,
-};
+    treatment_required: yesNoToBool(formData.treatment_required),
+    treatment_type: formData.treatment_type || [],
+    anti_vegf_agent: clean(formData.anti_vegf_agent),
+    treatment_re_date: clean(formData.treatment_re_date),
+    treatment_le_date: clean(formData.treatment_le_date),
+    bilateral_treatment: yesNoToBool(formData.bilateral_treatment),
+    pma_at_treatment: clean(formData.pma_at_treatment),
 
+    outcome: clean(formData.outcome),
+    final_screening_date: clean(formData.final_screening_date),
+    pma_discharge: clean(formData.pma_discharge),
+    rop_treatment_composite: yesNoToBool(formData.rop_treatment_composite),
 
-  try {
-    await api.post("/study-outcomes/", payload);
-    markFormCompleted("form_g");
-
-    alert("✅ Form G submitted successfully");
+    completed_by: clean(formData.completed_by),
+    designation: clean(formData.designation),
+    signature: clean(formData.completed_by),
     
+    completion_date: clean(formData.completion_date),
+  };
 
-    navigate(`/form-j/${formData.enrollment_id}`);
+  // ---------- submit ----------
+  try {
+    await api.post("/rop-screening/", payload);
+   markFormCompleted("form_g");
+    alert("✅ Form I submitted successfully");
+   markFormCompleted("form_g");
+    navigate(`/form-h/${formData.enrollment_id}`);
   } catch (err) {
-    console.error(err.response?.data || err);
-    alert("❌ Error submitting Form G");
+    console.error("❌ Form I submission error:", err.response?.data);
+    alert(
+      "Error submitting Form I:\n" +
+      JSON.stringify(err.response?.data, null, 2)
+    );
   }
 };
+
+
   return (
-    
-      <div className="formg-page">
-    <form className="screening-form" onSubmit={handleSubmit}>
-       <div className="form-a-header">
-  <div className="form-a-header-main"><h2>
-        Form G — Study Outcomes Assessment
-      </h2></div></div>
+    <div className="screening-form">
+      <div className="form-inner">
+        
+        {/* ═══ PAGE HEADER ═══ */}
+        <div className="form-header-action-row">
+          <div className="form-header-title-area">
+            <div className="form-breadcrumb">
+              <FileText size={11} /> FORM G
+            </div>
+            <h1 className="form-main-title">
+              Retinopathy of Prematurity (ROP) Screening Record
+            </h1>
+            <p className="form-main-subtitle">
+              Based on RBSK/NNF India &amp; ICROP 3rd Edition Guidelines
+            </p>
+          </div>
+        </div>
 
-      {/* ================= IDENTIFICATION ================= */}
-      <div className="form-section soft-blue">
-        <h3>Identification</h3>
+        <form onSubmit={handleSubmit}>
 
+      {/* ═══ IDENTIFICATION ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <User size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Identification</h3>
+            <p className="section-subtitle-card">Patient demographics and eligibility</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
         <div className="form-row">
           <div className="form-group">
             <label>Enrollment ID</label>
-            <input
-              value={formData.enrollment_id || ""}
-              readOnly
-            />
+            <input name="enrollment_id" value={formData.enrollment_id} readOnly />
           </div>
-
           <div className="form-group">
-            <label>Baby UID</label>
+            <label>Date of Birth</label>
             <input
-              name="baby_uid"
-              value={formData.baby_uid || ""}
-              onChange={handleChange}readOnly
-            />
+  type="date"
+  name="dob"
+  value={formData.dob}
+  readOnly
+  onChange={handleChange}
+  max={toDateOnlyValue(new Date())}
+/>
           </div>
         </div>
 
         <div className="form-row">
           <div className="form-group">
-            <label>Gestational Age</label>
+  <label>Gestation Age</label>
+  <input
+    type="text"
+    value={gestationalAgeDisplay}
+    readOnly
+  />
+</div>
+          <div className="form-group">
+            <label>Birth Weight (g)</label>
+            <input type="number" name="birth_weight" value={formData.birth_weight} onChange={handleChange} readOnly />
+          </div>
+        </div>
+        </div>
+      </div>
+
+      {/* ═══ ELIGIBILITY & SCREENING GUIDELINES ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <Info size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Eligibility & Screening Guidelines</h3>
+            <p className="section-subtitle-card">RBSK/NNF India & ICROP 3rd Edition</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
+     <div className="rop-guideline-wrapper">
+
+  <div className="rop-guideline-card">
+
+    <h4>Eligibility (RBSK / NNF India)</h4>
+
+    <ul>
+      <li>GA ≤34 weeks OR BW ≤2000 g</li>
+      <li>34–36 weeks / 1750–2000 g with risk factors</li>
+    </ul>
+
+    <p className="guideline-sub">
+      <strong>Risk factors:</strong> O₂ therapy, sepsis, IVH, RDS,
+      transfusions, poor weight gain
+    </p>
+
+  </div>
+
+
+  <div className="rop-guideline-card">
+
+    <h4>First Screening</h4>
+
+    <ul>
+      <li>GA &lt;28 weeks: at 2–3 weeks of life</li>
+      <li>GA ≥28 weeks: at 4 weeks / 30 days of life</li>
+    </ul>
+
+    <p>OR 31 weeks PMA, whichever is later</p>
+
+    <p className="guideline-sub">
+      <strong>Never later than 30 days of life</strong>
+    </p>
+
+  </div>
+
+</div>
+        </div>
+      </div>
+
+      {/* ═══ G1. ROP SCREENING RECORD ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <Calendar size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">G1. ROP Screening Record</h3>
+            <p className="section-subtitle-card">12 screening visits with eye findings</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
+      {/* ================= ROP SCREENING VISITS ================= */}
+<div className="rop-panel">
+  <div className="rop-scroll">
+    <table className="rop-table">
+      <thead>
+  <tr>
+    <th rowSpan="2" className="th-neutral">#</th>
+    <th rowSpan="2" className="th-neutral">Date</th>
+    <th rowSpan="2" className="th-neutral">DOL</th>
+    <th rowSpan="2" className="th-neutral">PMA</th>
+
+    <th colSpan="2" className="th-re">Right Eye</th>
+    <th colSpan="2" className="th-le">Left Eye</th>
+
+    <th rowSpan="2" className="th-warning">Plus / A-ROP</th>
+    <th rowSpan="2" className="th-info">Next Review</th>
+    <th rowSpan="2" className="th-neutral">Name</th>
+  </tr>
+
+  <tr>
+    <th className="th-re-sub">Stage</th>
+    <th className="th-re-sub">Zone</th>
+    <th className="th-le-sub">Stage</th>
+    <th className="th-le-sub">Zone</th>
+  </tr>
+</thead>
+
+
+      <tbody>
+        {formData.screenings.map((s, i) => (
+          <tr key={i}>
+            <td>{s.screening_no}</td>
+            <td><input type="date" value={s.date} onChange={e => handleScreeningChange(i,"date",e.target.value)} /></td>
+            <td><input className="xs" value={s.dol} onChange={e => handleScreeningChange(i,"dol",e.target.value)}readOnly /></td>
+            <td><input className="xs" value={s.pma} onChange={e => handleScreeningChange(i,"pma",e.target.value)} readOnly/></td>
+
+            <td><select className="xs" value={s.re_stage} onChange={e => handleScreeningChange(i,"re_stage",e.target.value)}>
+              <option></option><option>0</option><option>1</option><option>2</option><option>3</option><option>4A</option><option>4B</option><option>5</option>
+            </select></td>
+
+            <td><select className="xs" value={s.re_zone} onChange={e => handleScreeningChange(i,"re_zone",e.target.value)}>
+              <option></option><option>I</option><option>II</option><option>III</option>
+            </select></td>
+
+            <td><select className="xs" value={s.le_stage} onChange={e => handleScreeningChange(i,"le_stage",e.target.value)}>
+              <option></option><option>0</option><option>1</option><option>2</option><option>3</option><option>4A</option><option>4B</option><option>5</option>
+            </select></td>
+
+            <td><select className="xs" value={s.le_zone} onChange={e => handleScreeningChange(i,"le_zone",e.target.value)}>
+              <option></option><option>I</option><option>II</option><option>III</option>
+            </select></td>
+
+            <td>
+              <select className="sm" value={s.plus_status} onChange={e => handleScreeningChange(i,"plus_status",e.target.value)}>
+                <option></option>
+                <option>None</option>
+                <option>Plus</option>
+                <option>A-ROP</option>
+              </select>
+            </td>
+
+            <td><input className="sm" value={s.next_review} onChange={e => handleScreeningChange(i,"next_review",e.target.value)} /></td>
+            <td><input className="sm" value={s.signature} onChange={e => handleScreeningChange(i,"signature",e.target.value)} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+        </div>
+      </div>
+
+      {/* ═══ ICROP CLASSIFICATION & FOLLOW-UP ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <FileText size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">ICROP 3rd Edition Classification (2021)</h3>
+            <p className="section-subtitle-card">Stages, Zones, Plus Disease & Follow-up Schedule</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
+<div className="icrop-section">
+
+  <div className="icrop-header">
+    ICROP 3rd Edition Classification (2021)
+  </div>
+
+  <div className="icrop-grid">
+
+    {/* STAGES */}
+    <div className="icrop-card">
+      <h4>Stages</h4>
+      <p><b>0:</b> Immature vascularization, no ROP</p>
+      <p><b>1:</b> Demarcation line</p>
+      <p><b>2:</b> Ridge</p>
+      <p><b>3:</b> Ridge with extra retinal tissue</p>
+      <p><b>4:</b> Partial retinal detachment (4A: fovea attached, 4B: fovea detached)</p>
+      <p><b>5:</b> Total retinal detachment</p>
+    </div>
+
+    {/* ZONES */}
+    <div className="icrop-card">
+      <h4>Zones</h4>
+      <p><b>Zone I:</b> Circle centered on disc, radius = 2× disc-fovea distance</p>
+      <p><b>Zone II:</b> From edge of Zone I to ora serrata nasally</p>
+      <p><b>Zone III:</b> Residual temporal crescent</p>
+
+      <p><b>Plus Disease:</b> ≥2 quadrants of vascular tortuosity/dilatation</p>
+
+      <p><b>A-ROP:</b> Aggressive ROP (formerly AP-ROP)</p>
+    </div>
+
+    {/* FOLLOW UP */}
+    <div className="icrop-card icrop-follow">
+      <h4>Follow-up Schedule (Based on Findings)</h4>
+
+      <ul>
+        <li>Immature retina / No ROP: 2 weeks</li>
+        <li>Stage 1 or 2 in Zone III: 2 weeks</li>
+        <li>Stage 1 in Zone II: 1–2 weeks</li>
+        <li>Stage 2 in Zone II / Stage 1–2 in Zone I: 1 week or less</li>
+        <li>Stage 3 / Plus disease / A-ROP: Treatment within 48–72 hours</li>
+        <li>Continue screening until retina fully vascularized OR Zone III reached without prior Zone I/II ROP OR 45 weeks PMA</li>
+      </ul>
+    </div>
+
+  </div>
+
+</div>
+        </div>
+      </div>
+
+      {/* ═══ G2. TREATMENT & OUTCOME SUMMARY ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <ShieldAlert size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">G2. Treatment & Outcome Summary</h3>
+            <p className="section-subtitle-card">Detailed findings for both eyes and treatment outcomes</p>
+          </div>
+        </div>
+
+        <div className="section-body-card">
+          <div className="pn-adverse-card rop-summary-card">
+
+{/* RIGHT EYE */}
+<div className="rop-stage-block">
+  <label className="summary-title">RIGHT — 1. Max ROP</label>
+  <div className="stage-pill-group">
+    {["None","1","2","3","4A","4B","5"].map(stage => (
+      <label
+        key={stage}
+        className={`stage-pill ${formData.worst_stage === stage ? "active" : ""}`}
+      >
+        <input
+          type="radio"
+          name="worst_stage"
+          value={stage}
+          checked={formData.worst_stage === stage}
+          onChange={handleChange}
+        />
+        {stage}
+      </label>
+    ))}
+  </div>
+</div>
+
+{/* 2 & 3: Plus Disease and A-ROP side by side */}
+<div className="rop-toggle-row">
+  <YesNoToggle
+    label="2. Plus Disease"
+    name="plus_disease"
+    value={formData.plus_disease}
+    onChange={handleChange}
+  />
+  <YesNoToggle
+    label="3. A-ROP"
+    name="a_rop"
+    value={formData.a_rop}
+    onChange={handleChange}
+  />
+</div>
+
+</div>
+
+
+  {/* 4. Max Zone */}
+  {formData.worst_stage !== "None" && (
+    <div className="pn-adverse-card">
+      <h4>4. Max Zone</h4>
+      <div className="pn-checkbox-grid">
+        {["Zone I","Zone II","Zone III"].map(zone => (
+          <label className="checkbox-item" key={zone}>
             <input
-  type="text"
-  value={gestationalAgeDisplay}
-  readOnly
-/>
+              type="radio"
+              name="worst_zone"
+              value={zone}
+              checked={formData.worst_zone === zone}
+              onChange={handleChange}
+            />
+            {zone}
+          </label>
+        ))}
+      </div>
+    </div>
+  )}
+
+  {/* 5. Treatment Required */}
+  <div className="pn-adverse-card">
+    <YesNoToggle
+      label="5. Treatment Required"
+      name="treatment_required"
+      value={formData.treatment_required}
+      onChange={handleChange}
+    />
+  </div>
+
+
+  {/* Treatment Details for RIGHT EYE */}
+  {formData.treatment_required === "Yes" && (
+    <>
+      <div className="pn-adverse-card">
+        <div className="form-row">
+          <div className="form-group">
+            <label>6. Treatment Date (RE)</label>
+            <input
+              type="date"
+              name="treatment_re_date"
+              value={formData.treatment_re_date}
+              onChange={handleChange}
+              max={toDateOnlyValue(new Date())}
+            />
           </div>
 
           <div className="form-group">
-            <label>Birth Weight (grams)</label>
+            <label>7. PMA at treatment (RE)</label>
             <input
-              type="number"
-              name="birth_weight"
-              value={formData.birth_weight || ""}
-              onChange={handleChange}readOnly
+              name="pma_at_treatment_re"
+              value={formData.pma_at_treatment_re || ""}
+              readOnly
             />
           </div>
         </div>
       </div>
 
-     <div className="form-section soft-blue">
-  <h3>STUDY OUTCOMES ASSESSMENT</h3>
-
-  <div className="outcome-table">
-
-    {/* Header */}
-    <div className="outcome-header">
-      <div>Outcome</div>
-      <div>Definition</div>
-      <div>Result</div>
-      <div>Additional Information</div>
-    </div>
-
-    <div className="outcome-row">
-  <div className="outcome-title">
-    Switched to 100% O₂
-  </div>
-
-  <div className="outcome-definition">
-    Per NRP criteria
-  </div>
-
-  <div>
-    <select
-      name="switched_100_o2"
-      value={formData.switched_100_o2 || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    CC / Epi / Volume
-  </div>
-
-  <div className="outcome-definition">
-    Per NRP criteria
-  </div>
-
-  <div>
-    <select
-      name="cc_epi_volume"
-      value={formData.cc_epi_volume || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    Ventilation required
-  </div>
-
-  <div className="outcome-definition">
-    Per NRP criteria
-  </div>
-
-  <div>
-    <select
-      name="ventilation_required"
-      value={formData.ventilation_required || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-<div className="outcome-row">
-
-  <div className="outcome-title">
-    Time to spontaneous breathing
-  </div>
-
-  <div className="outcome-definition">
-    Unassisted breathing
-  </div>
-
-  <div className="result-span" style={{display:"flex",gap:"10px"}}>
-
-    <input
-      type="number"
-      name="time_to_spontaneous_breathing_value"
-      placeholder="Enter time"
-      value={formData.time_to_spontaneous_breathing_value || ""}
-      onChange={handleChange}
-      style={{width:"120px"}}
-    />
-
-    <select
-      name="time_to_spontaneous_breathing_unit"
-      value={formData.time_to_spontaneous_breathing_unit || ""}
-      onChange={handleChange}
-      style={{width:"120px"}}
-    >
-      <option value="">Unit</option>
-      <option value="seconds">Seconds</option>
-      <option value="minutes">Minutes</option>
-    </select>
-
-  </div>
-
-</div>
-
-<div className="outcome-row">
-
-  <div className="outcome-title">
-    FiO₂ (0–10 min)
-  </div>
-
-  <div className="outcome-definition">
-    Each minute
-  </div>
-
-  <div className="result-span">
-    {[0,1,2,3,4,5,6,7,8,9,10].map((min)=>(
-  
-  <div key={min} style={{position:"relative",display:"inline-block"}}>
-
-    <input
-      type="number"
-      min="0"
-      max="100"
-      name={`fio2_min_${min}`}
-      value={formData[`fio2_min_${min}`] || ""}
-      onChange={handleChange}
-      placeholder={`${min}'`}
-      style={{
-        width:"70px",
-        paddingRight:"18px"
-      }}
-    />
-
-    <span
-      style={{
-        position:"absolute",
-        right:"6px",
-        top:"50%",
-        transform:"translateY(-50%)",
-        pointerEvents:"none",
-        fontSize:"12px",
-        color:"#555"
-      }}
-    >
-      %
-    </span>
-
-  </div>
-
-))}
-  </div>
-
-</div>
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    Intubation during resus
-  </div>
-
-  <div className="outcome-definition">
-    Any reason
-  </div>
-
-  <div>
-    <select
-      name="intubation_during_resus"
-      value={formData.intubation_during_resus || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    HIE (Levene's)
-  </div>
-
-  <div className="outcome-definition">
-    Mod / severe HIE
-  </div>
-
-  <div>
-    <select
-      name="hie_grade"
-      value={formData.hie_grade || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>None</option>
-      <option>Mild</option>
-      <option>Moderate</option>
-      <option>Severe</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    Respiratory support (0.5-72h)
-  </div>
-
-  <div className="outcome-definition">
-    CPAP / NIMV / IMV / HFV
-  </div>
-
-  <div>
-    <select
-      name="resp_support_72h"
-      value={formData.resp_support_72h || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-<div className="outcome-row">
-
-  <div className="outcome-title">
-    Duration respiratory support
-  </div>
-
-  <div className="outcome-definition">
-    Cumulative days
-  </div>
-
-  <div className="result-span">
-
-    <input
-  type="number"
-  min="0"
-  step="1"
-  name="mv_days"
-  placeholder="MV days"
-  value={formData.mv_days || ""}
-  onChange={handleChange}
-  style={{width:"110px"}}
-/>
-
-<input
-  type="number"
-  min="0"
-  step="1"
-  name="cpap_days"
-  placeholder="CPAP days"
-  value={formData.cpap_days || ""}
-  onChange={handleChange}
-  style={{width:"110px"}}
-/>
-
-<input
-  type="number"
-  min="0"
-  step="1"
-  name="niv_days"
-  placeholder="NIV days"
-  value={formData.niv_days || ""}
-  onChange={handleChange}
-  style={{width:"110px"}}
-/>
-
-<input
-  type="number"
-  min="0"
-  step="1"
-  name="hfnc_days"
-  placeholder="HFNC days"
-  value={formData.hfnc_days || ""}
-  onChange={handleChange}
-  style={{width:"110px"}}
-/>
-
-  </div>
-
-</div>
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    Sepsis ≤72h (EOS)
-  </div>
-
-  <div className="outcome-definition">
-    Culture + or clinical
-  </div>
-
-  <div>
-    <select
-      name="sepsis_eos_72h"
-      value={formData.sepsis_eos_72h || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
-</div>
-
-
-<div className="outcome-row">
-
-  <div className="outcome-title">
-    All-cause mortality ≤ 7 days
-  </div>
-
-  <div className="outcome-definition">
-    Death due to any cause from birth till completion of D7 of age
-  </div>
-
-  <div>
-    <select
-      name="mortality_7_days"
-      value={formData.mortality_7_days || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div className="mortality-fields">
-
-<div style={{display:"flex",gap:"10px",marginBottom:"8px"}}>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Date of death</label>
-
-<input
-  type="date"
-  name="mortality_7_days_date"
-  value={formData.mortality_7_days_date || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_7_days !== "Yes"}
-/>
-
-</div>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Time of death</label>
-
-<input
-  type="time"
-  name="mortality_7_days_time"
-  value={formData.mortality_7_days_time || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_7_days !== "Yes"}
-/>
-
-</div>
-
-</div>
-
-
-<div style={{display:"flex",flexDirection:"column",width:"140px"}}>
-
-<label style={{fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-Age at death
-</label>
-
-<input
-  name="mortality_7_days_age"
-  value={formData.mortality_7_days_age || ""}
-  readOnly
-/>
-
-</div>
-
-</div>
-
-</div>
-
-<div className="outcome-row">
-
-  <div className="outcome-title">
-    All-cause mortality ≤ 28 days
-  </div>
-
-  <div className="outcome-definition">
-    Death due to any cause from birth till completion of D28 of age
-  </div>
-
-  <div>
-    <select
-      name="mortality_28_days"
-      value={formData.mortality_28_days || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div className="mortality-fields">
-
-<div style={{display:"flex",gap:"10px",marginBottom:"8px"}}>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Date of death</label>
-
-<input
-  type="date"
-  name="mortality_28_days_date"
-  value={formData.mortality_28_days_date || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_28_days !== "Yes"}
-/>
-
-</div>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Time of death</label>
-
-<input
-  type="time"
-  name="mortality_28_days_time"
-  value={formData.mortality_28_days_time || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_28_days !== "Yes"}
-/>
-
-</div>
-
-</div>
-
-
-<div style={{display:"flex",flexDirection:"column",width:"140px"}}>
-
-<label style={{fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-Age at death
-</label>
-
-<input
-  name="mortality_28_days_age"
-  value={formData.mortality_28_days_age || ""}
-  readOnly
-/>
-
-</div>
-
-</div>
-
-</div>
-
- {/* Row 3 */}
-    <div className="outcome-row">
-      <div className="outcome-title">
-        BPD at 36 weeks PMA (Jensen)
+      <div className="pn-adverse-card">
+        <h4>8. Treatment Type (RE)</h4>
+        <div className="pn-checkbox-grid">
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Laser")}
+              onChange={() => handleCheckbox("treatment_type","Laser")}
+            />
+            Laser photocoagulation
+          </label>
+
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Anti-VEGF")}
+              onChange={() => handleCheckbox("treatment_type","Anti-VEGF")}
+            />
+            Anti-VEGF
+          </label>
+
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Vitrectomy")}
+              onChange={() => handleCheckbox("treatment_type","Vitrectomy")}
+            />
+            Vitrectomy
+          </label>
+
+          <label className="checkbox-item">
+            <input
+              type="checkbox"
+              checked={formData.treatment_type.includes("Combination")}
+              onChange={() => handleCheckbox("treatment_type","Combination")}
+            />
+            Combination
+          </label>
+        </div>
+
+        {formData.treatment_type.includes("Anti-VEGF") && (
+          <div className="form-group other-specify">
+            <label>Agent</label>
+            <input
+              name="anti_vegf_agent"
+              value={formData.anti_vegf_agent}
+              placeholder="e.g. Bevacizumab"
+              pattern="[A-Za-z\s]+"
+              title="Only letters allowed"
+              onChange={(e) => {
+                const value = e.target.value;
+                if (/^[A-Za-z\s]*$/.test(value)) {
+                  setFormData(prev => ({
+                    ...prev,
+                    anti_vegf_agent: value
+                  }));
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
 
-      <div className="outcome-definition">
-        BPD as assessed at 36 weeks PMA completion as per Jensen's criteria (2019)
+      {/* LEFT EYE SECTION */}
+      <div className="rop-left-eye-section">
+        <h3 className="eye-section-title">LEFT</h3>
+
+        {/* 9. Max ROP (LE) */}
+        <div className="rop-stage-block">
+          <label className="summary-title">9. Max ROP (LE)</label>
+          <div className="stage-pill-group">
+            {["None","1","2","3","4A","4B","5"].map(stage => (
+              <label
+                key={stage}
+                className={`stage-pill ${formData.worst_stage_le === stage ? "active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="worst_stage_le"
+                  value={stage}
+                  checked={formData.worst_stage_le === stage}
+                  onChange={handleChange}
+                />
+                {stage}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* 10 & 11: Plus Disease and A-ROP side by side */}
+        <div className="rop-toggle-row">
+          <YesNoToggle
+            label="10. Plus Disease (LE)"
+            name="plus_disease_le"
+            value={formData.plus_disease_le}
+            onChange={handleChange}
+          />
+          <YesNoToggle
+            label="11. A-ROP (LE)"
+            name="a_rop_le"
+            value={formData.a_rop_le}
+            onChange={handleChange}
+          />
+        </div>
+
+        {/* 12. Max Zone (LE) */}
+        <div className="pn-adverse-card">
+          <h4>12. Max Zone (LE)</h4>
+          <div className="pn-checkbox-grid">
+            {["Zone I","Zone II","Zone III"].map(zone => (
+              <label className="checkbox-item" key={zone}>
+                <input
+                  type="radio"
+                  name="worst_zone_le"
+                  value={zone}
+                  checked={formData.worst_zone_le === zone}
+                  onChange={handleChange}
+                />
+                {zone}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* 13. Treatment Required (LE) */}
+        <div className="pn-adverse-card">
+          <YesNoToggle
+            label="13. Treatment Required (LE)"
+            name="treatment_required_le"
+            value={formData.treatment_required_le}
+            onChange={handleChange}
+          />
+        </div>
+
+        {/* 14 & 15: Treatment Date and PMA */}
+        <div className="pn-adverse-card">
+          <div className="form-row">
+            <div className="form-group">
+              <label>14. Treatment Date (LE)</label>
+              <input
+                type="date"
+                name="treatment_le_date"
+                value={formData.treatment_le_date}
+                onChange={handleChange}
+                max={toDateOnlyValue(new Date())}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>15. PMA at treatment (LE)</label>
+              <input
+                name="pma_at_treatment_le"
+                value={formData.pma_at_treatment_le || ""}
+                readOnly
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 16. Treatment Type (LE) */}
+        <div className="pn-adverse-card">
+          <h4>16. Treatment Type (LE)</h4>
+          <div className="pn-checkbox-grid">
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Laser")}
+                onChange={() => handleCheckbox("treatment_type_le","Laser")}
+              />
+              Laser photocoagulation
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Anti-VEGF")}
+                onChange={() => handleCheckbox("treatment_type_le","Anti-VEGF")}
+              />
+              Anti-VEGF
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Vitrectomy")}
+                onChange={() => handleCheckbox("treatment_type_le","Vitrectomy")}
+              />
+              Vitrectomy
+            </label>
+            <label className="checkbox-item">
+              <input
+                type="checkbox"
+                checked={formData.treatment_type_le?.includes("Combination")}
+                onChange={() => handleCheckbox("treatment_type_le","Combination")}
+              />
+              Combination
+            </label>
+          </div>
+        </div>
       </div>
-
-      <div>
-        <select
-          name="bpd_jensen"
-          value={formData.bpd_jensen || ""}
-          onChange={handleChange}
-        >
-          <option value="">--</option>
-          <option>Yes</option>
-          <option>No</option>
-        </select>
-      </div>
-
-      <div>
-        Check composite outcome form
-      </div>
-    </div>
-
-    {/* Row 4 */}
-    <div className="outcome-row">
-      <div className="outcome-title">
-        BPD at 36 weeks PMA (NICHD)
-      </div>
-
-      <div className="outcome-definition">
-        BPD assessed at 36 weeks PMA as per NICHD criteria (2018)
-      </div>
-
-      <div>
-        <select
-          name="bpd_nichd"
-          value={formData.bpd_nichd || ""}
-          onChange={handleChange}
-        >
-          <option value="">--</option>
-          <option>Yes</option>
-          <option>No</option>
-        </select>
-      </div>
-
-      <div>
-        Check composite outcome form
-      </div>
-    </div>
+    </>
+  )}
 
 
-    <div className="outcome-row">
-  <div className="outcome-title">
-    NEC ≤ 40 weeks
-  </div>
-
-  <div className="outcome-definition">
-    Modified Bell's Staging (Stage ≥ IIA)
-  </div>
-
-  <div>
-    <select
-      name="nec_40w"
-      value={formData.nec_40w || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div>
-    <select
-      name="nec_surgical"
-      value={formData.nec_surgical || ""}
-      onChange={handleChange}
-      disabled={formData.nec_40w !== "Yes"}
-    >
-      <option value="">Surgical?</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-</div>
-<div className="outcome-row">
-  <div className="outcome-title">
-    Brain injury ≤ 40 weeks
-  </div>
-
-  <div className="outcome-definition">
-    Papile Classification for IVH, De Vries Classification for cPVL
-  </div>
-
-  <div>
-    --
-  </div>
-
-  <div style={{display:"flex",gap:"12px"}}>
-    <label>
-      IVH Grade ≥3
+  {/* 17. Outcome */}
+  <div className="pn-adverse-card">
+    <div className="form-group">
+      <label>17. Outcome</label>
       <select
-        name="ivh_grade_3_or_more"
-        value={formData.ivh_grade_3_or_more || ""}
+        name="outcome"
+        value={formData.outcome}
         onChange={handleChange}
       >
-        <option value="">--</option>
-        <option>Yes</option>
-        <option>No</option>
+        <option value="">-- Select --</option>
+        <option>Regressed</option>
+        <option>Regressing</option>
+        <option>Progressed</option>
+        <option>Retinal detachment</option>
+        <option>Other</option>
       </select>
-    </label>
-
-    <label>
-      cPVL Grade ≥2
-      <select
-        name="cpvl_grade_2_or_more"
-        value={formData.cpvl_grade_2_or_more || ""}
-        onChange={handleChange}
-      >
-        <option value="">--</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-    </label>
-  </div>
-</div>
-
- <div className="outcome-row">
-      <div className="outcome-title">
-        Abnormal MRI Brain at TEA
-      </div>
-
-      <div className="outcome-definition">
-        Abnormal MRI brain at 40 ± 2 weeks PMA
-      </div>
-
-      <div>
-        <select
-          name="abnormal_mri"
-          value={formData.abnormal_mri || ""}
-          onChange={handleChange}
-        >
-          <option value="">--</option>
-          <option>Yes</option>
-          <option>No</option>
-        </select>
-      </div>
-
-      <div>
-        Check MRI form for more details
-      </div>
     </div>
 
-
-        {/* Row 5 */}
-   
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    ROP ≤ 44 weeks
+    {formData.outcome === "Other" && (
+      <div className="form-group other-specify">
+        <label>Specify Outcome</label>
+        <input
+          name="outcome_other_text"
+          value={formData.outcome_other_text}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (/^[A-Za-z\s]*$/.test(value)) {
+              setFormData(prev => ({
+                ...prev,
+                outcome_other_text: value
+              }));
+            }
+          }}
+          placeholder="Specify outcome"
+        />
+      </div>
+    )}
   </div>
 
-  <div className="outcome-definition">
-    ICROP 3rd Edition
-  </div>
-
-  <div>
-    <select
-      name="rop_44w"
-      value={formData.rop_44w || ""}
+  {/* 18. Composite Outcome */}
+  <div className="pn-adverse-card">
+    <YesNoToggle
+      label="18. ROP requiring treatment (for Composite Outcome)"
+      name="rop_treatment_composite"
+      value={formData.rop_treatment_composite}
       onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
+    />
   </div>
 
-  <div className="mortality-fields">
-
-    {/* Row 1 */}
-    <div style={{display:"flex",gap:"10px",marginBottom:"8px"}}>
-
-      <div style={{display:"flex",flexDirection:"column"}}>
-        <label style={{fontSize:"12px",fontWeight:"600"}}>
-          Date of diagnosis
-        </label>
-
+  {/* 19 & 20. Final Screening */}
+  <div className="pn-adverse-card">
+    <div className="form-row">
+      <div className="form-group">
+        <label>19. Final screening date</label>
         <input
           type="date"
-          name="rop_age_diagnosis"
-          value={formData.rop_age_diagnosis || ""}
+          name="final_screening_date"
+          value={formData.final_screening_date}
           onChange={handleChange}
-          disabled={formData.rop_44w !== "Yes"}
+          max={toDateOnlyValue(new Date())}
         />
       </div>
 
-      <div style={{display:"flex",flexDirection:"column"}}>
-        <label style={{fontSize:"12px",fontWeight:"600"}}>
-          Age at diagnosis
-        </label>
-
+      <div className="form-group">
+        <label>20. PMA at discharge from screening</label>
         <input
-          name="rop_age_days"
-          value={formData.rop_age_days || ""}
+          name="pma_discharge"
+          value={formData.pma_discharge || ""}
           readOnly
+          placeholder="weeks"
         />
       </div>
-
     </div>
-
-    {/* Row 2 */}
-    <div style={{display:"flex",flexDirection:"column",width:"140px"}}>
-
-      <label style={{fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-        Treated
-      </label>
-
-      <select
-        name="rop_treated"
-        value={formData.rop_treated || ""}
-        onChange={handleChange}
-        disabled={formData.rop_44w !== "Yes"}
-      >
-        <option value="">--</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
-
-    </div>
-
-  </div>
-</div>
-
-<div className="outcome-row">
-  <div className="outcome-title">
-    Sepsis (overall)
   </div>
 
-  <div className="outcome-definition">
-    Culture + or clinical
-  </div>
-
-  <div>
-    <select
-      name="sepsis_overall"
-      value={formData.sepsis_overall || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div></div>
 </div>
+        </div>
 
-    {/* Row 1 */}
-    <div className="outcome-row">
+      {/* ═══ COMPLETION ═══ */}
+      <div className="form-section card-section">
+        <div className="section-header-card">
+          <div className="section-icon-card">
+            <CheckSquare size={18} />
+          </div>
+          <div className="section-title-group">
+            <h3 className="section-title-card">Completion Details</h3>
+            <p className="section-subtitle-card">Form verification and signature</p>
+          </div>
+        </div>
 
-  <div className="outcome-title">
-    All-cause mortality during hospital stay
-  </div>
-
-  <div className="outcome-definition">
-    Death due to any cause occurring from birth and before discharge
-  </div>
-
-  <div>
-    <select
-      name="mortality_hospital"
-      value={formData.mortality_hospital || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div className="mortality-fields">
-
-{/* Row 1 labels */}
-<div style={{display:"flex",gap:"10px",fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-  <div style={{width:"140px"}}>Date of death</div>
-  <div style={{width:"120px"}}>Time of death</div>
-</div>
-
-{/* Row 1 inputs */}
-<div style={{display:"flex",gap:"10px",marginBottom:"8px"}}>
-
-<input
-  type="date"
-  name="mortality_hospital_date"
-  value={formData.mortality_hospital_date || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_hospital !== "Yes"}
-/>
-
-<input
-  type="time"
-  name="mortality_hospital_time"
-  value={formData.mortality_hospital_time || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_hospital !== "Yes"}
-/>
-
-</div>
-
-{/* Age label + field */}
-<div style={{display:"flex",flexDirection:"column",width:"140px"}}>
-
-  <label style={{fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-    Age at death
-  </label>
-
-  <input
-    name="mortality_hospital_age"
-    value={formData.mortality_hospital_age || ""}
-    readOnly
-    style={{width:"140px"}}
-  />
-
-</div>
-
-</div>
-
-</div>
-
-    {/* Row 2 */}
-    <div className="outcome-row">
-
-  <div className="outcome-title">
-    All-cause mortality after discharge
-  </div>
-
-  <div className="outcome-definition">
-    Death due to any cause occurring after discharge from hospital
-   </div>
-
-  <div>
-    <select
-      name="mortality_post_discharge"
-      value={formData.mortality_post_discharge || ""}
-      onChange={handleChange}
-    >
-      <option value="">--</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  <div className="mortality-fields">
-
-<div style={{display:"flex",gap:"10px",marginBottom:"8px"}}>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Date of death</label>
-
-<input
-  type="date"
-  name="mortality_post_discharge_date"
-  value={formData.mortality_post_discharge_date || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_post_discharge !== "Yes"}
-/>
-
-</div>
-
-<div style={{display:"flex",flexDirection:"column"}}>
-<label style={{fontSize:"12px",fontWeight:"600"}}>Time of death</label>
-
-<input
-  type="time"
-  name="mortality_post_discharge_time"
-  value={formData.mortality_post_discharge_time || ""}
-  onChange={handleChange}
-  disabled={formData.mortality_post_discharge !== "Yes"}
-/>
-
-</div>
-
-</div>
-
-
-<div style={{display:"flex",flexDirection:"column",width:"140px"}}>
-
-<label style={{fontSize:"12px",fontWeight:"600",marginBottom:"4px"}}>
-Age at death
-</label>
-
-<input
-  name="mortality_post_discharge_age"
-  value={formData.mortality_post_discharge_age || ""}
-  readOnly
-/>
-
-</div>
-
-</div>
-
-</div>
-
-   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-</div>
-{/* ================= COMPLETION DETAILS ================= */}
-<div className="form-section soft-blue">
-  <h3>Completion Details</h3>
-
-  <div className="form-row">
+        <div className="section-body-card">
+          <div className="form-row">
     <div className="form-group">
       <label>Completed by<span className="required">*</span></label>
       <select
@@ -1378,12 +1148,69 @@ Age at death
       />
     </div>
   </div>
-</div>
+        </div>
+      </div>
+    </form>
 
-      <button className="submit-btn" type="submit">
-        Save & Continue
-      </button>
-    </form></div>
-    
+      {/* ══ STICKY FOOTER NAVIGATION BAR ══ */}
+      <div className="form-navigation">
+        {/* ← Back to Form F */}
+        <button 
+          type="button" 
+          className="btn btn-secondary btn-outline"
+          onClick={() => navigate(`/form-f/${formData.enrollment_id}`)}
+        >
+          <ArrowLeft size={15}/> Form F
+        </button>
+
+        {/* Save */}
+        <button 
+          type="button" 
+          className="btn btn-save btn-outline-blue"
+          onClick={(e) => {
+            e.preventDefault();
+            handleSubmit(e);
+          }}
+        >
+          <Save size={15}/> Save
+        </button>
+
+        {/* Save for Later */}
+        <button 
+          type="button" 
+          className="btn btn-draft"
+          onClick={async (e) => {
+            e.preventDefault();
+            await handleSubmit(e);
+            navigate("/dashboard");
+          }}
+        >
+          <Save size={15}/> Save for Later
+        </button>
+
+        {/* Step indicator */}
+        <div className="footer-step-indicator">
+          <span className="step-text">FORM I — ROP SCREENING</span>
+          <div className="step-progress-line">
+            <div className="progress-segment active" />
+          </div>
+        </div>
+
+        {/* Next to Form H → */}
+        <button 
+          type="button" 
+          className="btn btn-primary"
+          onClick={async (e) => {
+            e.preventDefault();
+            await handleSubmit(e);
+            navigate(`/form-h/${formData.enrollment_id}`);
+          }}
+        >
+          Form H <ArrowRight size={15}/>
+        </button>
+      </div>
+
+      </div>
+    </div>
   );
 }
