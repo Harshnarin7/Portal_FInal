@@ -5,9 +5,9 @@ export const FORMS_CONFIG = [
   { key: "form_d", label: "Form D – Postnatal Day 1", route: "/form-d" },
   { key: "form_e", label: "Form E – NICU Admission", route: "/form-e" },
   { key: "form_f", label: "Form F – Cranial USG", route: "/form-f" },
-  { key: "form_g", label: "Form G – Study Outcomes", route: "/form-g" },
+  { key: "form_g", label: "Form G – ROP Screening", route: "/form-g" },
   { key: "form_h", label: "Form H – Morbidities", route: "/form-h" },
-  { key: "form_i", label: "Form I – ROP Screening", route: "/form-i" },
+  { key: "form_i", label: "Form I – Study Outcomes", route: "/form-i" },
   { key: "form_j", label: "Form J – Composite Outcome", route: "/form-j" },
 
   { key: "form_k", label: "Form K - MRI Brain Assessment", route: "/form-k" },
