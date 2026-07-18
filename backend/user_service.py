@@ -62,6 +62,6 @@ def seed_login_users(db: Session) -> int:
     with open(out_path, "w") as f:
         f.write("username,full_name,role,site_name,temp_password\n")
         for row in created_rows:
-            f.write(",".join(row) + "\n")
+            f.write(",".join(field if field is not None else "" for field in row) + "\n")
 
     return len(created_rows)

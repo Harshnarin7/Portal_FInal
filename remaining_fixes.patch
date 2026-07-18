@@ -1,0 +1,89 @@
+diff --git a/.gitignore b/.gitignore
+index 329d571..aef668d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -9,6 +9,9 @@ frontend-app/.env
+ frontend-app/.env.local
+ frontend-app/.env.production
+ 
++# Login credential dumps — plaintext temp passwords, never commit these
++backend/credentials/
++
+ # Database files — NEVER commit SQLite or any DB dump
+ *.db
+ *.sqlite
+diff --git a/backend/user_seed.py b/backend/user_seed.py
+index bc3b90f..70755d7 100644
+--- a/backend/user_seed.py
++++ b/backend/user_seed.py
+@@ -1,20 +1,26 @@
+ """
+ Login accounts seeded from PORTAL_Site_Research_Staff_List.pdf.
+ 
+-Only covers the roles we have real names for: site_scientist (the PDF's
+-"Research Scientist" per site) and nurse. It deliberately does NOT invent
+-accounts for superadmin, project_scientist (head), or site_pi — those
+-names haven't been supplied yet. Add them here once you have them; the
+-seeder is idempotent (skips usernames that already exist).
++Covers: superadmin — no; project_scientist (nodal scientist, Mannat
++Guliani) — yes; site_scientist (the PDF's "Research Scientist" per site)
++— yes; nurse — yes. site_pi accounts are intentionally NOT created —
++per project decision, individual site PI logins are not being set up.
++The seeder is idempotent (skips usernames that already exist; re-run
++seed_all_users.py-style scripts separately if you also need to correct
++roles on already-created accounts).
+ 
+ AFMC has no staff listed in the source PDF and is intentionally absent
+ from DEFAULT_LOGIN_USERS below.
+ 
+ username = firstname.sitecode, lowercase, no spaces/periods within the name.
++The nodal scientist has no site, so her username has no site suffix.
+ """
+ 
+ # (username, full_name, role, site_name)
+-DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str]] = [
++DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str | None]] = [
++    # ---- Nodal / Project Scientist (head, global read across all sites) ----
++    ("mannat", "Mannat Guliani", "project_scientist", None),
++
+     # ---- PGIMER Chandigarh ----
+     ("shalini.pgimer", "Dr. Shalini Dhiman", "site_scientist", "PGIMER"),
+     ("geetika.pgimer", "Geetika", "nurse", "PGIMER"),
+diff --git a/backend/user_service.py b/backend/user_service.py
+index a91d60f..7ef2908 100644
+--- a/backend/user_service.py
++++ b/backend/user_service.py
+@@ -62,6 +62,6 @@ def seed_login_users(db: Session) -> int:
+     with open(out_path, "w") as f:
+         f.write("username,full_name,role,site_name,temp_password\n")
+         for row in created_rows:
+-            f.write(",".join(row) + "\n")
++            f.write(",".join(field if field is not None else "" for field in row) + "\n")
+ 
+     return len(created_rows)
+diff --git a/nginx.conf b/nginx.conf
+index cb9c449..174f08d 100644
+--- a/nginx.conf
++++ b/nginx.conf
+@@ -1,3 +1,21 @@
++# ── API subdomain — proxies bare backend paths (mobile app + REACT_APP_API_URL) ─
++# Matches deploy.sh / .env.example's REACT_APP_API_URL=https://api.portaltrial.in.
++# Requires a DNS "A" record for api.portaltrial.in pointing at this server's IP
++# before this block will do anything (it doesn't create the DNS record itself).
++server {
++    listen 80;
++    server_name api.portaltrial.in;
++
++    location / {
++        proxy_pass http://127.0.0.1:8000/;
++        proxy_set_header Host $host;
++        proxy_set_header X-Real-IP $remote_addr;
++        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++        proxy_set_header X-Forwarded-Proto $scheme;
++        proxy_read_timeout 120s;
++    }
++}
++
+ server {
+     listen 80;
+     server_name portaltrial.in www.portaltrial.in;  # ← replace with your domain or EC2 public IP

@@ -9,6 +9,9 @@ frontend-app/.env
 frontend-app/.env.local
 frontend-app/.env.production
 
+# Login credential dumps — plaintext temp passwords, never commit these
+backend/credentials/
+
 # Database files — NEVER commit SQLite or any DB dump
 *.db
 *.sqlite

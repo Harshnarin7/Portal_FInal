@@ -1,20 +1,26 @@
 """
 Login accounts seeded from PORTAL_Site_Research_Staff_List.pdf.
 
-Only covers the roles we have real names for: site_scientist (the PDF's
-"Research Scientist" per site) and nurse. It deliberately does NOT invent
-accounts for superadmin, project_scientist (head), or site_pi — those
-names haven't been supplied yet. Add them here once you have them; the
-seeder is idempotent (skips usernames that already exist).
+Covers: superadmin — no; project_scientist (nodal scientist, Mannat
+Guliani) — yes; site_scientist (the PDF's "Research Scientist" per site)
+— yes; nurse — yes. site_pi accounts are intentionally NOT created —
+per project decision, individual site PI logins are not being set up.
+The seeder is idempotent (skips usernames that already exist; re-run
+seed_all_users.py-style scripts separately if you also need to correct
+roles on already-created accounts).
 
 AFMC has no staff listed in the source PDF and is intentionally absent
 from DEFAULT_LOGIN_USERS below.
 
 username = firstname.sitecode, lowercase, no spaces/periods within the name.
+The nodal scientist has no site, so her username has no site suffix.
 """
 
 # (username, full_name, role, site_name)
-DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str]] = [
+DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str | None]] = [
+    # ---- Nodal / Project Scientist (head, global read across all sites) ----
+    ("mannat", "Mannat Guliani", "project_scientist", None),
+
     # ---- PGIMER Chandigarh ----
     ("shalini.pgimer", "Dr. Shalini Dhiman", "site_scientist", "PGIMER"),
     ("geetika.pgimer", "Geetika", "nurse", "PGIMER"),
