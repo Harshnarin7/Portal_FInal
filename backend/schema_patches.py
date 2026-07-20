@@ -183,3 +183,57 @@ def apply_schema_patches(engine: Engine) -> None:
             conn.execute(text(stmt))
         for stmt in USERS_COLUMN_PATCHES:
             conn.execute(text(stmt))
+        for stmt in MATERNAL_DETAILS_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in POSTNATAL_DAY1_COLUMN_PATCHES_V2:
+            conn.execute(text(stmt))
+        for stmt in NICU_ADMISSION_COLUMN_PATCHES_V2:
+            conn.execute(text(stmt))
+        for stmt in INFECT_GI_HEMA_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+
+# New fields added post-July-15 deploy — found missing in production 2026-07-19
+# (caused 500 errors on Form D load, Form B NICU fields, Helper 3 day logs)
+MATERNAL_DETAILS_COLUMN_PATCHES = [
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS artificial_other VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_courses VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS lddi_known VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_tachycardia VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_abdominal_tenderness VARCHAR",
+]
+
+POSTNATAL_DAY1_COLUMN_PATCHES_V2 = [
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS lisa_catheter_type VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS device_type_other VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS surfactant_brand_other VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS adverse_type_other VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_loading BOOLEAN",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_loading_abs DOUBLE PRECISION",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_maint_abs DOUBLE PRECISION",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_date DATE",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_time VARCHAR",
+]
+
+NICU_ADMISSION_COLUMN_PATCHES_V2 = [
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS temp_dr DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_cpap DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_pip DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_peep DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_map DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_cpap DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_pip DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_peep DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_map DOUBLE PRECISION",
+]
+
+INFECT_GI_HEMA_COLUMN_PATCHES = [
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS meningitis BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS meningitis_type VARCHAR",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS men BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS enteral_feeds_received BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS feed_type VARCHAR",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cumulative_feed_volume DOUBLE PRECISION",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS iv_fluids BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cholestasis BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS hb_value DOUBLE PRECISION",
+]

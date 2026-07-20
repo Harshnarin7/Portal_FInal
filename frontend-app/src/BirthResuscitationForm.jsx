@@ -601,8 +601,8 @@ export default function BirthResuscitationForm() {
     const fd = formDataRef.current;
     const existingId = getStoredId("current_enrollment_id");
 
-    /* Don't create a new DB row until the nurse has entered a baby_uid */
-    if (!existingId && !fd.baby_uid) return;
+    /* Don't create a new DB row until both baby_uid AND enrollment_id are entered */
+    if (!existingId && (!fd.baby_uid || !fd.enrollment_id)) return;
 
     if (!navigator.onLine) {
       setOfflineQueue(true);
@@ -650,6 +650,7 @@ export default function BirthResuscitationForm() {
     const ok = await saveForm();
     if(!ok) return;
     const eid = getStoredId("current_enrollment_id");
+    if(!eid) { setMessage("❌ Enrollment ID not saved — please re-enter and save before proceeding"); return; }
     const key = `completedForms_${eid}`;
     const ex  = JSON.parse(localStorage.getItem(key)||"[]");
     if(!ex.includes("form_b")) localStorage.setItem(key,JSON.stringify([...ex,"form_b"]));
@@ -688,7 +689,11 @@ export default function BirthResuscitationForm() {
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
         }));
         setIsFormBLoaded(true); setIsSaved(true);
-      }).catch(()=>{});
+      }).catch(err => {
+        if (err?.response?.status !== 404) {
+          setMessage("⚠️ Could not load saved Form B data — please refresh the page.");
+        }
+      });
   },[]);
 
   useEffect(()=>{

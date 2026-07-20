@@ -215,10 +215,26 @@ app.add_middleware(
 # HELPER FUNCTIONS
 # ============================================================================
 
-def generate_screening_id(site_id: str):
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    return f"{site_id}-{timestamp}-{random_suffix}"
+def generate_screening_id(site_id: str, db: Session):
+    # Sequential per-site IDs: "<site_id>-0001", "<site_id>-0002", ...
+    # Uses a row lock on the highest existing ID for this site so two nurses
+    # screening at the same site simultaneously can't be handed the same
+    # number (Postgres FOR UPDATE blocks the second request until the first
+    # transaction commits, rather than both computing the same next number).
+    prefix = f"{site_id}-"
+    existing = (
+        db.query(Screening.screening_id)
+        .filter(Screening.screening_id.like(f"{prefix}%"))
+        .order_by(Screening.screening_id.desc())
+        .with_for_update()
+        .first()
+    )
+    next_number = 1
+    if existing:
+        suffix = existing[0][len(prefix):]
+        if suffix.isdigit():
+            next_number = int(suffix) + 1
+    return f"{prefix}{next_number:04d}"
 
 def compute_screening_status(data):
     if data.gestation_weeks is None:
@@ -407,10 +423,46 @@ def create_screening(
 ):
     ensure_same_site(screening.site_name, current_user)
     try:
-        screening_id = screening.screening_id or generate_screening_id(screening.site_id)
+        screening_id = screening.screening_id or generate_screening_id(screening.site_id, db)
         enrollment_id = screening.enrollment_id
         status = compute_screening_status(screening)
         pii_payload = extract_screening_pii(screening.model_dump())
+
+        # Upsert: autosave may have already created this record; update it instead of re-inserting
+        existing = db.query(Screening).filter(Screening.screening_id == screening_id).first()
+        if existing:
+            old_snapshot = row_snapshot(existing)
+            update_data = screening.model_dump(exclude_unset=True)
+            update_data.pop("screening_id", None)
+            for key, value in update_data.items():
+                if hasattr(existing, key) and key not in ("id", "created_at"):
+                    setattr(existing, key, value)
+            existing.screening_status = status
+            clear_screening_pii_columns(existing)
+            stamp_updated(existing, current_user)
+            if pii_payload:
+                upsert_participant_pii(
+                    db,
+                    enrollment_id=existing.enrollment_id or enrollment_id,
+                    screening_id=screening_id,
+                    site_name=existing.site_name,
+                    **pii_payload,
+                )
+            record_audit(
+                db,
+                user_id=current_user.id,
+                username=current_user.username,
+                action="UPDATE",
+                table_name="screenings",
+                record_id=existing.id,
+                enrollment_id=existing.enrollment_id,
+                screening_id=screening_id,
+                old_values=old_snapshot,
+                new_values=row_snapshot(existing),
+            )
+            db.commit()
+            db.refresh(existing)
+            return existing
 
         db_screening = Screening(
             screening_id=screening_id,
@@ -676,6 +728,8 @@ def create_birth_resuscitation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not data.enrollment_id:
+        raise HTTPException(status_code=422, detail="enrollment_id is required — please enter it before saving Form B")
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
@@ -2217,153 +2271,9 @@ def _infect_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# ── GET records (cross-patient list — Helper Form Records page) ──────────────
-@app.get("/infect-gi-hema/records", response_model=HelperFormRecordsPage)
-def list_infect_gi_hema_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",   # today | yesterday | last7 | all
-    status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
-):
-    """List Helper Form 3 (Infection/GI/Hematology) daily-log records across
-    patients, for the day-to-day work queue. 'Today' is derived from
-    date_of_birth + (nicu_day - 1), matching the calendar date the form itself
-    computes for each NICU day — not the row's created_at/updated_at, which
-    only reflects when it was last edited."""
-    per_page = min(max(per_page, 1), 100)
-    page = max(page, 1)
-
-    screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
-    if not is_superadmin(current_user):
-        screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
-    elif site:
-        screening_query = screening_query.filter(Screening.site_name == site)
-
-    accessible = {s.enrollment_id: s for s in screening_query.all() if s.enrollment_id}
-    if not accessible:
-        return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
-
-    logs = (
-        db.query(InfectGIHemaDayLog)
-        .filter(InfectGIHemaDayLog.enrollment_id.in_(accessible.keys()))
-        .all()
-    )
-
-    dob_map = {
-        r.enrollment_id: r.date_of_birth
-        for r in db.query(BirthResuscitation.enrollment_id, BirthResuscitation.date_of_birth)
-        .filter(BirthResuscitation.enrollment_id.in_(accessible.keys()))
-        .all()
-    }
-
-    pii_map = {}
-    for p in db.query(ParticipantPII).filter(ParticipantPII.enrollment_id.in_(accessible.keys())).all():
-        screening = accessible.get(p.enrollment_id)
-        site_name = screening.site_name if screening else None
-        if can_view_pii_for_site(current_user, site_name):
-            name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
-            pii_map[p.enrollment_id] = name or None
-
-    today = date.today()
-    if date_filter == "today":
-        date_range = (today, today)
-    elif date_filter == "yesterday":
-        y = today - timedelta(days=1)
-        date_range = (y, y)
-    elif date_filter == "last7":
-        date_range = (today - timedelta(days=6), today)
-    else:
-        date_range = None
-
-    status_pending = {"empty", "draft", "complete", "late"}
-    search_lower = search.strip().lower()
-
-    rows: list[HelperFormRecordOut] = []
-    for log in logs:
-        screening = accessible.get(log.enrollment_id)
-        dob = dob_map.get(log.enrollment_id)
-        calendar_date = (dob + timedelta(days=log.nicu_day - 1)) if dob else None
-
-        if date_range and (calendar_date is None or not (date_range[0] <= calendar_date <= date_range[1])):
-            continue
-
-        log_status = log.submission_status or "empty"
-        if status == "pending" and log_status not in status_pending:
-            continue
-        if status == "completed" and log_status != "submitted":
-            continue
-        if status not in ("all", "pending", "completed") and log_status != status:
-            continue
-
-        mother_name = pii_map.get(log.enrollment_id)
-
-        if search_lower:
-            haystack = " ".join(filter(None, [
-                log.enrollment_id,
-                screening.screening_id if screening else None,
-                mother_name,
-            ])).lower()
-            if search_lower not in haystack:
-                continue
-
-        rows.append(HelperFormRecordOut(
-            enrollment_id=log.enrollment_id,
-            screening_id=screening.screening_id if screening else None,
-            site_name=screening.site_name if screening else None,
-            nicu_day=log.nicu_day,
-            calendar_date=calendar_date,
-            mother_name=mother_name,
-            submission_status=log_status,
-            completion_pct=_infect_completion_pct(log),
-            saved_at=log.saved_at,
-            saved_by=log.saved_by,
-            submitted_at=log.submitted_at,
-            submitted_by=log.submitted_by,
-            created_at=log.created_at,
-            updated_at=log.updated_at,
-        ))
-
-    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
-
-    total = len(rows)
-    start = (page - 1) * per_page
-    page_rows = rows[start:start + per_page]
-
-    if total >= 50:
-        security_monitor.record_bulk_access(
-            current_user.username,
-            "/infect-gi-hema/records",
-            total,
-            get_remote_address(request),
-        )
-
-    return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
-
-
-# ── GET latest update (lightweight polling for "new records" banner) ─────────
-@app.get("/infect-gi-hema/records/latest-update")
-def get_infect_gi_hema_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Returns the most recent updated_at across accessible Helper Form 3 day
-    logs, so the frontend can detect newly-synced or edited records with a
-    cheap poll instead of re-fetching the full list."""
-    query = (
-        db.query(func.max(InfectGIHemaDayLog.updated_at))
-        .join(Screening, Screening.enrollment_id == InfectGIHemaDayLog.enrollment_id)
-        .filter(Screening.is_deleted.isnot(True))
-    )
-    if not is_superadmin(current_user):
-        query = query.filter(Screening.site_name == current_user.site_name)
-    return {"latest_updated_at": query.scalar()}
-
-
+# â”€â”€ GET summary (all days â€” for timeline status indicators) â”€â”€â”€
+# NOTE: this must be declared BEFORE the "/{nicu_day}" route below, otherwise
+# FastAPI matches "summary" against the int path param first and returns 422.
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
 def get_infect_gi_hema_summary(
     enrollment_id: str,
@@ -2576,153 +2486,6 @@ def _metab_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
  
  
-# ── GET records (cross-patient list — Helper Form Records page) ──────────────
-@app.get("/metab-renal-vasc-eye/records", response_model=HelperFormRecordsPage)
-def list_metab_renal_vasc_eye_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",   # today | yesterday | last7 | all
-    status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
-):
-    """List Helper Form 4 (Metabolic/Renal/Vascular/Eye) daily-log records
-    across patients, for the day-to-day work queue. 'Today' is derived from
-    date_of_birth + (nicu_day - 1), matching the calendar date the form itself
-    computes for each NICU day — not the row's created_at/updated_at, which
-    only reflects when it was last edited."""
-    per_page = min(max(per_page, 1), 100)
-    page = max(page, 1)
-
-    screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
-    if not is_superadmin(current_user):
-        screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
-    elif site:
-        screening_query = screening_query.filter(Screening.site_name == site)
-
-    accessible = {s.enrollment_id: s for s in screening_query.all() if s.enrollment_id}
-    if not accessible:
-        return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
-
-    logs = (
-        db.query(MetabRenalVascEyeDayLog)
-        .filter(MetabRenalVascEyeDayLog.enrollment_id.in_(accessible.keys()))
-        .all()
-    )
-
-    dob_map = {
-        r.enrollment_id: r.date_of_birth
-        for r in db.query(BirthResuscitation.enrollment_id, BirthResuscitation.date_of_birth)
-        .filter(BirthResuscitation.enrollment_id.in_(accessible.keys()))
-        .all()
-    }
-
-    pii_map = {}
-    for p in db.query(ParticipantPII).filter(ParticipantPII.enrollment_id.in_(accessible.keys())).all():
-        screening = accessible.get(p.enrollment_id)
-        site_name = screening.site_name if screening else None
-        if can_view_pii_for_site(current_user, site_name):
-            name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
-            pii_map[p.enrollment_id] = name or None
-
-    today = date.today()
-    if date_filter == "today":
-        date_range = (today, today)
-    elif date_filter == "yesterday":
-        y = today - timedelta(days=1)
-        date_range = (y, y)
-    elif date_filter == "last7":
-        date_range = (today - timedelta(days=6), today)
-    else:
-        date_range = None
-
-    status_pending = {"empty", "draft", "complete", "late"}
-    search_lower = search.strip().lower()
-
-    rows: list[HelperFormRecordOut] = []
-    for log in logs:
-        screening = accessible.get(log.enrollment_id)
-        dob = dob_map.get(log.enrollment_id)
-        calendar_date = (dob + timedelta(days=log.nicu_day - 1)) if dob else None
-
-        if date_range and (calendar_date is None or not (date_range[0] <= calendar_date <= date_range[1])):
-            continue
-
-        log_status = log.submission_status or "empty"
-        if status == "pending" and log_status not in status_pending:
-            continue
-        if status == "completed" and log_status != "submitted":
-            continue
-        if status not in ("all", "pending", "completed") and log_status != status:
-            continue
-
-        mother_name = pii_map.get(log.enrollment_id)
-
-        if search_lower:
-            haystack = " ".join(filter(None, [
-                log.enrollment_id,
-                screening.screening_id if screening else None,
-                mother_name,
-            ])).lower()
-            if search_lower not in haystack:
-                continue
-
-        rows.append(HelperFormRecordOut(
-            enrollment_id=log.enrollment_id,
-            screening_id=screening.screening_id if screening else None,
-            site_name=screening.site_name if screening else None,
-            nicu_day=log.nicu_day,
-            calendar_date=calendar_date,
-            mother_name=mother_name,
-            submission_status=log_status,
-            completion_pct=_metab_completion_pct(log),
-            saved_at=log.saved_at,
-            saved_by=log.saved_by,
-            submitted_at=log.submitted_at,
-            submitted_by=log.submitted_by,
-            created_at=log.created_at,
-            updated_at=log.updated_at,
-        ))
-
-    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
-
-    total = len(rows)
-    start = (page - 1) * per_page
-    page_rows = rows[start:start + per_page]
-
-    if total >= 50:
-        security_monitor.record_bulk_access(
-            current_user.username,
-            "/metab-renal-vasc-eye/records",
-            total,
-            get_remote_address(request),
-        )
-
-    return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
-
-
-# ── GET latest update (lightweight polling for "new records" banner) ─────────
-@app.get("/metab-renal-vasc-eye/records/latest-update")
-def get_metab_renal_vasc_eye_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Returns the most recent updated_at across accessible Helper Form 4 day
-    logs, so the frontend can detect newly-synced or edited records with a
-    cheap poll instead of re-fetching the full list."""
-    query = (
-        db.query(func.max(MetabRenalVascEyeDayLog.updated_at))
-        .join(Screening, Screening.enrollment_id == MetabRenalVascEyeDayLog.enrollment_id)
-        .filter(Screening.is_deleted.isnot(True))
-    )
-    if not is_superadmin(current_user):
-        query = query.filter(Screening.site_name == current_user.site_name)
-    return {"latest_updated_at": query.scalar()}
-
-
 @app.get("/metab-renal-vasc-eye/{enrollment_id}/summary")
 def get_metab_renal_vasc_eye_summary(
     enrollment_id: str,
