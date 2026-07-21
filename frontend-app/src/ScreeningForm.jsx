@@ -14,21 +14,24 @@ import {
 import { useFormProgress } from "./context/FormProgressContext";
 import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 
-/* ─── YesNoToggle (with disabled support) ─────────────────── */
+/* ─── YesNoToggle — animated sliding segment ──────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val } });
   };
+  // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
+  const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
       <span className="yes-no-label">{label}</span>
-      <div className="yes-no-buttons">
+      <div className={`yes-no-buttons yn-pos-${pos}`}>
+        <div className="yn-thumb" aria-hidden="true" />
         <button type="button"
-          className={`yn-btn yn-yes${value === "Yes" ? " yn-active-yes" : ""}`}
+          className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`}
           onClick={() => fire("Yes")} disabled={disabled}>YES</button>
         <button type="button"
-          className={`yn-btn yn-no${value === "No" ? " yn-active-no" : ""}`}
+          className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`}
           onClick={() => fire("No")} disabled={disabled}>NO</button>
       </div>
     </div>

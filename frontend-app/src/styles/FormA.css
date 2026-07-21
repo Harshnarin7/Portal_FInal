@@ -331,6 +331,7 @@
 }
 
 /* ─── YES / NO TOGGLE ─────────────────────────────────────── */
+.form-section-body .yes-no-toggle,
 .yes-no-toggle {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 0; border-bottom: 1px solid #f3f4f6;
@@ -345,20 +346,32 @@
   flex: 1; line-height: 1.45; padding-right: 16px;
 }
 .yes-no-buttons {
-  display: flex; align-items: center; flex-shrink: 0;
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  position: relative;
   border: 1.5px solid #d1d5db; border-radius: 7px; overflow: hidden;
+  background: #fff;
+  width: 104px; /* 2 × 52px — explicit, so it can't inherit a stretched width from a parent set to display:block by another form's stylesheet */
 }
+.yn-thumb {
+  position: absolute; top: 0; left: 0;
+  width: 52px; height: 32px;
+  background: #1e3a5f;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s;
+  transform: translateX(-100%); /* hidden off-screen until a value is chosen */
+}
+.yes-no-buttons.yn-pos-1 .yn-thumb { transform: translateX(0); background: #1e3a5f; }
+.yes-no-buttons.yn-pos-2 .yn-thumb { transform: translateX(52px); background: #2563eb; }
 .yn-btn {
-  height: 32px; padding: 0 16px;
+  position: relative; z-index: 1;
+  width: 52px; height: 32px; padding: 0;
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-  border: none; background: #fff; color: #9ca3af;
-  cursor: pointer; transition: all 0.12s;
+  border: none; background: transparent; color: #9ca3af;
+  cursor: pointer; transition: color 0.15s;
   font-family: 'Inter', system-ui, sans-serif;
 }
 .yn-btn:first-child { border-right: 1.5px solid #d1d5db; }
-.yn-btn:hover:not(:disabled) { background: #f9fafb; color: #374151; }
-.yn-btn.yn-active-yes { background: #1e3a5f; color: #fff; }
-.yn-btn.yn-active-no  { background: #2563eb; color: #fff; }
+.yn-btn:hover:not(:disabled):not(.yn-active) { color: #374151; }
+.yn-btn.yn-active { color: #fff; }
 .yn-btn:disabled      { cursor: not-allowed; }
 
 /* ─── FOLLOW-UP BOX ───────────────────────────────────────── */
