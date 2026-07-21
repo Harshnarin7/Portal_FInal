@@ -248,8 +248,15 @@ def compute_screening_status(data):
     
     if data.consent_given == "Yes":
         return "Eligible"
-    
-    return "Not Eligible"
+
+    if data.consent_given in ("No", "Not approached"):
+        return "Not Eligible"
+
+    # Consent hasn't been captured yet (mid-form / autosaved draft) —
+    # this is NOT a final "Not Eligible" decision, so don't mark it as
+    # excluded. Leave it as Pending until the screener actually reaches
+    # and answers the consent step.
+    return "Pending"
 
 def get_accessible_screening_query(db: Session, user: User):
     query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
