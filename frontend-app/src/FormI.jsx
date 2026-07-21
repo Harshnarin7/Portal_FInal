@@ -132,17 +132,14 @@ completion_date: "",
 useEffect(() => {
   const fetchData = async () => {
     try {
-      const screeningId = localStorage.getItem("current_screening_id");
-      const enrollmentId = localStorage.getItem("current_enrollment_id");
-
-      console.log("Screening ID:", screeningId);
-      console.log("Enrollment ID:", enrollmentId);
-
-      // ✅ SCREENING DATA (FIXED)
+      // Use THIS page's own enrollment_id (from the URL), not whatever
+      // screening/enrollment happens to be cached in localStorage from the
+      // last record you viewed elsewhere — that was leaking another
+      // patient's data into this form.
       let screeningData = {};
       try {
         const res = await api.get(
-          `/screenings/by-screening-id/${screeningId}`
+          `/screenings/by-enrollment/${enrollmentId}`
         );
         screeningData = res.data || {};
         console.log("SCREENING:", screeningData);

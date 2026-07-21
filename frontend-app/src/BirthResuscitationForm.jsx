@@ -71,6 +71,7 @@ export default function BirthResuscitationForm() {
   const navigate = useNavigate();
   const { markFormCompleted } = useFormProgress();
   const { screeningId } = useParams();
+  const [confirmedEnrollmentId, setConfirmedEnrollmentId] = useState(null);
   const { updatePatientData } = usePatient();
 
   /* ── State ── */
@@ -659,8 +660,8 @@ export default function BirthResuscitationForm() {
 
   /* ── Load data ── */
   useEffect(()=>{
-    const eid=getStoredId("current_enrollment_id");
-    if(!eid) return;
+    if(!confirmedEnrollmentId) return;
+    const eid = confirmedEnrollmentId;
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;
@@ -694,7 +695,7 @@ export default function BirthResuscitationForm() {
           setMessage("⚠️ Could not load saved Form B data — please refresh the page.");
         }
       });
-  },[]);
+  },[confirmedEnrollmentId]);
 
   useEffect(()=>{
     if(!screeningId) return;
@@ -717,6 +718,21 @@ export default function BirthResuscitationForm() {
           contact_husband: pii.husband_contact||pii.contact_husband||"",
         });
         setSiteName(d.site_name || "");
+
+        // Reconcile the cached enrollment id with THIS screening — don't
+        // let a stale id from a different, previously-viewed patient carry
+        // over. If this screening already has its own enrollment_id (e.g.
+        // re-opening an already-enrolled patient), trust that and refresh
+        // the cache. If it doesn't (a brand-new/unenrolled screening, like
+        // one just created on mobile), clear the cache so the "load saved
+        // Form B data" effect below can't pick up someone else's record.
+        if (d.enrollment_id) {
+          setStoredId("current_enrollment_id", d.enrollment_id);
+          setConfirmedEnrollmentId(d.enrollment_id);
+        } else {
+          localStorage.removeItem("current_enrollment_id");
+          setConfirmedEnrollmentId(null);
+        }
       }catch(e){console.error(e);}
     };
     fetch();

@@ -346,7 +346,16 @@ export default function FormE() {
           return "";
         };
         let motherName = "";
-        const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
+        // Same fix as FormD: don't fall back to a stale, globally-cached
+        // screening_id from a different patient when Form B doesn't have
+        // one yet for this enrollment.
+        let screeningId = b?.screening_id;
+        if (!screeningId) {
+          try {
+            const ownScreening = await api.get(`/screenings/by-enrollment/${enrollmentId}`);
+            screeningId = ownScreening.data?.screening_id;
+          } catch (_) {}
+        }
         if (screeningId) {
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);

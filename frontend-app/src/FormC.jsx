@@ -213,16 +213,22 @@ export default function FormC() {
     const fetchData = async () => {
       try {
         if (!enrollmentId) return;
-        const screeningId = localStorage.getItem("current_screening_id");
         let formAData = null, formCData = null;
-        if (screeningId) {
-          try {
-            const resA = await api.get(`/screenings/${screeningId}`);
-            formAData = resA.data;
-            const piiRes = await api.get(`/pii/screening/${screeningId}`);
-            formAData = { ...formAData, ...piiRes.data };
-          } catch (_) {}
-        }
+        // Look up THIS enrollment's own screening record (Form A) — not
+        // whatever screening_id happens to be cached in localStorage from
+        // the last screening you viewed elsewhere in the app. Using the
+        // stale global value here was pulling a different patient's
+        // Form A data into this Form C.
+        try {
+          const resA = await api.get(`/screenings/by-enrollment/${enrollmentId}`);
+          formAData = resA.data;
+          if (formAData?.screening_id) {
+            try {
+              const piiRes = await api.get(`/pii/screening/${formAData.screening_id}`);
+              formAData = { ...formAData, ...piiRes.data };
+            } catch (_) {}
+          }
+        } catch (_) {}
         try {
           const resC = await api.get(`/maternal-details/${enrollmentId}`);
           if (resC.data) { formCData = resC.data; setIsFormCLoaded(true); }

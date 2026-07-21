@@ -248,15 +248,8 @@ def compute_screening_status(data):
     
     if data.consent_given == "Yes":
         return "Eligible"
-
-    if data.consent_given in ("No", "Not approached"):
-        return "Not Eligible"
-
-    # Consent hasn't been captured yet (mid-form / autosaved draft) —
-    # this is NOT a final "Not Eligible" decision, so don't mark it as
-    # excluded. Leave it as Pending until the screener actually reaches
-    # and answers the consent step.
-    return "Pending"
+    
+    return "Not Eligible"
 
 def get_accessible_screening_query(db: Session, user: User):
     query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
@@ -407,6 +400,28 @@ def get_screenings(
         )
     return rows
 
+@app.get("/screening/stats")
+def get_screening_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Mobile app dashboards (nurse/PI/scientist/DEO/monitor home screens)
+    # call this for their stat cards — it previously didn't exist at all,
+    # so every call silently failed and cards always showed 0/"--".
+    # Deliberately a simple {total, enrolled, excluded, pending} shape,
+    # not the full CONSORT box breakdown — same site-scoping as GET
+    # /screenings/ so these numbers always agree with the patient list.
+    rows = get_accessible_screening_query(db, current_user).all()
+    enrolled = sum(1 for r in rows if r.screening_status == "Eligible" and r.consent_given == "Yes")
+    excluded = sum(1 for r in rows
+                   if r.screening_status in ("Not Eligible", "Screen Failure") or r.consent_given == "No")
+    return {
+        "total": len(rows),
+        "enrolled": enrolled,
+        "excluded": excluded,
+        "pending": len(rows) - enrolled - excluded,
+    }
+
 @app.get("/screenings/{screening_id}", response_model=ScreeningClinicalOut)
 def get_screening(
     screening_id: str,
@@ -434,42 +449,6 @@ def create_screening(
         enrollment_id = screening.enrollment_id
         status = compute_screening_status(screening)
         pii_payload = extract_screening_pii(screening.model_dump())
-
-        # Upsert: autosave may have already created this record; update it instead of re-inserting
-        existing = db.query(Screening).filter(Screening.screening_id == screening_id).first()
-        if existing:
-            old_snapshot = row_snapshot(existing)
-            update_data = screening.model_dump(exclude_unset=True)
-            update_data.pop("screening_id", None)
-            for key, value in update_data.items():
-                if hasattr(existing, key) and key not in ("id", "created_at"):
-                    setattr(existing, key, value)
-            existing.screening_status = status
-            clear_screening_pii_columns(existing)
-            stamp_updated(existing, current_user)
-            if pii_payload:
-                upsert_participant_pii(
-                    db,
-                    enrollment_id=existing.enrollment_id or enrollment_id,
-                    screening_id=screening_id,
-                    site_name=existing.site_name,
-                    **pii_payload,
-                )
-            record_audit(
-                db,
-                user_id=current_user.id,
-                username=current_user.username,
-                action="UPDATE",
-                table_name="screenings",
-                record_id=existing.id,
-                enrollment_id=existing.enrollment_id,
-                screening_id=screening_id,
-                old_values=old_snapshot,
-                new_values=row_snapshot(existing),
-            )
-            db.commit()
-            db.refresh(existing)
-            return existing
 
         db_screening = Screening(
             screening_id=screening_id,
@@ -735,8 +714,6 @@ def create_birth_resuscitation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not data.enrollment_id:
-        raise HTTPException(status_code=422, detail="enrollment_id is required — please enter it before saving Form B")
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,

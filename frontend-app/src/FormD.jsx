@@ -384,7 +384,18 @@ export default function FormD() {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
         let motherName = "";
-        const screeningId = b?.screening_id || localStorage.getItem("current_screening_id");
+        // If Form B hasn't been created yet for this enrollment, b.screening_id
+        // won't exist — look up THIS enrollment's own screening record rather
+        // than falling back to whatever screening_id is cached in localStorage
+        // from the last patient viewed elsewhere (that was leaking their name
+        // and site into this form).
+        let screeningId = b?.screening_id;
+        if (!screeningId) {
+          try {
+            const ownScreening = await api.get(`/screenings/by-enrollment/${enrollmentId}`);
+            screeningId = ownScreening.data?.screening_id;
+          } catch (_) {}
+        }
         let siteName = "";
         if (screeningId) {
           try {
