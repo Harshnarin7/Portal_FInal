@@ -558,6 +558,16 @@ def update_screening(
         for key, value in update_data.items():
             setattr(entry, key, value)
 
+        # FIX: screening_status was only ever computed once, at creation
+        # (compute_screening_status() call in create_screening). Every
+        # subsequent update — including the nurse finishing the form after
+        # an early/incomplete autosave — applied field changes but left
+        # the ORIGINAL status frozen. A screening whose first autosave fired
+        # before gestation_weeks/consent were filled in would get stuck
+        # showing "Screen Failure"/"Not Eligible" forever, even once fully
+        # and correctly completed as eligible. Recompute on every save.
+        entry.screening_status = compute_screening_status(entry)
+
         clear_screening_pii_columns(entry)
         stamp_updated(entry, current_user)
 
