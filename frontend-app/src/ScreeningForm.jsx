@@ -437,7 +437,7 @@ export default function ScreeningForm() {
     /* GA range validation */
     if (name === "best_ga_weeks") {
       const n = parseInt(value);
-      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be 10–45 weeks" : "";
+      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be 25–31 weeks" : "";
       setErrors(newErrors);
     }
     if (name === "best_ga_days") {
