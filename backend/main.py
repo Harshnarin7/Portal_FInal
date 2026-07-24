@@ -270,11 +270,6 @@ def get_accessible_screening_query(db: Session, user: User):
     return query
 
 def require_enrollment_access(enrollment_id: str, db: Session, user: User):
-    if not enrollment_id or not enrollment_id.strip():
-        raise HTTPException(
-            status_code=422,
-            detail="enrollment_id is required — this form can't be saved until randomization assigns one.",
-        )
     screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
     if screening:
         ensure_same_site(screening.site_name, user)
@@ -555,56 +550,6 @@ def create_screening(
         except IntegrityError as e:
             db.rollback()
             is_screening_id_collision = "ix_screenings_screening_id" in str(e) or "screening_id" in str(e)
-
-            # FIX: previously, a client-supplied screening_id that collided
-            # was always a hard 400 error — this is exactly what happens
-            # when the mobile app's first save actually succeeded on the
-            # server, but the client never received/confirmed that success
-            # (dropped connection, timeout, app backgrounded mid-request,
-            # etc.) and then retries with the same locally-cached ID. That
-            # should be treated as "this save already happened, apply the
-            # latest data to it" — an upsert — not a crash the nurse has to
-            # manually recover from.
-            if client_supplied_id and is_screening_id_collision:
-                existing = get_accessible_screening_query(db, current_user).filter(
-                    Screening.screening_id == screening.screening_id
-                ).first()
-                if existing is not None:
-                    update_data = screening.model_dump(exclude_unset=True)
-                    update_data.pop("screening_id", None)
-                    pii_payload_retry = extract_screening_pii(update_data)
-                    for field in SCREENING_PII_FIELDS:
-                        update_data.pop(field, None)
-                    if pii_payload_retry:
-                        upsert_participant_pii(
-                            db,
-                            enrollment_id=existing.enrollment_id or screening.enrollment_id,
-                            screening_id=existing.screening_id,
-                            site_name=existing.site_name or screening.site_name,
-                            **pii_payload_retry,
-                        )
-                    for key, value in update_data.items():
-                        setattr(existing, key, value)
-                    existing.screening_status = compute_screening_status(existing)
-                    stamp_updated(existing, current_user)
-                    record_audit(
-                        db,
-                        user_id=current_user.id,
-                        username=current_user.username,
-                        action="UPDATE",
-                        table_name="screenings",
-                        record_id=existing.id,
-                        enrollment_id=existing.enrollment_id,
-                        screening_id=existing.screening_id,
-                        new_values=row_snapshot(existing),
-                    )
-                    db.commit()
-                    db.refresh(existing)
-                    return existing
-                # Existing row belongs to a different site / isn't
-                # accessible to this user — a real collision, not a retry.
-                # Fall through to the hard-error path below.
-
             if client_supplied_id or not is_screening_id_collision or attempt == max_attempts - 1:
                 logger.error(f"SCREENING ERROR: {e}")
                 raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
@@ -813,12 +758,20 @@ def get_screening_by_enrollment(
 # FORM B â€” BIRTH RESUSCITATION ENDPOINTS
 # ============================================================================
 
-@app.post("/birth-resuscitation/")
+@app.post("/birth-resuscitation/", response_model=BirthResuscitationOut)
 def create_birth_resuscitation(
     data: BirthResuscitationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # FIX: this endpoint had NO response_model, unlike its own GET/PUT
+    # siblings (both use response_model=BirthResuscitationOut). Without one,
+    # FastAPI falls back to serializing the raw SQLAlchemy object directly
+    # instead of going through the Pydantic schema — unreliable, and the
+    # likely cause of the frontend's "Enrollment ID not saved" error: the
+    # record really was saved, but res.data.enrollment_id came back
+    # missing/malformed from this endpoint's response, so the browser never
+    # got the ID to store for the next screen.
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
@@ -828,42 +781,60 @@ def create_birth_resuscitation(
         screening_id=data.screening_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
-    existing = (
-        db.query(BirthResuscitation)
-        .filter(BirthResuscitation.enrollment_id == data.enrollment_id)
-        .first()
-    )
-    if existing:
-        payload.pop("enrollment_id", None)
-        for key, value in payload.items():
-            setattr(existing, key, value)
+    # FIX: this had no try/except at all. enrollment_id is typed in by hand
+    # on Form B (there's no backend generator for it, unlike screening_id),
+    # and birth_resuscitation.enrollment_id IS unique at the DB level — so a
+    # nurse typing an enrollment_id that's already in use used to crash with
+    # an unhandled 500 / raw psycopg2 traceback, the exact same failure mode
+    # the screening_id bug had. Now it's caught and returned as a clear 409.
+    try:
+        existing = (
+            db.query(BirthResuscitation)
+            .filter(BirthResuscitation.enrollment_id == data.enrollment_id)
+            .first()
+        )
+        if existing:
+            payload.pop("enrollment_id", None)
+            for key, value in payload.items():
+                setattr(existing, key, value)
 
+            db.commit()
+            db.refresh(existing)
+
+            if existing.randomised and existing.screening_id:
+                db.query(Screening).filter(
+                    Screening.screening_id == existing.screening_id
+                ).update({"enrollment_id": existing.enrollment_id})
+                db.commit()
+
+            return existing
+
+        entry = BirthResuscitation(**payload)
+        db.add(entry)
         db.commit()
-        db.refresh(existing)
+        db.refresh(entry)
 
-        if existing.randomised and existing.screening_id:
+        # Issue #1 Fix 2: write enrollment_id back to the screenings record on
+        # randomisation, so the screenings<->birth_resuscitation join used by
+        # the CONSORT dashboard resolves correctly.
+        if entry.randomised and entry.screening_id:
             db.query(Screening).filter(
-                Screening.screening_id == existing.screening_id
-            ).update({"enrollment_id": existing.enrollment_id})
+                Screening.screening_id == entry.screening_id
+            ).update({"enrollment_id": entry.enrollment_id})
             db.commit()
 
-        return existing
+        return entry
 
-    entry = BirthResuscitation(**payload)
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-
-    # Issue #1 Fix 2: write enrollment_id back to the screenings record on
-    # randomisation, so the screenings<->birth_resuscitation join used by the
-    # CONSORT dashboard resolves correctly.
-    if entry.randomised and entry.screening_id:
-        db.query(Screening).filter(
-            Screening.screening_id == entry.screening_id
-        ).update({"enrollment_id": entry.enrollment_id})
-        db.commit()
-
-    return entry
+    except IntegrityError as e:
+        db.rollback()
+        if "enrollment_id" in str(e).lower():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Enrollment ID '{data.enrollment_id}' is already in use by "
+                       f"another patient. Please double-check and use a different ID.",
+            )
+        logger.error(f"BIRTH RESUSCITATION ERROR: {e}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 @app.get("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
 def get_birth_resuscitation(
@@ -978,6 +949,30 @@ def create_maternal_details(
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
+
+    # FIX: this endpoint used to always `db.add(...)` a brand new row, with
+    # no check for an existing one — unlike Form D/E's create endpoints,
+    # which both check first. Since maternal_details.enrollment_id also has
+    # no unique constraint at the DB level, calling this twice for the same
+    # patient (e.g. a network retry, or the frontend's "does this already
+    # exist" GET failing so it wrongly falls back to POST) silently created
+    # a second, duplicate row instead of erroring OR updating — the worst
+    # kind of bug, because nothing alerts anyone that the data now has two
+    # answers. Now it upserts, matching the Form D/E pattern.
+    existing = (
+        db.query(MaternalDetails)
+        .filter(MaternalDetails.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        payload.pop("enrollment_id", None)
+        for key, value in payload.items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = MaternalDetails(**payload)
     db.add(record)
     db.commit()

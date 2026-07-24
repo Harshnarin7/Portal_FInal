@@ -38,15 +38,29 @@ const Ic = ({ d, s = 15 }) => (
 );
 
 /* ── Yes/No toggle identical to Form A ── */
+// FIX: this was a stripped-down copy that rendered different class names
+// than the ones FormA.css actually styles (yn-active-yes/yn-active-no
+// instead of yn-active, and no yn-pos-N wrapper or yn-thumb div at all) —
+// so toggle buttons here showed NO visual feedback whatsoever for which
+// option was selected: no background highlight, no active text color,
+// nothing. Now identical to ScreeningForm.jsx's working version.
 function YesNoToggle({ label, name, value, onChange, disabled = false }) {
-  const fire = v => { if (!disabled) onChange({ target: { name, value: v } }); };
+  const fire = (val) => {
+    if (disabled) return;
+    onChange({ target: { name, value: val } });
+  };
+  // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
+  const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
       <span className="yes-no-label">{label}</span>
-      <div className="yes-no-buttons">
-        <button type="button" className={`yn-btn${value==="Yes"?" yn-active-yes":""}`}
+      <div className={`yes-no-buttons yn-pos-${pos}`}>
+        <div className="yn-thumb" aria-hidden="true" />
+        <button type="button"
+          className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`}
           onClick={() => fire("Yes")} disabled={disabled}>YES</button>
-        <button type="button" className={`yn-btn${value==="No"?" yn-active-no":""}`}
+        <button type="button"
+          className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`}
           onClick={() => fire("No")} disabled={disabled}>NO</button>
       </div>
     </div>

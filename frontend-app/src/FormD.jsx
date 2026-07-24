@@ -690,57 +690,12 @@ export default function FormD() {
     }
     setSubmitErrors([]);
 
-    const payload = {
-      enrollment_id:      formData.enrollment_id,
-      gestation_weeks:    num(formData.gestation_weeks),
-      gestation_days:     num(formData.gestation_days),
-      annual_number:      formData.annual_number,
-      baby_name:          formData.baby_name,
-      baby_uid:           formData.baby_uid,
-      birth_weight:       num(formData.birth_weight),
-      ga_method:          formData.ga_method || null,
-      gender:             formData.gender || null,
-      growth_status:      formData.growth_status || null,
-      sga_centile:        formData.sga_centile || null,
-      plastic_wrap:       yesNoToBool(formData.plastic_wrap),
-      remained_intubated: yesNoToBool(formData.remained_intubated),
-      et_intubation:      yesNoToBool(formData.et_intubation),
-      labored_breathing:  yesNoToBool(formData.labored_breathing),
-      surfactant_required:   yesNoToBool(formData.surfactant_required),
-      surfactant_indication: formData.surfactant_indication,
-      cpap_cm:     num(formData.cpap_cm),
-      fio2_percent: num(formData.fio2_percent),
-      surfactant_method: formData.surfactant_method,
-      premedication_given: yesNoToBool(formData.premedication_given),
-      premedication_drugs: formData.premedication_drugs,
-      premedication_other: formData.premedication_other,
-      surfactant_brand:  formData.surfactant_brand,
-      surfactant_dose:   num(formData.surfactant_dose),
-      adverse_effects:   yesNoToBool(formData.adverse_effects),
-      adverse_type:      formData.adverse_type,
-      early_cpap:        yesNoToBool(formData.early_cpap),
-      humidified_gas:    yesNoToBool(formData.humidified_gas),
-      max_fio2_1hr:      num(formData.max_fio2_1hr),
-      surfactant_brand_other: formData.surfactant_brand_other,
-      lisa_catheter: formData.lisa_catheter,
-      lisa_catheter_type: formData.lisa_catheter_type,
-      device_assistance:  yesNoToBool(formData.device_assistance),
-      device_type: formData.device_type === "Other" ? formData.device_type_other : formData.device_type,
-      adverse_type_other:  formData.adverse_type_other,
-      mode_of_support:     formData.mode_of_support.join(", "),
-      caffeine:            yesNoToBool(formData.caffeine),
-      caffeine_dose:       num(formData.caffeine_dose),
-      caffeine_loading:    yesNoToBool(formData.caffeine_loading),
-      caffeine_loading_abs: num(formData.caffeine_loading_abs),
-      caffeine_maint_abs:   num(formData.caffeine_maint_abs),
-      caffeine_date:        formData.caffeine_date || null,
-      caffeine_time:        formData.caffeine_time || null,
-      intubation_after_resus: yesNoToBool(formData.intubation_after_resus),
-      immediate_kmc:          yesNoToBool(formData.immediate_kmc),
-      completed_by:  formData.completed_by,
-      designation:   formData.designation,
-      completion_date: formData.date || null,
-    };
+    // FIX: this used to be a full copy-pasted duplicate of buildAutoPayload()'s
+    // object literal (50+ fields, hand-typed twice) — a maintainability risk
+    // where editing one copy and forgetting the other would silently make
+    // the "Save" button send different data than autosave. Now both paths
+    // build the payload exactly one way.
+    const payload = buildAutoPayload();
     try {
       if (isRecordSaved) {
         await api.put(`/postnatal-day1/${formData.enrollment_id}`, payload);
