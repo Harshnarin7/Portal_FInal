@@ -1003,25 +1003,33 @@ export default function BirthResuscitationForm() {
                     ))}
                   </div>
                   {(formData.indication_for_delivery||[]).includes("Absent/Reversed EDF") && (
-                    <input type="text" name="indication_edf_detail" value={formData.indication_edf_detail||""}
-                      onChange={handleChange} placeholder="Specify Absent/Reversed EDF details *"
-                      readOnly={!isFieldEditable} style={{marginTop:8}}/>
+                    <div className="multi-check-other-row">
+                      <input type="text" className="multi-check-other-input" name="indication_edf_detail" value={formData.indication_edf_detail||""}
+                        onChange={handleChange} placeholder="Specify Absent/Reversed EDF details *"
+                        readOnly={!isFieldEditable}/>
+                    </div>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Fetal indication") && (
-                    <input type="text" name="fetal_indication_detail" value={formData.fetal_indication_detail||""}
-                      onChange={handleChange} placeholder="Specify fetal indication *"
-                      readOnly={!isFieldEditable} style={{marginTop:8}}/>
+                    <div className="multi-check-other-row">
+                      <input type="text" className="multi-check-other-input" name="fetal_indication_detail" value={formData.fetal_indication_detail||""}
+                        onChange={handleChange} placeholder="Specify fetal indication *"
+                        readOnly={!isFieldEditable}/>
+                    </div>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Obstetric indication") && (
-                    <input type="text" name="obstetric_indication_detail" value={formData.obstetric_indication_detail||""}
-                      onChange={handleChange} placeholder="Specify obstetric indication *"
-                      readOnly={!isFieldEditable} style={{marginTop:8}}/>
+                    <div className="multi-check-other-row">
+                      <input type="text" className="multi-check-other-input" name="obstetric_indication_detail" value={formData.obstetric_indication_detail||""}
+                        onChange={handleChange} placeholder="Specify obstetric indication *"
+                        readOnly={!isFieldEditable}/>
+                    </div>
                   )}
                   {(formData.indication_for_delivery||[]).includes("Other") && (
-                    <input type="text" name="indication_for_delivery_other"
-                      value={formData.indication_for_delivery_other||""}
-                      onChange={handleChange} placeholder="Specify other indication *"
-                      readOnly={!isFieldEditable} style={{marginTop:8}}/>
+                    <div className="multi-check-other-row">
+                      <input type="text" className="multi-check-other-input" name="indication_for_delivery_other"
+                        value={formData.indication_for_delivery_other||""}
+                        onChange={handleChange} placeholder="Specify other indication *"
+                        readOnly={!isFieldEditable}/>
+                    </div>
                   )}
                 </div>
 

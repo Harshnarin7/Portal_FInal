@@ -414,6 +414,28 @@
 }
 .multi-check-item.disabled input[type="checkbox"] { cursor: not-allowed; }
 
+/* Guard against .form-group's generic text-input styling (width:100%,
+   height:40px, appearance:none, border, border-radius) leaking onto
+   checkboxes when a multi-checkbox-group happens to sit inside a
+   .form-group wrapper. Keeps the checkbox looking like field 23's. */
+.form-group .multi-checkbox-group input[type="checkbox"],
+.screening-form .form-group .multi-checkbox-group input[type="checkbox"],
+.followup-box .form-group .multi-checkbox-group input[type="checkbox"] {
+  width: 15px !important;
+  height: 15px !important;
+  padding: 0 !important;
+  border: revert !important;
+  border-radius: revert !important;
+  background: revert !important;
+  -webkit-appearance: auto !important;
+  -moz-appearance: auto !important;
+  appearance: auto !important;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
 .multi-check-other-row { padding: 0 4px; }
 .multi-check-other-input {
   width: 100%; height: 38px; padding: 0 12px;
