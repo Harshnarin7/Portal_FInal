@@ -270,6 +270,11 @@ def get_accessible_screening_query(db: Session, user: User):
     return query
 
 def require_enrollment_access(enrollment_id: str, db: Session, user: User):
+    if not enrollment_id or not enrollment_id.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="enrollment_id is required — this form can't be saved until randomization assigns one.",
+        )
     screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
     if screening:
         ensure_same_site(screening.site_name, user)
@@ -550,6 +555,56 @@ def create_screening(
         except IntegrityError as e:
             db.rollback()
             is_screening_id_collision = "ix_screenings_screening_id" in str(e) or "screening_id" in str(e)
+
+            # FIX: previously, a client-supplied screening_id that collided
+            # was always a hard 400 error — this is exactly what happens
+            # when the mobile app's first save actually succeeded on the
+            # server, but the client never received/confirmed that success
+            # (dropped connection, timeout, app backgrounded mid-request,
+            # etc.) and then retries with the same locally-cached ID. That
+            # should be treated as "this save already happened, apply the
+            # latest data to it" — an upsert — not a crash the nurse has to
+            # manually recover from.
+            if client_supplied_id and is_screening_id_collision:
+                existing = get_accessible_screening_query(db, current_user).filter(
+                    Screening.screening_id == screening.screening_id
+                ).first()
+                if existing is not None:
+                    update_data = screening.model_dump(exclude_unset=True)
+                    update_data.pop("screening_id", None)
+                    pii_payload_retry = extract_screening_pii(update_data)
+                    for field in SCREENING_PII_FIELDS:
+                        update_data.pop(field, None)
+                    if pii_payload_retry:
+                        upsert_participant_pii(
+                            db,
+                            enrollment_id=existing.enrollment_id or screening.enrollment_id,
+                            screening_id=existing.screening_id,
+                            site_name=existing.site_name or screening.site_name,
+                            **pii_payload_retry,
+                        )
+                    for key, value in update_data.items():
+                        setattr(existing, key, value)
+                    existing.screening_status = compute_screening_status(existing)
+                    stamp_updated(existing, current_user)
+                    record_audit(
+                        db,
+                        user_id=current_user.id,
+                        username=current_user.username,
+                        action="UPDATE",
+                        table_name="screenings",
+                        record_id=existing.id,
+                        enrollment_id=existing.enrollment_id,
+                        screening_id=existing.screening_id,
+                        new_values=row_snapshot(existing),
+                    )
+                    db.commit()
+                    db.refresh(existing)
+                    return existing
+                # Existing row belongs to a different site / isn't
+                # accessible to this user — a real collision, not a retry.
+                # Fall through to the hard-error path below.
+
             if client_supplied_id or not is_screening_id_collision or attempt == max_attempts - 1:
                 logger.error(f"SCREENING ERROR: {e}")
                 raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
