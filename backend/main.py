@@ -75,6 +75,7 @@ from pii_service import (
 )
 
 from sqlalchemy import text, func
+from sqlalchemy.exc import IntegrityError
 import os
 import logging
 
@@ -217,23 +218,34 @@ app.add_middleware(
 
 def generate_screening_id(site_id: str, db: Session):
     # Sequential per-site IDs: "<site_id>-0001", "<site_id>-0002", ...
-    # Uses a row lock on the highest existing ID for this site so two nurses
-    # screening at the same site simultaneously can't be handed the same
-    # number (Postgres FOR UPDATE blocks the second request until the first
-    # transaction commits, rather than both computing the same next number).
+    #
+    # FIX: the previous version did `ORDER BY screening_id DESC LIMIT 1` to
+    # find "the highest existing ID" — but screening_id is a text column, so
+    # that's a LEXICOGRAPHIC (string) sort, not a numeric one. Any row whose
+    # suffix isn't purely digits (e.g. a legacy/test id like
+    # "01-20260626-034005-3GUN") can still sort ahead of a plain numeric one
+    # like "01-1000" simply because '2' > '1' as a character — and since
+    # that suffix fails the isdigit() check below, next_number silently fell
+    # back to 1, handing out an ID ("01-0001", or whatever number) that
+    # already exists → unique constraint violation on insert.
+    #
+    # Fix: scan every existing id under this site's prefix, parse out only
+    # the ones with a purely-numeric suffix, and take the true numeric max
+    # of those + 1. Non-numeric legacy suffixes are simply ignored for
+    # numbering purposes instead of corrupting the result.
     prefix = f"{site_id}-"
-    existing = (
+    rows = (
         db.query(Screening.screening_id)
         .filter(Screening.screening_id.like(f"{prefix}%"))
-        .order_by(Screening.screening_id.desc())
         .with_for_update()
-        .first()
+        .all()
     )
-    next_number = 1
-    if existing:
-        suffix = existing[0][len(prefix):]
+    max_number = 0
+    for (sid,) in rows:
+        suffix = sid[len(prefix):]
         if suffix.isdigit():
-            next_number = int(suffix) + 1
+            max_number = max(max_number, int(suffix))
+    next_number = max_number + 1
     return f"{prefix}{next_number:04d}"
 
 def compute_screening_status(data):
@@ -444,84 +456,112 @@ def create_screening(
     current_user: User = Depends(get_current_user),
 ):
     ensure_same_site(screening.site_name, current_user)
-    try:
-        screening_id = screening.screening_id or generate_screening_id(screening.site_id, db)
-        enrollment_id = screening.enrollment_id
-        status = compute_screening_status(screening)
-        pii_payload = extract_screening_pii(screening.model_dump())
 
-        db_screening = Screening(
-            screening_id=screening_id,
-            enrollment_id=enrollment_id,
-            screening_datetime=screening.screening_datetime,
-            created_at=datetime.now(),
-            screening_status=status,
-            site_name=screening.site_name,
-            site_id=screening.site_id,
-            screened_by=screening.screened_by,
-            gestation_weeks=screening.gestation_weeks,
-            gestation_days=screening.gestation_days,
-            gestation_method=screening.gestation_method,
-            expected_delivery_date=screening.expected_delivery_date,
-            lmp_date=screening.lmp_date,
-            exclusion_present=screening.exclusion_present,
-            exclusion_reasons=screening.exclusion_reasons,
-            reason_for_insufficient_time=screening.reason_for_insufficient_time,
-            decision_forego_resuscitation_reason=screening.decision_forego_resuscitation_reason,
-            decision_forego_resuscitation_reason_other=screening.decision_forego_resuscitation_reason_other,
-            major_structural_anomalies_if_yes=screening.major_structural_anomalies_if_yes,
-            fetal_hydrops=screening.fetal_hydrops,
-            consent_given=screening.consent_given,
-            consent_taken_by=screening.consent_taken_by,
-            consent_datetime=screening.consent_datetime,
-            consent_form_version=screening.consent_form_version,
-            consent_language=screening.consent_language,
-            consent_obtained_by_signature=screening.consent_obtained_by_signature,
-            reconsent_obtained=screening.reconsent_obtained or False,
-            reconsent_datetime=screening.reconsent_datetime,
-            reconsent_form_version=screening.reconsent_form_version,
-            relationship_to_participant=screening.relationship_to_participant,
-            relationship_other=screening.relationship_other,
-            reason_not_approached=screening.reason_not_approached,
-            reason_not_approached_other=screening.reason_not_approached_other,
-            reason_for_consent_refusal=screening.reason_for_consent_refusal,
-            reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
-            video_pis_shown=screening.video_pis_shown,
-        )
-        stamp_created(db_screening, current_user)
+    # Only auto-generated IDs are safe to silently retry with a new number —
+    # if the CLIENT explicitly supplied its own screening_id (e.g. it thinks
+    # it already has a server-confirmed one) and that collides, retrying
+    # with a different ID would desync the client's own state, so that case
+    # still raises immediately below.
+    client_supplied_id = bool(screening.screening_id)
 
-        upsert_participant_pii(
-            db,
-            enrollment_id=enrollment_id,
-            screening_id=screening_id,
-            site_name=screening.site_name,
-            **pii_payload,
-        )
-        
-        db.add(db_screening)
-        db.flush()
-        record_audit(
-            db,
-            user_id=current_user.id,
-            username=current_user.username,
-            action="INSERT",
-            table_name="screenings",
-            record_id=db_screening.id,
-            enrollment_id=enrollment_id,
-            screening_id=screening_id,
-            new_values=row_snapshot(db_screening),
-        )
-        db.commit()
-        db.refresh(db_screening)
-        return db_screening
+    # Defense in depth: generate_screening_id() now computes the numeric max
+    # correctly (see its docstring for the lexicographic-sort bug this used
+    # to have), but a bounded retry here means a transient race or any other
+    # id-generation edge case still surfaces as a successful save instead of
+    # a raw 500/psycopg2 error on the nurse's screen.
+    max_attempts = 1 if client_supplied_id else 3
+    last_error = None
 
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"SCREENING ERROR: {e}")
-        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+    for attempt in range(max_attempts):
+        try:
+            screening_id = screening.screening_id or generate_screening_id(screening.site_id, db)
+            enrollment_id = screening.enrollment_id
+            status = compute_screening_status(screening)
+            pii_payload = extract_screening_pii(screening.model_dump())
+
+            db_screening = Screening(
+                screening_id=screening_id,
+                enrollment_id=enrollment_id,
+                screening_datetime=screening.screening_datetime,
+                created_at=datetime.now(),
+                screening_status=status,
+                site_name=screening.site_name,
+                site_id=screening.site_id,
+                screened_by=screening.screened_by,
+                gestation_weeks=screening.gestation_weeks,
+                gestation_days=screening.gestation_days,
+                gestation_method=screening.gestation_method,
+                expected_delivery_date=screening.expected_delivery_date,
+                lmp_date=screening.lmp_date,
+                exclusion_present=screening.exclusion_present,
+                exclusion_reasons=screening.exclusion_reasons,
+                reason_for_insufficient_time=screening.reason_for_insufficient_time,
+                decision_forego_resuscitation_reason=screening.decision_forego_resuscitation_reason,
+                decision_forego_resuscitation_reason_other=screening.decision_forego_resuscitation_reason_other,
+                major_structural_anomalies_if_yes=screening.major_structural_anomalies_if_yes,
+                fetal_hydrops=screening.fetal_hydrops,
+                consent_given=screening.consent_given,
+                consent_taken_by=screening.consent_taken_by,
+                consent_datetime=screening.consent_datetime,
+                consent_form_version=screening.consent_form_version,
+                consent_language=screening.consent_language,
+                consent_obtained_by_signature=screening.consent_obtained_by_signature,
+                reconsent_obtained=screening.reconsent_obtained or False,
+                reconsent_datetime=screening.reconsent_datetime,
+                reconsent_form_version=screening.reconsent_form_version,
+                relationship_to_participant=screening.relationship_to_participant,
+                relationship_other=screening.relationship_other,
+                reason_not_approached=screening.reason_not_approached,
+                reason_not_approached_other=screening.reason_not_approached_other,
+                reason_for_consent_refusal=screening.reason_for_consent_refusal,
+                reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
+                video_pis_shown=screening.video_pis_shown,
+            )
+            stamp_created(db_screening, current_user)
+
+            upsert_participant_pii(
+                db,
+                enrollment_id=enrollment_id,
+                screening_id=screening_id,
+                site_name=screening.site_name,
+                **pii_payload,
+            )
+
+            db.add(db_screening)
+            db.flush()
+            record_audit(
+                db,
+                user_id=current_user.id,
+                username=current_user.username,
+                action="INSERT",
+                table_name="screenings",
+                record_id=db_screening.id,
+                enrollment_id=enrollment_id,
+                screening_id=screening_id,
+                new_values=row_snapshot(db_screening),
+            )
+            db.commit()
+            db.refresh(db_screening)
+            return db_screening
+
+        except HTTPException:
+            db.rollback()
+            raise
+        except IntegrityError as e:
+            db.rollback()
+            is_screening_id_collision = "ix_screenings_screening_id" in str(e) or "screening_id" in str(e)
+            if client_supplied_id or not is_screening_id_collision or attempt == max_attempts - 1:
+                logger.error(f"SCREENING ERROR: {e}")
+                raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+            last_error = e
+            continue  # retry with a freshly generated id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"SCREENING ERROR: {e}")
+            raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+
+    # Should be unreachable (loop always returns or raises), but just in case:
+    raise HTTPException(status_code=400, detail=f"Error: {str(last_error)}")
 
 @app.put("/screenings/{screening_id}", response_model=ScreeningClinicalOut)
 def update_screening(
