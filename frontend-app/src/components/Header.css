@@ -146,10 +146,28 @@
   background-size: 200% 100%;
 }
 
+/* Tablet — matches the same 1024px breakpoint FormLayout.css/Sidebar.css
+   use, so the header adapts at the same width the sidebar stacks at,
+   instead of staying squeezed into a 3-column desktop grid until 768px. */
+@media (max-width: 1024px) {
+  .header-inner { grid-template-columns: 100px 1fr 100px; min-height: 96px; }
+  .header-logo-box { width: 52px; height: 52px; }
+  .header-titles h1 { font-size: 22px; }
+  .header-subtitle { max-width: 100%; }
+}
+
 @media (max-width: 768px) {
   .header-inner { grid-template-columns: 80px 1fr 80px; }
   .header-logo-box { width: 44px; height: 44px; }
   .header-titles h1 { font-size: 18px; }
   .header-subtitle { font-size: 11px; }
   .header-badges { display: none; }
+}
+
+@media (max-width: 480px) {
+  .header-inner { grid-template-columns: 1fr; min-height: auto; }
+  .header-logo-panel { border: none; padding: 8px; }
+  .header-logo-panel:first-child { display: none; } /* drop the PORTAL logo panel, keep ICMR */
+  .header-titles { padding: 12px 16px; }
+  .header-id-indicator { position: static; margin: 8px auto 0; width: fit-content; }
 }

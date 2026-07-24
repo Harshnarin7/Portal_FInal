@@ -6,7 +6,7 @@ import {
   FileHeart, HeartPulse, Microscope, TestTube2,
   Activity, Eye, Stethoscope, TrendingUp, BarChart3,
   Building2, Cpu, ShieldAlert, ClipboardList, FileText,
-  LayoutDashboard, LogOut, Check, Lock, ChevronRight,
+  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X,
 } from 'lucide-react';
 import { useFormProgress } from './context/FormProgressContext';
 import { useAuth } from './context/AuthContext';
@@ -90,6 +90,8 @@ const SECTIONS = [
 ];
 
 const TOTAL_FORMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
+const ALL_ITEMS = SECTIONS.flatMap(s => s.items);
+const getCurrentFormMeta = (id) => ALL_ITEMS.find(i => i.id === id);
 const ROLE_LABELS = {
   superadmin:'Super Admin', admin:'Admin', pi:'Principal Investigator',
   scientist:'Scientist', nurse:'Research Nurse', deo:'Data Entry Operator', monitor:'Monitor',
@@ -101,6 +103,14 @@ export default function Sidebar({ currentForm }) {
   const { completedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Below the 1024px breakpoint (see Sidebar.css) the sidebar stacks above
+  // the form instead of sitting fixed alongside it, and the full forms
+  // list is tall enough that it pushed the actual form off-screen —
+  // requiring a long scroll every time before reaching Form B's fields.
+  // Collapsed by default on tablet/mobile; the current form + progress
+  // are always visible above the fold, list expands on tap.
+  const [navOpen, setNavOpen] = useState(false);
 
   const readIds = () => ({
     screeningId:  validId(localStorage.getItem('current_screening_id')),
@@ -202,7 +212,26 @@ export default function Sidebar({ currentForm }) {
         </div>
       </div>
 
-      <nav className="sidebar-nav">
+      {/* Mobile/tablet-only bar: shows current form, tap to expand/collapse
+          the full forms list below instead of it always taking the space. */}
+      <button
+        type="button"
+        className="sidebar-mobile-toggle"
+        onClick={() => setNavOpen(o => !o)}
+        aria-expanded={navOpen}
+      >
+        <span className="sidebar-mobile-toggle-label">
+          {navOpen ? 'Hide forms list' : (getCurrentFormMeta(currentForm)?.label
+            ? `${getCurrentFormMeta(currentForm).label} · ${getCurrentFormMeta(currentForm).sub}`
+            : 'All forms')}
+        </span>
+        <span className="sidebar-mobile-toggle-icon">
+          {navOpen ? <X size={15} strokeWidth={2.5} /> : <Menu size={15} strokeWidth={2.5} />}
+        </span>
+      </button>
+
+      <nav className={`sidebar-nav${navOpen ? ' nav-open' : ''}`}>
+        <div className="sidebar-nav-inner">
         <NavLink to="/dashboard"
           className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
           <LayoutDashboard size={14} strokeWidth={2} />
@@ -291,6 +320,7 @@ export default function Sidebar({ currentForm }) {
             </div>
           );
         })}
+        </div>
       </nav>
 
       <div className="sidebar-footer">

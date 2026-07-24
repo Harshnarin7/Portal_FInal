@@ -174,10 +174,14 @@ export default function ScreeningForm() {
     if (screeningId && screeningId !== "undefined" && screeningId !== "null") {
       loadScreeningData(screeningId); return;
     }
-    const storedId = localStorage.getItem("current_screening_id");
-    if (storedId && storedId !== "undefined" && storedId !== "null") {
-      navigate(`/form-a/${storedId}`, { replace: true }); return;
-    }
+    // No screeningId in the URL means this is a genuinely new screening —
+    // always start blank. Previously this fell back to whatever
+    // screening_id happened to be cached in localStorage from the last
+    // record viewed anywhere in the app, silently reopening (and letting
+    // the nurse unknowingly re-submit/overwrite) a completely different,
+    // possibly already-saved patient's screening.
+    localStorage.removeItem("current_screening_id");
+    localStorage.removeItem("current_enrollment_id");
     setFormData({ ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()) });
     setIsSaved(false); setIsEditing(false); setDataLoaded(true);
     resetProgress();

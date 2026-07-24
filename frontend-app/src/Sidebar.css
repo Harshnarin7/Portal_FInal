@@ -346,3 +346,183 @@
   transition: all 0.15s; flex-shrink: 0;
 }
 .sidebar-logout:hover { background: #fee2e2; color: var(--sb-red); }
+
+/* Mobile/tablet-only "current form" toggle bar — hidden on desktop, shown
+   via the media query below. */
+.sidebar-mobile-toggle {
+  display: none;
+}
+
+/* ─── TABLET (≤1024px) ───────────────────────
+   Matches FormLayout.css's breakpoint, which already drops the content
+   area's margin-left at this width expecting the sidebar to no longer be
+   a fixed strip. Without this half of the change the sidebar stayed
+   position:fixed/256px wide and just overlapped the page content on
+   tablet. Below this width the sidebar becomes a normal, full-width block
+   sitting above the form content, and each section's forms wrap into a
+   card grid instead of a tall scrolling list. */
+@media (max-width: 1024px) {
+  .sidebar {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    border-right: none;
+    border-bottom: 1px solid var(--sb-border);
+    box-shadow: none;
+  }
+
+  .sidebar-nav {
+    flex: none;
+    overflow: hidden;
+    padding: 0 16px;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.28s cubic-bezier(0.4,0,0.2,1);
+  }
+  .sidebar-nav.nav-open {
+    grid-template-rows: 1fr;
+  }
+  .sidebar-nav-inner {
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease 0.05s;
+  }
+  .sidebar-nav.nav-open .sidebar-nav-inner {
+    padding-top: 14px;
+    opacity: 1;
+  }
+
+  .sidebar-mobile-toggle {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 13px 16px;
+    border: none;
+    border-top: 1px solid var(--sb-border);
+    border-bottom: 1px solid transparent;
+    background: var(--sb-bg);
+    color: var(--sb-text-main);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .sidebar-mobile-toggle:hover  { background: var(--sb-hover); }
+  .sidebar-mobile-toggle:active { background: var(--sb-primary-bg); }
+  .sidebar-mobile-toggle[aria-expanded="true"] {
+    border-bottom-color: var(--sb-border);
+    box-shadow: var(--sb-shadow);
+  }
+  .sidebar-mobile-toggle-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sidebar-mobile-toggle-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--sb-primary-bg);
+    color: var(--sb-primary);
+    flex-shrink: 0;
+    transition: transform 0.2s cubic-bezier(0.4,0,0.2,1), background 0.15s, color 0.15s;
+  }
+  .sidebar-mobile-toggle[aria-expanded="true"] .sidebar-mobile-toggle-icon {
+    background: var(--sb-gray-bg);
+    color: var(--sb-text);
+    transform: rotate(90deg);
+  }
+
+  .sidebar-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .sidebar-nav.nav-open .sidebar-section {
+    animation: sidebarSectionIn 0.22s ease both;
+  }
+  @keyframes sidebarSectionIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sidebar-section-header {
+    grid-column: 1 / -1;
+    padding: 0 2px;
+    margin-bottom: 2px;
+  }
+
+  .sidebar-item {
+    position: relative;
+    border: 1px solid var(--sb-border);
+    background: var(--sb-bg);
+    border-radius: 12px;
+    padding: 10px;
+    min-height: 68px;
+    margin-bottom: 0;
+    align-items: flex-start;
+    box-shadow: var(--sb-shadow);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .sidebar-item.state-open:hover,
+  .sidebar-item.state-done:hover,
+  .sidebar-item.state-active:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.06);
+  }
+  .sidebar-item:active { transform: translateY(0); }
+  .sidebar-item.state-locked { box-shadow: none; }
+
+  .sidebar-item.state-done   { background: var(--sb-green-bg);  border-color: var(--sb-green-lt); }
+  .sidebar-item.state-active {
+    background: var(--sb-primary-bg);
+    border-color: var(--sb-primary);
+    box-shadow: 0 0 0 3px var(--sb-primary-bg), var(--sb-shadow);
+  }
+
+  /* The left accent bar only makes sense on a full-width row */
+  .item-accent { display: none; }
+
+  /* Status badge/chevron/lock move to a small corner marker instead of
+     sitting at the end of a row that no longer exists */
+  .item-right {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+  }
+  .item-badge {
+    box-shadow: 0 0 0 2px var(--sb-bg);
+  }
+  .item-badge.done {
+    width: 20px; height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+  }
+  .item-chevron, .item-lock-icon {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+
+  .item-text { margin-top: 2px; }
+}
+
+/* ─── MOBILE (≤560px) ───────────────────────
+   Single-column cards once there's no room to wrap 2-3 across. */
+@media (max-width: 560px) {
+  .sidebar-section {
+    grid-template-columns: 1fr;
+  }
+}

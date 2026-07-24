@@ -550,18 +550,57 @@ def create_screening(
         except IntegrityError as e:
             db.rollback()
             is_screening_id_collision = "ix_screenings_screening_id" in str(e) or "screening_id" in str(e)
-            if client_supplied_id or not is_screening_id_collision or attempt == max_attempts - 1:
+
+            if is_screening_id_collision:
+                # This almost always means the record was already created by
+                # an earlier, successful save (e.g. autosave and the manual
+                # Save button both firing, or the client retrying after a
+                # dropped response) — not a genuine conflict. Rather than
+                # failing the nurse's save outright, fall back to updating
+                # the record that already exists with this screening_id.
+                existing = get_accessible_screening_query(db, current_user).filter(
+                    Screening.screening_id == screening_id
+                ).first()
+                if existing is not None:
+                    return update_screening(
+                        screening_id=screening_id,
+                        updated_data=screening,
+                        db=db,
+                        current_user=current_user,
+                    )
+                # Existing row isn't visible to this user (different site) —
+                # a real, unrecoverable conflict.
                 logger.error(f"SCREENING ERROR: {e}")
-                raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Screening ID {screening_id} is already in use and "
+                        "isn't accessible from your site. Please refresh the "
+                        "page and try saving again."
+                    ),
+                )
+
+            if client_supplied_id or attempt == max_attempts - 1:
+                logger.error(f"SCREENING ERROR: {e}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Couldn't save this screening due to a conflicting record. Please refresh the page and try again.",
+                )
             last_error = e
             continue  # retry with a freshly generated id
         except Exception as e:
             db.rollback()
             logger.error(f"SCREENING ERROR: {e}")
-            raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail="Something went wrong while saving this screening. Please try again, and contact support if the problem continues.",
+            )
 
     # Should be unreachable (loop always returns or raises), but just in case:
-    raise HTTPException(status_code=400, detail=f"Error: {str(last_error)}")
+    raise HTTPException(
+        status_code=400,
+        detail="Something went wrong while saving this screening. Please try again, and contact support if the problem continues.",
+    )
 
 @app.put("/screenings/{screening_id}", response_model=ScreeningClinicalOut)
 def update_screening(
@@ -636,7 +675,11 @@ def update_screening(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+        logger.error(f"SCREENING UPDATE ERROR: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Something went wrong while saving this screening. Please try again, and contact support if the problem continues.",
+        )
 
 @app.delete("/screenings/{id}")
 def delete_screening(

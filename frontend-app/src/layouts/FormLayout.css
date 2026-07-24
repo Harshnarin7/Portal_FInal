@@ -24,8 +24,12 @@
 }
 
 @media (max-width: 1024px) {
+  .form-layout-root {
+    flex-direction: column !important;
+  }
   .form-layout-main {
-    margin-left: 0;
+    margin-left: 0 !important;
+    width: 100%;
   }
   .form-layout-content {
     padding: 20px 16px 100px;
