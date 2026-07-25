@@ -1245,7 +1245,7 @@ export default function BirthResuscitationForm() {
                 <YesNoToggle label={<>22. Initial Steps Required (Warm, Dry, Stimulate, Suction){requiredMark}</>}
                   name="initial_steps" value={formData.initial_steps}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label={<>23. Resuscitation Beyond Initial Steps Required{requiredMark}</>}
+                <YesNoToggle label={<>23. Does baby require ventilation (PPV){requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
                   onChange={e=>{
                     handleChange(e);
