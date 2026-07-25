@@ -67,8 +67,168 @@ function YesNoToggle({ label, name, value, onChange, disabled = false }) {
   );
 }
 
+const padDur = n => String(n).padStart(2, "0");
+const parseDurationParts = (value, mode) => {
+  const parts = String(value || "").split(":");
+  const num = (v, max = 99) => {
+    if (v === "" || v === undefined) return "";
+    const n = Number(v);
+    if (Number.isNaN(n)) return "";
+    return padDur(Math.min(max, Math.max(0, n)));
+  };
+  if (mode === "hms") {
+    return { hh: num(parts[0], 999), mm: num(parts[1], 59), ss: num(parts[2], 59) };
+  }
+  return { mm: num(parts[0], 999), ss: num(parts[1], 59) };
+};
+const formatDurationHms = value => {
+  const { hh, mm, ss } = parseDurationParts(value, "hms");
+  if (!hh && !mm && !ss) return "";
+  return `${hh || "00"}:${mm || "00"}:${ss || "00"}`;
+};
+const formatDurationMs = value => {
+  const { mm, ss } = parseDurationParts(value, "ms");
+  if (!mm && !ss) return "";
+  return `${mm || "00"}:${ss || "00"}`;
+};
+const EXIT_REASON_OPTIONS = [
+  "Responded to resuscitation",
+  "Required override to 100% O2 or CC",
+  "Other",
+];
+const normalizeTimeForInput = value => {
+  if (!value) return "";
+  const m = String(value).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return String(value);
+  const hh = m[1].padStart(2, "0");
+  return m[3] !== undefined ? `${hh}:${m[2]}:${m[3]}` : `${hh}:${m[2]}`;
+};
+
+function DurationColumn({ label, options, active, onPick, listRef }) {
+  return (
+    <div className="duration-picker-col">
+      <div className="duration-picker-col-label">{label}</div>
+      <div className="duration-picker-col-list" ref={listRef}>
+        {options.map(opt => (
+          <button key={opt} type="button"
+            data-value={opt}
+            className={`duration-picker-col-item${active === opt ? " is-active" : ""}`}
+            onClick={() => onPick(opt)}>
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Duration picker (HH:MM:SS or MM:SS) ──
+   Scroll-column picker paired with a free-text input. */
+function DurationPicker({ mode = "hms", value, onChange, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const hhListRef = useRef(null);
+  const mmListRef = useRef(null);
+  const ssListRef = useRef(null);
+
+  useEffect(() => {
+    const onDocClick = e => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const parts = parseDurationParts(value, mode);
+  const hh = mode === "hms" ? parts.hh : "";
+  const mm = mode === "hms" ? parts.mm : parts.mm;
+  const ss = parts.ss;
+
+  const apply = (which, v) => {
+    const nHh = which === "hh" ? v : hh;
+    const nMm = which === "mm" ? v : mm;
+    const nSs = which === "ss" ? v : ss;
+    onChange(mode === "hms"
+      ? `${nHh || "00"}:${nMm || "00"}:${nSs || "00"}`
+      : `${nMm || "00"}:${nSs || "00"}`);
+  };
+
+  const hourOpts = Array.from({ length: 100 }, (_, i) => padDur(i));
+  const minSecOpts = Array.from({ length: 60 }, (_, i) => padDur(i));
+  const preview = mode === "hms"
+    ? `${hh || "00"}:${mm || "00"}:${ss || "00"}`
+    : `${mm || "00"}:${ss || "00"}`;
+
+  useEffect(() => {
+    if (!open) return;
+    [hhListRef, mmListRef, ssListRef].forEach(ref => {
+      const active = ref.current?.querySelector(".is-active");
+      active?.scrollIntoView({ block: "center" });
+    });
+  }, [open, hh, mm, ss]);
+
+  return (
+    <div className="duration-picker-wrap" ref={wrapRef}>
+      <button type="button" title="Pick duration" disabled={disabled}
+        className={`duration-picker-btn${open ? " is-open" : ""}`}
+        onClick={() => !disabled && setOpen(o => !o)}>
+        <Ic d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </button>
+      {open && !disabled && (
+        <div className="duration-picker-panel">
+          <div className="duration-picker-preview">{preview}</div>
+          <div className="duration-picker-columns">
+            {mode === "hms" && (
+              <>
+                <DurationColumn label="HH" options={hourOpts} active={hh || "00"}
+                  listRef={hhListRef} onPick={v => apply("hh", v)} />
+                <span className="duration-picker-sep">:</span>
+              </>
+            )}
+            <DurationColumn label="MM" options={minSecOpts} active={mm || "00"}
+              listRef={mmListRef} onPick={v => apply("mm", v)} />
+            <span className="duration-picker-sep">:</span>
+            <DurationColumn label="SS" options={minSecOpts} active={ss || "00"}
+              listRef={ssListRef} onPick={v => apply("ss", v)} />
+          </div>
+          <div className="duration-picker-actions">
+            <button type="button" className="duration-picker-clear"
+              onClick={() => { onChange(""); setOpen(false); }}>Clear</button>
+            <button type="button" className="duration-picker-done"
+              onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DurationField({ mode, name, value, onChange, disabled, placeholder, maxLength, hasError }) {
+  const pattern = mode === "hms"
+    ? /^\d{0,3}:?[0-5]?\d?:?[0-5]?\d?$/
+    : /^\d{0,3}:?[0-5]?\d?$/;
+  const formatOnBlur = () => {
+    if (!value) return;
+    const formatted = mode === "hms" ? formatDurationHms(value) : formatDurationMs(value);
+    if (formatted !== value) onChange(formatted);
+  };
+
+  return (
+    <div className="duration-field">
+      <input type="text" name={name} value={value || ""}
+        inputMode="numeric" maxLength={maxLength} placeholder={placeholder}
+        readOnly={disabled}
+        className={`duration-field-input${hasError ? " input-error" : ""}`}
+        onChange={e => { const v = e.target.value; if (pattern.test(v)) onChange(v); }}
+        onBlur={formatOnBlur}/>
+      <DurationPicker mode={mode} value={value} disabled={disabled} onChange={onChange}/>
+    </div>
+  );
+}
+
 /* ── Intervention select cell ── */
 function IntvCell({ value, disabled, onChange }) {
+
   return (
     <select value={value || ""} disabled={disabled} onChange={e => onChange(e.target.value)}
       style={{ width:54, padding:"4px 2px", fontSize:11, borderRadius:5,
@@ -165,7 +325,7 @@ export default function BirthResuscitationForm() {
     fluid_bolus:"", fluid_bolus_doses:"", fluid_bolus_cumulative:"",
     placental_transfusion:"", transfusion_method:"",
     cord_clamp_timestamp:"", cord_clamp_time:"",
-    time_to_respiration:"", respiration_days:"", respiration_hours:"",
+    time_to_respiration:"",
     spo2_5min:"", time_to_spo2_80:"",
     /* B7 */
     cord_blood_done:"", cord_blood_within_1hr:"", cord_blood_source:"",
@@ -186,13 +346,29 @@ export default function BirthResuscitationForm() {
 
   const endParticipation = formData.required_resuscitation === "No";
   const times = ["1","5","10","15","20"];
-  const yn  = v => v === "Yes";
+  const yn  = v => v === "Yes" ? true : v === "No" ? false : null;
   const num = v => v === "" ? 0 : Number(v);
   const optionalNum = v => v === "" || v === null || v === undefined ? null : Number(v);
   const durationToSeconds = value => {
     if (value === "" || value === null || value === undefined) return null;
     const match = String(value).match(/^(\d{1,3}):([0-5]\d)$/);
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  // HH:MM:SS -> total seconds (field 48 — no separate day/hour breakout needed,
+  // hours simply keeps counting past 23 for durations longer than a day)
+  const durationHmsToSeconds = value => {
+    if (value === "" || value === null || value === undefined) return null;
+    const match = String(value).match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)$/);
+    if (!match) return null;
+    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+  };
+  const secondsToDurationHms = value => {
+    if (value === "" || value === null || value === undefined) return "";
+    const total = Number(value);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
   useEffect(() => {
@@ -203,7 +379,7 @@ export default function BirthResuscitationForm() {
   const secondsToDuration = value => {
     if (value === "" || value === null || value === undefined) return "";
     const total = Number(value);
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
   };
 
   /* ── Gestation at randomization (screening GA + elapsed calendar days) ── */
@@ -371,11 +547,9 @@ export default function BirthResuscitationForm() {
       transfusion_method:  fd.transfusion_method || null,
       cord_clamp_timestamp: fd.cord_clamp_timestamp || null,
       cord_clamp_time:     optionalNum(fd.cord_clamp_time),
-      time_to_respiration: durationToSeconds(fd.time_to_respiration),
-      respiration_days:   optionalNum(fd.respiration_days),
-      respiration_hours:  optionalNum(fd.respiration_hours),
+      time_to_respiration: durationHmsToSeconds(formatDurationHms(fd.time_to_respiration)),
       spo2_5min:           optionalNum(fd.spo2_5min),
-      time_to_spo2_80:     durationToSeconds(fd.time_to_spo2_80),
+      time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
       randomisation_date:  fd.randomisation_date
@@ -499,9 +673,9 @@ export default function BirthResuscitationForm() {
         add("B4. Placental Transfusion Method", "transfusion_method");
       if(formData.placental_transfusion==="Yes" && !formData.cord_clamp_timestamp)
         add("B4. Cord Clamp Timestamp", "cord_clamp_timestamp");
-      if(formData.time_to_respiration && durationToSeconds(formData.time_to_respiration)===null)
-        add("B4. Time to Respiratory Efforts must be MM:SS", "time_to_respiration");
-      if(formData.time_to_spo2_80 && durationToSeconds(formData.time_to_spo2_80)===null)
+      if(formData.time_to_respiration && durationHmsToSeconds(formatDurationHms(formData.time_to_respiration))===null)
+        add("B4. Time to Respiratory Efforts must be HH:MM:SS", "time_to_respiration");
+      if(formData.time_to_spo2_80 && durationToSeconds(formatDurationMs(formData.time_to_spo2_80))===null)
         add("B4. Time to SpO2 >80% must be MM:SS", "time_to_spo2_80");
       if(!formData.cord_blood_done) add("B6. Cord Blood Analysis",     "cord_blood_done");
       if(formData.cord_blood_done==="No" && !formData.cord_blood_within_1hr)
@@ -679,7 +853,18 @@ export default function BirthResuscitationForm() {
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;
+        let reasonExit = d.reason_exit_trial_gas || "";
+        let reasonExitOther = "";
+        if (reasonExit && !EXIT_REASON_OPTIONS.includes(reasonExit)) {
+          reasonExitOther = reasonExit;
+          reasonExit = "Other";
+        }
         setFormData(p=>({...p,...d,
+          date_of_birth: d.date_of_birth ? String(d.date_of_birth).slice(0, 10) : p.date_of_birth,
+          time_of_birth: normalizeTimeForInput(d.time_of_birth),
+          cord_clamp_timestamp: normalizeTimeForInput(d.cord_clamp_timestamp),
+          reason_exit_trial_gas: reasonExit,
+          reason_exit_trial_gas_other: reasonExitOther,
           poor_resp_efforts: d.poor_resp_efforts===true?"Yes":d.poor_resp_efforts===false?"No":"",
           poor_muscle_tone:  d.poor_muscle_tone===true?"Yes":d.poor_muscle_tone===false?"No":"",
           hr_above_100:      d.hr_above_100===true?"Yes":d.hr_above_100===false?"No":"",
@@ -700,7 +885,7 @@ export default function BirthResuscitationForm() {
             ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.indication_for_delivery || []),
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
-          time_to_respiration: secondsToDuration(d.time_to_respiration),
+          time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
         }));
         setIsFormBLoaded(true); setIsSaved(true);
@@ -1396,29 +1581,15 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* Timings */}
-                  <div className="form-grid-3" style={{marginTop:16}}>
+                  <div className="form-grid-2" style={{marginTop:16}}>
                     <div className="form-group">
-                      <label>48. Time to Spontaneous Respiratory Efforts (MM:SS)</label>
-                      <input type="text" name="time_to_respiration"
-                        value={formData.time_to_respiration||""}
-                        inputMode="numeric" maxLength={6} placeholder="MM:SS"
-                        readOnly={!isFieldEditable}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}:?[0-5]?\d?$/.test(v))set({time_to_respiration:v});}}/>
+                      <label>48. Time to Spontaneous Respiratory Efforts (HH:MM:SS)</label>
+                      <DurationField mode="hms" name="time_to_respiration"
+                        value={formData.time_to_respiration}
+                        disabled={!isFieldEditable}
+                        placeholder="HH:MM:SS" maxLength={8}
+                        onChange={v => set({ time_to_respiration: v })}/>
                     </div>
-                    <div className="form-group">
-                      <label>48. If Longer — Days</label>
-                      <input type="text" name="respiration_days" value={formData.respiration_days||""}
-                        inputMode="numeric" maxLength={3} placeholder="days" readOnly={!isFieldEditable}
-                        onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({respiration_days:e.target.value});}}/>
-                    </div>
-                    <div className="form-group">
-                      <label>48. If Longer — Hours</label>
-                      <input type="text" name="respiration_hours" value={formData.respiration_hours||""}
-                        inputMode="numeric" maxLength={2} placeholder="0–23" readOnly={!isFieldEditable}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,2}$/.test(v)&&(v===""||Number(v)<=23))set({respiration_hours:v});}}/>
-                    </div>
-                  </div>
-                  <div className="form-grid-2">
                     <div className="form-group">
                       <label>49. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <input type="text" name="spo2_5min" value={formData.spo2_5min||""}
@@ -1426,13 +1597,17 @@ export default function BirthResuscitationForm() {
                         readOnly={!isFieldEditable}
                         onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=100))set({spo2_5min:v});}}/>
                     </div>
+                  </div>
+                  <div className="form-grid-2">
                     <div className="form-group">
                       <label>50. Time to SpO₂ &gt; 80% (MM:SS) <span className="field-note">cross-verify with pulse oximeter</span></label>
-                      <input type="text" name="time_to_spo2_80" value={formData.time_to_spo2_80||""}
-                        inputMode="numeric" maxLength={6} placeholder="MM:SS"
-                        readOnly={!isFieldEditable}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}:?[0-5]?\d?$/.test(v))set({time_to_spo2_80:v});}}/>
+                      <DurationField mode="ms" name="time_to_spo2_80"
+                        value={formData.time_to_spo2_80}
+                        disabled={!isFieldEditable}
+                        placeholder="MM:SS" maxLength={6}
+                        onChange={v => set({ time_to_spo2_80: v })}/>
                     </div>
+                    <div/>
                   </div>
 
                 </div>
@@ -1589,8 +1764,8 @@ export default function BirthResuscitationForm() {
                         <div className="form-group">
                           <label>59. pCO2 (mmHg){requiredMark}</label>
                           <input type="text" name="cord_pco2" value={formData.cord_pco2||""}
-                            placeholder="10-100" inputMode="numeric" readOnly={!isFieldEditable}
-                            onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=200))set({cord_pco2:v});}}/>
+                            placeholder="10-100" inputMode="decimal" readOnly={!isFieldEditable}
+                            onChange={e=>{const v=e.target.value;if(/^\d{0,3}(\.\d{0,1})?$/.test(v)&&(v===""||v==="."||Number(v)<=200))set({cord_pco2:v});}}/>
                         </div>
                       </div>
                     </div>

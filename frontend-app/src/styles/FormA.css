@@ -1001,3 +1001,159 @@
   background: #fff5f5 !important;
   box-shadow: 0 0 0 3px rgba(239,68,68,0.1) !important;
 }
+
+/* ─── DURATION PICKER (Form B fields 48 & 50) ─────────── */
+.duration-field {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.duration-field-input {
+  flex: 1;
+  min-width: 0;
+}
+.duration-picker-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.duration-picker-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  color: #6b7280;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.duration-picker-btn:hover:not(:disabled) {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #4338ca;
+}
+.duration-picker-btn.is-open {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #4338ca;
+}
+.duration-picker-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.duration-picker-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 10px;
+  min-width: 220px;
+}
+.duration-picker-preview {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #1e293b;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+.duration-picker-columns {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+.duration-picker-col {
+  flex: 1;
+  min-width: 0;
+}
+.duration-picker-col-label {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+.duration-picker-col-list {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  background: #fafafa;
+  scrollbar-width: thin;
+}
+.duration-picker-col-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 5px 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #475569;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.1s, color 0.1s;
+}
+.duration-picker-col-item:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.duration-picker-col-item.is-active {
+  background: #6366f1;
+  color: #fff;
+  font-weight: 700;
+}
+.duration-picker-sep {
+  align-self: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #cbd5e1;
+  padding-top: 18px;
+}
+.duration-picker-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+.duration-picker-clear {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+}
+.duration-picker-clear:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+.duration-picker-done {
+  flex: 1;
+  border: none;
+  background: #6366f1;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+.duration-picker-done:hover {
+  background: #4f46e5;
+}
