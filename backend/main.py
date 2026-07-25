@@ -270,6 +270,11 @@ def get_accessible_screening_query(db: Session, user: User):
     return query
 
 def require_enrollment_access(enrollment_id: str, db: Session, user: User):
+    if not enrollment_id or not enrollment_id.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="enrollment_id is required — this form can't be saved until randomization assigns one.",
+        )
     screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
     if screening:
         ensure_same_site(screening.site_name, user)
@@ -837,6 +842,27 @@ def create_birth_resuscitation(
             .first()
         )
         if existing:
+            # CRITICAL FIX: previously, ANY existing record with this
+            # enrollment_id got overwritten with the incoming data —
+            # including its screening_id and baby_uid. That's correct
+            # ONLY if this is the same save retrying (same screening_id).
+            # If a DIFFERENT patient's screening_id shows up here, this is
+            # a genuine typo colliding with someone else's enrollment_id,
+            # and blindly overwriting silently destroyed the first
+            # patient's entire clinical record with no error to anyone —
+            # confirmed by direct reproduction: Patient A's record
+            # (screening_id, baby_uid, all fields) was completely replaced
+            # by Patient B's data, with a 200 OK response giving no
+            # indication anything was wrong.
+            if existing.screening_id and data.screening_id and existing.screening_id != data.screening_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Enrollment ID '{data.enrollment_id}' is already used by a "
+                        f"different patient (screening {existing.screening_id}). "
+                        "Please double-check the enrollment ID and try again."
+                    ),
+                )
             payload.pop("enrollment_id", None)
             for key, value in payload.items():
                 setattr(existing, key, value)
