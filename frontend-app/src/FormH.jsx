@@ -20,6 +20,10 @@ export default function FormH() {
   const { enrollmentId } = useParams();
 const [touched, setTouched] = useState({});
 const [openSection, setOpenSection] = useState("ivh"); // default open
+  // FIX: tracks whether a Form H record already exists for this enrollment,
+  // so Save can PUT (update) instead of always POSTing a brand new
+  // duplicate row. See the save handler and the load effect below.
+  const [hasExistingRecord, setHasExistingRecord] = useState(false);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -429,6 +433,7 @@ useEffect(() => {
         const rows = Array.isArray(res.data) ? res.data : [res.data];
         const existing = rows.length ? rows[rows.length - 1] : null;
         if (!existing) return;
+        setHasExistingRecord(true);
 
         setFormData(prev => ({
           ...prev,
@@ -2708,7 +2713,16 @@ const num = (v) => {
   };
 
   try {
-    await api.post("/neonatal-morbidities/", payload);
+    // FIX: always called POST — with no PUT endpoint and no existing-record
+    // check, revisiting Form H after a partial save (very likely for a
+    // ~340-field form) created a second, duplicate row instead of updating
+    // the first one. Now uses PUT once a record has already been loaded.
+    if (hasExistingRecord) {
+      await api.put(`/neonatal-morbidities/${formData.enrollment_id}`, payload);
+    } else {
+      await api.post("/neonatal-morbidities/", payload);
+      setHasExistingRecord(true);
+    }
     markFormCompleted("form_h");
 
     alert("✅ Form H submitted successfully");

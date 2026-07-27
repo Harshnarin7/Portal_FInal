@@ -1380,8 +1380,56 @@ def create_neonatal_morbidities(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+    # FIX: this always inserted a new row, with no PUT endpoint to update an
+    # existing one — but FormH.jsx's own load effect explicitly loads
+    # existing data on mount ("prevents data loss on revisit") and its save
+    # handler only ever calls POST. Since Form H is one comprehensive
+    # discharge-summary record per enrollment (filled incrementally across
+    # sessions, not a repeatable-events list like SAE/Adverse Events), every
+    # "Save" after the first created a brand new duplicate row instead of
+    # updating. This existing-record check makes POST safe as a fallback;
+    # the new PUT endpoint below is the primary path once a record exists.
+    existing = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == data.enrollment_id)
+        .order_by(NeonatalMorbidities.id.asc())
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key) and key != "enrollment_id":
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = NeonatalMorbidities(**data.model_dump())
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+@app.put("/neonatal-morbidities/{enrollment_id}", response_model=NeonatalMorbiditiesOut)
+def update_neonatal_morbidities(
+    enrollment_id: str,
+    data: NeonatalMorbiditiesCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.asc())
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key != "enrollment_id":
+            setattr(record, key, value)
+
     db.commit()
     db.refresh(record)
     return record
@@ -1396,6 +1444,14 @@ def get_neonatal_morbidities(
     return (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        # FIX: no ORDER BY at all before — Postgres doesn't guarantee row
+        # order without one, so FormH.jsx's "take rows[rows.length - 1] as
+        # the most recent" logic wasn't actually reliable. Ordering by id
+        # ascending makes that assumption true going forward. (Response
+        # shape kept as a list, not changed to a single object, so any
+        # duplicate rows already created by the POST-only bug above don't
+        # break existing clients — this just makes "last" mean something.)
+        .order_by(NeonatalMorbidities.id.asc())
         .all()
     )
 

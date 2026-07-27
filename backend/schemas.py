@@ -964,6 +964,281 @@ class NeonatalMorbiditiesCreate(BaseModel):
     signature: str | None = None
     completion_date: date | None = None
 
+    # ---------------- NEUROLOGICAL (H1) (added by migrate_neonatal_morbidities) ----------------
+    aed_number: str | None = None
+    aed_other: str | None = None
+    aed_type: list | None = None
+    ahw: float | None = None
+    eeg_result: str | None = None
+    etiology: str | None = None
+    etiology_other: str | None = None
+    ich_type: str | None = None
+    ivh_date_left: date | None = None
+    ivh_date_right: date | None = None
+    ivh_description: str | None = None
+    ivh_description_left: str | None = None
+    ivh_description_right: str | None = None
+    ivh_grade_left: str | None = None
+    ivh_grade_right: str | None = None
+    ivh_present: str | None = None
+    pvl_date_left: date | None = None
+    pvl_date_right: date | None = None
+    pvl_grade_left: str | None = None
+    pvl_grade_right: str | None = None
+    pvl_present: str | None = None
+    tod_max: float | None = None
+    ventriculomegaly_present: str | None = None
+    vi_max: float | None = None
+
+    # ---------------- RESPIRATORY (H2) (added by migrate_neonatal_morbidities) ----------------
+    age_steroid: int | None = None
+    apnea_onset_age: int | None = None
+    bpd_support_36w: str | None = None
+    caffeine_duration: int | None = None
+    caffeine_used: str | None = None
+    cpap: str | None = None
+    cpap_used: str | None = None
+    extubation_episodes: int | None = None
+    extubation_failure: str | None = None
+    hc_after_first: bool | None = None
+    hc_after_second: bool | None = None
+    hc_first_drug: bool | None = None
+    hfnc: str | None = None
+    hfnc_days: int | None = None
+    hfnc_used: str | None = None
+    hydrocortisone_bp: str | None = None
+    imv_days: int | None = None
+    imv_used: str | None = None
+    invasive_ventilation: str | None = None
+    nasal_cannula: str | None = None
+    nasal_cannula_days: int | None = None
+    nasal_cannula_used: str | None = None
+    nippv: str | None = None
+    nippv_days: int | None = None
+    nippv_used: str | None = None
+    o2_days: int | None = None
+    oxygen_exposure: float | None = None
+    pulmonary_hypertension: str | None = None
+    rx_ino: bool | None = None
+    rx_miliri: bool | None = None
+    rx_other: bool | None = None
+    rx_other_text: str | None = None
+    rx_sildenafil: bool | None = None
+    rx_vaso: bool | None = None
+    steroid_dose: float | None = None
+    steroid_drug_other: str | None = None
+    steroid_indication_other: str | None = None
+
+    # ---------------- GASTROINTESTINAL (H3) (added by migrate_neonatal_morbidities) ----------------
+    age_first_feed: int | None = None
+    age_full_feeds: int | None = None
+    age_full_feeds_summary: int | None = None
+    bifidobacterium: str | None = None
+    ebm_days: int | None = None
+    fi_abdominal_distension: bool | None = None
+    fi_altered_aspirates: bool | None = None
+    fi_prefeed_aspirates: bool | None = None
+    fi_sluggish_bowel: bool | None = None
+    fm_days: int | None = None
+    lactobacillus: str | None = None
+    nec_age_days: int | None = None
+    nec_resection: bool | None = None
+    nec_resection_length: float | None = None
+    nec_stoma: bool | None = None
+    nec_surgery_type: str | None = None
+    pdhm_days: int | None = None
+    pn_acidosis: bool | None = None
+    pn_adverse: str | None = None
+    pn_cholestasis: bool | None = None
+    pn_days_summary: int | None = None
+    pn_electrolyte: bool | None = None
+    pn_hypercapnia: bool | None = None
+    pn_other: bool | None = None
+    pn_other_text: str | None = None
+    probiotic: str | None = None
+    strain_bi: bool | None = None
+    strain_mono: bool | None = None
+    strain_multi: bool | None = None
+    tpn_associated: str | None = None
+
+    # ---------------- METABOLIC (H4) (added by migrate_neonatal_morbidities) ----------------
+    alp_peak: float | None = None
+    dyselectro_ca: bool | None = None
+    dyselectro_k: bool | None = None
+    dyselectro_na: bool | None = None
+    dyselectrolytemia: str | None = None
+    hyperglycemia: str | None = None
+    hyperglycemia_highest: float | None = None
+    hypoglycemia: str | None = None
+    hypoglycemia_lowest: float | None = None
+    lowest_calcium: float | None = None
+    lowest_phosphorus: float | None = None
+    metabolic_acidosis: str | None = None
+    osteopenia: str | None = None
+
+    # ---------------- CARDIOVASCULAR (H5) (added by migrate_neonatal_morbidities) ----------------
+    dbp: float | None = None
+    fluid_bolus: str | None = None
+    fluid_bolus_number: int | None = None
+    hypotension_both: bool | None = None
+    hypotension_diastolic: bool | None = None
+    hypotension_systolic: bool | None = None
+    inotrope_adr: bool | None = None
+    inotrope_dobu: bool | None = None
+    inotrope_dopa: bool | None = None
+    inotrope_duration: int | None = None
+    inotrope_milri: bool | None = None
+    inotrope_nadr: bool | None = None
+    inotrope_vaso: bool | None = None
+    pda_both: bool | None = None
+    pda_bounding_pulse: bool | None = None
+    pda_clinical: bool | None = None
+    pda_courses: int | None = None
+    pda_echo: bool | None = None
+    pda_hyperactive_precordium: bool | None = None
+    pda_ibu: bool | None = None
+    pda_indo: bool | None = None
+    pda_la_ao: float | None = None
+    pda_ligation_age: int | None = None
+    pda_lpa_velocity: float | None = None
+    pda_medical_rx: str | None = None
+    pda_murmur: bool | None = None
+    pda_other_feature: bool | None = None
+    pda_other_feature_text: str | None = None
+    pda_pattern_growing: bool | None = None
+    pda_pattern_none: bool | None = None
+    pda_pattern_pulsatile: bool | None = None
+    pda_pcm: bool | None = None
+    pda_peak_velocity: float | None = None
+    pda_shunt: str | None = None
+    pda_systemic_steal: str | None = None
+    pda_tdd: float | None = None
+    pda_wide_pp: bool | None = None
+    sbp: float | None = None
+    structural_heart_disease: str | None = None
+    structural_heart_disease_detail: str | None = None
+    vis_score: float | None = None
+
+    # ---------------- HEMATOLOGY (H6) (added by migrate_neonatal_morbidities) ----------------
+    anemia: str | None = None
+    anemia_chf: str | None = None
+    anemia_etiology: str | None = None
+    anemia_etiology_other: str | None = None
+    anemia_onset: float | None = None
+    bind: str | None = None
+    cmv_screened: str | None = None
+    dvet: str | None = None
+    dvet_number: int | None = None
+    ffp_cryo: str | None = None
+    ffp_number: int | None = None
+    irradiated: str | None = None
+    ivig: str | None = None
+    jaundice_etiology: str | None = None
+    jaundice_etiology_other: str | None = None
+    jaundice_onset: date | None = None
+    jaundice_passive: date | None = None
+    jaundice_type: str | None = None
+    lowest_hb: float | None = None
+    peak_tsb: float | None = None
+    phototherapy: str | None = None
+    platelet_number: int | None = None
+    platelets: str | None = None
+    prbc: str | None = None
+    prbc_number: int | None = None
+    prbc_volume: float | None = None
+
+    # ---------------- RENAL (H7) (added by migrate_neonatal_morbidities) ----------------
+    aki: str | None = None
+    aki_date: date | None = None
+    aki_dialysis: bool | None = None
+    aki_oliguria: bool | None = None
+    aki_peak_creatinine: float | None = None
+    aki_stage1: bool | None = None
+    aki_stage2: bool | None = None
+    aki_stage3: bool | None = None
+
+    # ---------------- OPHTHALMOLOGY / ROP (H7) (added by migrate_neonatal_morbidities) ----------------
+    rop: str | None = None
+    rop_anti_vegf: bool | None = None
+    rop_arop: str | None = None
+    rop_bilateral: str | None = None
+    rop_comment: str | None = None
+    rop_diagnosis_date: date | None = None
+    rop_first_screen_date: date | None = None
+    rop_laser: bool | None = None
+    rop_method_ido: bool | None = None
+    rop_method_retcam: bool | None = None
+    rop_other: bool | None = None
+    rop_other_text: str | None = None
+    rop_plus: str | None = None
+    rop_screened: str | None = None
+    rop_stage1: bool | None = None
+    rop_stage2: bool | None = None
+    rop_stage3: bool | None = None
+    rop_stage4: bool | None = None
+    rop_stage5: bool | None = None
+    rop_treatment: str | None = None
+    rop_vitrectomy: bool | None = None
+    rop_zone1: bool | None = None
+    rop_zone2: bool | None = None
+    rop_zone3: bool | None = None
+
+    # ---------------- THERMOREGULATION (H8) (added by migrate_neonatal_morbidities) ----------------
+    hyperthermia: str | None = None
+    hyperthermia_clothing: bool | None = None
+    hyperthermia_equipment: bool | None = None
+    hyperthermia_location_dr: bool | None = None
+    hyperthermia_location_nicu: bool | None = None
+    hyperthermia_location_transport: bool | None = None
+    hyperthermia_other: bool | None = None
+    hyperthermia_other_text: str | None = None
+    hyperthermia_probe: bool | None = None
+    hyperthermia_temp: float | None = None
+    hyperthermia_wrap: bool | None = None
+    hypothermia: str | None = None
+    hypothermia_environment: bool | None = None
+    hypothermia_immaturity: bool | None = None
+    hypothermia_ivh: bool | None = None
+    hypothermia_location_dr: bool | None = None
+    hypothermia_location_nicu: bool | None = None
+    hypothermia_location_transport: bool | None = None
+    hypothermia_lowest_temp: float | None = None
+    hypothermia_mild: bool | None = None
+    hypothermia_moderate: bool | None = None
+    hypothermia_other: bool | None = None
+    hypothermia_other_text: str | None = None
+    hypothermia_sepsis: bool | None = None
+    hypothermia_severe: bool | None = None
+
+    # ---------------- VASCULAR ACCESS (H9) (added by migrate_neonatal_morbidities) ----------------
+    arterial_posterior_tibial: bool | None = None
+    arterial_radial: bool | None = None
+    extravasation: str | None = None
+    line_comp_infection: bool | None = None
+    line_comp_none: bool | None = None
+    line_comp_thrombosis: bool | None = None
+    peripheral_arterial: str | None = None
+    peripheral_venous: str | None = None
+    picc: str | None = None
+    picc_days: int | None = None
+    uac: str | None = None
+    uac_days: int | None = None
+    uvc: str | None = None
+    uvc_days: int | None = None
+
+    # ---------------- INFECTION (H10) totals (added by migrate_neonatal_morbidities) ----------------
+    vap_episodes: int | None = None
+
+    # ---------------- HOSPITAL COURSE (H12) (added by migrate_neonatal_morbidities) ----------------
+    back_referral_hospital: str | None = None
+    back_referral_other: str | None = None
+    designation: str | None = None
+    discharge_hc: float | None = None
+    total_los: int | None = None
+
+    # dynamic Infection (H10) episode list
+    infections: list | None = None
+
 
 class NeonatalMorbiditiesOut(NeonatalMorbiditiesCreate):
     id: int
