@@ -172,6 +172,15 @@
   background: #eef2ff;
 }
 
+/* ===== SECTION HEADER ICON (modern polish) ===== */
+.sec-icon {
+  color: #0369a1;
+  vertical-align: middle;
+  margin-right: 6px;
+  position: relative;
+  top: -1px;
+}
+
 /* ===== CARD HEADER ALIGNMENT (right-section / arrow / summary pill) ===== */
 .card-header-row {
   display: flex;
@@ -301,4 +310,69 @@
   .pn-checkbox-grid { grid-template-columns: 1fr; }
   .card-header-row { flex-wrap: wrap; }
   .right-section { margin-left: 0; }
+}
+
+/* ============================================================
+   FormH — animated Yes/No sliding toggle (matches Form A /
+   ScreeningForm.jsx's YesNoToggle exactly, copied from FormA.css
+   since FormH doesn't import that stylesheet directly)
+   ============================================================ */
+.form-section .yes-no-toggle,
+.yes-no-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0; border-bottom: 1px solid #f3f4f6;
+  gap: 16px;
+}
+.yes-no-toggle:last-of-type { border-bottom: none; padding-bottom: 0; }
+.yes-no-toggle:first-of-type { padding-top: 0; }
+.yes-no-toggle.yn-disabled { opacity: 0.6; }
+
+.yes-no-label {
+  font-size: 13px; font-weight: 600; color: #111827;
+  flex: 1; line-height: 1.45; padding-right: 16px;
+}
+.yes-no-buttons {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  position: relative;
+  border: 1.5px solid #d1d5db; border-radius: 7px; overflow: hidden;
+  background: #fff;
+  width: 104px;
+}
+.yn-thumb {
+  position: absolute; top: 0; left: 0;
+  width: 52px; height: 32px;
+  background: #1e3a5f;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s;
+  transform: translateX(-100%);
+}
+.yes-no-buttons.yn-pos-1 .yn-thumb { transform: translateX(0); background: #1e3a5f; }
+.yes-no-buttons.yn-pos-2 .yn-thumb { transform: translateX(52px); background: #2563eb; }
+.yn-btn {
+  position: relative; z-index: 1;
+  width: 52px; height: 32px; padding: 0;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  border: none; background: transparent; color: #9ca3af;
+  cursor: pointer; transition: color 0.15s;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.yn-btn:first-child { border-right: 1.5px solid #d1d5db; }
+.yn-btn:hover:not(:disabled):not(.yn-active) { color: #374151; }
+.yn-btn.yn-active { color: #fff; }
+.yn-btn:disabled { cursor: not-allowed; }
+
+/* form-group wrapping a toggle shouldn't add its own label/border spacing */
+.form-group > .yes-no-toggle { padding: 4px 0; }
+
+/* ============================================================
+   FormH — per-field CRF numbering badges (matches the Word doc's
+   running field numbers, e.g. "35." for BPD Diagnosed). Applied
+   to the ~55 fields matched with high confidence against the CRF
+   text; see FormH_redesign_notes.md for the exact list and why
+   the remaining fields were left unnumbered rather than guessed.
+   ============================================================ */
+.field-num {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 2px;
 }
