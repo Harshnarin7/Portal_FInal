@@ -10,6 +10,7 @@ import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { Plus, Trash2 } from "lucide-react";
 export default function FormH() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -22,6 +23,8 @@ const [openSection, setOpenSection] = useState("ivh"); // default open
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
+    // ================= INFECTION (H10) — dynamic, repeatable episodes =================
+    infections: [],
     // ================= NEUROLOGICAL =================
 
 // IVH
@@ -247,32 +250,9 @@ if (name.startsWith("hc_")) {
   validateShock("hc_group", val, updatedForm);
 }
 
-validateSepsis(name, val, updatedForm);
-
-// group validations
-if (name.startsWith("sepsis_")) {
-  validateSepsis("sepsis_type_group", val, updatedForm);
-}
-
-if (name.startsWith("screen_")) {
-  validateSepsis("screen_group", val, updatedForm);
-}
-
-if (name.startsWith("culture_")) {
-  validateSepsis("culture_group", val, updatedForm);
-}
-
-if (name.startsWith("gram_") || name === "fungus") {
-  validateSepsis("organism_group", val, updatedForm);
-}
-
-if (name.startsWith("staph_") || name.startsWith("gp_")) {
-  validateSepsis("gp_group", val, updatedForm);
-}
-
-if (name.startsWith("acinetobacter") || name.startsWith("gn_")) {
-  validateSepsis("gn_group", val, updatedForm);
-}
+// sepsis_episodes / vap_episodes are the only fields still validated here —
+// per-episode Infection (H10) fields are validated via validateInfectionField().
+validateSepsis(name, val);
 
 validateJaundice(name, val, updatedForm);
 
@@ -439,6 +419,38 @@ useEffect(() => {
     }
   }, [location.state]);
 
+  // ================= LOAD EXISTING FORM H (prevents data loss on revisit) =================
+  useEffect(() => {
+    if (!enrollmentId) return;
+
+    const loadExistingFormH = async () => {
+      try {
+        const res = await api.get(`/neonatal-morbidities/${enrollmentId}`);
+        const rows = Array.isArray(res.data) ? res.data : [res.data];
+        const existing = rows.length ? rows[rows.length - 1] : null;
+        if (!existing) return;
+
+        setFormData(prev => ({
+          ...prev,
+          ...existing,
+          // map backend booleans back to the Yes/No selects the UI uses
+          ivh_present: existing.ivh === true ? "Yes" : existing.ivh === false ? "No" : prev.ivh_present,
+          pvl_present: existing.pvl === true ? "Yes" : existing.pvl === false ? "No" : prev.pvl_present,
+          ventriculomegaly_present:
+            existing.ventriculomegaly === true ? "Yes" :
+            existing.ventriculomegaly === false ? "No" : prev.ventriculomegaly_present,
+          infections: Array.isArray(existing.infections) ? existing.infections : (prev.infections || []),
+          enrollment_id: enrollmentId,
+        }));
+      } catch (err) {
+        // No saved Form H yet for this enrollment — start blank, this is expected for a new form.
+        console.log("No existing Form H record yet for this enrollment.");
+      }
+    };
+
+    loadExistingFormH();
+  }, [enrollmentId]);
+
   const yesNoToBool = (v) => {
   if (v === "Yes") return true;
   if (v === "No") return false;
@@ -492,15 +504,28 @@ const validateSummary = (name, value, updatedForm = formData) => {
 
   switch (name) {
 
+    // ---------------- STRUCTURAL HEART DISEASE (H5.1) ----------------
+    case "structural_heart_disease":
+      if (!value) error = "Required";
+      break;
+
+    case "structural_heart_disease_detail":
+      if (updatedForm.structural_heart_disease === "Yes" && !value) {
+        error = "Please specify";
+      }
+      break;
+
     // ---------------- REQUIRED ----------------
-    case "total_los":
-    case "nicu_days":
     case "outcome":
     case "discharge_date":
       if (!value) error = "Required";
       break;
 
     // ---------------- LOS ----------------
+    // (total_los / nicu_days required-checks live in their dedicated
+    // cases below so the range validation actually runs — previously
+    // this fired first with a bare "break", making the detailed case
+    // further down permanently unreachable.)
     case "total_los":
       if (!value) error = "Required";
       else if (!isNumber(value)) error = "Only numbers";
@@ -924,134 +949,19 @@ const validateVM = (name, value, updatedForm = formData) => {
 
 
 
-const validateSepsis = (name, value, updatedForm = formData) => {
+const validateSepsis = (name, value) => {
+  // Per-episode sepsis/infection validation now lives in validateInfectionField()
+  // (see the dynamic Infection section, H10). This function only covers the two
+  // cumulative, form-level totals that sit below the repeatable episode list.
   let error = "";
-
   const isNumber = (val) => /^\d+$/.test(val);
 
   switch (name) {
-
-    case "sepsis":
-      if (!value) error = "Required";
-      break;
-
-    // ---------------- TYPE ----------------
-    case "sepsis_type_group":
-      if (updatedForm.sepsis === "Yes") {
-        const any =
-          updatedForm.sepsis_clinical ||
-          updatedForm.sepsis_screen ||
-          updatedForm.sepsis_culture;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    // ---------------- AGE ----------------
-    case "sepsis_onset_age":
-    case "blood_culture_age":
-      if (value !== "") {
-        if (!isNumber(value)) error = "Only numbers";
-        else if (value < 0 || value > 1000) error = "0–1000 hours";
-      }
-      break;
-
-    // ---------------- SCREEN ----------------
-    case "screen_group":
-      if (updatedForm.sepsis_screen) {
-        const any =
-          updatedForm.screen_crp ||
-          updatedForm.screen_pct ||
-          updatedForm.screen_other;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    case "screen_other_text":
-      if (updatedForm.screen_other) {
-        if (!value) error = "Required";
-        else if (!/^[A-Za-z\s]+$/.test(value)) error = "Only text";
-      }
-      break;
-
-    // ---------------- CULTURE SOURCE ----------------
-    case "culture_group":
-      if (updatedForm.sepsis_culture) {
-        const any =
-          updatedForm.culture_blood ||
-          updatedForm.culture_csf ||
-          updatedForm.culture_urine ||
-          updatedForm.culture_other;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    case "culture_other_text":
-      if (updatedForm.culture_other && !value) {
-        error = "Required";
-      }
-      break;
-
-    // ---------------- ORGANISM TYPE ----------------
-    case "organism_group":
-      if (updatedForm.sepsis_culture) {
-        const any =
-          updatedForm.gram_positive ||
-          updatedForm.gram_negative ||
-          updatedForm.fungus;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    // ---------------- GRAM POSITIVE ----------------
-    case "gp_group":
-      if (updatedForm.gram_positive) {
-        const any =
-          updatedForm.staph_aureus ||
-          updatedForm.staph_hemolyticus ||
-          updatedForm.staph_epidermidis ||
-          updatedForm.gp_other;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    case "gp_other_text":
-      if (updatedForm.gp_other && !value) {
-        error = "Required";
-      }
-      break;
-
-    // ---------------- GRAM NEGATIVE ----------------
-    case "gn_group":
-      if (updatedForm.gram_negative) {
-        const any =
-          updatedForm.acinetobacter ||
-          updatedForm.ecoli ||
-          updatedForm.klebsiella ||
-          updatedForm.serratia ||
-          updatedForm.pseudomonas ||
-          updatedForm.gn_other;
-
-        if (!any) error = "Select at least one";
-      }
-      break;
-
-    case "gn_other_text":
-      if (updatedForm.gn_other && !value) {
-        error = "Required";
-      }
-      break;
-
-    // ---------------- EPISODES ----------------
     case "sepsis_episodes":
     case "vap_episodes":
       if (value !== "") {
         if (!isNumber(value)) error = "Only numbers";
-        else if (value < 0 || value > 20) error = "0–20";
+        else if (value < 0 || value > 20) error = "0\u201320";
       }
       break;
 
@@ -1061,13 +971,7 @@ const validateSepsis = (name, value, updatedForm = formData) => {
 
   setErrors(prev => ({
     ...prev,
-    [name]: error,
-    sepsis_type_group: error,
-    screen_group: error,
-    culture_group: error,
-    organism_group: error,
-    gp_group: error,
-    gn_group: error
+    [name]: error
   }));
 };
 
@@ -2491,16 +2395,7 @@ useEffect(() => {
   }
 }, [formData.anemia]);
 
-useEffect(() => {
-  if (formData.sepsis === "No") {
-    setFormData(prev => ({
-      ...prev,
-      sepsis_clinical: false,
-      sepsis_screen: false,
-      sepsis_culture: false
-    }));
-  }
-}, [formData.sepsis]);
+// (per-episode sepsis "No" resets are now handled inline in handleInfectionChange)
 
 useEffect(() => {
   if (formData.hypoglycemia === "No") {
@@ -2768,31 +2663,62 @@ const num = (v) => {
 
   const handleSubmit = async (e) => {
   e.preventDefault();
- 
 
   console.log("🚀 Form H submit clicked");
-  const payload = {
-  enrollment_id: formData.enrollment_id,
 
-  ivh_diagnosed: yesNoToBool(formData.ivh_diagnosed),
-  ivh_side: formData.ivh_side || null,
-  ivh_grade: formData.ivh_grade || null,
-  ivh_date: formData.ivh_date || null,
-  ivh_age_days: num(formData.ivh_age_days),
-};
+  const infectionsList = formData.infections || [];
+  const anySepsisAnswered = infectionsList.some(i => i.sepsis === "Yes" || i.sepsis === "No");
+  const anySepsisYes = infectionsList.some(i => i.sepsis === "Yes");
+
+  // NOTE: the full formData is spread into the payload first so that every
+  // field the clinician entered is sent to the backend (previously only 5
+  // fields were sent and everything else was silently discarded on submit).
+  // The explicit keys below convert the UI's Yes/No strings into the
+  // booleans/numbers the current backend schema expects, and normalise the
+  // dynamic Infection episodes into the shape the API understands.
+  const payload = {
+    ...formData,
+
+    ivh: yesNoToBool(formData.ivh_present),
+    ivh_side: formData.ivh_side || null,
+    ivh_grade: formData.ivh_grade || formData.ivh_grade_left || formData.ivh_grade_right || null,
+    ivh_date: formData.ivh_date || formData.ivh_date_left || formData.ivh_date_right || null,
+    ivh_age_days: num(formData.ivh_age_days),
+
+    pvl: yesNoToBool(formData.pvl_present),
+    ventriculomegaly: yesNoToBool(formData.ventriculomegaly_present),
+    seizures: yesNoToBool(formData.seizures),
+    bpd: yesNoToBool(formData.bpd),
+    postnatal_steroids: yesNoToBool(formData.postnatal_steroids),
+    feed_intolerance: yesNoToBool(formData.feed_intolerance),
+    nec: yesNoToBool(formData.nec),
+    hs_pda: yesNoToBool(formData.hs_pda),
+    shock: yesNoToBool(formData.shock),
+    hypotension: yesNoToBool(formData.hypotension),
+    structural_heart_disease: yesNoToBool(formData.structural_heart_disease),
+
+    sepsis: anySepsisAnswered ? anySepsisYes : yesNoToBool(formData.sepsis),
+    sepsis_episodes: num(formData.sepsis_episodes),
+
+    total_los_days: num(formData.total_los_days),
+    nicu_days: num(formData.nicu_days),
+    discharge_weight: num(formData.discharge_weight),
+
+    infections: infectionsList,
+  };
 
   try {
     await api.post("/neonatal-morbidities/", payload);
-    markFormCompleted("form_f");
+    markFormCompleted("form_h");
 
     alert("✅ Form H submitted successfully");
-    
-    navigate(`/form-j/${formData.enrollment_id}`);
+
+    navigate(`/form-i/${formData.enrollment_id}`);
 
   } catch (err) {
-  console.error("❌ BACKEND ERROR:", err.response?.data);
-  alert(JSON.stringify(err.response?.data, null, 2));
-}
+    console.error("❌ BACKEND ERROR:", err.response?.data);
+    alert(JSON.stringify(err.response?.data, null, 2));
+  }
 };
 
 const nurses = [
@@ -3063,28 +2989,266 @@ const getShockSummary = () => {
   return parts.length ? parts.join(" • ") : "No";
 };
 
-const getSepsisSummary = () => {
-  if (!formData.sepsis) return "Not filled";
-  if (formData.sepsis === "No") return "No";
+// ================= INFECTION (H10) — dynamic, repeatable episodes =================
+// Replaces the old single flat sepsis_* fields with formData.infections[],
+// so a patient can have any number of infection episodes recorded
+// independently (add / remove without touching any other entry's data).
 
-  let parts = [];
+const emptyInfection = () => ({
+  sepsis: "",
+  sepsis_clinical: false,
+  sepsis_screen: false,
+  sepsis_culture: false,
+  sepsis_onset_age: "",
+  blood_culture_age_hours: "",
+  blood_culture_age_days: "",
+  screen_crp: false,
+  screen_pct: false,
+  screen_other: false,
+  screen_other_text: "",
+  culture_blood: false,
+  culture_csf: false,
+  culture_urine: false,
+  culture_other: false,
+  culture_other_text: "",
+  gram_positive: false,
+  gram_negative: false,
+  fungus: false,
+  staph_aureus: false,
+  staph_hemolyticus: false,
+  staph_epidermidis: false,
+  gp_other: false,
+  gp_other_text: "",
+  acinetobacter: false,
+  ecoli: false,
+  klebsiella: false,
+  serratia: false,
+  pseudomonas: false,
+  gn_other: false,
+  gn_other_text: "",
+  mdr: "",
+  xdr: "",
+  focus_septicemia: false,
+  focus_pneumonia: false,
+  focus_meningitis: false,
+  focus_bone_joint: false,
+  focus_uti: false,
+  focus_other: false,
+  focus_other_text: "",
+  clabsi: "",
+  vap: "",
+});
 
-  // type
-  if (formData.sepsis_clinical) parts.push("Clinical");
-  if (formData.sepsis_screen) parts.push("Screen+");
-  if (formData.sepsis_culture) parts.push("Culture+");
+const addInfection = () => {
+  setFormData(prev => ({
+    ...prev,
+    infections: [...(prev.infections || []), emptyInfection()],
+  }));
+};
 
-  // organism
-  if (formData.gram_positive) parts.push("G+");
-  if (formData.gram_negative) parts.push("G-");
-  if (formData.fungus) parts.push("Fungal");
+const removeInfection = (index) => {
+  setFormData(prev => ({
+    ...prev,
+    infections: (prev.infections || []).filter((_, i) => i !== index),
+  }));
+  setErrors(prev => {
+    const infectionErrors = Array.isArray(prev.infectionErrors) ? [...prev.infectionErrors] : [];
+    infectionErrors.splice(index, 1);
+    return { ...prev, infectionErrors };
+  });
+};
 
-  // episodes
-  if (formData.sepsis_episodes) {
-    parts.push(`${formData.sepsis_episodes} ep`);
+const validateInfectionField = (index, name, value, entry) => {
+  let error = "";
+  let groupField = null;
+  const isNumber = (val) => /^\d+$/.test(val);
+
+  switch (name) {
+    case "sepsis":
+      if (!value) error = "Required";
+      break;
+
+    case "sepsis_type_group":
+      groupField = "sepsis_type_group";
+      if (entry.sepsis === "Yes") {
+        const any = entry.sepsis_clinical || entry.sepsis_screen || entry.sepsis_culture;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "sepsis_onset_age":
+    case "blood_culture_age_hours":
+    case "blood_culture_age_days":
+      if (value !== "") {
+        if (!isNumber(value)) error = "Only numbers";
+        else if (value < 0 || value > 1000) error = "0–1000";
+      }
+      break;
+
+    case "screen_group":
+      groupField = "screen_group";
+      if (entry.sepsis_screen) {
+        const any = entry.screen_crp || entry.screen_pct || entry.screen_other;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "screen_other_text":
+      if (entry.screen_other) {
+        if (!value) error = "Required";
+        else if (!/^[A-Za-z\s]+$/.test(value)) error = "Only text";
+      }
+      break;
+
+    case "culture_group":
+      groupField = "culture_group";
+      if (entry.sepsis_culture) {
+        const any = entry.culture_blood || entry.culture_csf || entry.culture_urine || entry.culture_other;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "culture_other_text":
+      if (entry.culture_other && !value) error = "Required";
+      break;
+
+    case "organism_group":
+      groupField = "organism_group";
+      if (entry.sepsis_culture) {
+        const any = entry.gram_positive || entry.gram_negative || entry.fungus;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "gp_group":
+      groupField = "gp_group";
+      if (entry.gram_positive) {
+        const any = entry.staph_aureus || entry.staph_hemolyticus || entry.staph_epidermidis || entry.gp_other;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "gp_other_text":
+      if (entry.gp_other && !value) error = "Required";
+      break;
+
+    case "gn_group":
+      groupField = "gn_group";
+      if (entry.gram_negative) {
+        const any = entry.acinetobacter || entry.ecoli || entry.klebsiella || entry.serratia || entry.pseudomonas || entry.gn_other;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "gn_other_text":
+      if (entry.gn_other && !value) error = "Required";
+      break;
+
+    case "focus_group":
+      groupField = "focus_group";
+      if (entry.sepsis === "Yes") {
+        const any = entry.focus_septicemia || entry.focus_pneumonia || entry.focus_meningitis ||
+                    entry.focus_bone_joint || entry.focus_uti || entry.focus_other;
+        if (!any) error = "Select at least one";
+      }
+      break;
+
+    case "focus_other_text":
+      if (entry.focus_other && !value) error = "Required";
+      break;
+
+    default:
+      break;
   }
 
+  setErrors(prev => {
+    const infectionErrors = Array.isArray(prev.infectionErrors) ? [...prev.infectionErrors] : [];
+    const current = { ...(infectionErrors[index] || {}) };
+    current[name] = error;
+    if (groupField) current[groupField] = error;
+    infectionErrors[index] = current;
+    return { ...prev, infectionErrors };
+  });
+};
+
+// Mirrors the file's existing handleChange convention: build the updated
+// snapshot first, commit it with a single setFormData call, then validate
+// off that same snapshot (never off stale state).
+const handleInfectionChange = (index, name, rawValue) => {
+  const currentInfections = formData.infections || [];
+  let entry = { ...(currentInfections[index] || emptyInfection()), [name]: rawValue };
+
+  // cascade resets so hidden/irrelevant sub-fields never linger with stale data
+  if (name === "sepsis" && rawValue === "No") {
+    entry = { ...entry, sepsis_clinical: false, sepsis_screen: false, sepsis_culture: false };
+  }
+  if (name === "sepsis_screen" && !rawValue) {
+    entry = { ...entry, screen_crp: false, screen_pct: false, screen_other: false, screen_other_text: "" };
+  }
+  if (name === "sepsis_culture" && !rawValue) {
+    entry = {
+      ...entry,
+      culture_blood: false, culture_csf: false, culture_urine: false, culture_other: false, culture_other_text: "",
+      gram_positive: false, gram_negative: false, fungus: false,
+      staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "",
+      acinetobacter: false, ecoli: false, klebsiella: false, serratia: false, pseudomonas: false, gn_other: false, gn_other_text: "",
+    };
+  }
+  if (name === "gram_positive" && !rawValue) {
+    entry = { ...entry, staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "" };
+  }
+  if (name === "gram_negative" && !rawValue) {
+    entry = { ...entry, acinetobacter: false, ecoli: false, klebsiella: false, serratia: false, pseudomonas: false, gn_other: false, gn_other_text: "" };
+  }
+  if (name === "screen_other" && !rawValue) entry.screen_other_text = "";
+  if (name === "culture_other" && !rawValue) entry.culture_other_text = "";
+  if (name === "gp_other" && !rawValue) entry.gp_other_text = "";
+  if (name === "gn_other" && !rawValue) entry.gn_other_text = "";
+  if (name === "focus_other" && !rawValue) entry.focus_other_text = "";
+
+  const updatedInfections = [...currentInfections];
+  updatedInfections[index] = entry;
+  setFormData(prev => ({ ...prev, infections: updatedInfections }));
+
+  validateInfectionField(index, name, rawValue, entry);
+  if (name.startsWith("sepsis_") || name === "sepsis") validateInfectionField(index, "sepsis_type_group", rawValue, entry);
+  if (name.startsWith("screen_")) validateInfectionField(index, "screen_group", rawValue, entry);
+  if (name.startsWith("culture_")) validateInfectionField(index, "culture_group", rawValue, entry);
+  if (name.startsWith("gram_") || name === "fungus") validateInfectionField(index, "organism_group", rawValue, entry);
+  if (name.startsWith("staph_") || name.startsWith("gp_")) validateInfectionField(index, "gp_group", rawValue, entry);
+  if (["acinetobacter", "ecoli", "klebsiella", "serratia", "pseudomonas"].includes(name) || name.startsWith("gn_")) {
+    validateInfectionField(index, "gn_group", rawValue, entry);
+  }
+  if (name.startsWith("focus_")) validateInfectionField(index, "focus_group", rawValue, entry);
+};
+
+const getInfectionEntryStatus = (entry) => getStatusClass(entry.sepsis);
+const getInfectionEntryIcon = (entry) => getStatusIcon(entry.sepsis);
+
+const getInfectionEntrySummary = (entry) => {
+  if (!entry.sepsis) return "Not filled";
+  if (entry.sepsis === "No") return "No";
+
+  let parts = [];
+  if (entry.sepsis_clinical) parts.push("Clinical");
+  if (entry.sepsis_screen) parts.push("Screen+");
+  if (entry.sepsis_culture) parts.push("Culture+");
+  if (entry.gram_positive) parts.push("G+");
+  if (entry.gram_negative) parts.push("G-");
+  if (entry.fungus) parts.push("Fungal");
+  if (entry.clabsi === "Yes") parts.push("CLABSI");
+  if (entry.vap === "Yes") parts.push("VAP");
+  if (entry.mdr === "Yes") parts.push("MDR");
+  if (entry.xdr === "Yes") parts.push("XDR");
+
   return parts.length ? parts.join(" • ") : "Yes";
+};
+
+const getInfectionSectionSummary = () => {
+  const list = formData.infections || [];
+  if (!list.length) return "No episodes recorded";
+  const confirmed = list.filter(i => i.sepsis === "Yes").length;
+  return `${list.length} episode${list.length === 1 ? "" : "s"} recorded${confirmed ? ` • ${confirmed} confirmed` : ""}`;
 };
 
 const getTransfusionSummary = () => {
@@ -3416,7 +3580,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= NEUROLOGICAL ================= */}
 <div className="form-section soft-blue">
 
-  <h3>NEUROLOGICAL</h3>
+  <h3><span className="sec-num">H1</span> NEUROLOGICAL</h3>
 
   {/* ================= IVH ================= */}
   <div className="card">
@@ -3426,7 +3590,7 @@ const peripheralStatus= getPeripheralStatus();
       onClick={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
     >
 
-      <span>Intraventricular Hemorrhage</span>
+      <span><span className="sec-num sub">H1.1</span> Intraventricular Hemorrhage (IVH)</span>
       <div className="right-section">
       <span className={`summary ${getStatusClass(formData.ivh_present)}`}>
   <span className="icon">{getStatusIcon(formData.ivh_present)}</span>
@@ -3639,7 +3803,7 @@ const peripheralStatus= getPeripheralStatus();
   className="card-header-row"
   onClick={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
 >
-  <span>Periventricular Leukomalacia</span>
+  <span><span className="sec-num sub">H1.2</span> Periventricular Leukomalacia (cPVL)</span>
 
   <div className="right-section">
     <span className={`summary ${getStatusClass(formData.pvl_present)}`}>
@@ -3806,7 +3970,7 @@ const peripheralStatus= getPeripheralStatus();
   className="card-header-row"
   onClick={() => setOpenSection(openSection === "vm" ? null : "vm")}
 >
-  <span >Ventriculomegaly</span>
+  <span><span className="sec-num sub">H1.3</span> Ventriculomegaly</span>
 
   <span className={`summary centered ${getStatusClass(formData.ventriculomegaly_present)}`}>
     <span className="icon">
@@ -3978,7 +4142,7 @@ const peripheralStatus= getPeripheralStatus();
   className="card-header-row"
   onClick={() => setOpenSection(openSection === "seizure" ? null : "seizure")}
 >
-  <span>Seizures</span>
+  <span><span className="sec-num sub">H1.4</span> Seizures</span>
 
   <div className="right-section">
     <span className={`summary ${getStatusClass(formData.seizures)}`}>
@@ -4183,12 +4347,12 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ================= RESPIRATORY ================= */}
 <div className="form-section soft-blue">
-  <h3>RESPIRATORY</h3>
+  <h3><span className="sec-num">H2</span> RESPIRATORY</h3>
 
  {/* ================= BPD ================= */}
   <div className="card">
     <div className="card-header-row" onClick={() => setOpenSection(openSection === "bpd" ? null : "bpd")}>
-      <span>Bronchopulmonary Dysplasia</span>
+      <span><span className="sec-num sub">H2.1</span> Bronchopulmonary Dysplasia (BPD)</span>
 <div className="right-section">
       <span className={`summary ${getRespStatusClass(formData.bpd)}`}>
   <span className="icon">{getRespIcon(formData.bpd)}</span>
@@ -4354,7 +4518,7 @@ const peripheralStatus= getPeripheralStatus();
   {/* ================= RESP SUPPORT ================= */}
   <div className="card">
     <div className="card-header-row" onClick={() => setOpenSection(openSection === "support" ? null : "support")}>
-      <span>Respiratory Support</span>
+      <span><span className="sec-num sub">H2.2</span> Respiratory Support</span>
       <span className={`summary ${respSummary.className}`}>
   <span className="icon">{respSummary.icon}</span>
   {respSummary.text}
@@ -4885,7 +5049,7 @@ const peripheralStatus= getPeripheralStatus();
   {/* ================= OTHER RESP ================= */}
   <div className="card">
     <div className="card-header-row" onClick={() => setOpenSection(openSection === "otherResp" ? null : "otherResp")}>
-      <span>Other Respiratory</span>
+      <span><span className="sec-num sub">H2.3</span> Other Respiratory</span>
       
 
 <span className={`summary ${
@@ -5162,7 +5326,7 @@ const peripheralStatus= getPeripheralStatus();
  {/* ================= APNEA ================= */}
   <div className="card">
     <div className="card-header-row" onClick={() => setOpenSection(openSection === "apnea" ? null : "apnea")}>
-      <span>Apnea of Prematurity</span>
+      <span><span className="sec-num sub">H2.4</span> Apnea of Prematurity</span>
       <span className={`summary ${getRespStatusClass(formData.apnea)}`}>
   <span className="icon">{getRespIcon(formData.apnea)}</span>
 
@@ -5286,7 +5450,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ================= GASTROINTESTINAL ================= */}
 <div className="form-section soft-blue">
-  <h3>GASTROINTESTINAL</h3>
+  <h3><span className="sec-num">H3</span> GASTROINTESTINAL</h3>
   
   <div className="card">
   <div
@@ -5379,7 +5543,7 @@ const peripheralStatus= getPeripheralStatus();
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "nec" ? null : "nec")}
   >
-    <span>Necrotizing Enterocolitis</span>
+    <span><span className="sec-num sub">H3.1</span> Necrotizing Enterocolitis (NEC)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.nec)}`}>
@@ -5863,7 +6027,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ================= METABOLIC ================= */}
 <div className="form-section soft-blue">
-  <h3>METABOLIC</h3>
+  <h3><span className="sec-num">H4</span> METABOLIC</h3>
   <div className="pn-adverse-card">
   <h4>Metabolic Disturbances</h4>
 <div className="card">
@@ -6277,13 +6441,70 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= PDA ================= */}
 <div className="form-section soft-blue">
 
-  <h3>CARDIOVASCULAR</h3>
+  <h3><span className="sec-num">H5</span> CARDIOVASCULAR</h3>
+
+  {/* ================= STRUCTURAL HEART DISEASE ================= */}
+  <div className="card">
+  <div
+    className="card-header-row"
+    onClick={() => setOpenSection(openSection === "shd" ? null : "shd")}
+  >
+    <span><span className="sec-num sub">H5.1</span> Structural Heart Disease</span>
+
+    <div className="right-section">
+      <span className={`summary ${getStatusClass(formData.structural_heart_disease)}`}>
+        <span className="icon">{getStatusIcon(formData.structural_heart_disease)}</span>
+        {formData.structural_heart_disease || "Not filled"}
+      </span>
+    </div>
+    <span className="arrow">{openSection === "shd" ? "▲" : "▼"}</span>
+  </div>
+
+  {openSection === "shd" && (
+    <div className="card-body">
+      <div className="form-row">
+        <div className="form-group">
+          <label>Structural Heart Disease <span className="required">*</span></label>
+          <select
+            name="structural_heart_disease"
+            value={formData.structural_heart_disease || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          >
+            <option value="">-- Select --</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+          {errors.structural_heart_disease && (
+            <div className="error-text">{errors.structural_heart_disease}</div>
+          )}
+        </div>
+
+        {formData.structural_heart_disease === "Yes" && (
+          <div className="form-group">
+            <label>Specify <span className="required">*</span></label>
+            <input
+              name="structural_heart_disease_detail"
+              value={formData.structural_heart_disease_detail || ""}
+              onChange={handleChange}
+              onBlur={handleBlur}
+            />
+            {errors.structural_heart_disease_detail && (
+              <div className="error-text">{errors.structural_heart_disease_detail}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+  </div>
+
   <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "pda" ? null : "pda")}
   >
-    <span>Patent Ductus Arteriosus</span>
+    <span><span className="sec-num sub">H5.2</span> Patent Ductus Arteriosus (PDA)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.hs_pda)}`}>
@@ -6645,7 +6866,7 @@ const peripheralStatus= getPeripheralStatus();
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "shock" ? null : "shock")}
   >
-    <span>Shock / Hypotension</span>
+    <span><span className="sec-num sub">H5.3</span> Shock / Hypotension</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.shock || formData.hypotension)}`}>
@@ -6972,267 +7193,320 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= INFECTION ================= */}
 <div className="form-section soft-blue">
 
-  <h3>INFECTION</h3>
+  <h3><span className="sec-num">H10</span> INFECTION</h3>
+
+  <div className="infection-section-summary">{getInfectionSectionSummary()}</div>
+
+  {(formData.infections || []).length === 0 && (
+    <div className="infection-empty-state">
+      No infection episodes recorded yet. Use "+ Add Infection" below if this baby had a sepsis / VAP episode.
+    </div>
+  )}
+
+  {(formData.infections || []).map((entry, idx) => (
+    <div className="card infection-entry-card" key={idx}>
+      <div
+        className="card-header-row"
+        onClick={() => setOpenSection(openSection === `infection-${idx}` ? null : `infection-${idx}`)}
+      >
+        <span>Infection Episode {idx + 1}</span>
+
+        <div className="right-section">
+          <span className={`summary ${getInfectionEntryStatus(entry)}`}>
+            <span className="icon">{getInfectionEntryIcon(entry)}</span>
+            {getInfectionEntrySummary(entry)}
+          </span>
+          <button
+            type="button"
+            className="infection-remove-btn"
+            onClick={(e) => { e.stopPropagation(); removeInfection(idx); }}
+            title="Remove this infection episode"
+            aria-label={`Remove infection episode ${idx + 1}`}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+        <span className="arrow">{openSection === `infection-${idx}` ? "▲" : "▼"}</span>
+      </div>
+
+      {openSection === `infection-${idx}` && (
+        <div className="card-body">
+          <div className="pn-adverse-card">
+
+            {/* ---------------- SEPSIS ---------------- */}
+            <div className="form-group">
+              <label>Sepsis <span className="required">*</span></label>
+              <select
+                value={entry.sepsis || ""}
+                onChange={(e) => handleInfectionChange(idx, "sepsis", e.target.value)}
+              >
+                <option value="">-- Select --</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+              {errors.infectionErrors?.[idx]?.sepsis && (
+                <div className="error-text">{errors.infectionErrors[idx].sepsis}</div>
+              )}
+            </div>
+
+            {entry.sepsis === "Yes" && (
+              <>
+                <div className="adverse-title">Type <span className="required">*</span></div>
+                <div className="pn-checkbox-grid">
+                  <label>
+                    <input type="checkbox" checked={entry.sepsis_clinical || false}
+                      onChange={(e) => handleInfectionChange(idx, "sepsis_clinical", e.target.checked)} />
+                    Clinical
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={entry.sepsis_screen || false}
+                      onChange={(e) => handleInfectionChange(idx, "sepsis_screen", e.target.checked)} />
+                    Screen+
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={entry.sepsis_culture || false}
+                      onChange={(e) => handleInfectionChange(idx, "sepsis_culture", e.target.checked)} />
+                    Culture+
+                  </label>
+                </div>
+                {errors.infectionErrors?.[idx]?.sepsis_type_group && (
+                  <div className="error-text">{errors.infectionErrors[idx].sepsis_type_group}</div>
+                )}
+
+                {/* ---------------- AGE ---------------- */}
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Age at onset (hours)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1000"
+                      value={entry.sepsis_onset_age || ""}
+                      onChange={(e) => handleInfectionChange(idx, "sepsis_onset_age", e.target.value)}
+                    />
+                    {errors.infectionErrors?.[idx]?.sepsis_onset_age && (
+                      <div className="error-text">{errors.infectionErrors[idx].sepsis_onset_age}</div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label>Age at blood culture sent (hours)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1000"
+                      value={entry.blood_culture_age_hours || ""}
+                      onChange={(e) => handleInfectionChange(idx, "blood_culture_age_hours", e.target.value)}
+                    />
+                    {errors.infectionErrors?.[idx]?.blood_culture_age_hours && (
+                      <div className="error-text">{errors.infectionErrors[idx].blood_culture_age_hours}</div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label>Age at blood culture sent (days)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1000"
+                      value={entry.blood_culture_age_days || ""}
+                      onChange={(e) => handleInfectionChange(idx, "blood_culture_age_days", e.target.value)}
+                    />
+                    {errors.infectionErrors?.[idx]?.blood_culture_age_days && (
+                      <div className="error-text">{errors.infectionErrors[idx].blood_culture_age_days}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ---------------- SCREEN ---------------- */}
+                {entry.sepsis_screen && (
+                  <>
+                    <div className="adverse-title">Screen Positive <span className="required">*</span></div>
+                    <div className="pn-checkbox-grid">
+                      <label><input type="checkbox" checked={entry.screen_crp || false} onChange={(e) => handleInfectionChange(idx, "screen_crp", e.target.checked)} /> CRP</label>
+                      <label><input type="checkbox" checked={entry.screen_pct || false} onChange={(e) => handleInfectionChange(idx, "screen_pct", e.target.checked)} /> PCT</label>
+                      <label><input type="checkbox" checked={entry.screen_other || false} onChange={(e) => handleInfectionChange(idx, "screen_other", e.target.checked)} /> Other</label>
+                    </div>
+                    {errors.infectionErrors?.[idx]?.screen_group && (
+                      <div className="error-text">{errors.infectionErrors[idx].screen_group}</div>
+                    )}
+                    {entry.screen_other && (
+                      <div className="form-group">
+                        <label>Specify Other <span className="required">*</span></label>
+                        <input
+                          value={entry.screen_other_text || ""}
+                          onChange={(e) => handleInfectionChange(idx, "screen_other_text", e.target.value)}
+                        />
+                        {errors.infectionErrors?.[idx]?.screen_other_text && (
+                          <div className="error-text">{errors.infectionErrors[idx].screen_other_text}</div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ---------------- CULTURE ---------------- */}
+                {entry.sepsis_culture && (
+                  <>
+                    <div className="adverse-title">Culture Source <span className="required">*</span></div>
+                    <div className="pn-checkbox-grid">
+                      <label><input type="checkbox" checked={entry.culture_blood || false} onChange={(e) => handleInfectionChange(idx, "culture_blood", e.target.checked)} /> Blood</label>
+                      <label><input type="checkbox" checked={entry.culture_csf || false} onChange={(e) => handleInfectionChange(idx, "culture_csf", e.target.checked)} /> CSF</label>
+                      <label><input type="checkbox" checked={entry.culture_urine || false} onChange={(e) => handleInfectionChange(idx, "culture_urine", e.target.checked)} /> Urine</label>
+                      <label><input type="checkbox" checked={entry.culture_other || false} onChange={(e) => handleInfectionChange(idx, "culture_other", e.target.checked)} /> Other</label>
+                    </div>
+                    {errors.infectionErrors?.[idx]?.culture_group && (
+                      <div className="error-text">{errors.infectionErrors[idx].culture_group}</div>
+                    )}
+                    {entry.culture_other && (
+                      <div className="form-group">
+                        <label>Specify Fluid <span className="required">*</span></label>
+                        <input
+                          value={entry.culture_other_text || ""}
+                          onChange={(e) => handleInfectionChange(idx, "culture_other_text", e.target.value)}
+                        />
+                        {errors.infectionErrors?.[idx]?.culture_other_text && (
+                          <div className="error-text">{errors.infectionErrors[idx].culture_other_text}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ---------------- ORGANISM ---------------- */}
+                    <div className="adverse-title">Organism Type <span className="required">*</span></div>
+                    <div className="pn-checkbox-grid">
+                      <label><input type="checkbox" checked={entry.gram_positive || false} onChange={(e) => handleInfectionChange(idx, "gram_positive", e.target.checked)} /> Gram Positive</label>
+                      <label><input type="checkbox" checked={entry.gram_negative || false} onChange={(e) => handleInfectionChange(idx, "gram_negative", e.target.checked)} /> Gram Negative</label>
+                      <label><input type="checkbox" checked={entry.fungus || false} onChange={(e) => handleInfectionChange(idx, "fungus", e.target.checked)} /> Fungus</label>
+                    </div>
+                    {errors.infectionErrors?.[idx]?.organism_group && (
+                      <div className="error-text">{errors.infectionErrors[idx].organism_group}</div>
+                    )}
+                  </>
+                )}
+
+                {/* ---------------- GRAM POSITIVE ---------------- */}
+                {entry.gram_positive && (
+                  <>
+                    <div className="adverse-title">Gram Positive <span className="required">*</span></div>
+                    <div className="pn-checkbox-grid">
+                      <label><input type="checkbox" checked={entry.staph_aureus || false} onChange={(e) => handleInfectionChange(idx, "staph_aureus", e.target.checked)} /> Staph aureus</label>
+                      <label><input type="checkbox" checked={entry.staph_hemolyticus || false} onChange={(e) => handleInfectionChange(idx, "staph_hemolyticus", e.target.checked)} /> Staph hemolyticus</label>
+                      <label><input type="checkbox" checked={entry.staph_epidermidis || false} onChange={(e) => handleInfectionChange(idx, "staph_epidermidis", e.target.checked)} /> Staph epidermidis</label>
+                      <label><input type="checkbox" checked={entry.gp_other || false} onChange={(e) => handleInfectionChange(idx, "gp_other", e.target.checked)} /> Other</label>
+                    </div>
+                    {errors.infectionErrors?.[idx]?.gp_group && (
+                      <div className="error-text">{errors.infectionErrors[idx].gp_group}</div>
+                    )}
+                    {entry.gp_other && (
+                      <input
+                        placeholder="Specify"
+                        value={entry.gp_other_text || ""}
+                        onChange={(e) => handleInfectionChange(idx, "gp_other_text", e.target.value)}
+                      />
+                    )}
+                  </>
+                )}
+
+                {/* ---------------- GRAM NEGATIVE ---------------- */}
+                {entry.gram_negative && (
+                  <>
+                    <div className="adverse-title">Gram Negative <span className="required">*</span></div>
+                    <div className="pn-checkbox-grid">
+                      <label><input type="checkbox" checked={entry.acinetobacter || false} onChange={(e) => handleInfectionChange(idx, "acinetobacter", e.target.checked)} /> Acinetobacter</label>
+                      <label><input type="checkbox" checked={entry.ecoli || false} onChange={(e) => handleInfectionChange(idx, "ecoli", e.target.checked)} /> E coli</label>
+                      <label><input type="checkbox" checked={entry.klebsiella || false} onChange={(e) => handleInfectionChange(idx, "klebsiella", e.target.checked)} /> Klebsiella</label>
+                      <label><input type="checkbox" checked={entry.serratia || false} onChange={(e) => handleInfectionChange(idx, "serratia", e.target.checked)} /> Serratia</label>
+                      <label><input type="checkbox" checked={entry.pseudomonas || false} onChange={(e) => handleInfectionChange(idx, "pseudomonas", e.target.checked)} /> Pseudomonas</label>
+                      <label><input type="checkbox" checked={entry.gn_other || false} onChange={(e) => handleInfectionChange(idx, "gn_other", e.target.checked)} /> Other</label>
+                    </div>
+                    {errors.infectionErrors?.[idx]?.gn_group && (
+                      <div className="error-text">{errors.infectionErrors[idx].gn_group}</div>
+                    )}
+                    {entry.gn_other && (
+                      <input
+                        placeholder="Specify"
+                        value={entry.gn_other_text || ""}
+                        onChange={(e) => handleInfectionChange(idx, "gn_other_text", e.target.value)}
+                      />
+                    )}
+                  </>
+                )}
+
+                {/* ---------------- MDR / XDR ---------------- */}
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>MDR (multi-drug resistant)</label>
+                    <select value={entry.mdr || ""} onChange={(e) => handleInfectionChange(idx, "mdr", e.target.value)}>
+                      <option value="">-- Select --</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>XDR (extensively drug resistant)</label>
+                    <select value={entry.xdr || ""} onChange={(e) => handleInfectionChange(idx, "xdr", e.target.value)}>
+                      <option value="">-- Select --</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* ---------------- FOCUS OF INFECTION ---------------- */}
+                <div className="adverse-title">Focus of the Infection</div>
+                <div className="pn-checkbox-grid">
+                  <label><input type="checkbox" checked={entry.focus_septicemia || false} onChange={(e) => handleInfectionChange(idx, "focus_septicemia", e.target.checked)} /> Generalized septicemia</label>
+                  <label><input type="checkbox" checked={entry.focus_pneumonia || false} onChange={(e) => handleInfectionChange(idx, "focus_pneumonia", e.target.checked)} /> Pneumonia</label>
+                  <label><input type="checkbox" checked={entry.focus_meningitis || false} onChange={(e) => handleInfectionChange(idx, "focus_meningitis", e.target.checked)} /> Meningitis</label>
+                  <label><input type="checkbox" checked={entry.focus_bone_joint || false} onChange={(e) => handleInfectionChange(idx, "focus_bone_joint", e.target.checked)} /> Bone and joint</label>
+                  <label><input type="checkbox" checked={entry.focus_uti || false} onChange={(e) => handleInfectionChange(idx, "focus_uti", e.target.checked)} /> UTI</label>
+                  <label><input type="checkbox" checked={entry.focus_other || false} onChange={(e) => handleInfectionChange(idx, "focus_other", e.target.checked)} /> Other</label>
+                </div>
+                {entry.focus_other && (
+                  <input
+                    placeholder="Specify"
+                    value={entry.focus_other_text || ""}
+                    onChange={(e) => handleInfectionChange(idx, "focus_other_text", e.target.value)}
+                  />
+                )}
+
+                {/* ---------------- CLABSI / VAP ---------------- */}
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>CLABSI</label>
+                    <select value={entry.clabsi || ""} onChange={(e) => handleInfectionChange(idx, "clabsi", e.target.value)}>
+                      <option value="">-- Select --</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>VAP</label>
+                    <select value={entry.vap || ""} onChange={(e) => handleInfectionChange(idx, "vap", e.target.value)}>
+                      <option value="">-- Select --</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  ))}
+
+  <button type="button" className="infection-add-btn" onClick={addInfection}>
+    <Plus size={16} /> Add Infection
+  </button>
+
+  {/* ---------------- CUMULATIVE TOTALS (whole hospital course) ---------------- */}
   <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "sepsis" ? null : "sepsis")}
-  >
-    <span>Sepsis</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.sepsis)}`}>
-        <span className="icon">{getStatusIcon(formData.sepsis)}</span>
-        {getSepsisSummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "sepsis" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "sepsis" && (
     <div className="card-body">
-
-<div className="pn-adverse-card">
-
-  {/* ---------------- SEPSIS ---------------- */}
-  <div className="form-group">
-    <label>Sepsis <span className="required">*</span></label>
-    <select
-      name="sepsis"
-      value={formData.sepsis || ""}
-      onChange={handleChange}
-      onBlur={handleBlur}
-    >
-      <option value="">-- Select --</option>
-      <option value="Yes">Yes</option>
-      <option value="No">No</option>
-    </select>
-
-    {errors.sepsis && (
-      <div className="error-text">{errors.sepsis}</div>
-    )}
-  </div>
-
-  {formData.sepsis === "Yes" && (
-    <>
-
-      {/* ---------------- TYPE ---------------- */}
-      <div className="adverse-title">
-        Type <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label>
-          <input type="checkbox" name="sepsis_clinical" checked={formData.sepsis_clinical || false} onChange={handleChange}/>
-          Clinical
-        </label>
-
-        <label>
-          <input type="checkbox" name="sepsis_screen" checked={formData.sepsis_screen || false} onChange={handleChange}/>
-          Screen+
-        </label>
-
-        <label>
-          <input type="checkbox" name="sepsis_culture" checked={formData.sepsis_culture || false} onChange={handleChange}/>
-          Culture+
-        </label>
-
-      </div>
-
-      {errors.sepsis_type_group && (
-        <div className="error-text">{errors.sepsis_type_group}</div>
-      )}
-
-      {/* ---------------- AGE ---------------- */}
       <div className="form-row">
-
         <div className="form-group">
-          <label>Age at onset (hours)</label>
-          <input
-            type="number"
-            name="sepsis_onset_age"
-            value={formData.sepsis_onset_age || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            min="0"
-            max="1000"
-          />
-          {errors.sepsis_onset_age && (
-            <div className="error-text">{errors.sepsis_onset_age}</div>
-          )}
-        </div>
-
-        <div className="form-group">
-          <label>Age at blood culture sent (hours)</label>
-          <input
-            type="number"
-            name="blood_culture_age"
-            value={formData.blood_culture_age || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            min="0"
-            max="1000"
-          />
-          {errors.blood_culture_age && (
-            <div className="error-text">{errors.blood_culture_age}</div>
-          )}
-        </div>
-
-      </div>
-
-      {/* ---------------- SCREEN ---------------- */}
-      {formData.sepsis_screen && (
-        <>
-          <div className="adverse-title">
-            Screen Positive <span className="required">*</span>
-          </div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="screen_crp" checked={formData.screen_crp || false} onChange={handleChange}/> CRP</label>
-            <label><input type="checkbox" name="screen_pct" checked={formData.screen_pct || false} onChange={handleChange}/> PCT</label>
-            <label><input type="checkbox" name="screen_other" checked={formData.screen_other || false} onChange={handleChange}/> Other</label>
-          </div>
-
-          {errors.screen_group && (
-            <div className="error-text">{errors.screen_group}</div>
-          )}
-
-          {formData.screen_other && (
-            <div className="form-group">
-              <label>Specify Other <span className="required">*</span></label>
-              <input
-                name="screen_other_text"
-                value={formData.screen_other_text || ""}
-                onChange={handleChange}
-                onBlur={handleBlur}
-              />
-              {errors.screen_other_text && (
-                <div className="error-text">{errors.screen_other_text}</div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ---------------- CULTURE ---------------- */}
-      {formData.sepsis_culture && (
-        <>
-          <div className="adverse-title">
-            Culture Source <span className="required">*</span>
-          </div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="culture_blood" checked={formData.culture_blood || false} onChange={handleChange}/> Blood</label>
-            <label><input type="checkbox" name="culture_csf" checked={formData.culture_csf || false} onChange={handleChange}/> CSF</label>
-            <label><input type="checkbox" name="culture_urine" checked={formData.culture_urine || false} onChange={handleChange}/> Urine</label>
-            <label><input type="checkbox" name="culture_other" checked={formData.culture_other || false} onChange={handleChange}/> Other</label>
-          </div>
-
-          {errors.culture_group && (
-            <div className="error-text">{errors.culture_group}</div>
-          )}
-
-          {formData.culture_other && (
-            <div className="form-group">
-              <label>Specify Fluid <span className="required">*</span></label>
-              <input
-                name="culture_other_text"
-                value={formData.culture_other_text || ""}
-                onChange={handleChange}
-                onBlur={handleBlur}
-              />
-              {errors.culture_other_text && (
-                <div className="error-text">{errors.culture_other_text}</div>
-              )}
-            </div>
-          )}
-
-          {/* ---------------- ORGANISM ---------------- */}
-          <div className="adverse-title">
-            Organism Type <span className="required">*</span>
-          </div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="gram_positive" checked={formData.gram_positive || false} onChange={handleChange}/> Gram Positive</label>
-            <label><input type="checkbox" name="gram_negative" checked={formData.gram_negative || false} onChange={handleChange}/> Gram Negative</label>
-            <label><input type="checkbox" name="fungus" checked={formData.fungus || false} onChange={handleChange}/> Fungus</label>
-          </div>
-
-          {errors.organism_group && (
-            <div className="error-text">{errors.organism_group}</div>
-          )}
-        </>
-      )}
-
-      {/* ---------------- GRAM POSITIVE ---------------- */}
-      {formData.gram_positive && (
-        <>
-          <div className="adverse-title">
-            Gram Positive <span className="required">*</span>
-          </div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="staph_aureus" checked={formData.staph_aureus || false} onChange={handleChange}/> Staph aureus</label>
-            <label><input type="checkbox" name="staph_hemolyticus" checked={formData.staph_hemolyticus || false} onChange={handleChange}/> Staph hemolyticus</label>
-            <label><input type="checkbox" name="staph_epidermidis" checked={formData.staph_epidermidis || false} onChange={handleChange}/> Staph epidermidis</label>
-            <label><input type="checkbox" name="gp_other" checked={formData.gp_other || false} onChange={handleChange}/> Other</label>
-          </div>
-
-          {errors.gp_group && (
-            <div className="error-text">{errors.gp_group}</div>
-          )}
-
-          {formData.gp_other && (
-            <input
-              name="gp_other_text"
-              value={formData.gp_other_text || ""}
-              onChange={handleChange}
-              onBlur={handleBlur}
-            />
-          )}
-        </>
-      )}
-
-      {/* ---------------- GRAM NEGATIVE ---------------- */}
-      {formData.gram_negative && (
-        <>
-          <div className="adverse-title">
-            Gram Negative <span className="required">*</span>
-          </div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="acinetobacter" checked={formData.acinetobacter || false} onChange={handleChange}/> Acinetobacter</label>
-            <label><input type="checkbox" name="ecoli" checked={formData.ecoli || false} onChange={handleChange}/> E coli</label>
-            <label><input type="checkbox" name="klebsiella" checked={formData.klebsiella || false} onChange={handleChange}/> Klebsiella</label>
-            <label><input type="checkbox" name="serratia" checked={formData.serratia || false} onChange={handleChange}/> Serratia</label>
-            <label><input type="checkbox" name="pseudomonas" checked={formData.pseudomonas || false} onChange={handleChange}/> Pseudomonas</label>
-            <label><input type="checkbox" name="gn_other" checked={formData.gn_other || false} onChange={handleChange}/> Other</label>
-          </div>
-
-          {errors.gn_group && (
-            <div className="error-text">{errors.gn_group}</div>
-          )}
-
-          {formData.gn_other && (
-            <input
-              name="gn_other_text"
-              value={formData.gn_other_text || ""}
-              onChange={handleChange}
-              onBlur={handleBlur}
-            />
-          )}
-        </>
-      )}
-
-      {/* ---------------- EPISODES ---------------- */}
-      <div className="form-row">
-
-        <div className="form-group">
-          <label>Sepsis episodes</label>
+          <label>Total number of episodes of sepsis</label>
           <input
             type="number"
             name="sepsis_episodes"
@@ -7248,7 +7522,7 @@ const peripheralStatus= getPeripheralStatus();
         </div>
 
         <div className="form-group">
-          <label>VAP episodes</label>
+          <label>Total number of episodes of VAP</label>
           <input
             type="number"
             name="vap_episodes"
@@ -7262,28 +7536,22 @@ const peripheralStatus= getPeripheralStatus();
             <div className="error-text">{errors.vap_episodes}</div>
           )}
         </div>
-
       </div>
-
-    </>
-  )}
+    </div>
+  </div>
 
 </div>
-
-</div> 
-  )}
-</div></div>
 
 {/* ================= HEMATOLOGY ================= */}
 <div className="form-section soft-blue">
 
-  <h3>HEMATOLOGY</h3>
+  <h3><span className="sec-num">H6</span> HEMATOLOGY</h3>
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "jaundice" ? null : "jaundice")}
   >
-    <span>Jaundice</span>
+    <span><span className="sec-num sub">H6.1</span> Jaundice / Hyperbilirubinemia</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.jaundice_type)}`}>
@@ -7509,9 +7777,10 @@ const peripheralStatus= getPeripheralStatus();
       onBlur={handleBlur}
     >
       <option value="">-- Select --</option>
-      <option value="Exaggeration">Exaggeration</option>
-      <option value="Dehydration">Dehydration</option>
-      <option value="Isoimmune">Isoimmune</option>
+      <option value="Hepatitis">Hepatitis</option>
+      <option value="Biliary atresia">Biliary atresia</option>
+      <option value="Cholestasis">Cholestasis</option>
+      <option value="PNALD">PNALD</option>
       <option value="Others">Others</option>
     </select>
 
@@ -7679,7 +7948,7 @@ const peripheralStatus= getPeripheralStatus();
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "transfusion" ? null : "transfusion")}
   >
-    <span>Transfusions</span>
+    <span><span className="sec-num sub">H6.2</span> Transfusions</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(summary)}`}>
@@ -7873,14 +8142,14 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= OPHTHALMOLOGY ================= */}
 <div className="form-section soft-blue">
 
-<h3>OPHTHALMOLOGY</h3>
+<h3><span className="sec-num">H7</span> OPHTHALMOLOGY</h3>
 
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "rop" ? null : "rop")}
   >
-    <span>Retinopathy of Prematurity</span>
+    <span><span className="sec-num sub">H7.1</span> Retinopathy of Prematurity (ROP)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.rop || formData.rop_screened)}`}>
@@ -8058,6 +8327,24 @@ const peripheralStatus= getPeripheralStatus();
       )}
     </div>
 
+    {/* A-ROP (AGGRESSIVE ROP) */}
+    <div className="form-group">
+      <label>A-ROP (Aggressive ROP) <span className="required">*</span></label>
+      <select
+        name="rop_arop"
+        value={formData.rop_arop || ""}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      >
+        <option value="">-- Select --</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+      {errors.rop_arop && (
+        <div className="error-text">{errors.rop_arop}</div>
+      )}
+    </div>
+
     {/* ZONE */}
     <div className="pn-adverse-card">
       <div className="adverse-title">
@@ -8170,13 +8457,13 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= RENAL ================= */}
 <div className="form-section soft-blue">
 
-<h3>RENAL</h3>
+<h3><span className="sec-num">H7</span> RENAL</h3>
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
   >
-    <span>Acute Kidney Injury (AKI)</span>
+    <span><span className="sec-num sub">H7.1</span> Acute Kidney Injury (AKI)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.aki)}`}>
@@ -8354,7 +8641,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= THERMOREGULATION ================= */}
 <div className="form-section soft-blue">
 
-<h3>THERMOREGULATION</h3>
+<h3><span className="sec-num">H8</span> THERMOREGULATION</h3>
 
 <div className="card">
   <div
@@ -8614,13 +8901,13 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= VASCULAR ACCESS ================= */}
 <div className="form-section soft-blue">
 
-<h3>VASCULAR ACCESS</h3>
+<h3><span className="sec-num">H9</span> VASCULAR ACCESS</h3>
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "central" ? null : "central")}
   >
-    <span>Central Lines</span>
+    <span><span className="sec-num sub">H9.1</span> Central Lines</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(centralStatus)}`}>
@@ -8811,7 +9098,7 @@ const peripheralStatus= getPeripheralStatus();
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "peripheral" ? null : "peripheral")}
   >
-    <span>Peripheral Access</span>
+    <span><span className="sec-num sub">H9.2</span> Peripheral Access</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(peripheralStatus)}`}>
@@ -8940,7 +9227,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= HOSPITAL COURSE SUMMARY ================= */}
 <div className="form-section summary-section">
 
-  <h3>HOSPITAL COURSE SUMMARY</h3>
+  <h3><span className="sec-num">H12</span> HOSPITAL COURSE SUMMARY</h3>
 
   {/* ================= Duration Metrics ================= */}
   <div className="summary-card">
