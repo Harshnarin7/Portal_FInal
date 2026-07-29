@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
+import "./styles/FormA.css";
 import "./ScreeningForm.css";
 // Dedicated Form I stylesheet — scoped under .form-i-page (see file header
 // comment for why this exists instead of further patching ScreeningForm.css).
@@ -14,12 +15,12 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
-  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList,
+  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home,
 } from "lucide-react";
 
 /* ─── YesNoToggle — same animated sliding-segment component used across
        Form H / Form A / ScreeningForm.jsx, kept local for consistency ─── */
-function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false }) {
+function YesNoToggle({ label, definition, name, value, onChange, onBlur, required = false, disabled = false }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val, type: "select-one" } });
@@ -27,9 +28,12 @@ function YesNoToggle({ label, name, value, onChange, onBlur, required = false, d
   const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label">
-        {label}
-        {required && <span className="required">*</span>}
+      <span className="yes-no-label-wrap">
+        <span className="yes-no-label">
+          {label}
+          {required && <span className="required">*</span>}
+        </span>
+        {definition && <span className="field-definition">{definition}</span>}
       </span>
       <div className={`yes-no-buttons yn-pos-${pos}`}>
         <div className="yn-thumb" aria-hidden="true" />
@@ -594,15 +598,17 @@ export default function FormI() {
       <input type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
     </div>
   );
-  const NumField = ({ label, num, name, unit, placeholder }) => (
+  const NumField = ({ label, definition, num, name, unit, placeholder }) => (
     <div className="form-group">
       <label>{num && <span className={FIELD.className}>{num}.</span>} {label}{unit ? ` (${unit})` : ""}</label>
+      {definition && <span className="field-definition">{definition}</span>}
       <input type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
     </div>
   );
-  const SelectField = ({ label, num, name, options, required }) => (
+  const SelectField = ({ label, definition, num, name, options, required }) => (
     <div className="form-group">
       <label>{num && <span className={FIELD.className}>{num}.</span>} {label}{required && <span className="required">*</span>}</label>
+      {definition && <span className="field-definition">{definition}</span>}
       <select name={name} value={formData[name] || ""} onChange={handleChange}>
         <option value="">-- Select --</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -614,11 +620,12 @@ export default function FormI() {
      boolName = the Yes/No field; fieldPrefix = prefix for _cause/_date/_time/_age
      (these differ for the 7d/28d/hospital timepoints, e.g. boolName
      "mortality_7_days" but fieldPrefix "mortality_7d"). */
-  const DeathBlock = ({ boolName, fieldPrefix, nums, ageLabel }) => (
+  const DeathBlock = ({ boolName, fieldPrefix, nums, ageLabel, definition }) => (
     <>
       <div className="form-group">
         <YesNoToggle
           label={`${nums[0]}. Death recorded`}
+          definition={definition}
           name={boolName}
           value={formData[boolName]}
           onChange={handleChange}
@@ -642,13 +649,13 @@ export default function FormI() {
   const BrainInjuryBlock = ({ prefix, numIvh, numIvhDate, numCpvlDate }) => (
     <div className="form-row">
       <div className="form-group">
-        <YesNoToggle label={`${numIvh}a. IVH Grade ≥ III (Papile)`} name={`ivh${prefix}_grade3`} value={formData[`ivh${prefix}_grade3`]} onChange={handleChange} />
+        <YesNoToggle label={`${numIvh}a. IVH Grade ≥ III`} definition="Papile Classification for IVH" name={`ivh${prefix}_grade3`} value={formData[`ivh${prefix}_grade3`]} onChange={handleChange} />
       </div>
       {formData[`ivh${prefix}_grade3`] === "Yes" && (
         <DateField label="Date of diagnosis (IVH)" num={numIvhDate} name={`ivh${prefix}_date`} />
       )}
       <div className="form-group">
-        <YesNoToggle label={`${numIvh}b. cPVL Grade ≥ II (De Vries)`} name={`cpvl${prefix}_grade2`} value={formData[`cpvl${prefix}_grade2`]} onChange={handleChange} />
+        <YesNoToggle label={`${numIvh}b. cPVL Grade ≥ II`} definition="De Vries Classification for cPVL" name={`cpvl${prefix}_grade2`} value={formData[`cpvl${prefix}_grade2`]} onChange={handleChange} />
       </div>
       {formData[`cpvl${prefix}_grade2`] === "Yes" && (
         <DateField label="Date of diagnosis (cPVL)" num={numCpvlDate} name={`cpvl${prefix}_date`} />
@@ -660,7 +667,7 @@ export default function FormI() {
   const NecBlock = ({ prefix, numStage, numSurgery, numDate }) => (
     <div className="form-row">
       <div className="form-group">
-        <YesNoToggle label={`${numStage}. NEC — Stage ≥ IIA`} name={`nec${prefix}_stage`} value={formData[`nec${prefix}_stage`]} onChange={handleChange} />
+        <YesNoToggle label={`${numStage}. NEC`} definition="Modified Bell's Staging — Stage ≥ IIA" name={`nec${prefix}_stage`} value={formData[`nec${prefix}_stage`]} onChange={handleChange} />
       </div>
       {formData[`nec${prefix}_stage`] === "Yes" && (
         <>
@@ -677,7 +684,7 @@ export default function FormI() {
   const RopBlock = ({ presentName, treatedName, dateName, numPresent, numTreated, numDate }) => (
     <div className="form-row">
       <div className="form-group">
-        <YesNoToggle label={`${numPresent}. ROP (ICROP 3rd Edition)`} name={presentName} value={formData[presentName]} onChange={handleChange} />
+        <YesNoToggle label={`${numPresent}. ROP`} definition="ICROP 3rd Edition" name={presentName} value={formData[presentName]} onChange={handleChange} />
       </div>
       {formData[presentName] === "Yes" && (
         <>
@@ -704,9 +711,17 @@ export default function FormI() {
     <>
       <form className="screening-form form-i-page" onSubmit={handleSubmit}>
 
-        <div className="form-a-header">
-          <div className="form-a-header-main">
-            <h2>Form I — Study Outcome Assessment</h2>
+        <div className="form-header-action-row">
+          <div className="form-header-title-area">
+            <div className="form-breadcrumb"><Home size={12}/> FORM I</div>
+            <h2 className="form-main-title">Study Outcome Assessment</h2>
+            <p className="form-main-subtitle">Complete at each assessment timepoint</p>
+          </div>
+          <div className="form-header-meta-area">
+            <div className="screening-id-badge">
+              <span className="id-label">Enrollment ID</span>
+              <span className="id-val">{formData.enrollment_id || "—"}</span>
+            </div>
           </div>
         </div>
 
@@ -749,23 +764,23 @@ export default function FormI() {
               <div className="card-body">
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="1. Ventilation (PPV) required" name="ventilation_required" value={formData.ventilation_required} onChange={handleChange} required />
+                    <YesNoToggle label="1. Ventilation (PPV) required" definition="Per NRP criteria" name="ventilation_required" value={formData.ventilation_required} onChange={handleChange} required />
                   </div>
                   <div className="form-group">
-                    <YesNoToggle label="2. Switched to 100% O2" name="switched_100_o2" value={formData.switched_100_o2} onChange={handleChange} required />
+                    <YesNoToggle label="2. Switched to 100% O2" definition="Per NRP criteria" name="switched_100_o2" value={formData.switched_100_o2} onChange={handleChange} required />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="3. Required chest compressions" name="resus_chest_compressions" value={formData.resus_chest_compressions} onChange={handleChange} required />
+                    <YesNoToggle label="3. Required chest compressions" definition="Per NRP criteria" name="resus_chest_compressions" value={formData.resus_chest_compressions} onChange={handleChange} required />
                   </div>
                   <div className="form-group">
-                    <YesNoToggle label="4. Intubation for resuscitation (any reason)" name="intubation_during_resus" value={formData.intubation_during_resus} onChange={handleChange} required />
+                    <YesNoToggle label="4. Intubation for resuscitation" definition="Any reason" name="intubation_during_resus" value={formData.intubation_during_resus} onChange={handleChange} required />
                   </div>
                 </div>
                 <div className="form-row">
-                  <NumField label="5. Time to spontaneous respiratory efforts" num={null} name="time_to_spontaneous_breathing" unit="sec" />
-                  <SelectField label="6. HIE (Levene's)" num={null} name="hie_grade" options={["None", "Mild", "Moderate", "Severe"]} required />
+                  <NumField label="5. Time to spontaneous respiratory efforts" definition="Time when baby had spontaneous respiratory efforts and PPV was discontinued" num={null} name="time_to_spontaneous_breathing" unit="sec" />
+                  <SelectField label="6. HIE (Levene's)" definition="Mild / Moderate / Severe HIE" num={null} name="hie_grade" options={["None", "Mild", "Moderate", "Severe"]} required />
                 </div>
               </div>
             )}
@@ -791,20 +806,20 @@ export default function FormI() {
               <div className="card-body">
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="7. Resp support (0.5–72h, more than supplemental O2)" name="resp_support_72h" value={formData.resp_support_72h} onChange={handleChange} required />
+                    <YesNoToggle label="7. Resp support (0.5–72h)" definition="Any respiratory support more than supplemental oxygen" name="resp_support_72h" value={formData.resp_support_72h} onChange={handleChange} required />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="8. Sepsis (EOS) — onset in first 72 hours" name="sepsis_eos" value={formData.sepsis_eos} onChange={handleChange} required />
+                    <YesNoToggle label="8. Sepsis (EOS)" definition="Any type of sepsis with onset in the first 72 hours" name="sepsis_eos" value={formData.sepsis_eos} onChange={handleChange} required />
                   </div>
                   <div className="form-group">
-                    <YesNoToggle label="9. Sepsis (LOS) — onset after Day 3" name="sepsis_los" value={formData.sepsis_los} onChange={handleChange} required />
+                    <YesNoToggle label="9. Sepsis (LOS)" definition="Any type of sepsis with onset after Day 3 of life" name="sepsis_los" value={formData.sepsis_los} onChange={handleChange} required />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="10. Culture positive sepsis" name="culture_positive_sepsis" value={formData.culture_positive_sepsis} onChange={handleChange} />
+                    <YesNoToggle label="10. Culture positive sepsis" definition="Blood or body fluid positive for organism" name="culture_positive_sepsis" value={formData.culture_positive_sepsis} onChange={handleChange} />
                   </div>
                 </div>
                 {formData.culture_positive_sepsis === "Yes" && (
@@ -830,10 +845,10 @@ export default function FormI() {
             {openSection === "i2mort" && (
               <div className="card-body">
                 <h4 style={{ margin: "4px 0" }}>All-cause mortality ≤ 7 days</h4>
-                <DeathBlock boolName="mortality_7_days" fieldPrefix="mortality_7d" nums={[12, 13, 14, 15, 16]} ageLabel="hrs" />
+                <DeathBlock boolName="mortality_7_days" fieldPrefix="mortality_7d" nums={[12, 13, 14, 15, 16]} ageLabel="hrs" definition="Death due to any cause from birth till completion of D7 of age" />
 
                 <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality ≤ 28 days</h4>
-                <DeathBlock boolName="mortality_28_days" fieldPrefix="mortality_28d" nums={[17, 18, 19, 20, 21]} ageLabel="days" />
+                <DeathBlock boolName="mortality_28_days" fieldPrefix="mortality_28d" nums={[17, 18, 19, 20, 21]} ageLabel="days" definition="Death due to any cause from birth till completion of D28 of age" />
               </div>
             )}
           </div>
@@ -859,11 +874,11 @@ export default function FormI() {
                 <EncounterBlock methodName="encounter36_method" otherName="encounter36_other" numMethod={22} numOther={23} />
 
                 <h4 style={{ margin: "12px 0 4px" }}>Death by 36 weeks PMA</h4>
-                <DeathBlock boolName="death36" fieldPrefix="death36" nums={[24, 25, 26, 27, 28]} ageLabel="days" />
+                <DeathBlock boolName="death36" fieldPrefix="death36" nums={[24, 25, 26, 27, 28]} ageLabel="days" definition="Death due to any cause from birth till completion of 36 weeks of PMA" />
 
                 <h4 style={{ margin: "16px 0 4px" }}>29. BPD at 36 weeks PMA — Jensen (primary)</h4>
                 <div className="form-row">
-                  <SelectField label="Grade" num={null} name="bpd36_jensen_grade"
+                  <SelectField label="Grade" definition="Assessed based on respiratory support at 36 weeks PMA, regardless of FiO2, per Jensen's criteria (2019)" num={null} name="bpd36_jensen_grade"
                     options={["No BPD (Room air)", "Grade 1 (NC ≤ 2 L/min)", "Grade 2 (NC > 2 L/min or CPAP/NIPPV)", "Grade 3 (Invasive mechanical ventilation)"]} />
                   <DateField label="Date of diagnosis" num={30} name="bpd36_jensen_date" />
                 </div>
@@ -915,7 +930,7 @@ export default function FormI() {
                 <EncounterBlock methodName="encounter40_method" otherName="encounter40_other" numMethod={42} numOther={43} />
 
                 <h4 style={{ margin: "12px 0 4px" }}>Death between 36 and 40 weeks PMA</h4>
-                <DeathBlock boolName="death40" fieldPrefix="death40" nums={[44, 45, 46, 47, 48]} ageLabel="days" />
+                <DeathBlock boolName="death40" fieldPrefix="death40" nums={[44, 45, 46, 47, 48]} ageLabel="days" definition="Death due to any cause from 36 weeks till completion of 40 weeks of PMA" />
 
                 <h4 style={{ margin: "16px 0 4px" }}>49. NEC — Modified Bell's Staging</h4>
                 <NecBlock prefix="40" numStage={49} numSurgery={50} numDate={51} />
@@ -955,7 +970,7 @@ export default function FormI() {
                 <EncounterBlock methodName="encounter44_method" otherName="encounter44_other" numMethod={59} numOther={60} />
 
                 <h4 style={{ margin: "12px 0 4px" }}>Death between 40 and 44 weeks PMA</h4>
-                <DeathBlock boolName="death44" fieldPrefix="death44" nums={[61, 62, 63, 64, 65]} ageLabel="days" />
+                <DeathBlock boolName="death44" fieldPrefix="death44" nums={[61, 62, 63, 64, 65]} ageLabel="days" definition="Death due to any cause from 40 weeks till completion of 44 weeks of PMA" />
 
                 <h4 style={{ margin: "16px 0 4px" }}>66. NEC — Modified Bell's Staging</h4>
                 <NecBlock prefix="44" numStage={66} numSurgery={67} numDate={68} />
@@ -1001,7 +1016,7 @@ export default function FormI() {
                 <h4 style={{ margin: "16px 0 4px" }}>76. Sepsis (overall, any type)</h4>
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="76. Sepsis (overall)" name="sepsis_overall" value={formData.sepsis_overall} onChange={handleChange} />
+                    <YesNoToggle label="76. Sepsis (overall)" definition="Any type" name="sepsis_overall" value={formData.sepsis_overall} onChange={handleChange} />
                   </div>
                   {formData.sepsis_overall === "Yes" && (
                     <NumField label="Number of episodes" num={77} name="sepsis_overall_episodes" />
@@ -1009,10 +1024,10 @@ export default function FormI() {
                 </div>
 
                 <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality during hospital stay</h4>
-                <DeathBlock boolName="mortality_in_hospital" fieldPrefix="mortality_hospital" nums={[78, 79, 80, 81, 82]} ageLabel="days" />
+                <DeathBlock boolName="mortality_in_hospital" fieldPrefix="mortality_hospital" nums={[78, 79, 80, 81, 82]} ageLabel="days" definition="Death due to any cause occurring from birth and before discharge" />
 
                 <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality after discharge</h4>
-                <DeathBlock boolName="mortality_after_discharge" fieldPrefix="mortality_after_discharge" nums={[83, 84, 85, 86, 87]} ageLabel="days" />
+                <DeathBlock boolName="mortality_after_discharge" fieldPrefix="mortality_after_discharge" nums={[83, 84, 85, 86, 87]} ageLabel="days" definition="Death due to any cause occurring after discharge from hospital" />
               </div>
             )}
           </div>

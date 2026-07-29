@@ -44,21 +44,26 @@
   padding: 22px 24px !important;
   margin-bottom: 18px !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
 }
 
 .form-i-page .form-section h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 15.5px;
+  font-size: 13px;
   font-weight: 800;
-  color: var(--fi-ink);
-  margin: 0 0 18px 0 !important;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--fi-border);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  margin: -22px -24px 18px -24px !important;
+  padding: 14px 24px;
+  border-bottom: none;
+  background: var(--fi-accent);
+  border-radius: var(--fi-radius) var(--fi-radius) 0 0;
 }
 
-.form-i-page .sec-icon { color: var(--fi-accent); flex-shrink: 0; }
+.form-i-page .sec-icon { color: #fff; flex-shrink: 0; opacity: 0.9; }
 
 .form-i-page .sec-num {
   display: inline-flex;
@@ -68,11 +73,29 @@
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: var(--fi-accent);
+  background: rgba(255,255,255,0.18);
   color: #fff;
   font-size: 11.5px;
   font-weight: 800;
   letter-spacing: 0.2px;
+}
+
+/* ── Definition text — pulled straight from the source CRF, shown right
+   under each field's label/toggle so the meaning is visible at a glance
+   instead of needing to consult the paper form. ──────────────────────── */
+.form-i-page .field-definition {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--fi-muted);
+  line-height: 1.4;
+  margin-top: 1px;
+}
+.form-i-page .yes-no-label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 /* ── Numbered field badge — the CRF's own official field numbers (1–87),
@@ -101,10 +124,14 @@
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
   gap: 16px 20px !important;
-  margin-bottom: 16px !important;
+  margin-bottom: 0 !important;
   align-items: start;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--fi-border);
 }
-.form-i-page .form-row:last-child { margin-bottom: 0 !important; }
+.form-i-page .card-body .form-row:nth-child(odd)  { background: var(--fi-surface); }
+.form-i-page .card-body .form-row:nth-child(even) { background: var(--fi-bg); }
+.form-i-page .card-body .form-row:last-child { border-bottom: none; }
 
 .form-i-page .form-group {
   display: flex !important;
@@ -195,9 +222,21 @@
 }
 
 .form-i-page .card-body {
-  padding: 18px 16px !important;
+  padding: 0 !important;
   border-top: 1px solid var(--fi-border);
-  background: var(--fi-bg);
+}
+.form-i-page .card-body > h4 {
+  padding: 12px 16px 4px;
+  margin: 0 !important;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--fi-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.form-i-page .card-body > p {
+  padding: 0 16px 12px;
+  margin: 0 !important;
 }
 
 /* ── Status summary pill (Yes / No / Not filled) ──────────────────────── */
@@ -256,7 +295,6 @@
 }
 
 /* ── Identification block (read-only summary at top) ──────────────────── */
-.form-i-page .form-a-header { margin-bottom: 22px !important; }
 
 /* ── Submit button — restyled as a deliberate, modern primary action
    instead of an unstyled leftover; behavior unchanged. ────────────────── */
@@ -284,7 +322,7 @@
 @media (max-width: 640px) {
   .form-i-page .form-section { padding: 16px !important; }
   .form-i-page .form-row { grid-template-columns: 1fr !important; }
-  .form-i-page .form-section h3 { font-size: 14px; }
+  .form-i-page .form-section h3 { font-size: 12.5px; margin: -16px -16px 16px -16px !important; padding: 12px 16px; }
 }
 
 /* ── Reduced motion ────────────────────────────────────────────────────── */
