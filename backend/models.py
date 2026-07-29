@@ -981,6 +981,107 @@ class StudyOutcomes(Base):
 
     created_at = Column(DateTime, default=utcnow)
 
+    # ================================================================
+    # EXTENDED COLUMNS — Form I (Study Outcome Assessment) full CRF,
+    # sections I.1-I.6, added 2026-07-28. Numbering in comments matches
+    # the paper CRF field numbers exactly.
+    # ================================================================
+
+    # ---------------- I.1 Resuscitation Outcomes ----------------
+    resus_chest_compressions = Column(Boolean)  # 3
+
+    # ---------------- I.2 Post-natal post-resuscitation Outcomes ----------------
+    sepsis_eos = Column(Boolean)  # 8
+    sepsis_los = Column(Boolean)  # 9
+    culture_positive_sepsis = Column(Boolean)  # 10
+    culture_positive_body_fluid = Column(String)  # 11
+    mortality_7d_cause = Column(Text)  # 13
+    mortality_7d_date = Column(Date)  # 14
+    mortality_7d_time = Column(String)  # 15
+    mortality_7d_age_hrs = Column(Float)  # 16
+    mortality_28d_cause = Column(Text)  # 18
+    mortality_28d_date = Column(Date)  # 19
+    mortality_28d_time = Column(String)  # 20
+    mortality_28d_age_days = Column(Float)  # 21
+
+    # ---------------- I.3 Assessment at 36 weeks PMA ----------------
+    encounter36_method = Column(String)  # 22
+    encounter36_other = Column(String)  # 23
+    death36 = Column(Boolean)  # 24
+    death36_cause = Column(Text)  # 25
+    death36_date = Column(Date)  # 26
+    death36_time = Column(String)  # 27
+    death36_age_days = Column(Float)  # 28
+    bpd36_jensen_grade = Column(String)  # 29
+    bpd36_jensen_date = Column(Date)  # 30
+    bpd36_nichd_radiographic = Column(Boolean)  # 31a
+    bpd36_nichd_fio2 = Column(Float)  # 31b
+    bpd36_nichd_flow = Column(Float)  # 31c
+    bpd36_nichd_grade = Column(String)  # 31
+    bpd36_nichd_date = Column(Date)  # 32
+    nec36_stage = Column(Boolean)  # 33
+    nec36_surgery = Column(Boolean)  # 34
+    nec36_date = Column(Date)  # 35
+    ivh36_grade3 = Column(Boolean)  # 36a
+    ivh36_date = Column(Date)  # 37
+    cpvl36_grade2 = Column(Boolean)  # 36b
+    cpvl36_date = Column(Date)  # 38
+    rop36 = Column(Boolean)  # 39
+    rop36_treated = Column(Boolean)  # 40
+    rop36_date = Column(Date)  # 41
+
+    # ---------------- I.4 Assessment at 40 weeks PMA ----------------
+    encounter40_method = Column(String)  # 42
+    encounter40_other = Column(String)  # 43
+    death40 = Column(Boolean)  # 44
+    death40_cause = Column(Text)  # 45
+    death40_date = Column(Date)  # 46
+    death40_time = Column(String)  # 47
+    death40_age_days = Column(Float)  # 48
+    nec40_stage = Column(Boolean)  # 49
+    nec40_surgery = Column(Boolean)  # 50
+    nec40_date = Column(Date)  # 51
+    ivh40_grade3 = Column(Boolean)  # 52a
+    ivh40_date = Column(Date)  # 53
+    cpvl40_grade2 = Column(Boolean)  # 52b
+    cpvl40_date = Column(Date)  # 54
+    rop40 = Column(Boolean)  # 55
+    rop40_treated = Column(Boolean)  # 56
+    rop40_date = Column(Date)  # 57
+    abnormal_mri_tea = Column(String)  # 58
+
+    # ---------------- I.5 Assessment at 44 weeks PMA ----------------
+    encounter44_method = Column(String)  # 59
+    encounter44_other = Column(String)  # 60
+    death44 = Column(Boolean)  # 61
+    death44_cause = Column(Text)  # 62
+    death44_date = Column(Date)  # 63
+    death44_time = Column(String)  # 64
+    death44_age_days = Column(Float)  # 65
+    nec44_stage = Column(Boolean)  # 66
+    nec44_surgery = Column(Boolean)  # 67
+    nec44_date = Column(Date)  # 68
+    ivh44_grade3 = Column(Boolean)  # 69a
+    ivh44_date = Column(Date)  # 70
+    cpvl44_grade2 = Column(Boolean)  # 69b
+    cpvl44_date = Column(Date)  # 71
+    rop44_assessed = Column(Boolean)  # 72
+    rop44_treated = Column(Boolean)  # 73
+    rop44_date = Column(Date)  # 74
+
+    # ---------------- I.6 Overall ----------------
+    nippv_days = Column(Integer)  # 75e
+    sepsis_overall_episodes = Column(Integer)  # 77
+    mortality_hospital_cause = Column(Text)  # 79
+    mortality_hospital_date = Column(Date)  # 80
+    mortality_hospital_time = Column(String)  # 81
+    mortality_hospital_age_days = Column(Float)  # 82
+    mortality_after_discharge_cause = Column(Text)  # 84
+    mortality_after_discharge_date = Column(Date)  # 85
+    mortality_after_discharge_time = Column(String)  # 86
+    mortality_after_discharge_age_days = Column(Float)  # 87
+
+
 class CranialUltrasound(Base):
     __tablename__ = "cranial_ultrasound"
 

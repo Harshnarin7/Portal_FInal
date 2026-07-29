@@ -1401,6 +1401,95 @@ class StudyOutcomesCreate(BaseModel):
     signature: Optional[str] = None
     completion_date: Optional[date] = None
 
+    # ---- Form I extended fields (sections I.1-I.6) ----
+    resus_chest_compressions: Optional[bool] = None
+
+    sepsis_eos: Optional[bool] = None
+    sepsis_los: Optional[bool] = None
+    culture_positive_sepsis: Optional[bool] = None
+    culture_positive_body_fluid: Optional[str] = None
+    mortality_7d_cause: Optional[str] = None
+    mortality_7d_date: Optional[date] = None
+    mortality_7d_time: Optional[str] = None
+    mortality_7d_age_hrs: Optional[float] = None
+    mortality_28d_cause: Optional[str] = None
+    mortality_28d_date: Optional[date] = None
+    mortality_28d_time: Optional[str] = None
+    mortality_28d_age_days: Optional[float] = None
+
+    encounter36_method: Optional[str] = None
+    encounter36_other: Optional[str] = None
+    death36: Optional[bool] = None
+    death36_cause: Optional[str] = None
+    death36_date: Optional[date] = None
+    death36_time: Optional[str] = None
+    death36_age_days: Optional[float] = None
+    bpd36_jensen_grade: Optional[str] = None
+    bpd36_jensen_date: Optional[date] = None
+    bpd36_nichd_radiographic: Optional[bool] = None
+    bpd36_nichd_fio2: Optional[float] = None
+    bpd36_nichd_flow: Optional[float] = None
+    bpd36_nichd_grade: Optional[str] = None
+    bpd36_nichd_date: Optional[date] = None
+    nec36_stage: Optional[bool] = None
+    nec36_surgery: Optional[bool] = None
+    nec36_date: Optional[date] = None
+    ivh36_grade3: Optional[bool] = None
+    ivh36_date: Optional[date] = None
+    cpvl36_grade2: Optional[bool] = None
+    cpvl36_date: Optional[date] = None
+    rop36: Optional[bool] = None
+    rop36_treated: Optional[bool] = None
+    rop36_date: Optional[date] = None
+
+    encounter40_method: Optional[str] = None
+    encounter40_other: Optional[str] = None
+    death40: Optional[bool] = None
+    death40_cause: Optional[str] = None
+    death40_date: Optional[date] = None
+    death40_time: Optional[str] = None
+    death40_age_days: Optional[float] = None
+    nec40_stage: Optional[bool] = None
+    nec40_surgery: Optional[bool] = None
+    nec40_date: Optional[date] = None
+    ivh40_grade3: Optional[bool] = None
+    ivh40_date: Optional[date] = None
+    cpvl40_grade2: Optional[bool] = None
+    cpvl40_date: Optional[date] = None
+    rop40: Optional[bool] = None
+    rop40_treated: Optional[bool] = None
+    rop40_date: Optional[date] = None
+    abnormal_mri_tea: Optional[str] = None
+
+    encounter44_method: Optional[str] = None
+    encounter44_other: Optional[str] = None
+    death44: Optional[bool] = None
+    death44_cause: Optional[str] = None
+    death44_date: Optional[date] = None
+    death44_time: Optional[str] = None
+    death44_age_days: Optional[float] = None
+    nec44_stage: Optional[bool] = None
+    nec44_surgery: Optional[bool] = None
+    nec44_date: Optional[date] = None
+    ivh44_grade3: Optional[bool] = None
+    ivh44_date: Optional[date] = None
+    cpvl44_grade2: Optional[bool] = None
+    cpvl44_date: Optional[date] = None
+    rop44_assessed: Optional[bool] = None
+    rop44_treated: Optional[bool] = None
+    rop44_date: Optional[date] = None
+
+    nippv_days: Optional[int] = None
+    sepsis_overall_episodes: Optional[int] = None
+    mortality_hospital_cause: Optional[str] = None
+    mortality_hospital_date: Optional[date] = None
+    mortality_hospital_time: Optional[str] = None
+    mortality_hospital_age_days: Optional[float] = None
+    mortality_after_discharge_cause: Optional[str] = None
+    mortality_after_discharge_date: Optional[date] = None
+    mortality_after_discharge_time: Optional[str] = None
+    mortality_after_discharge_age_days: Optional[float] = None
+
 
 class StudyOutcomesOut(StudyOutcomesCreate):
     id: int

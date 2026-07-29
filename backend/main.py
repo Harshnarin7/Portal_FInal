@@ -1466,11 +1466,43 @@ def create_study_outcomes(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+    # Upsert, same pattern as neonatal-morbidities: Form I is one
+    # comprehensive record per enrollment filled incrementally across
+    # sessions (36/40/44-week follow-ups), not a repeatable-events list,
+    # so POST after the first save should update, not duplicate.
+    existing = (
+        db.query(StudyOutcomes)
+        .filter(StudyOutcomes.enrollment_id == data.enrollment_id)
+        .order_by(StudyOutcomes.id.asc())
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key) and key != "enrollment_id":
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = StudyOutcomes(**data.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
+
+@app.get("/study-outcomes/{enrollment_id}", response_model=list[StudyOutcomesOut])
+def get_study_outcomes(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    return (
+        db.query(StudyOutcomes)
+        .filter(StudyOutcomes.enrollment_id == enrollment_id)
+        .order_by(StudyOutcomes.id.asc())
+        .all()
+    )
 
 @app.post("/cranial-ultrasound/", response_model=CranialUltrasoundOut)
 def create_cranial_ultrasound(
