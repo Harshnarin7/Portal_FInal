@@ -4,6 +4,9 @@ import api from "./api/axios";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./ScreeningForm.css";
+// Dedicated Form I stylesheet — scoped under .form-i-page (see file header
+// comment for why this exists instead of further patching ScreeningForm.css).
+import "./styles/FormIStudyOutcomes.css";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -699,7 +702,7 @@ export default function FormI() {
 
   return (
     <>
-      <form className="screening-form" onSubmit={handleSubmit}>
+      <form className="screening-form form-i-page" onSubmit={handleSubmit}>
 
         <div className="form-a-header">
           <div className="form-a-header-main">
@@ -803,10 +806,12 @@ export default function FormI() {
                   <div className="form-group">
                     <YesNoToggle label="10. Culture positive sepsis" name="culture_positive_sepsis" value={formData.culture_positive_sepsis} onChange={handleChange} />
                   </div>
-                  {formData.culture_positive_sepsis === "Yes" && (
-                    <TextField label="Body fluid" num="11" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF" />
-                  )}
                 </div>
+                {formData.culture_positive_sepsis === "Yes" && (
+                  <div className="form-row">
+                    <TextField label="Body fluid" num="11" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF" />
+                  </div>
+                )}
               </div>
             )}
           </div>

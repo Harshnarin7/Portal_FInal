@@ -1,0 +1,297 @@
+/* ==========================================================================
+   Form I — Study Outcome Assessment
+   Dedicated, scoped stylesheet.
+
+   WHY THIS FILE EXISTS: FormI.jsx used to rely entirely on ScreeningForm.css,
+   which has accumulated THREE separate, conflicting definitions each of
+   .card, .form-group, and .form-row over time (for different forms/features).
+   Because Form I shared the exact same ".screening-form" wrapper class as
+   Form A, which one won was unpredictable — the actual cause of the
+   misaligned fields. Every rule below is scoped under .form-i-page, which
+   (being a compound selector) always outranks the bare single-class rules
+   in ScreeningForm.css, so Form I now gets a clean, predictable, guaranteed
+   layout regardless of what else is in that file. ScreeningForm.css is
+   still imported (for .form-a-header, base input resets, etc.) — this file
+   loads after it and only overrides what Form I actually needs.
+   ========================================================================== */
+
+:root {
+  --fi-ink:        #0f172a;
+  --fi-ink-soft:   #475569;
+  --fi-muted:      #94a3b8;
+  --fi-accent:     #4f46e5;
+  --fi-accent-ink: #3730a3;
+  --fi-accent-tint:#eef2ff;
+  --fi-accent-line:#c7d2fe;
+  --fi-yes:        #16a34a;
+  --fi-yes-tint:   #f0fdf4;
+  --fi-no:         #dc2626;
+  --fi-no-tint:    #fef2f2;
+  --fi-surface:    #ffffff;
+  --fi-bg:         #f8fafc;
+  --fi-border:     #e2e8f0;
+  --fi-radius:     14px;
+  --fi-radius-sm:  9px;
+}
+
+.form-i-page { color: var(--fi-ink); }
+
+/* ── Section headers (I.1, I.2 …) ─────────────────────────────────────── */
+.form-i-page .form-section {
+  background: var(--fi-surface) !important;
+  border: 1px solid var(--fi-border) !important;
+  border-radius: var(--fi-radius) !important;
+  padding: 22px 24px !important;
+  margin-bottom: 18px !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.form-i-page .form-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--fi-ink);
+  margin: 0 0 18px 0 !important;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--fi-border);
+}
+
+.form-i-page .sec-icon { color: var(--fi-accent); flex-shrink: 0; }
+
+.form-i-page .sec-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--fi-accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+/* ── Numbered field badge — the CRF's own official field numbers (1–87),
+   kept exact per the source document; styled as a small precise chip so
+   they read as reference numbers, not decoration. ────────────────────── */
+.form-i-page .field-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  margin-right: 5px;
+  border-radius: 6px;
+  background: var(--fi-accent-tint);
+  color: var(--fi-accent-ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Field grid — CSS Grid instead of flexbox guarantees every field in a
+   row starts at the same x-position regardless of neighboring label
+   length, which flexbox does not. This is the actual alignment fix. ──── */
+.form-i-page .form-row {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+  gap: 16px 20px !important;
+  margin-bottom: 16px !important;
+  align-items: start;
+}
+.form-i-page .form-row:last-child { margin-bottom: 0 !important; }
+
+.form-i-page .form-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.form-i-page .form-group label {
+  display: flex;
+  align-items: flex-start;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fi-ink-soft);
+  line-height: 1.4;
+}
+
+.form-i-page .required { color: var(--fi-no); margin-left: 3px; }
+
+.form-i-page .form-group input[type="text"],
+.form-i-page .form-group input[type="number"],
+.form-i-page .form-group input[type="time"],
+.form-i-page .form-group input:not([type]),
+.form-i-page .form-group select,
+.form-i-page .form-group .react-datepicker-wrapper input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  height: 40px !important;
+  padding: 0 12px !important;
+  border: 1.5px solid var(--fi-border) !important;
+  border-radius: var(--fi-radius-sm) !important;
+  background: var(--fi-surface) !important;
+  color: var(--fi-ink) !important;
+  font-size: 13.5px !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-i-page .form-group input:focus,
+.form-i-page .form-group select:focus,
+.form-i-page .form-group .react-datepicker-wrapper input:focus {
+  outline: none !important;
+  border-color: var(--fi-accent) !important;
+  box-shadow: 0 0 0 3px var(--fi-accent-tint) !important;
+}
+
+.form-i-page .form-group input[readOnly] {
+  background: var(--fi-bg) !important;
+  color: var(--fi-muted) !important;
+  cursor: not-allowed;
+}
+
+/* ── Collapsible outcome cards ────────────────────────────────────────── */
+.form-i-page .card {
+  border: 1px solid var(--fi-border) !important;
+  border-radius: var(--fi-radius-sm) !important;
+  background: var(--fi-surface) !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+.form-i-page .card-header-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px;
+  padding: 14px 16px !important;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--fi-ink);
+  background: var(--fi-surface);
+  transition: background 0.12s ease;
+}
+.form-i-page .card-header-row:hover { background: var(--fi-bg); }
+
+.form-i-page .card-header-row > span:first-child { flex: 1; min-width: 0; }
+
+.form-i-page .card-header-row .right-section { display: flex; align-items: center; }
+
+.form-i-page .card-header-row .arrow {
+  color: var(--fi-muted);
+  font-size: 11px;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.form-i-page .card-body {
+  padding: 18px 16px !important;
+  border-top: 1px solid var(--fi-border);
+  background: var(--fi-bg);
+}
+
+/* ── Status summary pill (Yes / No / Not filled) ──────────────────────── */
+.form-i-page .summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.form-i-page .summary.yes   { background: var(--fi-yes-tint); color: var(--fi-yes); }
+.form-i-page .summary.no    { background: var(--fi-no-tint);  color: var(--fi-no); }
+.form-i-page .summary.empty { background: var(--fi-bg); color: var(--fi-muted); border: 1px dashed var(--fi-border); }
+.form-i-page .summary .icon { font-size: 10px; line-height: 1; }
+
+/* ── YesNoToggle — align its label with the numbered-field style used
+   throughout, no visual change to the toggle itself (already consistent
+   app-wide). ──────────────────────────────────────────────────────────── */
+.form-i-page .yes-no-toggle { padding: 0 !important; }
+.form-i-page .yes-no-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fi-ink-soft);
+}
+
+/* FIX: the shared .yes-no-toggle rule (FormA.css/FormComponents.css) uses
+   `justify-content: space-between`, which pushes the YES/NO buttons all
+   the way to the far edge of whatever container they're in. That's barely
+   noticeable in a narrow multi-column grid cell, but in a single-item full
+   -width row (e.g. item 7) or a wider cell (e.g. item 31's toggle sharing
+   a row with two number fields), it stretches the buttons far away from
+   their own label — exactly the "toggle too far from field name" issue.
+   Overriding to a tight, left-aligned layout with a small fixed gap keeps
+   the buttons right next to their label regardless of how wide the
+   surrounding grid cell happens to be. */
+.form-i-page .yes-no-toggle {
+  display: flex !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  flex-wrap: wrap;
+  gap: 14px !important;
+  border-bottom: none !important;
+}
+.form-i-page .yes-no-label { flex: 0 1 auto; }
+.form-i-page .yes-no-buttons { flex: 0 0 auto; }
+
+/* A toggle alone in a full-width row (nothing else in that .form-row)
+   would otherwise stretch to the whole card width — cap it so label and
+   buttons stay visually anchored together on the left instead of the
+   buttons drifting off to a mostly-empty right side. */
+.form-i-page .form-row:has(> .form-group:only-child) {
+  grid-template-columns: minmax(240px, 480px) !important;
+}
+
+/* ── Identification block (read-only summary at top) ──────────────────── */
+.form-i-page .form-a-header { margin-bottom: 22px !important; }
+
+/* ── Submit button — restyled as a deliberate, modern primary action
+   instead of an unstyled leftover; behavior unchanged. ────────────────── */
+.form-i-page .submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  margin-top: 4px;
+  border: none;
+  border-radius: var(--fi-radius-sm);
+  background: var(--fi-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.form-i-page .submit-btn:hover { background: var(--fi-accent-ink); }
+.form-i-page .submit-btn:active { transform: scale(0.99); }
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .form-i-page .form-section { padding: 16px !important; }
+  .form-i-page .form-row { grid-template-columns: 1fr !important; }
+  .form-i-page .form-section h3 { font-size: 14px; }
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .form-i-page .card-header-row,
+  .form-i-page .card-header-row .arrow,
+  .form-i-page .submit-btn {
+    transition: none !important;
+  }
+}
