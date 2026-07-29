@@ -1,335 +1,352 @@
-/* ==========================================================================
-   Form I — Study Outcome Assessment
-   Dedicated, scoped stylesheet.
+/* ============================================================
+   Form I — Study Outcome Assessment (component: FormI.jsx)
+   NOTE: styles/FormI.css already exists and belongs to FormG.jsx
+   (a naming swap left over from earlier history — see the
+   comment in FormG.jsx). This file is deliberately named
+   differently to avoid touching that one.
 
-   WHY THIS FILE EXISTS: FormI.jsx used to rely entirely on ScreeningForm.css,
-   which has accumulated THREE separate, conflicting definitions each of
-   .card, .form-group, and .form-row over time (for different forms/features).
-   Because Form I shared the exact same ".screening-form" wrapper class as
-   Form A, which one won was unpredictable — the actual cause of the
-   misaligned fields. Every rule below is scoped under .form-i-page, which
-   (being a compound selector) always outranks the bare single-class rules
-   in ScreeningForm.css, so Form I now gets a clean, predictable, guaranteed
-   layout regardless of what else is in that file. ScreeningForm.css is
-   still imported (for .form-a-header, base input resets, etc.) — this file
-   loads after it and only overrides what Form I actually needs.
-   ========================================================================== */
+   Scoped under .form-i-page so nothing here leaks into other
+   forms. Builds on the --portal-* tokens already established in
+   styles/UnifiedForms.css (the shared design contract) rather
+   than introducing a competing palette.
+   ============================================================ */
 
-:root {
-  --fi-ink:        #0f172a;
-  --fi-ink-soft:   #475569;
-  --fi-muted:      #94a3b8;
-  --fi-accent:     #4f46e5;
-  --fi-accent-ink: #3730a3;
-  --fi-accent-tint:#eef2ff;
-  --fi-accent-line:#c7d2fe;
-  --fi-yes:        #16a34a;
-  --fi-yes-tint:   #f0fdf4;
-  --fi-no:         #dc2626;
-  --fi-no-tint:    #fef2f2;
-  --fi-surface:    #ffffff;
-  --fi-bg:         #f8fafc;
-  --fi-border:     #e2e8f0;
-  --fi-radius:     14px;
-  --fi-radius-sm:  9px;
+.form-i-page {
+  --fi-accent: var(--portal-blue-dark, #0369a1);
+  --fi-accent-soft: #e0f2fe;
+  --fi-ink: var(--portal-ink, #0f172a);
+  --fi-muted: var(--portal-muted, #64748b);
+  --fi-border: var(--portal-border, #e2e8f0);
 }
 
-.form-i-page { color: var(--fi-ink); }
-
-/* ── Section headers (I.1, I.2 …) ─────────────────────────────────────── */
-.form-i-page .form-section {
-  background: var(--fi-surface) !important;
-  border: 1px solid var(--fi-border) !important;
-  border-radius: var(--fi-radius) !important;
-  padding: 22px 24px !important;
-  margin-bottom: 18px !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
-}
-
-.form-i-page .form-section h3 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #fff;
-  margin: -22px -24px 18px -24px !important;
-  padding: 14px 24px;
-  border-bottom: none;
-  background: var(--fi-accent);
-  border-radius: var(--fi-radius) var(--fi-radius) 0 0;
-}
-
-.form-i-page .sec-icon { color: #fff; flex-shrink: 0; opacity: 0.9; }
-
-.form-i-page .sec-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.18);
-  color: #fff;
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-}
-
-/* ── Definition text — pulled straight from the source CRF, shown right
-   under each field's label/toggle so the meaning is visible at a glance
-   instead of needing to consult the paper form. ──────────────────────── */
-.form-i-page .field-definition {
-  display: block;
-  font-size: 11.5px;
-  font-weight: 400;
-  font-style: italic;
-  color: var(--fi-muted);
-  line-height: 1.4;
-  margin-top: 1px;
-}
-.form-i-page .yes-no-label-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-/* ── Numbered field badge — the CRF's own official field numbers (1–87),
-   kept exact per the source document; styled as a small precise chip so
-   they read as reference numbers, not decoration. ────────────────────── */
-.form-i-page .field-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 5px;
-  margin-right: 5px;
-  border-radius: 6px;
-  background: var(--fi-accent-tint);
-  color: var(--fi-accent-ink);
-  font-size: 10.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Field grid — CSS Grid instead of flexbox guarantees every field in a
-   row starts at the same x-position regardless of neighboring label
-   length, which flexbox does not. This is the actual alignment fix. ──── */
+/* ---------- Field grid: even, responsive alignment ----------
+   The shared .form-row is a flex row with equal-width columns;
+   that reads uneven on this form because rows mix a 2-field
+   pair with a 4-field death/date/time/age group. A grid with a
+   real minimum column width keeps every field readable and
+   lets rows wrap cleanly at any viewport. */
 .form-i-page .form-row {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
-  gap: 16px 20px !important;
-  margin-bottom: 0 !important;
-  align-items: start;
-  padding: 14px 16px !important;
-  border-bottom: 1px solid var(--fi-border);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-items: start !important;
+  gap: 16px 20px;
 }
-.form-i-page .card-body .form-row:nth-child(odd)  { background: var(--fi-surface); }
-.form-i-page .card-body .form-row:nth-child(even) { background: var(--fi-bg); }
-.form-i-page .card-body .form-row:last-child { border-bottom: none; }
-
-.form-i-page .form-group {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 6px !important;
-  min-width: 0 !important;
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
+.form-i-page .form-row .form-group {
+  flex: none;
+  min-width: 0;
 }
 
-.form-i-page .form-group label {
+/* ---------- Sub-group titles ("Death by 36 weeks PMA" etc.) ----------
+   Previously inline-styled margins; centralised here as a real
+   label with a left accent bar, consistent everywhere it repeats. */
+.form-i-page .subgroup-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--fi-accent);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fi-ink);
+  letter-spacing: .01em;
+}
+.form-i-page .subgroup-title:first-child { margin-top: 4px; }
+
+/* ---------- Quick-nav rail ----------
+   87 fields across 6 sections is a lot of vertical distance —
+   this is the one piece of real wayfinding the form needs, so
+   it's the single deliberate flourish here. Sticky, compact,
+   shows which section is open, jumps + expands on click. */
+.form-i-quicknav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 0 0 24px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--fi-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+}
+.form-i-quicknav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--fi-border);
+  background: #f8fafc;
+  color: var(--fi-muted);
   font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s, transform .1s;
+}
+.form-i-quicknav button:hover {
+  border-color: var(--fi-accent);
+  color: var(--fi-accent);
+  transform: translateY(-1px);
+}
+.form-i-quicknav button.active {
+  background: var(--fi-accent);
+  border-color: var(--fi-accent);
+  color: #fff;
+}
+.form-i-quicknav .fi-nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .55;
+}
+.form-i-quicknav button.active .fi-nav-dot { opacity: 1; }
+
+@media (max-width: 640px) {
+  .form-i-quicknav { position: static; overflow-x: auto; flex-wrap: nowrap; }
+  .form-i-quicknav button { flex: 0 0 auto; }
+}
+
+/* ---------- Section header polish ---------- */
+.form-i-page .form-section.soft-blue > h3 {
+  display: flex;
+  align-items: center;
+  scroll-margin-top: 76px; /* keeps the quick-nav from covering the heading on jump */
+}
+
+/* ---------- Card polish ----------
+   Slightly stronger open-state affordance than the shared
+   default, since sub-blocks (NEC, ROP, brain injury, death)
+   nest inside these cards and need to read as "currently in
+   focus" against several collapsed siblings. */
+.form-i-page .card {
+  transition: box-shadow .15s;
+}
+.form-i-page .card:has(.card-body) {
+  box-shadow: 0 2px 10px rgba(15, 23, 42, .07);
+}
+.form-i-page .card-header-row:hover {
+  background: #f1f5f9 !important;
+}
+
+/* ---------- Read-only identification fields ---------- */
+.form-i-page input[readonly] {
+  background: #f8fafc !important;
+  color: var(--fi-muted) !important;
   font-weight: 600;
-  color: var(--fi-ink-soft);
+}
+
+/* ---------- Completion + submit ---------- */
+.form-i-page .submit-btn {
+  display: block;
+  margin: 28px auto 8px;
+  padding: 13px 40px;
+  border: none;
+  border-radius: 999px;
+  background: var(--fi-accent);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(3, 105, 161, .25);
+  transition: transform .12s, box-shadow .12s;
+}
+.form-i-page .submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(3, 105, 161, .32);
+}
+.form-i-page .submit-btn:active { transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .form-i-page * { transition: none !important; }
+}
+
+/* ============================================================
+   CRF TABLE — Outcome | Definition | Result | Additional info
+   Mirrors the paper CRF's own table structure directly, styled
+   as a clean modern data table rather than a form-builder grid.
+   ============================================================ */
+
+.form-i-tabular .form-section.soft-blue {
+  padding-bottom: 8px !important;
+}
+
+.crf-encounter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 4px 2px 18px;
+}
+
+.crf-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--fi-border);
+  border-radius: 12px;
+  margin: 4px 0 4px;
+}
+
+.crf-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+}
+
+.crf-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  color: var(--fi-accent);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1.5px solid var(--fi-border);
+  white-space: nowrap;
+}
+
+.crf-table tbody tr.fi-crf-row {
+  border-bottom: 1px solid #eef2f7;
+}
+.crf-table tbody tr.fi-crf-row:last-child { border-bottom: none; }
+.crf-table tbody tr.fi-crf-row:nth-child(even) { background: #fbfcfe; }
+.crf-table tbody tr.fi-crf-row:hover { background: var(--fi-accent-soft); }
+
+.crf-table td {
+  padding: 14px;
+  vertical-align: top;
+  font-size: 13px;
+  color: var(--fi-ink);
+}
+
+.crf-num-cell {
+  width: 34px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 11px;
+  color: var(--fi-accent);
+}
+
+.crf-outcome-cell {
+  width: 17%;
+  min-width: 150px;
+  font-weight: 700;
   line-height: 1.4;
 }
 
-.form-i-page .required { color: var(--fi-no); margin-left: 3px; }
-
-.form-i-page .form-group input[type="text"],
-.form-i-page .form-group input[type="number"],
-.form-i-page .form-group input[type="time"],
-.form-i-page .form-group input:not([type]),
-.form-i-page .form-group select,
-.form-i-page .form-group .react-datepicker-wrapper input {
-  width: 100% !important;
-  box-sizing: border-box !important;
-  height: 40px !important;
-  padding: 0 12px !important;
-  border: 1.5px solid var(--fi-border) !important;
-  border-radius: var(--fi-radius-sm) !important;
-  background: var(--fi-surface) !important;
-  color: var(--fi-ink) !important;
-  font-size: 13.5px !important;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.form-i-page .form-group input:focus,
-.form-i-page .form-group select:focus,
-.form-i-page .form-group .react-datepicker-wrapper input:focus {
-  outline: none !important;
-  border-color: var(--fi-accent) !important;
-  box-shadow: 0 0 0 3px var(--fi-accent-tint) !important;
-}
-
-.form-i-page .form-group input[readOnly] {
-  background: var(--fi-bg) !important;
-  color: var(--fi-muted) !important;
-  cursor: not-allowed;
-}
-
-/* ── Collapsible outcome cards ────────────────────────────────────────── */
-.form-i-page .card {
-  border: 1px solid var(--fi-border) !important;
-  border-radius: var(--fi-radius-sm) !important;
-  background: var(--fi-surface) !important;
-  overflow: hidden;
-  box-shadow: none !important;
-}
-
-.form-i-page .card-header-row {
-  display: flex !important;
-  align-items: center !important;
-  gap: 12px;
-  padding: 14px 16px !important;
-  cursor: pointer;
-  user-select: none;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--fi-ink);
-  background: var(--fi-surface);
-  transition: background 0.12s ease;
-}
-.form-i-page .card-header-row:hover { background: var(--fi-bg); }
-
-.form-i-page .card-header-row > span:first-child { flex: 1; min-width: 0; }
-
-.form-i-page .card-header-row .right-section { display: flex; align-items: center; }
-
-.form-i-page .card-header-row .arrow {
+.crf-def-cell {
+  width: 28%;
+  min-width: 190px;
   color: var(--fi-muted);
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.crf-result-cell {
+  width: 20%;
+  min-width: 150px;
+}
+
+.crf-info-cell {
+  width: 27%;
+  min-width: 170px;
+}
+
+.crf-dash {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.crf-subline {
+  display: block;
+  font-size: 11.5px;
+  color: var(--fi-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.crf-note {
+  font-size: 12px;
+  color: var(--fi-muted);
+  font-style: italic;
+}
+
+/* compact controls used inside table cells */
+.crf-yn.yes-no-buttons { width: 92px; }
+.crf-yn .yn-btn { width: 46px; height: 28px; font-size: 10px; }
+.crf-yn .yn-thumb { width: 46px; height: 28px; }
+.yes-no-buttons.yn-pos-2.crf-yn .yn-thumb { transform: translateX(46px); }
+
+.crf-select, .crf-text {
+  width: 100%;
+  min-height: 36px !important;
+  padding: 6px 10px;
+  font-size: 12.5px !important;
+}
+
+.crf-num-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.crf-num {
+  width: 80px;
+  min-height: 36px !important;
+  padding: 6px 8px;
+  font-size: 12.5px !important;
+}
+.crf-unit {
   font-size: 11px;
-  transition: transform 0.15s ease;
+  color: var(--fi-muted);
+  font-weight: 600;
+}
+
+.crf-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crf-stack-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.crf-stack-item span {
+  font-size: 11.5px;
+  color: var(--fi-muted);
+  font-weight: 600;
   flex-shrink: 0;
 }
 
-.form-i-page .card-body {
-  padding: 0 !important;
-  border-top: 1px solid var(--fi-border);
+.crf-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
 }
-.form-i-page .card-body > h4 {
-  padding: 12px 16px 4px;
-  margin: 0 !important;
-  font-size: 12.5px;
+.crf-mini:last-child { margin-bottom: 0; }
+.crf-mini-label {
+  font-size: 10.5px;
   font-weight: 700;
-  color: var(--fi-ink-soft);
+  color: var(--fi-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.form-i-page .card-body > p {
-  padding: 0 16px 12px;
-  margin: 0 !important;
+  letter-spacing: .03em;
 }
 
-/* ── Status summary pill (Yes / No / Not filled) ──────────────────────── */
-.form-i-page .summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.form-i-page .summary.yes   { background: var(--fi-yes-tint); color: var(--fi-yes); }
-.form-i-page .summary.no    { background: var(--fi-no-tint);  color: var(--fi-no); }
-.form-i-page .summary.empty { background: var(--fi-bg); color: var(--fi-muted); border: 1px dashed var(--fi-border); }
-.form-i-page .summary .icon { font-size: 10px; line-height: 1; }
-
-/* ── YesNoToggle — align its label with the numbered-field style used
-   throughout, no visual change to the toggle itself (already consistent
-   app-wide). ──────────────────────────────────────────────────────────── */
-.form-i-page .yes-no-toggle { padding: 0 !important; }
-.form-i-page .yes-no-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fi-ink-soft);
-}
-
-/* FIX: the shared .yes-no-toggle rule (FormA.css/FormComponents.css) uses
-   `justify-content: space-between`, which pushes the YES/NO buttons all
-   the way to the far edge of whatever container they're in. That's barely
-   noticeable in a narrow multi-column grid cell, but in a single-item full
-   -width row (e.g. item 7) or a wider cell (e.g. item 31's toggle sharing
-   a row with two number fields), it stretches the buttons far away from
-   their own label — exactly the "toggle too far from field name" issue.
-   Overriding to a tight, left-aligned layout with a small fixed gap keeps
-   the buttons right next to their label regardless of how wide the
-   surrounding grid cell happens to be. */
-.form-i-page .yes-no-toggle {
-  display: flex !important;
-  justify-content: flex-start !important;
-  align-items: center !important;
-  flex-wrap: wrap;
-  gap: 14px !important;
-  border-bottom: none !important;
-}
-.form-i-page .yes-no-label { flex: 0 1 auto; }
-.form-i-page .yes-no-buttons { flex: 0 0 auto; }
-
-/* A toggle alone in a full-width row (nothing else in that .form-row)
-   would otherwise stretch to the whole card width — cap it so label and
-   buttons stay visually anchored together on the left instead of the
-   buttons drifting off to a mostly-empty right side. */
-.form-i-page .form-row:has(> .form-group:only-child) {
-  grid-template-columns: minmax(240px, 480px) !important;
-}
-
-/* ── Identification block (read-only summary at top) ──────────────────── */
-
-/* ── Submit button — restyled as a deliberate, modern primary action
-   instead of an unstyled leftover; behavior unchanged. ────────────────── */
-.form-i-page .submit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  height: 46px;
-  margin-top: 4px;
-  border: none;
-  border-radius: var(--fi-radius-sm);
-  background: var(--fi-accent);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
-}
-.form-i-page .submit-btn:hover { background: var(--fi-accent-ink); }
-.form-i-page .submit-btn:active { transform: scale(0.99); }
-
-/* ── Responsive ────────────────────────────────────────────────────────── */
-@media (max-width: 640px) {
-  .form-i-page .form-section { padding: 16px !important; }
-  .form-i-page .form-row { grid-template-columns: 1fr !important; }
-  .form-i-page .form-section h3 { font-size: 12.5px; margin: -16px -16px 16px -16px !important; padding: 12px 16px; }
-}
-
-/* ── Reduced motion ────────────────────────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  .form-i-page .card-header-row,
-  .form-i-page .card-header-row .arrow,
-  .form-i-page .submit-btn {
-    transition: none !important;
+@media (max-width: 900px) {
+  .crf-outcome-cell, .crf-def-cell, .crf-result-cell, .crf-info-cell {
+    min-width: 220px;
   }
 }

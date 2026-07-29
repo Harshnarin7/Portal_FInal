@@ -1,12 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
-import "./styles/FormA.css";
 import "./ScreeningForm.css";
-// Dedicated Form I stylesheet — scoped under .form-i-page (see file header
-// comment for why this exists instead of further patching ScreeningForm.css).
 import "./styles/FormIStudyOutcomes.css";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
@@ -15,12 +12,12 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
-  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home,
+  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList,
 } from "lucide-react";
 
 /* ─── YesNoToggle — same animated sliding-segment component used across
        Form H / Form A / ScreeningForm.jsx, kept local for consistency ─── */
-function YesNoToggle({ label, definition, name, value, onChange, onBlur, required = false, disabled = false }) {
+function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val, type: "select-one" } });
@@ -28,12 +25,9 @@ function YesNoToggle({ label, definition, name, value, onChange, onBlur, require
   const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label-wrap">
-        <span className="yes-no-label">
-          {label}
-          {required && <span className="required">*</span>}
-        </span>
-        {definition && <span className="field-definition">{definition}</span>}
+      <span className="yes-no-label">
+        {label}
+        {required && <span className="required">*</span>}
       </span>
       <div className={`yes-no-buttons yn-pos-${pos}`}>
         <div className="yn-thumb" aria-hidden="true" />
@@ -79,6 +73,24 @@ export default function FormI() {
   const [openSection, setOpenSection] = useState("i1");
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+
+  // Quick-nav: one ref per top-level CRF section (I.1–I.6), used to jump +
+  // open a section from the sticky rail at the top of the form.
+  const sectionRefs = {
+    i1: useRef(null),
+    i2: useRef(null),
+    i3: useRef(null),
+    i4: useRef(null),
+    i5: useRef(null),
+    i6: useRef(null),
+  };
+  const goToSection = (key) => {
+    setOpenSection(key);
+    // wait one paint so the accordion has expanded before scrolling
+    requestAnimationFrame(() => {
+      sectionRefs[key]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   const [formData, setFormData] = useState({
     enrollment_id: enrollmentId || "",
@@ -199,6 +211,7 @@ export default function FormI() {
     // Completion
     completed_by: "",
     designation: "",
+    signature: "",
     completion_date: "",
   });
 
@@ -339,6 +352,7 @@ export default function FormI() {
 
           completed_by: existing.completed_by || "",
           designation: existing.designation || "",
+          signature: existing.signature || "",
           completion_date: existing.completion_date || "",
         } : {}),
       }));
@@ -537,6 +551,7 @@ export default function FormI() {
 
     completed_by: formData.completed_by || null,
     designation: formData.designation || null,
+    signature: formData.signature || null,
     completion_date: formData.completion_date || null,
   });
 
@@ -575,155 +590,147 @@ export default function FormI() {
   };
 
   /* ── Small reusable date/time/text controls ── */
-  const DateField = ({ label, num, name, required }) => (
-    <div className="form-group">
-      <label>{num && <span className={FIELD.className}>{num}.</span>} {label}{required && <span className="required">*</span>}</label>
+  /* ================================================================
+     Table building blocks — the CRF itself is a table (Outcome |
+     Definition | Result | Additional info), so the UI mirrors that
+     structure directly instead of an accordion. Kept compact since
+     each row already carries a lot of text.
+     ================================================================ */
+
+  // Compact Yes/No pill for the Result column — same visual language
+  // (yn-btn / yn-active / yn-thumb) as the toggle used elsewhere in
+  // the app, just without the label row, since the Outcome column
+  // already names the field.
+  const RYesNo = ({ name, required }) => {
+    const value = formData[name];
+    const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
+    const fire = (val) => setFormData((p) => ({ ...p, [name]: val }));
+    return (
+      <div className={`yes-no-buttons yn-pos-${pos} crf-yn`} aria-required={required}>
+        <div className="yn-thumb" aria-hidden="true" />
+        <button type="button" className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`} onClick={() => fire("Yes")}>YES</button>
+        <button type="button" className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`} onClick={() => fire("No")}>NO</button>
+      </div>
+    );
+  };
+
+  const RSelect = ({ name, options, placeholder = "Select" }) => (
+    <select className="crf-select" name={name} value={formData[name] || ""} onChange={handleChange}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+
+  const RNum = ({ name, unit, placeholder }) => (
+    <div className="crf-num-wrap">
+      <input className="crf-num" type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
+      {unit && <span className="crf-unit">{unit}</span>}
+    </div>
+  );
+
+  const RText = ({ name, placeholder }) => (
+    <input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
+  );
+
+  // Additional-info column: small labeled fields stacked vertically.
+  const Mini = ({ label, children }) => (
+    <div className="crf-mini">
+      <span className="crf-mini-label">{label}</span>
+      {children}
+    </div>
+  );
+  const MiniDate = ({ label, name }) => (
+    <Mini label={label}>
       <DatePicker
         selected={formData[name] ? parseDateOnly(formData[name]) : null}
         onChange={(date) => setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }))}
         dateFormat="dd/MM/yyyy"
         placeholderText="dd/mm/yyyy"
+        className="crf-text"
       />
-    </div>
+    </Mini>
   );
-  const TimeField = ({ label, num, name }) => (
-    <div className="form-group">
-      <label>{num && <span className={FIELD.className}>{num}.</span>} {label}</label>
-      <input type="time" name={name} value={formData[name] || ""} onChange={handleChange} />
-    </div>
+  const MiniTime = ({ label, name }) => (
+    <Mini label={label}><input className="crf-text" type="time" name={name} value={formData[name] || ""} onChange={handleChange} /></Mini>
   );
-  const TextField = ({ label, num, name, placeholder }) => (
-    <div className="form-group">
-      <label>{num && <span className={FIELD.className}>{num}.</span>} {label}</label>
-      <input type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
-    </div>
+  const MiniText = ({ label, name, placeholder }) => (
+    <Mini label={label}><input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} /></Mini>
   );
-  const NumField = ({ label, definition, num, name, unit, placeholder }) => (
-    <div className="form-group">
-      <label>{num && <span className={FIELD.className}>{num}.</span>} {label}{unit ? ` (${unit})` : ""}</label>
-      {definition && <span className="field-definition">{definition}</span>}
-      <input type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
-    </div>
+  const MiniReadOnly = ({ label, value }) => (
+    <Mini label={label}><input className="crf-text" type="text" value={value ?? ""} readOnly /></Mini>
   );
-  const SelectField = ({ label, definition, num, name, options, required }) => (
-    <div className="form-group">
-      <label>{num && <span className={FIELD.className}>{num}.</span>} {label}{required && <span className="required">*</span>}</label>
-      {definition && <span className="field-definition">{definition}</span>}
-      <select name={name} value={formData[name] || ""} onChange={handleChange}>
-        <option value="">-- Select --</option>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+
+  /* One row of the CRF table. `info` is only rendered once the
+     triggering Yes/No (or other) field is answered — keeps rows
+     compact until they're relevant, same as the paper form's blank
+     lines only mattering "if yes". */
+  const CrfRow = ({ num, outcome, definition, result, info, showInfo }) => (
+    <tr className="fi-crf-row">
+      <td className="crf-num-cell">{num}</td>
+      <td className="crf-outcome-cell">{outcome}</td>
+      <td className="crf-def-cell">{definition}</td>
+      <td className="crf-result-cell">{result}</td>
+      <td className="crf-info-cell">{showInfo ? info : <span className="crf-dash">—</span>}</td>
+    </tr>
+  );
+
+  const CrfTable = ({ children }) => (
+    <div className="crf-table-wrap">
+      <table className="crf-table">
+        <thead>
+          <tr>
+            <th className="crf-num-cell">#</th>
+            <th className="crf-outcome-cell">Outcome</th>
+            <th className="crf-def-cell">Definition</th>
+            <th className="crf-result-cell">Result</th>
+            <th className="crf-info-cell">Additional information</th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
     </div>
   );
 
-  /* Reusable "death at timepoint" block: Yes/No + cause + date + time + age.
-     boolName = the Yes/No field; fieldPrefix = prefix for _cause/_date/_time/_age
-     (these differ for the 7d/28d/hospital timepoints, e.g. boolName
-     "mortality_7_days" but fieldPrefix "mortality_7d"). */
-  const DeathBlock = ({ boolName, fieldPrefix, nums, ageLabel, definition }) => (
+  /* Reusable "death at timepoint" detail — cause / date / time / age,
+     shown in the Additional-info column once the toggle is Yes. */
+  const DeathInfo = ({ fieldPrefix, ageLabel }) => (
     <>
-      <div className="form-group">
-        <YesNoToggle
-          label={`${nums[0]}. Death recorded`}
-          definition={definition}
-          name={boolName}
-          value={formData[boolName]}
-          onChange={handleChange}
-        />
-      </div>
-      {formData[boolName] === "Yes" && (
-        <div className="form-row">
-          <TextField label="Cause of death" num={nums[1]} name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
-          <DateField label="Date of death" num={nums[2]} name={`${fieldPrefix}_date`} />
-          <TimeField label="Time of death" num={nums[3]} name={`${fieldPrefix}_time`} />
-          <div className="form-group">
-            <label><span className={FIELD.className}>{nums[4]}.</span> Age at death ({ageLabel})</label>
-            <input type="text" value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`] ?? ""} readOnly />
-          </div>
-        </div>
-      )}
+      <MiniText label="Cause of death" name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
+      <MiniDate label="Date of death" name={`${fieldPrefix}_date`} />
+      <MiniTime label="Time of death" name={`${fieldPrefix}_time`} />
+      <MiniReadOnly label={`Age at death (${ageLabel})`} value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`]} />
     </>
   );
 
-  /* Reusable "brain injury at timepoint" block: IVH ≥ III + date, cPVL ≥ II + date */
-  const BrainInjuryBlock = ({ prefix, numIvh, numIvhDate, numCpvlDate }) => (
-    <div className="form-row">
-      <div className="form-group">
-        <YesNoToggle label={`${numIvh}a. IVH Grade ≥ III`} definition="Papile Classification for IVH" name={`ivh${prefix}_grade3`} value={formData[`ivh${prefix}_grade3`]} onChange={handleChange} />
-      </div>
-      {formData[`ivh${prefix}_grade3`] === "Yes" && (
-        <DateField label="Date of diagnosis (IVH)" num={numIvhDate} name={`ivh${prefix}_date`} />
-      )}
-      <div className="form-group">
-        <YesNoToggle label={`${numIvh}b. cPVL Grade ≥ II`} definition="De Vries Classification for cPVL" name={`cpvl${prefix}_grade2`} value={formData[`cpvl${prefix}_grade2`]} onChange={handleChange} />
-      </div>
-      {formData[`cpvl${prefix}_grade2`] === "Yes" && (
-        <DateField label="Date of diagnosis (cPVL)" num={numCpvlDate} name={`cpvl${prefix}_date`} />
-      )}
-    </div>
-  );
-
-  /* Reusable "NEC at timepoint" block */
-  const NecBlock = ({ prefix, numStage, numSurgery, numDate }) => (
-    <div className="form-row">
-      <div className="form-group">
-        <YesNoToggle label={`${numStage}. NEC`} definition="Modified Bell's Staging — Stage ≥ IIA" name={`nec${prefix}_stage`} value={formData[`nec${prefix}_stage`]} onChange={handleChange} />
-      </div>
-      {formData[`nec${prefix}_stage`] === "Yes" && (
-        <>
-          <div className="form-group">
-            <YesNoToggle label={`${numSurgery}. Surgical intervention required`} name={`nec${prefix}_surgery`} value={formData[`nec${prefix}_surgery`]} onChange={handleChange} />
-          </div>
-          <DateField label="Date of diagnosis" num={numDate} name={`nec${prefix}_date`} />
-        </>
-      )}
-    </div>
-  );
-
-  /* Reusable "ROP at timepoint" block */
-  const RopBlock = ({ presentName, treatedName, dateName, numPresent, numTreated, numDate }) => (
-    <div className="form-row">
-      <div className="form-group">
-        <YesNoToggle label={`${numPresent}. ROP`} definition="ICROP 3rd Edition" name={presentName} value={formData[presentName]} onChange={handleChange} />
-      </div>
-      {formData[presentName] === "Yes" && (
-        <>
-          <div className="form-group">
-            <YesNoToggle label={`${numTreated}. Treated`} name={treatedName} value={formData[treatedName]} onChange={handleChange} />
-          </div>
-          <DateField label="Date of diagnosis" num={numDate} name={dateName} />
-        </>
-      )}
-    </div>
-  );
-
-  /* Reusable "Method of encounter" block */
-  const EncounterBlock = ({ methodName, otherName, numMethod, numOther }) => (
-    <div className="form-row">
-      <SelectField label="Method of encounter" num={numMethod} name={methodName} options={["Direct", "Telephonic"]} required />
-      {formData[methodName] === "Telephonic" && (
-        <SelectField label="If telephonic" num={numOther} name={otherName} options={["Attendant", "Treating physician", "Others"]} />
-      )}
-    </div>
-  );
+  const sectionMeta = [
+    { key: "i1", label: "I.1 Resuscitation", icon: Wind },
+    { key: "i2", label: "I.2 Post-resus", icon: ClipboardList },
+    { key: "i3", label: "I.3 36 wk PMA", icon: CalendarClock },
+    { key: "i4", label: "I.4 40 wk PMA", icon: CalendarCheck },
+    { key: "i5", label: "I.5 44 wk PMA", icon: CalendarRange },
+    { key: "i6", label: "I.6 Overall", icon: Skull },
+  ];
 
   return (
     <>
-      <form className="screening-form form-i-page" onSubmit={handleSubmit}>
+      <div className="form-i-page form-i-tabular">
+      <form className="screening-form" onSubmit={handleSubmit}>
 
-        <div className="form-header-action-row">
-          <div className="form-header-title-area">
-            <div className="form-breadcrumb"><Home size={12}/> FORM I</div>
-            <h2 className="form-main-title">Study Outcome Assessment</h2>
-            <p className="form-main-subtitle">Complete at each assessment timepoint</p>
-          </div>
-          <div className="form-header-meta-area">
-            <div className="screening-id-badge">
-              <span className="id-label">Enrollment ID</span>
-              <span className="id-val">{formData.enrollment_id || "—"}</span>
-            </div>
+        <div className="form-a-header">
+          <div className="form-a-header-main">
+            <h2>Form I — Study Outcome Assessment</h2>
           </div>
         </div>
+
+        {/* Quick-nav rail — jumps to a section's table */}
+        <nav className="form-i-quicknav" aria-label="Jump to section">
+          {sectionMeta.map(({ key, label, icon: Icon }) => (
+            <button type="button" key={key} onClick={() => goToSection(key)}>
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </nav>
 
         {/* ================= IDENTIFICATION ================= */}
         <div className="form-section soft-blue">
@@ -745,292 +752,236 @@ export default function FormI() {
         </div>
 
         {/* ================= I.1 RESUSCITATION OUTCOMES ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i1}>
           <h3><Wind size={17} className="sec-icon" /> <span className="sec-num">I.1</span> Resuscitation Outcomes</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i1" ? null : "i1")}>
-              <span>Delivery Room Resuscitation</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.ventilation_required)}`}>
-                  <span className="icon">{getStatusIcon(formData.ventilation_required)}</span>
-                  {formData.hie_grade || "Not filled"}
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i1" ? "▲" : "▼"}</span>
-            </div>
-
-            {openSection === "i1" && (
-              <div className="card-body">
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="1. Ventilation (PPV) required" definition="Per NRP criteria" name="ventilation_required" value={formData.ventilation_required} onChange={handleChange} required />
-                  </div>
-                  <div className="form-group">
-                    <YesNoToggle label="2. Switched to 100% O2" definition="Per NRP criteria" name="switched_100_o2" value={formData.switched_100_o2} onChange={handleChange} required />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="3. Required chest compressions" definition="Per NRP criteria" name="resus_chest_compressions" value={formData.resus_chest_compressions} onChange={handleChange} required />
-                  </div>
-                  <div className="form-group">
-                    <YesNoToggle label="4. Intubation for resuscitation" definition="Any reason" name="intubation_during_resus" value={formData.intubation_during_resus} onChange={handleChange} required />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <NumField label="5. Time to spontaneous respiratory efforts" definition="Time when baby had spontaneous respiratory efforts and PPV was discontinued" num={null} name="time_to_spontaneous_breathing" unit="sec" />
-                  <SelectField label="6. HIE (Levene's)" definition="Mild / Moderate / Severe HIE" num={null} name="hie_grade" options={["None", "Mild", "Moderate", "Severe"]} required />
-                </div>
-              </div>
-            )}
-          </div>
+          <CrfTable>
+            <CrfRow num={1} outcome="Ventilation (PPV) required" definition="Per NRP criteria"
+              result={<RYesNo name="ventilation_required" required />} />
+            <CrfRow num={2} outcome="Switched to 100% O2" definition="Per NRP criteria"
+              result={<RYesNo name="switched_100_o2" required />} />
+            <CrfRow num={3} outcome="Required chest compressions" definition="Per NRP criteria"
+              result={<RYesNo name="resus_chest_compressions" required />} />
+            <CrfRow num={4} outcome="Intubation for resuscitation" definition="Any reason"
+              result={<RYesNo name="intubation_during_resus" required />} />
+            <CrfRow num={5} outcome="Time to spontaneous respiratory efforts"
+              definition="Time when baby had spontaneous respiratory efforts and PPV was discontinued"
+              result={<RNum name="time_to_spontaneous_breathing" unit="sec" />} />
+            <CrfRow num={6} outcome="HIE (Levene's)" definition="Mild/Moderate/Severe HIE"
+              result={<RSelect name="hie_grade" options={["None", "Mild", "Moderate", "Severe"]} />} />
+          </CrfTable>
         </div>
 
         {/* ================= I.2 POST-NATAL POST-RESUSCITATION OUTCOMES ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i2}>
           <h3><ClipboardList size={17} className="sec-icon" /> <span className="sec-num">I.2</span> Post-natal Post-resuscitation Outcomes</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i2" ? null : "i2")}>
-              <span>Respiratory Support &amp; Sepsis (0.5–72h)</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.resp_support_72h)}`}>
-                  <span className="icon">{getStatusIcon(formData.resp_support_72h)}</span>
-                  Resp support
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i2" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i2" && (
-              <div className="card-body">
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="7. Resp support (0.5–72h)" definition="Any respiratory support more than supplemental oxygen" name="resp_support_72h" value={formData.resp_support_72h} onChange={handleChange} required />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="8. Sepsis (EOS)" definition="Any type of sepsis with onset in the first 72 hours" name="sepsis_eos" value={formData.sepsis_eos} onChange={handleChange} required />
-                  </div>
-                  <div className="form-group">
-                    <YesNoToggle label="9. Sepsis (LOS)" definition="Any type of sepsis with onset after Day 3 of life" name="sepsis_los" value={formData.sepsis_los} onChange={handleChange} required />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="10. Culture positive sepsis" definition="Blood or body fluid positive for organism" name="culture_positive_sepsis" value={formData.culture_positive_sepsis} onChange={handleChange} />
-                  </div>
-                </div>
-                {formData.culture_positive_sepsis === "Yes" && (
-                  <div className="form-row">
-                    <TextField label="Body fluid" num="11" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF" />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i2mort" ? null : "i2mort")}>
-              <span>All-cause Mortality ≤ 7 &amp; ≤ 28 Days</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.mortality_7_days || formData.mortality_28_days)}`}>
-                  <span className="icon">{getStatusIcon(formData.mortality_7_days || formData.mortality_28_days)}</span>
-                  {formData.mortality_7_days === "Yes" || formData.mortality_28_days === "Yes" ? "Death recorded" : "Not filled"}
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i2mort" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i2mort" && (
-              <div className="card-body">
-                <h4 style={{ margin: "4px 0" }}>All-cause mortality ≤ 7 days</h4>
-                <DeathBlock boolName="mortality_7_days" fieldPrefix="mortality_7d" nums={[12, 13, 14, 15, 16]} ageLabel="hrs" definition="Death due to any cause from birth till completion of D7 of age" />
-
-                <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality ≤ 28 days</h4>
-                <DeathBlock boolName="mortality_28_days" fieldPrefix="mortality_28d" nums={[17, 18, 19, 20, 21]} ageLabel="days" definition="Death due to any cause from birth till completion of D28 of age" />
-              </div>
-            )}
-          </div>
+          <CrfTable>
+            <CrfRow num={7} outcome="Resp support (0.5–72h)" definition="Any respiratory support more than supplemental oxygen"
+              result={<RYesNo name="resp_support_72h" required />} />
+            <CrfRow num={8} outcome="Sepsis (EOS)" definition="Any type of sepsis with onset in the first 72 hours"
+              result={<RYesNo name="sepsis_eos" required />} />
+            <CrfRow num={9} outcome="Sepsis (LOS)" definition="Any type of sepsis with onset after Day 3 of life"
+              result={<RYesNo name="sepsis_los" required />} />
+            <CrfRow num={10} outcome="Culture positive sepsis" definition="Blood or body fluid positive for organism"
+              result={<RYesNo name="culture_positive_sepsis" />}
+              showInfo={formData.culture_positive_sepsis === "Yes"}
+              info={<MiniText label="11. Body fluid" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF" />} />
+            <CrfRow num={12} outcome="All-cause mortality ≤ 7 days" definition="Death due to any cause from birth till completion of D7 of age"
+              result={<RYesNo name="mortality_7_days" />}
+              showInfo={formData.mortality_7_days === "Yes"}
+              info={<DeathInfo fieldPrefix="mortality_7d" ageLabel="hrs" />} />
+            <CrfRow num={17} outcome="All-cause mortality ≤ 28 days" definition="Death due to any cause from birth till completion of D28 of age"
+              result={<RYesNo name="mortality_28_days" />}
+              showInfo={formData.mortality_28_days === "Yes"}
+              info={<DeathInfo fieldPrefix="mortality_28d" ageLabel="days" />} />
+          </CrfTable>
         </div>
 
         {/* ================= I.3 ASSESSMENT AT 36 WEEKS PMA ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i3}>
           <h3><CalendarClock size={17} className="sec-icon" /> <span className="sec-num">I.3</span> Assessment at 36 Weeks PMA</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i3" ? null : "i3")}>
-              <span>36-Week Outcomes</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.death36)}`}>
-                  <span className="icon">{getStatusIcon(formData.death36)}</span>
-                  {summary36()}
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i3" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i3" && (
-              <div className="card-body">
-                <EncounterBlock methodName="encounter36_method" otherName="encounter36_other" numMethod={22} numOther={23} />
-
-                <h4 style={{ margin: "12px 0 4px" }}>Death by 36 weeks PMA</h4>
-                <DeathBlock boolName="death36" fieldPrefix="death36" nums={[24, 25, 26, 27, 28]} ageLabel="days" definition="Death due to any cause from birth till completion of 36 weeks of PMA" />
-
-                <h4 style={{ margin: "16px 0 4px" }}>29. BPD at 36 weeks PMA — Jensen (primary)</h4>
-                <div className="form-row">
-                  <SelectField label="Grade" definition="Assessed based on respiratory support at 36 weeks PMA, regardless of FiO2, per Jensen's criteria (2019)" num={null} name="bpd36_jensen_grade"
-                    options={["No BPD (Room air)", "Grade 1 (NC ≤ 2 L/min)", "Grade 2 (NC > 2 L/min or CPAP/NIPPV)", "Grade 3 (Invasive mechanical ventilation)"]} />
-                  <DateField label="Date of diagnosis" num={30} name="bpd36_jensen_date" />
-                </div>
-
-                <h4 style={{ margin: "16px 0 4px" }}>31. BPD at 36 weeks PMA — NICHD</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="a) Radiographic parenchymal lung disease" name="bpd36_nichd_radiographic" value={formData.bpd36_nichd_radiographic} onChange={handleChange} />
-                  </div>
-                  <NumField label="b) FiO2 at 36 weeks" name="bpd36_nichd_fio2" unit="%" />
-                  <NumField label="c) Flow rate" name="bpd36_nichd_flow" unit="L/min" />
-                </div>
-                <div className="form-row">
-                  <SelectField label="Grade" num={null} name="bpd36_nichd_grade"
-                    options={["No BPD (Room air)", "Grade 1", "Grade 2", "Grade 3"]} />
-                  <DateField label="32. Date of diagnosis" num={null} name="bpd36_nichd_date" />
-                </div>
-
-                <h4 style={{ margin: "16px 0 4px" }}>33. NEC — Modified Bell's Staging</h4>
-                <NecBlock prefix="36" numStage={33} numSurgery={34} numDate={35} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>36. Brain injury</h4>
-                <BrainInjuryBlock prefix="36" numIvh={36} numIvhDate={37} numCpvlDate={38} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>39. ROP — ICROP 3rd Edition</h4>
-                <RopBlock presentName="rop36" treatedName="rop36_treated" dateName="rop36_date" numPresent={39} numTreated={40} numDate={41} />
-              </div>
+          <div className="crf-encounter-row">
+            <Mini label="22. Method of Encounter">
+              <RSelect name="encounter36_method" options={["Direct", "Telephonic"]} />
+            </Mini>
+            {formData.encounter36_method === "Telephonic" && (
+              <Mini label="23. If Telephonic">
+                <RSelect name="encounter36_other" options={["Attendant", "Treating physician", "Others"]} />
+              </Mini>
             )}
           </div>
+          <CrfTable>
+            <CrfRow num={24} outcome="Death by 36 weeks PMA" definition="Death due to any cause from birth till completion of 36 weeks of PMA"
+              result={<RYesNo name="death36" />}
+              showInfo={formData.death36 === "Yes"}
+              info={<DeathInfo fieldPrefix="death36" ageLabel="days" />} />
+            <CrfRow num={29} outcome="BPD at 36 weeks PMA (Jensen)"
+              definition="BPD is assessed based on respiratory support at 36 weeks PMA, regardless of FiO2 as per Jensen's criteria (2019) — Primary"
+              result={<RSelect name="bpd36_jensen_grade" placeholder="Select grade"
+                options={["Room air → No BPD", "Nasal cannula ≤ 2 L/min → Grade 1", "NC > 2 L/min or CPAP/NIPPV → Grade 2", "Invasive mechanical ventilation → Grade 3"]} />}
+              showInfo={!!formData.bpd36_jensen_grade}
+              info={<MiniDate label="30. Date of Diagnosis" name="bpd36_jensen_date" />} />
+            <CrfRow num={31} outcome="BPD at 36 weeks PMA (NICHD)"
+              definition="BPD is assessed based on radiographic confirmation + respiratory support/FiO2 for ≥ 3 consecutive days at 36 weeks PMA completion as per NICHD criteria (2018)"
+              result={
+                <div className="crf-stack">
+                  <div className="crf-stack-item"><span>a) Radiographic disease</span><RYesNo name="bpd36_nichd_radiographic" /></div>
+                  <div className="crf-stack-item"><span>b) FiO2 at 36 wks</span><RNum name="bpd36_nichd_fio2" unit="%" /></div>
+                  <div className="crf-stack-item"><span>c) Flow rate</span><RNum name="bpd36_nichd_flow" unit="L/min" /></div>
+                  <RSelect name="bpd36_nichd_grade" placeholder="Grade"
+                    options={["Room air → No BPD", "NC < 1L + FiO2 0.22–0.29 → Grade 1", "NC 1–<3L + FiO2 0.22–0.29 or NIPPV + FiO2 0.21 → Grade 1", "NC ≥ 3L or NIPPV + FiO2 0.22–0.29 → Grade 2", "NIPPV + FiO2 ≥ 0.30 or IMV → Grade 3"]} />
+                </div>
+              }
+              showInfo={!!formData.bpd36_nichd_grade}
+              info={<MiniDate label="32. Date of Diagnosis" name="bpd36_nichd_date" />} />
+            <CrfRow num={33} outcome="NEC" definition="Modified Bell's Staging"
+              result={<><span className="crf-subline">Stage ≥ IIA</span><RYesNo name="nec36_stage" /></>}
+              showInfo={formData.nec36_stage === "Yes"}
+              info={<>
+                <Mini label="34. Surgical intervention required"><RYesNo name="nec36_surgery" /></Mini>
+                <MiniDate label="35. Date of Diagnosis" name="nec36_date" />
+              </>} />
+            <CrfRow num={36} outcome="Brain injury"
+              definition="Papile Classification for IVH / De Vries Classification for cPVL"
+              result={<>
+                <div className="crf-stack-item"><span>a) IVH Grade ≥ III</span><RYesNo name="ivh36_grade3" /></div>
+                <div className="crf-stack-item"><span>b) cPVL Grade ≥ II</span><RYesNo name="cpvl36_grade2" /></div>
+              </>}
+              showInfo={formData.ivh36_grade3 === "Yes" || formData.cpvl36_grade2 === "Yes"}
+              info={<>
+                {formData.ivh36_grade3 === "Yes" && <MiniDate label="37. Date of Diagnosis (IVH)" name="ivh36_date" />}
+                {formData.cpvl36_grade2 === "Yes" && <MiniDate label="38. Date of Diagnosis (cPVL)" name="cpvl36_date" />}
+              </>} />
+            <CrfRow num={39} outcome="ROP" definition="ICROP 3rd Edition"
+              result={<RYesNo name="rop36" />}
+              showInfo={formData.rop36 === "Yes"}
+              info={<>
+                <Mini label="40. Treated"><RYesNo name="rop36_treated" /></Mini>
+                <MiniDate label="41. Date of Diagnosis" name="rop36_date" />
+              </>} />
+          </CrfTable>
         </div>
 
         {/* ================= I.4 ASSESSMENT AT 40 WEEKS PMA ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i4}>
           <h3><CalendarCheck size={17} className="sec-icon" /> <span className="sec-num">I.4</span> Assessment at 40 Weeks PMA</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i4" ? null : "i4")}>
-              <span>40-Week Outcomes</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.death40)}`}>
-                  <span className="icon">{getStatusIcon(formData.death40)}</span>
-                  {summary40()}
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i4" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i4" && (
-              <div className="card-body">
-                <EncounterBlock methodName="encounter40_method" otherName="encounter40_other" numMethod={42} numOther={43} />
-
-                <h4 style={{ margin: "12px 0 4px" }}>Death between 36 and 40 weeks PMA</h4>
-                <DeathBlock boolName="death40" fieldPrefix="death40" nums={[44, 45, 46, 47, 48]} ageLabel="days" definition="Death due to any cause from 36 weeks till completion of 40 weeks of PMA" />
-
-                <h4 style={{ margin: "16px 0 4px" }}>49. NEC — Modified Bell's Staging</h4>
-                <NecBlock prefix="40" numStage={49} numSurgery={50} numDate={51} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>52. Brain injury</h4>
-                <BrainInjuryBlock prefix="40" numIvh={52} numIvhDate={53} numCpvlDate={54} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>55. ROP — ICROP 3rd Edition</h4>
-                <RopBlock presentName="rop40" treatedName="rop40_treated" dateName="rop40_date" numPresent={55} numTreated={56} numDate={57} />
-
-                <div className="form-row">
-                  <SelectField label="58. Abnormal MRI Brain at TEA (40 ± 2w PMA)" num={null} name="abnormal_mri_tea" options={["Yes", "No", "Not done"]} />
-                </div>
-                <p style={{ fontSize: "13px", color: "#555" }}>Check MRI form for more details.</p>
-              </div>
+          <div className="crf-encounter-row">
+            <Mini label="42. Method of Encounter">
+              <RSelect name="encounter40_method" options={["Direct", "Telephonic"]} />
+            </Mini>
+            {formData.encounter40_method === "Telephonic" && (
+              <Mini label="43. If Telephonic">
+                <RSelect name="encounter40_other" options={["Attendant", "Treating physician", "Others"]} />
+              </Mini>
             )}
           </div>
+          <CrfTable>
+            <CrfRow num={44} outcome="Death between 36 and 40 weeks PMA" definition="Death due to any cause from 36 weeks till completion of 40 weeks of PMA"
+              result={<RYesNo name="death40" />}
+              showInfo={formData.death40 === "Yes"}
+              info={<DeathInfo fieldPrefix="death40" ageLabel="days" />} />
+            <CrfRow num={49} outcome="NEC" definition="Modified Bell's Staging"
+              result={<><span className="crf-subline">Stage ≥ IIA</span><RYesNo name="nec40_stage" /></>}
+              showInfo={formData.nec40_stage === "Yes"}
+              info={<>
+                <Mini label="50. Surgical intervention required"><RYesNo name="nec40_surgery" /></Mini>
+                <MiniDate label="51. Date of Diagnosis" name="nec40_date" />
+              </>} />
+            <CrfRow num={52} outcome="Brain injury" definition="Papile Classification for IVH / De Vries Classification for cPVL"
+              result={<>
+                <div className="crf-stack-item"><span>a) IVH Grade ≥ III</span><RYesNo name="ivh40_grade3" /></div>
+                <div className="crf-stack-item"><span>b) cPVL Grade ≥ II</span><RYesNo name="cpvl40_grade2" /></div>
+              </>}
+              showInfo={formData.ivh40_grade3 === "Yes" || formData.cpvl40_grade2 === "Yes"}
+              info={<>
+                {formData.ivh40_grade3 === "Yes" && <MiniDate label="53. Date of Diagnosis (IVH)" name="ivh40_date" />}
+                {formData.cpvl40_grade2 === "Yes" && <MiniDate label="54. Date of Diagnosis (cPVL)" name="cpvl40_date" />}
+              </>} />
+            <CrfRow num={55} outcome="ROP" definition="ICROP 3rd Edition"
+              result={<RYesNo name="rop40" />}
+              showInfo={formData.rop40 === "Yes"}
+              info={<>
+                <Mini label="56. Treated"><RYesNo name="rop40_treated" /></Mini>
+                <MiniDate label="57. Date of Diagnosis" name="rop40_date" />
+              </>} />
+            <CrfRow num={58} outcome="Abnormal MRI Brain at TEA" definition="Abnormal MRI brain at 40 ± 2w PMA"
+              result={<RSelect name="abnormal_mri_tea" options={["Yes", "No", "Not done"]} />}
+              showInfo
+              info={<span className="crf-note">Check MRI form for more details</span>} />
+          </CrfTable>
         </div>
 
         {/* ================= I.5 ASSESSMENT AT 44 WEEKS PMA ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i5}>
           <h3><CalendarRange size={17} className="sec-icon" /> <span className="sec-num">I.5</span> Assessment at 44 Weeks PMA</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i5" ? null : "i5")}>
-              <span>44-Week Outcomes</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.death44)}`}>
-                  <span className="icon">{getStatusIcon(formData.death44)}</span>
-                  {summary44()}
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i5" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i5" && (
-              <div className="card-body">
-                <EncounterBlock methodName="encounter44_method" otherName="encounter44_other" numMethod={59} numOther={60} />
-
-                <h4 style={{ margin: "12px 0 4px" }}>Death between 40 and 44 weeks PMA</h4>
-                <DeathBlock boolName="death44" fieldPrefix="death44" nums={[61, 62, 63, 64, 65]} ageLabel="days" definition="Death due to any cause from 40 weeks till completion of 44 weeks of PMA" />
-
-                <h4 style={{ margin: "16px 0 4px" }}>66. NEC — Modified Bell's Staging</h4>
-                <NecBlock prefix="44" numStage={66} numSurgery={67} numDate={68} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>69. Brain injury</h4>
-                <BrainInjuryBlock prefix="44" numIvh={69} numIvhDate={70} numCpvlDate={71} />
-
-                <h4 style={{ margin: "16px 0 4px" }}>72. ROP — ICROP 3rd Edition</h4>
-                <RopBlock presentName="rop44_assessed" treatedName="rop44_treated" dateName="rop44_date" numPresent={72} numTreated={73} numDate={74} />
-              </div>
+          <div className="crf-encounter-row">
+            <Mini label="59. Method of Encounter">
+              <RSelect name="encounter44_method" options={["Direct", "Telephonic"]} />
+            </Mini>
+            {formData.encounter44_method === "Telephonic" && (
+              <Mini label="60. If Telephonic">
+                <RSelect name="encounter44_other" options={["Attendant", "Treating physician", "Others"]} />
+              </Mini>
             )}
           </div>
+          <CrfTable>
+            <CrfRow num={61} outcome="Death between 40 and 44 weeks PMA" definition="Death due to any cause from 40 weeks till completion of 44 weeks of PMA"
+              result={<RYesNo name="death44" />}
+              showInfo={formData.death44 === "Yes"}
+              info={<DeathInfo fieldPrefix="death44" ageLabel="days" />} />
+            <CrfRow num={66} outcome="NEC" definition="Modified Bell's Staging"
+              result={<><span className="crf-subline">Stage ≥ IIA</span><RYesNo name="nec44_stage" /></>}
+              showInfo={formData.nec44_stage === "Yes"}
+              info={<>
+                <Mini label="67. Surgical intervention required"><RYesNo name="nec44_surgery" /></Mini>
+                <MiniDate label="68. Date of Diagnosis" name="nec44_date" />
+              </>} />
+            <CrfRow num={69} outcome="Brain injury" definition="Papile Classification for IVH / De Vries Classification for cPVL"
+              result={<>
+                <div className="crf-stack-item"><span>a) IVH Grade ≥ III</span><RYesNo name="ivh44_grade3" /></div>
+                <div className="crf-stack-item"><span>b) cPVL Grade ≥ II</span><RYesNo name="cpvl44_grade2" /></div>
+              </>}
+              showInfo={formData.ivh44_grade3 === "Yes" || formData.cpvl44_grade2 === "Yes"}
+              info={<>
+                {formData.ivh44_grade3 === "Yes" && <MiniDate label="70. Date of Diagnosis (IVH)" name="ivh44_date" />}
+                {formData.cpvl44_grade2 === "Yes" && <MiniDate label="71. Date of Diagnosis (cPVL)" name="cpvl44_date" />}
+              </>} />
+            <CrfRow num={72} outcome="ROP" definition="ICROP 3rd Edition"
+              result={<RYesNo name="rop44_assessed" />}
+              showInfo={formData.rop44_assessed === "Yes"}
+              info={<>
+                <Mini label="73. Treated"><RYesNo name="rop44_treated" /></Mini>
+                <MiniDate label="74. Date of Diagnosis" name="rop44_date" />
+              </>} />
+          </CrfTable>
         </div>
 
         {/* ================= I.6 OVERALL ================= */}
-        <div className="form-section soft-blue">
+        <div className="form-section soft-blue" ref={sectionRefs.i6}>
           <h3><Skull size={17} className="sec-icon" /> <span className="sec-num">I.6</span> Overall</h3>
-
-          <div className="card">
-            <div className="card-header-row" onClick={() => setOpenSection(openSection === "i6" ? null : "i6")}>
-              <span>Cumulative Respiratory Support, Sepsis &amp; Mortality</span>
-              <div className="right-section">
-                <span className={`summary ${getStatusClass(formData.mortality_in_hospital || formData.mortality_after_discharge)}`}>
-                  <span className="icon">{getStatusIcon(formData.mortality_in_hospital || formData.mortality_after_discharge)}</span>
-                  Overall
-                </span>
-              </div>
-              <span className="arrow">{openSection === "i6" ? "▲" : "▼"}</span>
-            </div>
-            {openSection === "i6" && (
-              <div className="card-body">
-                <h4 style={{ margin: "4px 0" }}>75. Duration of respiratory support (cumulative, days)</h4>
-                <div className="form-row">
-                  <NumField label="a) Invasive mechanical ventilation" name="mv_days" unit="days" />
-                  <NumField label="b) Non-invasive ventilation" name="niv_days" unit="days" />
-                  <NumField label="c) CPAP" name="cpap_days" unit="days" />
+          <CrfTable>
+            <CrfRow num={75} outcome="Duration of resp support" definition="Cumulative days of respiratory support during hospital stay"
+              result={
+                <div className="crf-stack">
+                  <div className="crf-stack-item"><span>a) Invasive mech. ventilation</span><RNum name="mv_days" unit="d" /></div>
+                  <div className="crf-stack-item"><span>b) Non-invasive ventilation</span><RNum name="niv_days" unit="d" /></div>
+                  <div className="crf-stack-item"><span>c) CPAP</span><RNum name="cpap_days" unit="d" /></div>
+                  <div className="crf-stack-item"><span>d) HFNC</span><RNum name="hfnc_days" unit="d" /></div>
+                  <div className="crf-stack-item"><span>e) NIPPV</span><RNum name="nippv_days" unit="d" /></div>
                 </div>
-                <div className="form-row">
-                  <NumField label="d) HFNC" name="hfnc_days" unit="days" />
-                  <NumField label="e) NIPPV" name="nippv_days" unit="days" />
-                </div>
-
-                <h4 style={{ margin: "16px 0 4px" }}>76. Sepsis (overall, any type)</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <YesNoToggle label="76. Sepsis (overall)" definition="Any type" name="sepsis_overall" value={formData.sepsis_overall} onChange={handleChange} />
-                  </div>
-                  {formData.sepsis_overall === "Yes" && (
-                    <NumField label="Number of episodes" num={77} name="sepsis_overall_episodes" />
-                  )}
-                </div>
-
-                <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality during hospital stay</h4>
-                <DeathBlock boolName="mortality_in_hospital" fieldPrefix="mortality_hospital" nums={[78, 79, 80, 81, 82]} ageLabel="days" definition="Death due to any cause occurring from birth and before discharge" />
-
-                <h4 style={{ margin: "16px 0 4px" }}>All-cause mortality after discharge</h4>
-                <DeathBlock boolName="mortality_after_discharge" fieldPrefix="mortality_after_discharge" nums={[83, 84, 85, 86, 87]} ageLabel="days" definition="Death due to any cause occurring after discharge from hospital" />
-              </div>
-            )}
-          </div>
+              } />
+            <CrfRow num={76} outcome="Sepsis (overall)" definition="Any type"
+              result={<RYesNo name="sepsis_overall" />}
+              showInfo={formData.sepsis_overall === "Yes"}
+              info={<MiniText label="77. Number of episodes" name="sepsis_overall_episodes" placeholder="e.g. 2" />} />
+            <CrfRow num={78} outcome="All-cause mortality during hospital stay" definition="Death due to any cause occurring from birth and before discharge"
+              result={<RYesNo name="mortality_in_hospital" />}
+              showInfo={formData.mortality_in_hospital === "Yes"}
+              info={<DeathInfo fieldPrefix="mortality_hospital" ageLabel="days" />} />
+            <CrfRow num={83} outcome="All-cause mortality after discharge" definition="Death due to any cause occurring after discharge from hospital"
+              result={<RYesNo name="mortality_after_discharge" />}
+              showInfo={formData.mortality_after_discharge === "Yes"}
+              info={<DeathInfo fieldPrefix="mortality_after_discharge" ageLabel="days" />} />
+          </CrfTable>
         </div>
 
         {/* ================= COMPLETION ================= */}
@@ -1038,14 +989,26 @@ export default function FormI() {
           <h3>COMPLETION</h3>
           <div className="form-row">
             <div className="form-group">
-              <label>Completed by</label>
+              <label>Assessed by</label>
               <input name="completed_by" value={formData.completed_by || ""} onChange={handleChange} />
             </div>
             <div className="form-group">
               <label>Designation</label>
               <input name="designation" value={formData.designation || ""} onChange={handleChange} />
             </div>
-            <DateField label="Completion date" num={null} name="completion_date" />
+            <div className="form-group">
+              <label>Signature</label>
+              <input name="signature" value={formData.signature || ""} onChange={handleChange} />
+            </div>
+            <div className="form-group">
+              <label>Date</label>
+              <DatePicker
+                selected={formData.completion_date ? parseDateOnly(formData.completion_date) : null}
+                onChange={(date) => setFormData((p) => ({ ...p, completion_date: date ? toDateOnlyValue(date) : "" }))}
+                dateFormat="dd/MM/yyyy"
+                placeholderText="dd/mm/yyyy"
+              />
+            </div>
           </div>
         </div>
 
@@ -1057,6 +1020,7 @@ export default function FormI() {
           {saveMessage}
         </div>
       )}
+      </div>
 
       <FormNavBar
         onBack={handleNavBack}
