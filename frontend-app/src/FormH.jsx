@@ -8911,9 +8911,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 </div>
 
-<button className="submit-btn" type="submit">
-  Save Form H
-</button>
+
 
     </form>
 

@@ -74,10 +74,17 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
 }
 .form-i-quicknav button {
+  /* NOTE: a global, unscoped `button { width: 100%; ... }` rule elsewhere
+     in the app (Login.css) leaks into every page since CRA bundles all
+     component CSS together with no scoping. Reset width/flex explicitly
+     here or these pills stretch full-width and stack instead of sitting
+     inline — same class of bug already called out in HelperFormRecords.css. */
+  width: auto;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
+  gap: 7px;
+  padding: 8px 16px 8px 14px;
   border-radius: 999px;
   border: 1.5px solid var(--fi-border);
   background: #f8fafc;
@@ -85,30 +92,52 @@
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: .01em;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color .15s, background .15s, color .15s, transform .1s;
+  transition: border-color .15s, background .15s, color .15s, box-shadow .15s, transform .1s;
 }
 .form-i-quicknav button:hover {
   border-color: var(--fi-accent);
   color: var(--fi-accent);
+  background: #fff;
   transform: translateY(-1px);
 }
+.form-i-quicknav button:active { transform: translateY(0); }
+
 .form-i-quicknav button.active {
   background: var(--fi-accent);
   border-color: var(--fi-accent);
   color: #fff;
+  box-shadow: 0 3px 10px rgba(3, 105, 161, .28);
 }
+.form-i-quicknav button.active:hover {
+  background: var(--fi-accent);
+  color: #fff;
+  transform: none;
+}
+
 .form-i-quicknav .fi-nav-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
   border-radius: 999px;
   background: currentColor;
-  opacity: .55;
+  opacity: .4;
+  transition: opacity .15s;
 }
+.form-i-quicknav button:hover .fi-nav-dot { opacity: .7; }
 .form-i-quicknav button.active .fi-nav-dot { opacity: 1; }
 
 @media (max-width: 640px) {
-  .form-i-quicknav { position: static; overflow-x: auto; flex-wrap: nowrap; }
+  .form-i-quicknav {
+    position: static;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .form-i-quicknav::-webkit-scrollbar { display: none; }
   .form-i-quicknav button { flex: 0 0 auto; }
 }
 
@@ -263,17 +292,29 @@
   min-width: 170px;
 }
 
-.crf-dash {
-  color: #cbd5e1;
-  font-size: 13px;
+.crf-note-input {
+  width: 100%;
+  min-height: 32px !important;
+  padding: 5px 9px;
+  font-size: 12px !important;
+  color: var(--fi-ink);
+  background: transparent;
+  border: 1px dashed #d8dfe8 !important;
+  border-radius: 6px;
+  transition: border-color .15s, background .15s;
 }
-
-.crf-subline {
-  display: block;
-  font-size: 11.5px;
-  color: var(--fi-muted);
-  font-weight: 600;
-  margin-bottom: 6px;
+.crf-note-input::placeholder {
+  color: #b6c0cc;
+  font-style: italic;
+}
+.crf-note-input:hover {
+  border-color: #b7c4d4 !important;
+  background: #fafcff;
+}
+.crf-note-input:focus {
+  border-style: solid !important;
+  border-color: var(--fi-accent) !important;
+  background: #fff;
 }
 
 .crf-note {
@@ -282,11 +323,19 @@
   font-style: italic;
 }
 
-/* compact controls used inside table cells */
-.crf-yn.yes-no-buttons { width: 92px; }
+/* compact controls used inside table cells — must never shrink below
+   their real size, or they clip (this was the actual cause of the
+   "cut off" Yes/No pills and number inputs in stacked rows: the label
+   next to them was flex-shrink:0 so all the squeeze landed here instead) */
+.crf-yn.yes-no-buttons { width: 92px; flex-shrink: 0; }
 .crf-yn .yn-btn { width: 46px; height: 28px; font-size: 10px; }
 .crf-yn .yn-thumb { width: 46px; height: 28px; }
 .yes-no-buttons.yn-pos-2.crf-yn .yn-thumb { transform: translateX(46px); }
+
+/* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
+   green for Yes, red for No, instead of the default navy/blue thumb. */
+.form-i-page .yes-no-buttons.yn-pos-1 .yn-thumb { background: #10b981; }
+.form-i-page .yes-no-buttons.yn-pos-2 .yn-thumb { background: #ef4444; }
 
 .crf-select, .crf-text {
   width: 100%;
@@ -299,6 +348,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 .crf-num {
   width: 80px;
@@ -315,19 +365,21 @@
 .crf-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .crf-stack-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
 .crf-stack-item span {
   font-size: 11.5px;
   color: var(--fi-muted);
   font-weight: 600;
-  flex-shrink: 0;
+  flex: 1 1 110px;
+  min-width: 0;
 }
 
 .crf-mini {

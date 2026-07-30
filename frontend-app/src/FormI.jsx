@@ -12,7 +12,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
-  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList,
+  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home,
 } from "lucide-react";
 
 /* ─── YesNoToggle — same animated sliding-segment component used across
@@ -716,9 +716,17 @@ export default function FormI() {
       <div className="form-i-page form-i-tabular">
       <form className="screening-form" onSubmit={handleSubmit}>
 
-        <div className="form-a-header">
-          <div className="form-a-header-main">
-            <h2>Form I — Study Outcome Assessment</h2>
+        <div className="form-header-action-row">
+          <div className="form-header-title-area">
+            <div className="form-breadcrumb"><Home size={12}/> FORM I</div>
+            <h2 className="form-main-title">Study Outcome Assessment</h2>
+            <p className="form-main-subtitle">Neonatal outcomes from resuscitation through 36/40/44 weeks PMA and hospital discharge</p>
+          </div>
+          <div className="form-header-meta-area">
+            <div className="screening-id-badge">
+              <span className="id-label">Enrollment ID</span>
+              <span className="id-val">{formData.enrollment_id || "—"}</span>
+            </div>
           </div>
         </div>
 
@@ -996,10 +1004,7 @@ export default function FormI() {
               <label>Designation</label>
               <input name="designation" value={formData.designation || ""} onChange={handleChange} />
             </div>
-            <div className="form-group">
-              <label>Signature</label>
-              <input name="signature" value={formData.signature || ""} onChange={handleChange} />
-            </div>
+            
             <div className="form-group">
               <label>Date</label>
               <DatePicker
@@ -1012,7 +1017,7 @@ export default function FormI() {
           </div>
         </div>
 
-        <button className="submit-btn" type="submit">Save Form I</button>
+        
       </form>
 
       {saveMessage && (
