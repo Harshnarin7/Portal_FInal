@@ -333,9 +333,14 @@
 .yes-no-buttons.yn-pos-2.crf-yn .yn-thumb { transform: translateX(46px); }
 
 /* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
-   green for Yes, red for No, instead of the default navy/blue thumb. */
-.form-i-page .yes-no-buttons.yn-pos-1 .yn-thumb { background: #10b981; }
-.form-i-page .yes-no-buttons.yn-pos-2 .yn-thumb { background: #ef4444; }
+   green for Yes, red for No, instead of the default navy/blue thumb.
+   !important because FormA.css/FormComponents.css both define a
+   .yes-no-buttons.yn-pos-N .yn-thumb background too — this selector is
+   already more specific (3 classes vs 2) and loads after them, so it wins
+   on its own, but !important removes any doubt regardless of import
+   order in the built bundle. */
+.form-i-page .yes-no-buttons.yn-pos-1 .yn-thumb { background: #10b981 !important; }
+.form-i-page .yes-no-buttons.yn-pos-2 .yn-thumb { background: #ef4444 !important; }
 
 .crf-select, .crf-text {
   width: 100%;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, createContext, useContext } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
@@ -14,6 +14,20 @@ import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home,
 } from "lucide-react";
+
+// FIX (focus-loss bug): RYesNo/RSelect/RNum/RText/Mini*/CrfRow/CrfTable/
+// DeathInfo used to be defined INSIDE the FormI() function body, closing
+// over `formData`/`setFormData`/`handleChange` directly. Every keystroke
+// triggers a re-render, which redefined all of them as brand-new function
+// references — React treats a changed component reference as a different
+// component TYPE, so it unmounted and remounted the actual <input> DOM
+// node on every single keystroke, which is exactly why focus dropped after
+// one character. Hoisting them to module scope (below) gives them a
+// stable identity across renders. They still need read/write access to the
+// current formData though, so instead of passing it down through 130+ call
+// sites as props, they read it from this context — zero call sites needed
+// to change.
+const FormIDataContext = createContext(null);
 
 /* ─── YesNoToggle — same animated sliding-segment component used across
        Form H / Form A / ScreeningForm.jsx, kept local for consistency ─── */
@@ -43,6 +57,139 @@ function YesNoToggle({ label, name, value, onChange, onBlur, required = false, d
           disabled={disabled}>NO</button>
       </div>
     </div>
+  );
+}
+
+// ── Hoisted field components (see comment above FormIDataContext for why
+// these live here instead of inside FormI()) ──────────────────────────────
+function RYesNo({ name, required }) {
+  const { formData, setFormData } = useContext(FormIDataContext);
+  const value = formData[name];
+  const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
+  const fire = (val) => setFormData((p) => ({ ...p, [name]: val }));
+  return (
+    <div className={`yes-no-buttons yn-pos-${pos} crf-yn`} aria-required={required}>
+      <div className="yn-thumb" aria-hidden="true" />
+      <button type="button" className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`} onClick={() => fire("Yes")}>YES</button>
+      <button type="button" className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`} onClick={() => fire("No")}>NO</button>
+    </div>
+  );
+}
+
+function RSelect({ name, options, placeholder = "Select" }) {
+  const { formData, handleChange } = useContext(FormIDataContext);
+  return (
+    <select className="crf-select" name={name} value={formData[name] || ""} onChange={handleChange}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+function RNum({ name, unit, placeholder }) {
+  const { formData, handleChange } = useContext(FormIDataContext);
+  return (
+    <div className="crf-num-wrap">
+      <input className="crf-num" type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
+      {unit && <span className="crf-unit">{unit}</span>}
+    </div>
+  );
+}
+
+function RText({ name, placeholder }) {
+  const { formData, handleChange } = useContext(FormIDataContext);
+  return (
+    <input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
+  );
+}
+
+// Additional-info column: small labeled fields stacked vertically.
+function Mini({ label, children }) {
+  return (
+    <div className="crf-mini">
+      <span className="crf-mini-label">{label}</span>
+      {children}
+    </div>
+  );
+}
+function MiniDate({ label, name }) {
+  const { formData, setFormData } = useContext(FormIDataContext);
+  return (
+    <Mini label={label}>
+      <DatePicker
+        selected={formData[name] ? parseDateOnly(formData[name]) : null}
+        onChange={(date) => setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }))}
+        dateFormat="dd/MM/yyyy"
+        placeholderText="dd/mm/yyyy"
+        className="crf-text"
+      />
+    </Mini>
+  );
+}
+function MiniTime({ label, name }) {
+  const { formData, handleChange } = useContext(FormIDataContext);
+  return (
+    <Mini label={label}><input className="crf-text" type="time" name={name} value={formData[name] || ""} onChange={handleChange} /></Mini>
+  );
+}
+function MiniText({ label, name, placeholder }) {
+  const { formData, handleChange } = useContext(FormIDataContext);
+  return (
+    <Mini label={label}><input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} /></Mini>
+  );
+}
+function MiniReadOnly({ label, value }) {
+  return (
+    <Mini label={label}><input className="crf-text" type="text" value={value ?? ""} readOnly /></Mini>
+  );
+}
+
+/* One row of the CRF table. `info` is only rendered once the
+   triggering Yes/No (or other) field is answered — keeps rows
+   compact until they're relevant, same as the paper form's blank
+   lines only mattering "if yes". */
+function CrfRow({ num, outcome, definition, result, info, showInfo }) {
+  return (
+    <tr className="fi-crf-row">
+      <td className="crf-num-cell">{num}</td>
+      <td className="crf-outcome-cell">{outcome}</td>
+      <td className="crf-def-cell">{definition}</td>
+      <td className="crf-result-cell">{result}</td>
+      <td className="crf-info-cell">{showInfo ? info : <span className="crf-dash">—</span>}</td>
+    </tr>
+  );
+}
+
+function CrfTable({ children }) {
+  return (
+    <div className="crf-table-wrap">
+      <table className="crf-table">
+        <thead>
+          <tr>
+            <th className="crf-num-cell">#</th>
+            <th className="crf-outcome-cell">Outcome</th>
+            <th className="crf-def-cell">Definition</th>
+            <th className="crf-result-cell">Result</th>
+            <th className="crf-info-cell">Additional information</th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/* Reusable "death at timepoint" detail — cause / date / time / age,
+   shown in the Additional-info column once the toggle is Yes. */
+function DeathInfo({ fieldPrefix, ageLabel }) {
+  const { formData } = useContext(FormIDataContext);
+  return (
+    <>
+      <MiniText label="Cause of death" name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
+      <MiniDate label="Date of death" name={`${fieldPrefix}_date`} />
+      <MiniTime label="Time of death" name={`${fieldPrefix}_time`} />
+      <MiniReadOnly label={`Age at death (${ageLabel})`} value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`]} />
+    </>
   );
 }
 
@@ -597,111 +744,6 @@ export default function FormI() {
      each row already carries a lot of text.
      ================================================================ */
 
-  // Compact Yes/No pill for the Result column — same visual language
-  // (yn-btn / yn-active / yn-thumb) as the toggle used elsewhere in
-  // the app, just without the label row, since the Outcome column
-  // already names the field.
-  const RYesNo = ({ name, required }) => {
-    const value = formData[name];
-    const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
-    const fire = (val) => setFormData((p) => ({ ...p, [name]: val }));
-    return (
-      <div className={`yes-no-buttons yn-pos-${pos} crf-yn`} aria-required={required}>
-        <div className="yn-thumb" aria-hidden="true" />
-        <button type="button" className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`} onClick={() => fire("Yes")}>YES</button>
-        <button type="button" className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`} onClick={() => fire("No")}>NO</button>
-      </div>
-    );
-  };
-
-  const RSelect = ({ name, options, placeholder = "Select" }) => (
-    <select className="crf-select" name={name} value={formData[name] || ""} onChange={handleChange}>
-      <option value="">{placeholder}</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
-  );
-
-  const RNum = ({ name, unit, placeholder }) => (
-    <div className="crf-num-wrap">
-      <input className="crf-num" type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
-      {unit && <span className="crf-unit">{unit}</span>}
-    </div>
-  );
-
-  const RText = ({ name, placeholder }) => (
-    <input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
-  );
-
-  // Additional-info column: small labeled fields stacked vertically.
-  const Mini = ({ label, children }) => (
-    <div className="crf-mini">
-      <span className="crf-mini-label">{label}</span>
-      {children}
-    </div>
-  );
-  const MiniDate = ({ label, name }) => (
-    <Mini label={label}>
-      <DatePicker
-        selected={formData[name] ? parseDateOnly(formData[name]) : null}
-        onChange={(date) => setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }))}
-        dateFormat="dd/MM/yyyy"
-        placeholderText="dd/mm/yyyy"
-        className="crf-text"
-      />
-    </Mini>
-  );
-  const MiniTime = ({ label, name }) => (
-    <Mini label={label}><input className="crf-text" type="time" name={name} value={formData[name] || ""} onChange={handleChange} /></Mini>
-  );
-  const MiniText = ({ label, name, placeholder }) => (
-    <Mini label={label}><input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} /></Mini>
-  );
-  const MiniReadOnly = ({ label, value }) => (
-    <Mini label={label}><input className="crf-text" type="text" value={value ?? ""} readOnly /></Mini>
-  );
-
-  /* One row of the CRF table. `info` is only rendered once the
-     triggering Yes/No (or other) field is answered — keeps rows
-     compact until they're relevant, same as the paper form's blank
-     lines only mattering "if yes". */
-  const CrfRow = ({ num, outcome, definition, result, info, showInfo }) => (
-    <tr className="fi-crf-row">
-      <td className="crf-num-cell">{num}</td>
-      <td className="crf-outcome-cell">{outcome}</td>
-      <td className="crf-def-cell">{definition}</td>
-      <td className="crf-result-cell">{result}</td>
-      <td className="crf-info-cell">{showInfo ? info : <span className="crf-dash">—</span>}</td>
-    </tr>
-  );
-
-  const CrfTable = ({ children }) => (
-    <div className="crf-table-wrap">
-      <table className="crf-table">
-        <thead>
-          <tr>
-            <th className="crf-num-cell">#</th>
-            <th className="crf-outcome-cell">Outcome</th>
-            <th className="crf-def-cell">Definition</th>
-            <th className="crf-result-cell">Result</th>
-            <th className="crf-info-cell">Additional information</th>
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-
-  /* Reusable "death at timepoint" detail — cause / date / time / age,
-     shown in the Additional-info column once the toggle is Yes. */
-  const DeathInfo = ({ fieldPrefix, ageLabel }) => (
-    <>
-      <MiniText label="Cause of death" name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
-      <MiniDate label="Date of death" name={`${fieldPrefix}_date`} />
-      <MiniTime label="Time of death" name={`${fieldPrefix}_time`} />
-      <MiniReadOnly label={`Age at death (${ageLabel})`} value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`]} />
-    </>
-  );
-
   const sectionMeta = [
     { key: "i1", label: "I.1 Resuscitation", icon: Wind },
     { key: "i2", label: "I.2 Post-resus", icon: ClipboardList },
@@ -712,6 +754,7 @@ export default function FormI() {
   ];
 
   return (
+    <FormIDataContext.Provider value={{ formData, setFormData, handleChange }}>
     <>
       <div className="form-i-page form-i-tabular">
       <form className="screening-form" onSubmit={handleSubmit}>
@@ -1037,5 +1080,6 @@ export default function FormI() {
         isSaved={isSaved}
       />
     </>
+    </FormIDataContext.Provider>
   );
 }
