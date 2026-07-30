@@ -303,11 +303,13 @@ class ScreeningCreate(BaseModel):
     maternal_uid: Optional[str] = None
     hospital_admission_number: Optional[str] = None
     
+    gestation_known: Optional[str] = None
     gestation_weeks: int
     gestation_days: int
     gestation_method: Optional[str] = None
     expected_delivery_date: Optional[date] = None
     lmp_date: Optional[date] = None 
+    ga_source: Optional[str] = None
     exclusion_present: bool
     exclusion_reasons: Optional[str] = None
     reason_for_insufficient_time: Optional[str] = None
@@ -347,11 +349,13 @@ class ScreeningClinicalOut(BaseModel):
     screened_by: Optional[str] = None
     screening_status: Optional[str] = None
 
+    gestation_known: Optional[str] = None
     gestation_weeks: Optional[int] = None
     gestation_days: Optional[int] = None
     gestation_method: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     lmp_date: Optional[str] = None
+    ga_source: Optional[str] = None
     exclusion_present: Optional[bool] = None
     exclusion_reasons: Optional[str] = None
     reason_for_insufficient_time: Optional[str] = None

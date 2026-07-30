@@ -361,6 +361,27 @@
 }
 .yes-no-buttons.yn-pos-1 .yn-thumb { transform: translateX(0); background: #1e3a5f; }
 .yes-no-buttons.yn-pos-2 .yn-thumb { transform: translateX(52px); background: #2563eb; }
+
+/* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
+   green for Yes, red for No. Scoped to .screening-form only, so other
+   forms that reuse the same .yn-btn/.yn-thumb class names keep their own
+   navy/blue style.
+
+   Both layers need overriding together: global.css's
+   .yn-btn.yn-yes.yn-active / .yn-btn.yn-no.yn-active (3 classes) paint
+   the button itself and outrank this file's .yn-thumb color, so if only
+   the thumb were recolored here the button's navy/blue would still sit
+   on top and hide it (the "overlapping colors" bug seen before on Form I). */
+.screening-form .yn-btn.yn-yes.yn-active {
+  background: #10B981 !important;
+  color: #fff !important;
+}
+.screening-form .yn-btn.yn-no.yn-active {
+  background: #EF4444 !important;
+  color: #fff !important;
+}
+.screening-form .yes-no-buttons.yn-pos-1 .yn-thumb { background: #10B981 !important; }
+.screening-form .yes-no-buttons.yn-pos-2 .yn-thumb { background: #EF4444 !important; }
 .yn-btn {
   position: relative; z-index: 1;
   width: 52px; height: 32px; padding: 0;
@@ -463,7 +484,7 @@
 /* ─── STICKY NAVIGATION BAR ───────────────────────────────── */
 .form-navigation {
   position: fixed; bottom: 0;
-  left: var(--sidebar-width, 260px); right: 0;
+  left: var(--sidebar-width, 280px); right: 0;
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 0 28px;
   height: 68px;

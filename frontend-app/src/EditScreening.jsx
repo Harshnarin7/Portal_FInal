@@ -3,11 +3,15 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "./ScreeningForm.css"; // reuse same CSS for consistent look
 import api from "./api/axios";
+import { useAuth } from "./context/AuthContext";
 
 
 function EditScreening() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const GLOBAL_ROLES = ["project_scientist", "superadmin"];
+  const isSiteLocked = !!(user && user.site && !GLOBAL_ROLES.includes(user.role));
 
   const [formData, setFormData] = useState({
     site_name: "",
@@ -179,6 +183,7 @@ function EditScreening() {
             name="site_name"
             value={formData.site_name}
             onChange={handleChange}
+            disabled={isSiteLocked}
             required
           >
             <option value="">-- Select Site --</option>

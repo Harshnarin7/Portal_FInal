@@ -117,11 +117,13 @@ class Screening(Base):
     mother_contact = Column(String(10), nullable=True)
     husband_contact = Column(String(10), nullable=True)
 
+    gestation_known = Column(String, nullable=True)  # "Yes"/"No" — whether gestation in weeks was clearly known at screening
     gestation_weeks = Column(Integer)
     gestation_days = Column(Integer)
     gestation_method = Column(String)
     expected_delivery_date = Column(String)
     lmp_date = Column(String)
+    ga_source = Column(String, nullable=True)  # "LMP"/"EDD"/"Neither" — which method was used to derive GA when not known
     inclusion_gest_lt_32 = Column(Boolean)
     anticipated_dr_resus = Column(Boolean)
 

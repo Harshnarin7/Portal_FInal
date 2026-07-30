@@ -26,7 +26,7 @@ from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthRe
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
-    get_current_user, is_superadmin, require_superadmin, ensure_same_site,
+    get_current_user, is_superadmin, is_global, require_superadmin, ensure_same_site,
     ALL_ROLES, ROLE_SUPERADMIN,
 )
 from routers import enrollment
@@ -265,7 +265,7 @@ def compute_screening_status(data):
 
 def get_accessible_screening_query(db: Session, user: User):
     query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
-    if not is_superadmin(user):
+    if not is_global(user):
         query = query.filter(Screening.site_name == user.site_name)
     return query
 
@@ -323,6 +323,49 @@ def version_check():
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS
 # ============================================================================
+
+@app.get("/users/", response_model=list[UserOut])
+def list_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-only directory of every login account, so accounts can be
+    found (and their id looked up) before deactivating/removing one."""
+    require_superadmin(current_user)
+    return db.query(User).order_by(User.site_name, User.role, User.username).all()
+
+
+@app.delete("/users/{user_id}")
+def remove_user(
+    user_id: int,
+    hard_delete: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-only. By default this DEACTIVATES the account (is_active=
+    False) rather than deleting the row — the account can no longer log in,
+    but historical screenings/forms created under their username still show
+    who did what. Pass ?hard_delete=true only if you're certain the account
+    never created any records (irreversible, and will break any records
+    that do reference it)."""
+    require_superadmin(current_user)
+
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot remove your own account")
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if hard_delete:
+        db.delete(target)
+        db.commit()
+        return {"message": f"User '{target.username}' permanently deleted"}
+
+    target.is_active = False
+    db.commit()
+    return {"message": f"User '{target.username}' deactivated (can no longer log in)"}
+
 
 @app.post("/users/", response_model=UserOut)
 def create_user(
@@ -493,11 +536,13 @@ def create_screening(
                 site_name=screening.site_name,
                 site_id=screening.site_id,
                 screened_by=screening.screened_by,
+                gestation_known=screening.gestation_known,
                 gestation_weeks=screening.gestation_weeks,
                 gestation_days=screening.gestation_days,
                 gestation_method=screening.gestation_method,
                 expected_delivery_date=screening.expected_delivery_date,
                 lmp_date=screening.lmp_date,
+                ga_source=screening.ga_source,
                 exclusion_present=screening.exclusion_present,
                 exclusion_reasons=screening.exclusion_reasons,
                 reason_for_insufficient_time=screening.reason_for_insufficient_time,
@@ -2101,7 +2146,7 @@ def list_resp_cv_neuro_records(
     page = max(page, 1)
 
     screening_query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
-    if not is_superadmin(current_user):
+    if not is_global(current_user):
         screening_query = screening_query.filter(Screening.site_name == current_user.site_name)
     elif site:
         screening_query = screening_query.filter(Screening.site_name == site)
@@ -2221,7 +2266,7 @@ def get_resp_cv_neuro_latest_update(
         .join(Screening, Screening.enrollment_id == RespCVNeuroDayLog.enrollment_id)
         .filter(Screening.is_deleted.isnot(True))
     )
-    if not is_superadmin(current_user):
+    if not is_global(current_user):
         query = query.filter(Screening.site_name == current_user.site_name)
     return {"latest_updated_at": query.scalar()}
 

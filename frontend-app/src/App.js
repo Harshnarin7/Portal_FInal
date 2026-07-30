@@ -2,7 +2,7 @@
 
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation } from "react-router-dom";
-import { ClipboardList, Home, Plus } from "lucide-react";
+import { ClipboardList, Home, Plus, Users } from "lucide-react";
 
 import { FormProgressProvider } from "./context/FormProgressContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -38,6 +38,7 @@ import Dashboard from "./Dashboard";
 import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
 import Login from "./Login";
 import LandingPage from "./LandingPage";
+import ManageStaff from "./ManageStaff";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import FloatingLogout from "./components/FloatingLogout";
@@ -48,7 +49,7 @@ import "./styles/UnifiedForms.css";
 
 
 function AppContent() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { resetProgress } = useFormProgress();
   const location = useLocation();
 
@@ -148,6 +149,15 @@ function AppContent() {
               >
                 <ClipboardList size={16} /> <span>View Entries</span>
               </NavLink>
+
+              {user?.role === "superadmin" && (
+                <NavLink
+                  to="/manage-staff"
+                  className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
+                >
+                  <Users size={16} /> <span>Manage Staff</span>
+                </NavLink>
+              )}
             </div>
 
             <div className="nav-right">
@@ -170,6 +180,7 @@ function AppContent() {
                       <Route path="/" element={<LandingPage />} />
                       <Route path="/home" element={<Navigate to="/dashboard" />} />
                       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                      <Route path="/manage-staff" element={<ProtectedRoute><ManageStaff /></ProtectedRoute>} />
                       <Route path="/trial-monitoring" element={<ProtectedRoute><TrialMonitoringDashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
                       <Route path="/helper-form-records" element={<ProtectedRoute><HelperFormRecords /></ProtectedRoute>} />

@@ -3030,13 +3030,46 @@ fieldset {
     color: black;
   }
 
-  /* ❌ REMOVE BUTTONS */
-  button,
+  /* ❌ REMOVE ACTION BUTTONS ONLY — NOT ANSWER TOGGLES
+     (bare `button` here used to hide every <button> in the app, including
+     the Yes/No answer toggles below, which are also <button> elements.
+     Since nearly every question in this form is answered via a Yes/No
+     toggle, that wiped out almost all the recorded answers on print,
+     leaving mostly empty boxes. .yn-btn is excluded so answers still
+     print; navigation/action buttons stay hidden.) */
+  button:not(.yn-btn),
   .form-navigation,
   .edit-icon,
   .print-btn {
     display: none !important;
   }
+
+  /* Yes/No toggle must print as plain, readable text — not an
+     interactive pill/slider control */
+  .yes-no-buttons {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: inline-flex !important;
+  }
+  .yn-thumb { display: none !important; }
+  .yn-btn {
+    display: inline !important;
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+    color: #cbd5e1 !important;
+    font-weight: 600 !important;
+    font-size: 11px !important;
+  }
+  .yn-btn.yn-active {
+    color: black !important;
+    text-decoration: underline;
+  }
+  .yn-btn.yn-yes::after { content: " / "; color: #cbd5e1; }
 
   /* ✨ INPUT → TEXT STYLE */
   input,
@@ -3921,5 +3954,3 @@ textarea {
   border-radius: 8px;
   cursor: pointer;
 }
-
-

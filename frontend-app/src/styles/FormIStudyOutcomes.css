@@ -333,12 +333,27 @@
 .yes-no-buttons.yn-pos-2.crf-yn .yn-thumb { transform: translateX(46px); }
 
 /* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
-   green for Yes, red for No, instead of the default navy/blue thumb.
-   !important because FormA.css/FormComponents.css both define a
-   .yes-no-buttons.yn-pos-N .yn-thumb background too — this selector is
-   already more specific (3 classes vs 2) and loads after them, so it wins
-   on its own, but !important removes any doubt regardless of import
-   order in the built bundle. */
+   green for Yes, red for No.
+
+   The previous attempt here only recolored .yn-thumb (the sliding
+   background layer). That wasn't enough: styles/global.css defines its
+   own .yn-btn.yn-yes.yn-active / .yn-btn.yn-no.yn-active rules that
+   paint navy (#0f3460) / blue (#0284c7) directly onto the BUTTON itself,
+   with higher specificity (3 classes) than FormComponents.css's generic
+   .yn-btn.yn-active (2 classes). That button-level navy/blue sat on top
+   of the thumb, so only a sliver of the intended green/red peeked out
+   from behind it — the "overlapping colors" bug.
+   Fix: override the button's own background too, scoped to .form-i-page
+   only so the rest of the app's toggles (which intentionally use the
+   navy/blue thumb style) are untouched. */
+.form-i-page .yn-btn.yn-yes.yn-active {
+  background: #10b981 !important;
+  color: #fff !important;
+}
+.form-i-page .yn-btn.yn-no.yn-active {
+  background: #ef4444 !important;
+  color: #fff !important;
+}
 .form-i-page .yes-no-buttons.yn-pos-1 .yn-thumb { background: #10b981 !important; }
 .form-i-page .yes-no-buttons.yn-pos-2 .yn-thumb { background: #ef4444 !important; }
 

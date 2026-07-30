@@ -2,7 +2,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --sb-w:           256px;
+  /* NOTE: this used to be hardcoded to 256px, independently of
+     --sidebar-width (280px, set in Theme.css/App.css/global.css and used
+     by FormLayout.css to offset the main content next to the sidebar).
+     The two numbers had drifted apart, leaving a 24px strip of exposed
+     page background between the sidebar's right edge and where the
+     header/content actually started. Deriving from the shared variable
+     means the sidebar and the content offset can never disagree again. */
+  --sb-w:           var(--sidebar-width, 280px);
   --sb-bg:          #ffffff;
   --sb-border:      #e2e8f0;
   --sb-header-bg:   #f8fafc;

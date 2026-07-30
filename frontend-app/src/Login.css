@@ -50,8 +50,12 @@
   border: 1px solid #d1d5db;
 }
 
-/* Button */
-button {
+/* Button — scoped to the login card only. This used to be a bare
+   `button { ... }` rule, which leaked into every page since CRA bundles
+   all component CSS together with no scoping — it was stretching
+   unrelated buttons elsewhere (e.g. the Notes "Clear" button) to full
+   width. Never add an unscoped `button`/`input`/`select` rule here. */
+.login-card button {
   width: 100%;
   padding: 11px;
   background: #2563eb;
@@ -62,7 +66,7 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+.login-card button:hover {
   background: #1e4ed8;
 }
 

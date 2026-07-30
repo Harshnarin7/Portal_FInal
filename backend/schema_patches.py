@@ -24,6 +24,15 @@ SCREENING_COLUMN_PATCHES = [
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS reason_not_approached_other TEXT",
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS decision_forego_resuscitation_reason_other TEXT",
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS video_pis_shown VARCHAR",
+    # gestation_known/ga_source: previously the "Yes/No" answer to
+    # "Gestation in weeks clearly mentioned?" was never persisted at all —
+    # the frontend guessed it back from gestation_weeks on reload, which is
+    # populated on BOTH the known and auto-calculated (EDD/LMP) paths, so a
+    # saved "No" silently reappeared as "Yes". These two columns store the
+    # actual answer and the actual GA-derivation method so reload no longer
+    # has to guess.
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS gestation_known VARCHAR",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS ga_source VARCHAR",
 ]
 
 COMPOSITE_OUTCOME_COLUMN_PATCHES = [

@@ -12,6 +12,7 @@ import {
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
+import { useAuth } from "./context/AuthContext";
 import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 
 /* ─── YesNoToggle — animated sliding segment ──────────────── */
@@ -114,6 +115,12 @@ export default function ScreeningForm() {
   const navigate = useNavigate();
   const { markFormCompleted, resetProgress } = useFormProgress();
   const { screeningId } = useParams();
+  const { user } = useAuth();
+  // Global roles (project_scientist — e.g. the nodal scientist Mannat —
+  // and superadmin) can pick any site. Everyone else is confined to the
+  // site on their own login and the field is locked, not just pre-filled.
+  const GLOBAL_ROLES = ["project_scientist", "superadmin"];
+  const isSiteLocked = !!(user && user.site && !GLOBAL_ROLES.includes(user.role));
 
   const [errors,           setErrors]           = useState({});
   const [isSaved,          setIsSaved]          = useState(false);
@@ -160,6 +167,7 @@ export default function ScreeningForm() {
 
   const [formData, setFormData] = useState({
     ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()),
+    ...(isSiteLocked ? { site_name: user.site, site_id: SITE_ID_MAP[user.site] || "" } : {}),
   });
   const formDataRef    = useRef(formData);
   const screeningIdRef = useRef(screeningId);
@@ -217,11 +225,17 @@ export default function ScreeningForm() {
         hospital_admission_number: pii.hospital_admission_number || d.hospital_admission_number || "",
         mother_contact:            pii.mother_contact            || d.mother_contact            || "",
         husband_contact:           pii.husband_contact           || d.husband_contact           || "",
-        gestation_known:    d.gestation_weeks ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : ""),
-        best_ga_weeks:      d.gestation_weeks || "",
-        best_ga_days:       d.gestation_days  || "",
+        /* gestation_known/ga_source are now persisted explicitly on the
+           backend (see migrations/0002_gestation_known_column.sql), so
+           reload no longer needs to guess. The fallback heuristic below
+           only matters for rows saved before that column existed and
+           that the migration's best-effort backfill didn't cover — new
+           saves always have d.gestation_known set directly. */
+        gestation_known:    d.gestation_known || (d.gestation_method ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : "")),
+        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks || "") : "",
+        best_ga_days:       d.gestation_method ? (d.gestation_days  || "") : "",
         gestation_method:   d.gestation_method || "",
-        ga_source:          d.gestation_weeks ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : "",
+        ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         edd_date:           d.expected_delivery_date || "",
         lmp_date:           d.lmp_date || "",
         /* A4 exclusion fields — inline ternary avoids const-in-object error.
@@ -585,6 +599,7 @@ export default function ScreeningForm() {
       hospital_admission_number: fd.hospital_admission_number || null,
       mother_contact:            fd.mother_contact   || null,
       husband_contact:           fd.husband_contact  || null,
+      gestation_known:           fd.gestation_known || null,
       gestation_weeks:           useDraftFallbacks
         ? (parseInt(fd.gestation_known === "Yes" ? fd.best_ga_weeks : fd.auto_ga_weeks) || 0)
         : (fd.gestation_known === "Yes" ? parseInt(fd.best_ga_weeks)||null : parseInt(fd.auto_ga_weeks)||null),
@@ -593,6 +608,7 @@ export default function ScreeningForm() {
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date         || null,
       expected_delivery_date:    fd.edd_date ? String(fd.edd_date).slice(0, 10) : null,
+      ga_source:                 fd.gestation_known === "No" ? (fd.ga_source || null) : null,
       exclusion_present:         exclYes,
       exclusion_reasons:         exclusionParts.join(", ") || null,
       major_structural_anomalies_if_yes: fd.exclusion_anomaly === "Yes" ? (fd.exclusion_anomaly_details || null) : null,
@@ -1021,7 +1037,7 @@ export default function ScreeningForm() {
                     </div>
                     <div className="form-group">
                       <label>10. Site<span className="required">*</span></label>
-                      <select name="site_name" value={formData.site_name||""} onChange={handleChange} disabled={!isFieldEditable}>
+                      <select name="site_name" value={formData.site_name||""} onChange={handleChange} disabled={!isFieldEditable || isSiteLocked}>
                         <option value="">-- Select Site --</option>
                         <option value="PGIMER">PGIMER Chandigarh</option>
                         <option value="GMCH">GMCH Chandigarh</option>
@@ -1196,8 +1212,6 @@ export default function ScreeningForm() {
                     <ShieldAlert size={15} className="section-header-icon"/>
                     <h3>A4 · Exclusion Criteria</h3>
                   </div>
-                  {anyExclusionYes && <span className="badge-not-eligible">Exclusion Present — End Participation</span>}
-                  {allExclusionAnswered && !anyExclusionYes && <span className="badge-eligible">All Clear — Proceed to Consent</span>}
                 </div>
                 <div className="form-section-body">
 
@@ -1277,6 +1291,21 @@ export default function ScreeningForm() {
                   {anyExclusionYes && (
                     <div className="alert-danger" style={{marginTop:16}}>
                       ❌ Exclusion criteria present — participant is not fit for consent. End participation.
+                    </div>
+                  )}
+
+                  {anyExclusionYes && (
+                    <div style={{textAlign:"center", marginTop:16}}>
+                      <span className="badge-not-eligible" style={{fontSize:18, padding:"10px 20px"}}>
+                        Exclusion Present — End Participation
+                      </span>
+                    </div>
+                  )}
+                  {allExclusionAnswered && !anyExclusionYes && (
+                    <div style={{textAlign:"center", marginTop:16}}>
+                      <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
+                        All Clear — Proceed to Consent
+                      </span>
                     </div>
                   )}
 
