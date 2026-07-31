@@ -30,6 +30,7 @@ function buildUser(token) {
   return {
     username:  payload.sub       || "",
     name:      payload.sub       || "User",   // your JWT uses "sub" for username
+    full_name: payload.full_name || payload.sub || "",  // display name for auto-fill (e.g. Screening Form's "Screened by")
     role:      payload.role      || "nurse",  // "site_user" | "admin" | "nurse"
     site:      payload.site_name || "",
     exp:       payload.exp       || null,

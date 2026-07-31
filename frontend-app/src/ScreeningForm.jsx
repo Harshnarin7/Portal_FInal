@@ -368,6 +368,23 @@ export default function ScreeningForm() {
       .then(r => setNurses(r.data)).catch(() => setNurses([]));
   }, [formData.site_name]);
 
+  /* ─── Auto-fill "Screened by" with the logged-in nurse's own name ──
+     Only when: this is a fresh/unsaved form (not editing an existing
+     screening someone else filled), the field is still empty, and the
+     nurses list for this site has loaded and actually contains their
+     name (SiteStaff.name must match users.full_name for this to work —
+     if a nurse's account was seeded with a different name string than
+     their SiteStaff entry, this intentionally won't force a mismatched
+     value into the field). */
+  useEffect(() => {
+    if (!isSiteLocked) return;
+    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return; // don't clobber who actually screened an existing record
+    if (formData.screened_by) return;
+    if (!user?.full_name || !nurses.length) return;
+    if (!nurses.includes(user.full_name)) return;
+    setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: user.full_name });
+  }, [nurses, isSiteLocked, user, screeningId, formData.screened_by]);
+
   /* ─── LMP → EDD auto-calc ── */
   useEffect(() => {
     if (!formData.lmp_date || !dataLoaded) return;

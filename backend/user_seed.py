@@ -36,8 +36,14 @@ DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str | None]] = [
     ("pratiksha.gmcha", "Pratiksha Manoj Khare", "nurse", "GMCH-A"),
     ("saurabh.gmcha", "Saurabh Joseph Sable", "nurse", "GMCH-A"),
     ("nandini.gmcha", "Nandini Ratan Borde", "nurse", "GMCH-A"),
-    ("varad.gmcha", "Varad Gurunath Naik", "nurse", "GMCH-A"),
     ("ankita.gmcha", "Ankita Balu Kasbe", "nurse", "GMCH-A"),
+    ("rohit.gmcha", "Rohit Pawar", "nurse", "GMCH-A"),
+    # NOTE: "varad.gmcha" (Varad Gurunath Naik) was previously seeded here
+    # but does not appear in the 2026-07-31 roster PDF, which lists
+    # Rohit Pawar in what looks like the same slot. Left the existing
+    # account alone rather than deactivating it automatically — confirm
+    # with the site whether Varad has left the study or was a data-entry
+    # error, then deactivate manually via ManageStaff if appropriate.
 
     # ---- GMCH Chandigarh ----
     ("manpreet.gmch", "Dr. Manpreet Kaur", "site_scientist", "GMCH"),

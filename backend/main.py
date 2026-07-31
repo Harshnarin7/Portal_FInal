@@ -55,7 +55,7 @@ from audit_service import (
     soft_delete_record,
 )
 from schema_patches import apply_schema_patches
-from staff_service import seed_site_staff
+from staff_service import seed_site_staff, deactivate_stale_site_staff
 from user_service import seed_login_users
 import security_monitor
 from pii_service import (
@@ -147,6 +147,9 @@ def on_startup_migrations():
         seeded = seed_site_staff(db)
         if seeded:
             logger.info("Seeded %s site staff record(s)", seeded)
+        cleaned = deactivate_stale_site_staff(db)
+        if cleaned:
+            logger.info("Deactivated %s stale/incorrect site staff record(s)", cleaned)
         new_accounts = seed_login_users(db)
         if new_accounts:
             logger.info(
