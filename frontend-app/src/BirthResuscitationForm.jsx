@@ -12,6 +12,7 @@ import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
+  Clock,
 } from "lucide-react";
 
 /* ── Safe localStorage helpers ──
@@ -36,6 +37,75 @@ const Ic = ({ d, s = 15 }) => (
     <path d={d}/>
   </svg>
 );
+
+/* ── Modern HH:MM time stepper ──
+   Two boxed segments (hour, minute) you can type into or nudge with the
+   up/down chevrons — no dropdown list (unlike react-datepicker's time
+   select) and no native <input type="time"> (whose picker UI/AM-PM
+   display depends on the browser/OS locale). Always 24-hour by
+   construction: hour just wraps 0–23, there's no AM/PM concept at all.
+   Seconds are intentionally NOT part of this — kept as their own
+   separate field next to it. */
+function ModernTimeInput({ hour, minute, second, onChange, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  const h = hour === "" || hour === undefined || hour === null ? "" : String(hour).padStart(2, "0");
+  const m = minute === "" || minute === undefined || minute === null ? "" : String(minute).padStart(2, "0");
+  const s = second === "" || second === undefined || second === null ? "" : String(second).padStart(2, "0");
+  const display = (h || m || s) ? `${h || "00"}:${m || "00"}:${s || "00"}` : "";
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const minSecOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+
+  const pick = (part, val) => {
+    const curH = hour === "" || hour == null ? 0 : Number(hour);
+    const curM = minute === "" || minute == null ? 0 : Number(minute);
+    const curS = second === "" || second == null ? 0 : Number(second);
+    if (part === "h") onChange(Number(val), curM, curS);
+    else if (part === "m") onChange(curH, Number(val), curS);
+    else onChange(curH, curM, Number(val));
+  };
+
+  const Column = ({ part, label, options, current }) => (
+    <div className="mt-popover-col">
+      <div className="mt-popover-label">{label}</div>
+      <div className="mt-popover-list">
+        {options.map(v => (
+          <div key={v}
+            className={`mt-popover-item${current === v ? " mt-popover-item-active" : ""}`}
+            onClick={() => pick(part, v)}>{v}</div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mt-wrap" ref={wrapRef}>
+      <div className={`mt-display${disabled ? " mt-disabled" : ""}`}
+        onClick={() => !disabled && setOpen(o => !o)}>
+        <span className={`mt-display-value${display ? "" : " mt-display-placeholder"}`}>
+          {display || "HH:MM:SS"}
+        </span>
+        <Clock size={16} className="mt-clock-btn"/>
+      </div>
+      {open && !disabled && (
+        <div className="mt-popover">
+          <Column part="h" label="HH" options={hourOptions} current={h}/>
+          <Column part="m" label="MM" options={minSecOptions} current={m}/>
+          <Column part="s" label="SS" options={minSecOptions} current={s}/>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── Yes/No toggle identical to Form A ── */
 // FIX: this was a stripped-down copy that rendered different class names
@@ -344,6 +414,27 @@ export default function BirthResuscitationForm() {
   const set = patch => setFormData(p => ({ ...p, ...patch }));
   const handleChange = e => set({ [e.target.name]: e.target.value });
 
+  // Native <input type="time"> defers to the OS/browser locale for its
+  // picker UI, which shows AM/PM on many Windows/US-locale setups even
+  // though the stored value is 24-hour — lang="en-GB" doesn't reliably
+  // override this across Chrome versions. This formats a plain text field
+  // into a guaranteed 24-hour HH:MM (or HH:MM:SS) value as the user types.
+  // Digit-by-digit formatting is no longer needed for time_of_birth/
+  // cord_clamp_timestamp — replaced by the dropdown picker below.
+
+  // Plain HH:MM:SS string helpers backing ModernTimeInput (all three
+  // segments now live in the picker itself).
+  const getTimePart = (field, part) => {
+    const [hh, mm, ss] = (formData[field] || "").split(":");
+    return part === "h" ? (hh ?? "") : part === "m" ? (mm ?? "") : (ss ?? "");
+  };
+  const handleTimeChange = (field, newH, newM, newS) => {
+    const hh = newH === null ? "" : String(newH).padStart(2, "0");
+    const mm = newM === null ? "" : String(newM).padStart(2, "0");
+    const ss = newS === null ? "" : String(newS).padStart(2, "0");
+    set({ [field]: (hh || mm || ss) ? `${hh || "00"}:${mm || "00"}:${ss || "00"}` : "" });
+  };
+
   const endParticipation = formData.required_resuscitation === "No";
   const times = ["1","5","10","15","20"];
   const yn  = v => v === "Yes" ? true : v === "No" ? false : null;
@@ -414,14 +505,6 @@ export default function BirthResuscitationForm() {
     set({ cord_clamp_time: elapsed });
     setErrors(p => ({...p, cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : ""}));
   }, [formData.time_of_birth, formData.cord_clamp_timestamp]); // eslint-disable-line
-
-  /* ── Sync chest_compression to intervention table ── */
-  useEffect(() => {
-    const v = formData.chest_compression;
-    if (v==="Yes"||v==="No"||v==="")
-      setFormData(p => ({...p, interventions:{...p.interventions,
-        chest_compression:{"1":v,"5":v,"10":v,"15":v,"20":v}}}));
-  }, [formData.chest_compression]);
 
   /* ── Online / Offline detection ── */
   useEffect(() => {
@@ -1095,9 +1178,12 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-group">
                     <label>9. Time of Birth<span className="required">*</span></label>
-                    <input type="time" name="time_of_birth"
-                      value={formData.time_of_birth||""} step="1"
-                      onChange={handleChange} readOnly={!isFieldEditable}/>
+                    <ModernTimeInput
+                      hour={getTimePart("time_of_birth","h")}
+                      minute={getTimePart("time_of_birth","m")}
+                      second={getTimePart("time_of_birth","s")}
+                      onChange={(h,m,s)=>handleTimeChange("time_of_birth", h, m, s)}
+                      disabled={!isFieldEditable}/>
                   </div>
                   <div className="form-group">
                     <label>10. Gender<span className="required">*</span></label>
@@ -1305,7 +1391,7 @@ export default function BirthResuscitationForm() {
                         <div className="form-group">
                           <label>26. Enrollment ID<span className="required">*</span></label>
                           <input name="enrollment_id" value={formData.enrollment_id||""}
-                            onChange={handleChange} placeholder="e.g. PGI-A-001"
+                            onChange={handleChange} placeholder="e.g. 01-A-001"
                             readOnly={!isFieldEditable}/>
                         </div>
                       </>)}
@@ -1577,8 +1663,12 @@ export default function BirthResuscitationForm() {
                         </div>
                         <div className="form-group">
                           <label>46. Cord clamped at (HH:MM:SS){requiredMark}</label>
-                          <input type="time" step="1" name="cord_clamp_timestamp" value={formData.cord_clamp_timestamp||""}
-                            readOnly={!isFieldEditable} onChange={handleChange}/>
+                          <ModernTimeInput
+                            hour={getTimePart("cord_clamp_timestamp","h")}
+                            minute={getTimePart("cord_clamp_timestamp","m")}
+                            second={getTimePart("cord_clamp_timestamp","s")}
+                            onChange={(h,m,s)=>handleTimeChange("cord_clamp_timestamp", h, m, s)}
+                            disabled={!isFieldEditable}/>
                         </div>
                       </div>
                       <div className="form-grid-2">
