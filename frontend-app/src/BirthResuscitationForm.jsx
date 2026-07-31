@@ -853,13 +853,19 @@ export default function BirthResuscitationForm() {
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;
+        // contact_mother/contact_husband/mother_name_* on THIS endpoint's
+        // response are always null — Form B's own record never stores PII,
+        // it lives only in participant_pii. Blindly spreading `d` here
+        // would overwrite the correct values already loaded (from the
+        // screening/PII fetch below) with these nulls on every page load.
+        const { contact_mother, contact_husband, mother_name_first, mother_name_surname, maternal_uid, ...dSafe } = d;
         let reasonExit = d.reason_exit_trial_gas || "";
         let reasonExitOther = "";
         if (reasonExit && !EXIT_REASON_OPTIONS.includes(reasonExit)) {
           reasonExitOther = reasonExit;
           reasonExit = "Other";
         }
-        setFormData(p=>({...p,...d,
+        setFormData(p=>({...p,...dSafe,
           date_of_birth: d.date_of_birth ? String(d.date_of_birth).slice(0, 10) : p.date_of_birth,
           time_of_birth: normalizeTimeForInput(d.time_of_birth),
           cord_clamp_timestamp: normalizeTimeForInput(d.cord_clamp_timestamp),
@@ -898,12 +904,20 @@ export default function BirthResuscitationForm() {
 
   useEffect(()=>{
     if(!screeningId) return;
+    let cancelled = false;
     const fetch=async()=>{
       try {
         const r=await api.get(`/screenings/by-screening-id/${screeningId}`);
         const d=r.data||{};
         let pii={};
         try{const p2=await api.get(`/pii/screening/${screeningId}`);pii=p2.data||{};}catch(_){}
+
+        // Discard this response if the user has since navigated to a
+        // different patient's Form B — otherwise a slow request for the
+        // PREVIOUS screening can resolve after the new one and overwrite
+        // it with the wrong mother/husband contact numbers.
+        if (cancelled) return;
+
         set({
           screening_id:        d.screening_id||"",
           site_name:           d.site_name||"",
@@ -935,6 +949,7 @@ export default function BirthResuscitationForm() {
       }catch(e){console.error(e);}
     };
     fetch();
+    return () => { cancelled = true; };
   },[screeningId]); // eslint-disable-line
 
   /* ═══════════════════════════════ RENDER ═══════════════════════════════ */
