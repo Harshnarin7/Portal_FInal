@@ -620,9 +620,8 @@ export default function ScreeningForm() {
       mother_contact:            fd.mother_contact   || null,
       husband_contact:           fd.husband_contact  || null,
       gestation_known:           fd.gestation_known || null,
-      gestation_weeks:           useDraftFallbacks
-        ? (parseInt(fd.gestation_known === "Yes" ? fd.best_ga_weeks : fd.auto_ga_weeks) || 0)
-        : (fd.gestation_known === "Yes" ? parseInt(fd.best_ga_weeks)||null : parseInt(fd.auto_ga_weeks)||null),
+      gestation_weeks:
+        parseInt(fd.gestation_known === "Yes" ? fd.best_ga_weeks : fd.auto_ga_weeks) || 0,
       gestation_days:            fd.gestation_known === "Yes"
         ? parseInt(fd.best_ga_days)||0 : parseInt(fd.auto_ga_days)||0,
       gestation_method:          fd.gestation_method || null,
@@ -747,7 +746,11 @@ export default function ScreeningForm() {
       return true;
     } catch (err) {
       console.error("Screening form save error:", err);
-      setMessage(`❌ Save failed: ${err?.response?.data?.detail || err.message}`);
+      const detail = err?.response?.data?.detail;
+      const detailText = Array.isArray(detail)
+        ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
+        : (typeof detail === "string" ? detail : (detail ? JSON.stringify(detail) : err.message));
+      setMessage(`❌ Save failed: ${detailText}`);
       window.scrollTo({ top:0, behavior:"smooth" });
       return false;
     }
