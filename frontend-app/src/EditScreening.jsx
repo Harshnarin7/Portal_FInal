@@ -155,7 +155,7 @@ function EditScreening() {
     };
 
     try {
-      const res = await api.put("/screenings/${id}", payload, {
+      const res = await api.put(`/screenings/${id}`, payload, {
         headers: { "Content-Type": "application/json" },
       });
 

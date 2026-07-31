@@ -1,0 +1,236 @@
+/* ==========================================================================
+   Screening Form (Form A) — modern date picker
+   Dedicated, scoped stylesheet.
+
+   WHY THIS FILE EXISTS: FormA.css and global.css (the two stylesheets Form A
+   actually imports) each have their own react-datepicker rules, layered on
+   top of each other in ways that are easy to unintentionally break by
+   editing in place. Rather than untangle them, every rule below is scoped
+   under .fa-modern-dp — a class added only to Form A's root <form> — so it
+   reliably overrides them (both by being a compound selector and by loading
+   after them, plus !important as a safety net) and can't leak into any
+   other form. Same approach already used successfully for Form I (see
+   FormIStudyOutcomes.css).
+   ========================================================================== */
+
+.fa-modern-dp {
+  --dp-accent:      #4f46e5;
+  --dp-accent-tint: #eef2ff;
+  --dp-accent-ink:  #3730a3;
+  --dp-ink:         #0f172a;
+  --dp-muted:       #94a3b8;
+  --dp-border:      #e2e8f0;
+  --dp-surface:     #ffffff;
+  --dp-bg:          #f8fafc;
+  --dp-radius:      10px;
+}
+
+/* ── The text input itself ─────────────────────────────────────────────── */
+.fa-modern-dp .react-datepicker-wrapper {
+  display: block !important;
+  width: 100% !important;
+  position: relative;
+}
+
+.fa-modern-dp .react-datepicker__input-container { position: relative; display: block; }
+
+.fa-modern-dp .react-datepicker__input-container input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  height: 42px !important;
+  padding: 0 40px 0 14px !important;
+  border: 1.5px solid var(--dp-border) !important;
+  border-radius: var(--dp-radius) !important;
+  background: var(--dp-surface) !important;
+  color: var(--dp-ink) !important;
+  font-size: 13.5px !important;
+  font-family: inherit !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.fa-modern-dp .react-datepicker__input-container input::placeholder { color: var(--dp-muted); }
+
+.fa-modern-dp .react-datepicker__input-container input:hover {
+  border-color: #cbd5e1 !important;
+}
+
+.fa-modern-dp .react-datepicker__input-container input:focus {
+  outline: none !important;
+  border-color: var(--dp-accent) !important;
+  box-shadow: 0 0 0 3px var(--dp-accent-tint) !important;
+}
+
+.fa-modern-dp .react-datepicker__input-container input[readonly],
+.fa-modern-dp .react-datepicker__input-container input:disabled {
+  background: var(--dp-bg) !important;
+  color: var(--dp-muted) !important;
+  cursor: not-allowed;
+}
+
+/* Calendar icon, drawn with an inline SVG so no new asset/dependency is
+   needed. Pure decoration (pointer-events: none) — the whole input is
+   already clickable to open the picker. */
+.fa-modern-dp .react-datepicker__input-container::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='3'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+/* ── The calendar popup ────────────────────────────────────────────────── */
+.fa-modern-dp .react-datepicker-popper { z-index: 40; }
+
+.fa-modern-dp .react-datepicker {
+  border: 1px solid var(--dp-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+  font-family: inherit !important;
+  overflow: hidden;
+}
+
+.fa-modern-dp .react-datepicker__triangle { display: none !important; }
+
+.fa-modern-dp .react-datepicker__header {
+  background: var(--dp-surface) !important;
+  border-bottom: 1px solid var(--dp-border) !important;
+  padding: 14px 10px 8px !important;
+}
+
+.fa-modern-dp .react-datepicker__current-month {
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: var(--dp-ink) !important;
+  margin-bottom: 8px !important;
+}
+
+.fa-modern-dp .react-datepicker__navigation {
+  top: 14px !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px !important;
+  transition: background 0.12s ease;
+}
+.fa-modern-dp .react-datepicker__navigation:hover { background: var(--dp-bg); }
+.fa-modern-dp .react-datepicker__navigation-icon::before {
+  border-color: var(--dp-ink) !important;
+  border-width: 2px 2px 0 0 !important;
+  width: 6px !important;
+  height: 6px !important;
+}
+
+.fa-modern-dp .react-datepicker__day-names {
+  margin-top: 4px;
+}
+.fa-modern-dp .react-datepicker__day-name {
+  color: var(--dp-muted) !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  width: 32px !important;
+  line-height: 24px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.fa-modern-dp .react-datepicker__month { padding: 8px 10px 12px !important; margin: 0 !important; }
+
+.fa-modern-dp .react-datepicker__day {
+  width: 32px !important;
+  line-height: 32px !important;
+  border-radius: 9px !important;
+  font-size: 12.5px !important;
+  color: var(--dp-ink) !important;
+  transition: background 0.12s ease, color 0.12s ease;
+  margin: 1px !important;
+}
+
+.fa-modern-dp .react-datepicker__day:hover {
+  background: var(--dp-accent-tint) !important;
+  color: var(--dp-accent-ink) !important;
+}
+
+.fa-modern-dp .react-datepicker__day--selected,
+.fa-modern-dp .react-datepicker__day--keyboard-selected {
+  background: var(--dp-accent) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+.fa-modern-dp .react-datepicker__day--selected:hover,
+.fa-modern-dp .react-datepicker__day--keyboard-selected:hover {
+  background: var(--dp-accent-ink) !important;
+}
+
+.fa-modern-dp .react-datepicker__day--today {
+  font-weight: 700 !important;
+  position: relative;
+}
+.fa-modern-dp .react-datepicker__day--today:not(.react-datepicker__day--selected)::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dp-accent);
+}
+
+.fa-modern-dp .react-datepicker__day--outside-month {
+  color: #cbd5e1 !important;
+}
+
+.fa-modern-dp .react-datepicker__day--disabled {
+  color: #e2e8f0 !important;
+  cursor: not-allowed;
+}
+.fa-modern-dp .react-datepicker__day--disabled:hover { background: none !important; }
+
+/* ── Time list (the one screening-datetime field with showTimeSelect) ──── */
+.fa-modern-dp .react-datepicker__time-container {
+  border-left: 1px solid var(--dp-border) !important;
+  width: 90px !important;
+}
+.fa-modern-dp .react-datepicker__time-container .react-datepicker__time { background: var(--dp-surface) !important; }
+.fa-modern-dp .react-datepicker__time-list { padding: 4px !important; }
+.fa-modern-dp .react-datepicker__time-list-item {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  height: auto !important;
+  padding: 6px 8px !important;
+  margin-bottom: 2px;
+  transition: background 0.12s ease;
+}
+.fa-modern-dp .react-datepicker__time-list-item:hover {
+  background: var(--dp-accent-tint) !important;
+}
+.fa-modern-dp .react-datepicker__time-list-item--selected {
+  background: var(--dp-accent) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+/* ── Small screens ─────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .fa-modern-dp .react-datepicker__day,
+  .fa-modern-dp .react-datepicker__day-name {
+    width: 28px !important;
+    line-height: 28px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fa-modern-dp .react-datepicker__input-container input,
+  .fa-modern-dp .react-datepicker__navigation,
+  .fa-modern-dp .react-datepicker__day,
+  .fa-modern-dp .react-datepicker__time-list-item {
+    transition: none !important;
+  }
+}

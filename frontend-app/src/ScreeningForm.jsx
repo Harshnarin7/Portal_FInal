@@ -5,6 +5,9 @@ import "react-datepicker/dist/react-datepicker.css";
 import { useParams, useNavigate } from "react-router-dom";
 import "./styles/global.css";
 import "./styles/FormA.css";
+// Modern date picker redesign — scoped under .fa-modern-dp (see file header
+// comment for why this exists instead of further patching FormA.css/global.css).
+import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
 import {
@@ -830,7 +833,7 @@ export default function ScreeningForm() {
         </div>
       )}
 
-      <form className={`screening-form${isSaved && !isEditing ? " readonly" : ""}`}
+      <form className={`screening-form fa-modern-dp${isSaved && !isEditing ? " readonly" : ""}`}
         onSubmit={e => e.preventDefault()}>
         <fieldset>
           <div className="form-inner">
