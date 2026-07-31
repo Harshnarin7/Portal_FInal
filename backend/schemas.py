@@ -347,6 +347,10 @@ class ScreeningClinicalOut(BaseModel):
     site_id: Optional[str] = None
 
     screened_by: Optional[str] = None
+    # Needed by Form B (Birth & Resuscitation) to auto-calculate gestation
+    # at randomization — was missing here, so Form B always received
+    # screening_datetime as undefined and silently skipped that calculation.
+    screening_datetime: Optional[datetime] = None
     screening_status: Optional[str] = None
 
     gestation_known: Optional[str] = None
