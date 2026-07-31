@@ -618,3 +618,95 @@ fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
   background: #0284c7;
   color: #ffffff;
 }
+/* ── Modern time picker (Time of Birth / Cord Clamp Time, Form B) ──
+   Familiar website pattern: a read-only text field showing HH:MM:SS with
+   a small clock icon; clicking it opens a compact dropdown popover with
+   three scrollable HH / MM / SS columns. Always 24-hour by construction
+   (plain 00–23 / 00–59 lists — no AM/PM concept at all), unlike native
+   <input type="time"> which depends on the browser/OS locale. */
+.mt-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.mt-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+}
+.mt-display.mt-disabled {
+  background: #f3f4f6;
+  cursor: default;
+  opacity: 0.7;
+}
+.mt-display-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: #111827;
+  cursor: inherit;
+  user-select: none;
+}
+.mt-display-placeholder {
+  color: #9ca3af;
+}
+.mt-clock-btn {
+  color: #6366f1;
+  flex-shrink: 0;
+}
+.mt-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 8px;
+}
+.mt-popover-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 44px;
+}
+.mt-popover-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+.mt-popover-list {
+  max-height: 160px;
+  overflow-y: auto;
+  width: 100%;
+}
+.mt-popover-item {
+  padding: 5px 0;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #374151;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mt-popover-item:hover { background: #f3f4f6; }
+.mt-popover-item-active {
+  background: #6366f1;
+  color: #fff;
+  font-weight: 700;
+}
