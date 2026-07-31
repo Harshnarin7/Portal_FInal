@@ -597,6 +597,25 @@ export default function ScreeningForm() {
   };
 
   /* ─── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
+  // FIX: gestational age (weeks/days) for the "gestation not known" (EDD/LMP)
+  // path was being read from fd.auto_ga_weeks/auto_ga_days — state fields
+  // populated by a chained pair of useEffects (LMP -> edd_date, then
+  // edd_date -> auto_ga_weeks/days). Autosave runs on its own 10-second
+  // timer with no awareness of whether that two-step calculation has
+  // actually finished, so a save landing in the gap would find
+  // auto_ga_weeks still empty and silently fall back to 0 via
+  // `parseInt(...) || 0` — permanently writing an incorrect "0 weeks, 0
+  // days" to the database with no way for anyone to notice or correct it
+  // afterward. Recomputing directly from fd.edd_date here (the same math
+  // the effect uses) makes the save always correct regardless of whether
+  // the state effect has caught up yet.
+  const computeAutoGaFromEdd = (eddDateStr) => {
+    if (!eddDateStr) return null;
+    const diff = Math.floor(280 - (new Date(eddDateStr) - new Date()) / 86400000);
+    if (Number.isNaN(diff)) return null;
+    return { weeks: Math.max(0, Math.floor(diff / 7)), days: Math.max(0, diff % 7) };
+  };
+
   const buildPayloadFrom = (fd, useDraftFallbacks, exclYes) => {
     const exclusionParts = [];
     if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
@@ -621,9 +640,13 @@ export default function ScreeningForm() {
       husband_contact:           fd.husband_contact  || null,
       gestation_known:           fd.gestation_known || null,
       gestation_weeks:
-        parseInt(fd.gestation_known === "Yes" ? fd.best_ga_weeks : fd.auto_ga_weeks) || 0,
-      gestation_days:            fd.gestation_known === "Yes"
-        ? parseInt(fd.best_ga_days)||0 : parseInt(fd.auto_ga_days)||0,
+        fd.gestation_known === "Yes"
+          ? (parseInt(fd.best_ga_weeks) || 0)
+          : (computeAutoGaFromEdd(fd.edd_date)?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
+      gestation_days:
+        fd.gestation_known === "Yes"
+          ? (parseInt(fd.best_ga_days) || 0)
+          : (computeAutoGaFromEdd(fd.edd_date)?.days ?? (parseInt(fd.auto_ga_days) || 0)),
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date         || null,
       expected_delivery_date:    fd.edd_date ? String(fd.edd_date).slice(0, 10) : null,

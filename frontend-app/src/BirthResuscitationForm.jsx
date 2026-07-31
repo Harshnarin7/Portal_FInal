@@ -949,6 +949,28 @@ export default function BirthResuscitationForm() {
           reasonExit = "Other";
         }
         setFormData(p=>({...p,...dSafe,
+          // FIX: gestation_weeks/gestation_days/gestation_rand_weeks/
+          // gestation_rand_days are ALSO null-or-stale on this endpoint for
+          // the same reason contact_mother etc. were excluded above.
+          // gestation_weeks/days can be null (or, before the Form A fix,
+          // a leftover 0/0) here until Form B has been saved at least once
+          // with real values, and gestation_rand_weeks/days are computed
+          // client-side (see the auto-calc effect below) — this table's
+          // stored copy of them can easily be stale. Blindly spreading `d`
+          // was wiping out the values already loaded from the Form A
+          // screening fetch (and the client-side randomisation calc) with
+          // nulls — or, just as bad, with a stale 0 — on every page load,
+          // leaving fields 11 and 12 blank or stuck even though correct
+          // data existed. 0 weeks is never a real value clinically, so it's
+          // treated the same as missing here (truthy check, not `!= null`)
+          // — otherwise a stale 0 saved on this record before Form A's
+          // fix would keep silently overriding the corrected value on
+          // every load. Only trust `d`'s copy when it's actually non-zero;
+          // otherwise keep whatever is already in state.
+          gestation_weeks:      d.gestation_weeks      || p.gestation_weeks,
+          gestation_days:       d.gestation_weeks      ? (d.gestation_days      ?? p.gestation_days)      : p.gestation_days,
+          gestation_rand_weeks: d.gestation_rand_weeks || p.gestation_rand_weeks,
+          gestation_rand_days:  d.gestation_rand_weeks ? (d.gestation_rand_days ?? p.gestation_rand_days) : p.gestation_rand_days,
           date_of_birth: d.date_of_birth ? String(d.date_of_birth).slice(0, 10) : p.date_of_birth,
           time_of_birth: normalizeTimeForInput(d.time_of_birth),
           cord_clamp_timestamp: normalizeTimeForInput(d.cord_clamp_timestamp),
