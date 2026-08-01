@@ -2,7 +2,7 @@
 
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation } from "react-router-dom";
-import { ClipboardList, Home, Plus, Users } from "lucide-react";
+import { Activity, ClipboardList, Home, Plus, Users } from "lucide-react";
 
 import { FormProgressProvider } from "./context/FormProgressContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -156,6 +156,14 @@ function AppContent() {
                   className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
                 >
                   <Users size={16} /> <span>Manage Staff</span>
+                </NavLink>
+              )}
+              {user?.role === "superadmin" && (
+                <NavLink
+                  to="/trial-monitoring"
+                  className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
+                >
+                  <Activity size={16} /> <span>Trial Monitoring</span>
                 </NavLink>
               )}
             </div>
