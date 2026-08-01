@@ -418,3 +418,376 @@ def get_consort_flow(
             "Sub-categories are not mutually exclusive.",
         ],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 2 — DATA QUALITY INDICATORS
+# ═══════════════════════════════════════════════════════════════════════════
+
+FORM_KEYS = [
+    ("form_c",    "Form C — Maternal Details"),
+    ("form_d",    "Form D — Postnatal Day 1"),
+    ("form_e",    "Form E — NICU Admission"),
+    ("form_f",    "Form F — Cranial USG"),
+    ("form_h",    "Form H — Neonatal Morbidities"),
+    ("form_j",    "Form J — Composite Outcomes"),
+    ("fio2_auc",  "FiO₂ AUC Logs"),
+    ("resp_cv",   "Resp/CV/Neuro Logs"),
+    ("infect_gi", "Infect/GI/Hema Logs"),
+    ("metab",     "Metab/Renal/Vasc/Eye Logs"),
+]
+
+COMPLETION_QUERY = text("""
+    SELECT
+        s.site_name,
+        br.enrollment_id,
+        CASE WHEN md.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_c,
+        CASE WHEN pd.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_d,
+        CASE WHEN na.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_e,
+        CASE WHEN cu.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_f,
+        CASE WHEN nm.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_h,
+        CASE WHEN co.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_j,
+        CASE WHEN fa.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS fio2_auc,
+        CASE WHEN rc.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS resp_cv,
+        CASE WHEN ig.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS infect_gi,
+        CASE WHEN mv.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS metab
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM maternal_details)              md ON md.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM postnatal_day1)                pd ON pd.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM nicu_admission)                na ON na.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM cranial_usg_records)           cu ON cu.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM neonatal_morbidities)          nm ON nm.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM composite_outcomes)            co ON co.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM fio2_auc_logs)                 fa ON fa.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM resp_cv_neuro_day_logs)        rc ON rc.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM infect_gi_hema_day_logs)       ig ON ig.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM metab_renal_vasc_eye_day_logs) mv ON mv.enrollment_id = br.enrollment_id
+    WHERE br.randomised = TRUE
+      AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+""")
+
+DAY_LOG_STATUS_QUERY = text("""
+    SELECT
+        s.site_name,
+        t.tbl,
+        t.submission_status,
+        COUNT(*) AS n
+    FROM (
+        SELECT br.enrollment_id,
+               'resp_cv_neuro'        AS tbl,
+               COALESCE(dl.submission_status, 'empty') AS submission_status
+        FROM birth_resuscitation br
+        JOIN resp_cv_neuro_day_logs dl ON dl.enrollment_id = br.enrollment_id
+        WHERE br.randomised = TRUE
+        UNION ALL
+        SELECT br.enrollment_id,
+               'infect_gi_hema'       AS tbl,
+               COALESCE(dl.submission_status, 'empty') AS submission_status
+        FROM birth_resuscitation br
+        JOIN infect_gi_hema_day_logs dl ON dl.enrollment_id = br.enrollment_id
+        WHERE br.randomised = TRUE
+        UNION ALL
+        SELECT br.enrollment_id,
+               'metab_renal_vasc_eye' AS tbl,
+               COALESCE(dl.submission_status, 'empty') AS submission_status
+        FROM birth_resuscitation br
+        JOIN metab_renal_vasc_eye_day_logs dl ON dl.enrollment_id = br.enrollment_id
+        WHERE br.randomised = TRUE
+    ) t
+    JOIN birth_resuscitation br2 ON br2.enrollment_id = t.enrollment_id
+    JOIN screenings s ON s.screening_id = br2.screening_id
+    WHERE s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+    GROUP BY s.site_name, t.tbl, t.submission_status
+""")
+
+TIMELINESS_FORM_B_QUERY = text("""
+    SELECT
+        s.site_name,
+        EXTRACT(EPOCH FROM (br.created_at - br.date_of_birth::timestamp)) / 3600.0 AS lag_hours
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE
+      AND br.date_of_birth IS NOT NULL
+      AND br.created_at IS NOT NULL
+      AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+""")
+
+TIMELINESS_DAY_LOGS_QUERY = text("""
+    SELECT s.site_name, 'resp_cv_neuro' AS tbl,
+        EXTRACT(EPOCH FROM (dl.saved_at - (br.date_of_birth::timestamp + (dl.nicu_day - 1) * INTERVAL '1 day'))) / 3600.0 AS lag_hours
+    FROM resp_cv_neuro_day_logs dl
+    JOIN birth_resuscitation br ON br.enrollment_id = dl.enrollment_id
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND dl.saved_at IS NOT NULL AND br.date_of_birth IS NOT NULL
+      AND s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+    UNION ALL
+    SELECT s.site_name, 'infect_gi_hema' AS tbl,
+        EXTRACT(EPOCH FROM (dl.saved_at - (br.date_of_birth::timestamp + (dl.nicu_day - 1) * INTERVAL '1 day'))) / 3600.0 AS lag_hours
+    FROM infect_gi_hema_day_logs dl
+    JOIN birth_resuscitation br ON br.enrollment_id = dl.enrollment_id
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND dl.saved_at IS NOT NULL AND br.date_of_birth IS NOT NULL
+      AND s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+    UNION ALL
+    SELECT s.site_name, 'metab_renal_vasc_eye' AS tbl,
+        EXTRACT(EPOCH FROM (dl.saved_at - (br.date_of_birth::timestamp + (dl.nicu_day - 1) * INTERVAL '1 day'))) / 3600.0 AS lag_hours
+    FROM metab_renal_vasc_eye_day_logs dl
+    JOIN birth_resuscitation br ON br.enrollment_id = dl.enrollment_id
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND dl.saved_at IS NOT NULL AND br.date_of_birth IS NOT NULL
+      AND s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+""")
+
+ACTION_LIST_QUERY = text("""
+    SELECT 'consented_no_form_b' AS issue, s.site_name, s.screening_id AS ref_id
+    FROM screenings s
+    WHERE s.consent_given = 'Yes' AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND NOT EXISTS (SELECT 1 FROM birth_resuscitation br WHERE br.screening_id = s.screening_id)
+    UNION ALL
+    SELECT 'randomised_no_form_c' AS issue, s.site_name, br.enrollment_id AS ref_id
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND NOT EXISTS (SELECT 1 FROM maternal_details md WHERE md.enrollment_id = br.enrollment_id)
+    UNION ALL
+    SELECT 'randomised_no_form_i' AS issue, s.site_name, br.enrollment_id AS ref_id
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND NOT EXISTS (SELECT 1 FROM study_outcomes so WHERE so.enrollment_id = br.enrollment_id)
+    UNION ALL
+    SELECT 'few_day_logs' AS issue, s.site_name, br.enrollment_id AS ref_id
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE br.randomised = TRUE AND br.date_of_birth IS NOT NULL
+      AND (CURRENT_DATE - br.date_of_birth) >= 7
+      AND s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND (SELECT COUNT(*) FROM resp_cv_neuro_day_logs dl WHERE dl.enrollment_id = br.enrollment_id) < 7
+""")
+
+SITE_ACTIVITY_QUERY = text("""
+    SELECT site_name, MAX(last_entry) AS last_entry FROM (
+        SELECT site_name, MAX(created_at) AS last_entry
+        FROM screenings
+        WHERE is_deleted = FALSE AND site_name IS NOT NULL AND site_name != ''
+        GROUP BY site_name
+        UNION ALL
+        SELECT s.site_name, MAX(d.created_at) AS last_entry
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        JOIN (
+            SELECT enrollment_id, created_at FROM maternal_details
+            UNION ALL SELECT enrollment_id, created_at FROM postnatal_day1
+            UNION ALL SELECT enrollment_id, created_at FROM resp_cv_neuro_day_logs
+            UNION ALL SELECT enrollment_id, created_at FROM infect_gi_hema_day_logs
+            UNION ALL SELECT enrollment_id, created_at FROM metab_renal_vasc_eye_day_logs
+        ) d ON d.enrollment_id = br.enrollment_id
+        WHERE br.randomised = TRUE AND s.is_deleted = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name != ''
+        GROUP BY s.site_name
+    ) sub
+    GROUP BY site_name
+""")
+
+WEEKLY_COUNTS_QUERY = text("""
+    SELECT site_name,
+           DATE_TRUNC('week', created_at AT TIME ZONE 'Asia/Kolkata') AS week_start,
+           COUNT(*) AS n
+    FROM (
+        SELECT site_name, created_at FROM screenings
+        WHERE is_deleted = FALSE AND site_name IS NOT NULL AND site_name != ''
+          AND created_at >= NOW() - INTERVAL '28 days'
+        UNION ALL
+        SELECT s.site_name, br.created_at
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
+          AND br.created_at >= NOW() - INTERVAL '28 days'
+    ) t
+    GROUP BY site_name, week_start
+    ORDER BY week_start
+""")
+
+
+def _median_q1_q3(values):
+    if not values:
+        return None, None, None
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    median = s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
+    q1 = s[n // 4]
+    q3 = s[min(3 * n // 4, n - 1)]
+    return round(median, 1), round(q1, 1), round(q3, 1)
+
+
+@router.get("/data-quality")
+def get_data_quality(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    global_view = is_global(current_user)
+    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    site_set = set(sites)
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    # ── 1. Completion matrix ──────────────────────────────────────────────
+    site_totals = {s: 0 for s in ALL_SITES}
+    site_counts = {s: {k: 0 for k, _ in FORM_KEYS} for s in ALL_SITES}
+    for row in db.execute(COMPLETION_QUERY).mappings():
+        site = row["site_name"]
+        if site not in site_set:
+            continue
+        site_totals[site] = site_totals.get(site, 0) + 1
+        for key, _ in FORM_KEYS:
+            if row.get(key):
+                site_counts[site][key] = site_counts[site].get(key, 0) + 1
+
+    overall_total = sum(site_totals[s] for s in sites)
+    overall_counts = {k: sum(site_counts[s].get(k, 0) for s in sites) for k, _ in FORM_KEYS}
+
+    def _pct(n, total):
+        return round(100 * n / total, 1) if total else None
+
+    completion_matrix = {
+        "forms": [{"key": k, "label": lbl} for k, lbl in FORM_KEYS],
+        "overall": {
+            "total": overall_total,
+            **{k: {"n": overall_counts[k], "pct": _pct(overall_counts[k], overall_total)} for k, _ in FORM_KEYS},
+        },
+        "by_site": {
+            s: {
+                "total": site_totals[s],
+                **{k: {"n": site_counts[s].get(k, 0), "pct": _pct(site_counts[s].get(k, 0), site_totals[s])} for k, _ in FORM_KEYS},
+            }
+            for s in sites
+        },
+    }
+
+    # ── 2. Daily log submission status ────────────────────────────────────
+    LOG_TABLES = [
+        ("resp_cv_neuro",         "Resp/CV/Neuro"),
+        ("infect_gi_hema",        "Infect/GI/Hema"),
+        ("metab_renal_vasc_eye",  "Metab/Renal/Vasc/Eye"),
+    ]
+    STATUSES = ["empty", "draft", "complete", "submitted", "late"]
+    log_data = {tbl: {s: {st: 0 for st in STATUSES} for s in ALL_SITES} for tbl, _ in LOG_TABLES}
+    for row in db.execute(DAY_LOG_STATUS_QUERY).mappings():
+        site = row["site_name"]
+        if site not in site_set:
+            continue
+        tbl = row["tbl"]
+        st = row["submission_status"] if row["submission_status"] in STATUSES else "empty"
+        if tbl in log_data and site in log_data[tbl]:
+            log_data[tbl][site][st] = log_data[tbl][site].get(st, 0) + int(row["n"] or 0)
+
+    daily_log_status = []
+    for tbl_key, tbl_label in LOG_TABLES:
+        overall_st = {st: sum(log_data[tbl_key].get(s, {}).get(st, 0) for s in sites) for st in STATUSES}
+        daily_log_status.append({
+            "table": tbl_key,
+            "label": tbl_label,
+            "overall": overall_st,
+            "by_site": {s: log_data[tbl_key].get(s, {st: 0 for st in STATUSES}) for s in sites},
+        })
+
+    # ── 3. Timeliness ─────────────────────────────────────────────────────
+    formb_lags = {s: [] for s in ALL_SITES}
+    for row in db.execute(TIMELINESS_FORM_B_QUERY).mappings():
+        site = row["site_name"]
+        if site in site_set and row["lag_hours"] is not None:
+            h = float(row["lag_hours"])
+            if 0 <= h <= 8760:
+                formb_lags[site].append(h)
+
+    log_lags = {tbl_key: {s: [] for s in ALL_SITES} for tbl_key, _ in LOG_TABLES}
+    for row in db.execute(TIMELINESS_DAY_LOGS_QUERY).mappings():
+        site = row["site_name"]
+        tbl = row["tbl"]
+        if site in site_set and row["lag_hours"] is not None:
+            h = float(row["lag_hours"])
+            if 0 <= h <= 8760 and tbl in log_lags and site in log_lags[tbl]:
+                log_lags[tbl][site].append(h)
+
+    def _timed_row(label, lags_by_site):
+        all_vals = [v for s in sites for v in lags_by_site.get(s, [])]
+        med, q1, q3 = _median_q1_q3(all_vals)
+        by_site = {}
+        for s in sites:
+            m, q1s, q3s = _median_q1_q3(lags_by_site.get(s, []))
+            by_site[s] = {"median": m, "q1": q1s, "q3": q3s, "n": len(lags_by_site.get(s, []))}
+        return {"label": label, "unit": "hours", "overall": {"median": med, "q1": q1, "q3": q3, "n": len(all_vals)}, "by_site": by_site}
+
+    timeliness = [_timed_row("Form B — Birth Resuscitation", formb_lags)]
+    for tbl_key, tbl_label in LOG_TABLES:
+        timeliness.append(_timed_row(f"{tbl_label} Daily Logs", log_lags.get(tbl_key, {})))
+
+    # ── 4. Action list ────────────────────────────────────────────────────
+    ACTION_LABELS = {
+        "consented_no_form_b": "Consented but Form B (Birth Resuscitation) not yet entered",
+        "randomised_no_form_c": "Randomised but Form C (Maternal Details) missing",
+        "randomised_no_form_i": "Randomised but Form I (Study Outcomes) missing",
+        "few_day_logs": "Randomised ≥7 days old with <7 Resp/CV/Neuro daily log entries",
+    }
+    action_counts = {key: {s: 0 for s in ALL_SITES} for key in ACTION_LABELS}
+    for row in db.execute(ACTION_LIST_QUERY).mappings():
+        site = row["site_name"]
+        issue = row["issue"]
+        if site in site_set and issue in action_counts:
+            action_counts[issue][site] = action_counts[issue].get(site, 0) + 1
+
+    action_list = []
+    for key, label in ACTION_LABELS.items():
+        overall = sum(action_counts[key].get(s, 0) for s in sites)
+        action_list.append({
+            "key": key,
+            "label": label,
+            "overall": overall,
+            "by_site": {s: action_counts[key].get(s, 0) for s in sites},
+        })
+
+    # ── 5. Site activity ─────────────────────────────────────────────────
+    last_entry = {s: None for s in sites}
+    for row in db.execute(SITE_ACTIVITY_QUERY).mappings():
+        site = row["site_name"]
+        if site in site_set and row["last_entry"]:
+            dt = row["last_entry"]
+            last_entry[site] = dt.date().isoformat() if hasattr(dt, "date") else str(dt)[:10]
+
+    today_date = date.today()
+    inactive_flags = {
+        s: (last_entry[s] is None or (today_date - date.fromisoformat(last_entry[s])).days >= 14)
+        for s in sites
+    }
+
+    weekly_raw = {s: {} for s in sites}
+    for row in db.execute(WEEKLY_COUNTS_QUERY).mappings():
+        site = row["site_name"]
+        if site in site_set and row["week_start"]:
+            wk = row["week_start"]
+            wk_str = wk.date().isoformat() if hasattr(wk, "date") else str(wk)[:10]
+            weekly_raw[site][wk_str] = int(row["n"] or 0)
+
+    week_starts = sorted({w for d in weekly_raw.values() for w in d})
+    weekly_counts = {s: [weekly_raw[s].get(w, 0) for w in week_starts] for s in sites}
+
+    return {
+        "generated_at": generated_at,
+        "sites": sites,
+        "completion_matrix": completion_matrix,
+        "daily_log_status": daily_log_status,
+        "timeliness": timeliness,
+        "action_list": action_list,
+        "site_activity": {
+            "last_entry": last_entry,
+            "inactive_flags": inactive_flags,
+            "week_labels": week_starts,
+            "weekly_counts": weekly_counts,
+        },
+    }
