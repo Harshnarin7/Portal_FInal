@@ -371,6 +371,26 @@ export default function ScreeningForm() {
       .then(r => setNurses(r.data)).catch(() => setNurses([]));
   }, [formData.site_name]);
 
+  /* ─── Auto-fill Site + Site ID for the logged-in nurse's site ──
+     This used to be set only once, inline in the initial useState()
+     default for formData. That's not reliable: it depends on `user`
+     (from AuthContext) already being populated on ScreeningForm's very
+     first render, and testing this live showed isSiteLocked can still
+     be false at that exact moment (e.g. right after a full page
+     load/refresh) — leaving site_name permanently empty even though
+     isSiteLocked correctly flips true moments later, since nothing
+     re-applies the value afterward. Making it reactive, mirroring the
+     screened_by effect below, fixes that regardless of first-render
+     timing. */
+  useEffect(() => {
+    if (!isSiteLocked || !user?.site) return;
+    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return; // don't touch an existing record's saved site
+    if (formData.site_name) return;
+    setFormData(prev => prev.site_name
+      ? prev
+      : { ...prev, site_name: user.site, site_id: SITE_ID_MAP[user.site] || "" });
+  }, [isSiteLocked, user, screeningId, formData.site_name]);
+
   /* ─── Auto-fill "Screened by" with the logged-in nurse's own name ──
      Only when: this is a fresh/unsaved form (not editing an existing
      screening someone else filled), the field is still empty, and the
