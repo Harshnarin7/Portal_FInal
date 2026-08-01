@@ -219,6 +219,28 @@ app.add_middleware(
 # HELPER FUNCTIONS
 # ============================================================================
 
+# FIX: the backend used to trust whatever `site_id` the client sent in the
+# create-screening payload with zero validation, generating the ID prefix
+# straight from it (see generate_screening_id below). The frontend has its
+# own SITE_ID_MAP (ScreeningForm.jsx) that's SUPPOSED to match this, and
+# does today — but nothing enforced that, so any drift between them (a
+# frontend bug, a stale build, or a legacy user account with a wrong
+# site_name already stored from before naming conventions were settled)
+# could silently produce a screening_id with the WRONG site prefix — e.g. a
+# GMCH screening getting "01-" (PGIMER's prefix) instead of "02-". This is
+# now the single source of truth: create_screening below computes site_id
+# from site_name itself and ignores whatever the client sent for site_id,
+# so a client-side bug can no longer produce a mismatched prefix.
+CANONICAL_SITE_ID_MAP = {
+    "PGIMER": "01",
+    "GMCH":   "02",
+    "IOG":    "03",
+    "AFMC":   "04",
+    "GMCH-A": "05",
+    "AMC":    "06",
+}
+
+
 def generate_screening_id(site_id: str, db: Session):
     # Sequential per-site IDs: "<site_id>-0001", "<site_id>-0002", ...
     #
@@ -508,6 +530,22 @@ def create_screening(
 ):
     ensure_same_site(screening.site_name, current_user)
 
+    # FIX: derive site_id from site_name server-side rather than trusting
+    # the client's own site_id field — see CANONICAL_SITE_ID_MAP above for
+    # why. If site_name isn't in the canonical map at all (a genuinely
+    # unrecognized site, e.g. a typo an admin made in ManageStaff), reject
+    # clearly instead of silently falling back to some default that would
+    # itself produce a wrong prefix.
+    canonical_site_id = CANONICAL_SITE_ID_MAP.get((screening.site_name or "").strip())
+    if not canonical_site_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unrecognized site_name '{screening.site_name}' — cannot determine "
+                   f"the correct screening ID prefix. Known sites: "
+                   f"{', '.join(CANONICAL_SITE_ID_MAP.keys())}.",
+        )
+    screening.site_id = canonical_site_id
+
     # Only auto-generated IDs are safe to silently retry with a new number —
     # if the CLIENT explicitly supplied its own screening_id (e.g. it thinks
     # it already has a server-confirmed one) and that collides, retrying
@@ -674,6 +712,16 @@ def update_screening(
         old_snapshot = row_snapshot(entry)
         update_data = updated_data.model_dump(exclude_unset=True)
         update_data.pop("screening_id", None)
+
+        # FIX: same reasoning as create_screening above — don't trust the
+        # client's site_id, derive it from site_name server-side so an
+        # update can't silently corrupt an existing record's site_id to
+        # something inconsistent with its own already-assigned prefix.
+        if "site_name" in update_data:
+            canonical_site_id = CANONICAL_SITE_ID_MAP.get((update_data["site_name"] or "").strip())
+            if canonical_site_id:
+                update_data["site_id"] = canonical_site_id
+
         pii_payload = extract_screening_pii(update_data)
         for field in SCREENING_PII_FIELDS:
             update_data.pop(field, None)
