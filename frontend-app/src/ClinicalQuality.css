@@ -1,0 +1,82 @@
+.cq-root {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.cq-state {
+  color: #7a8fb0;
+  padding: 40px;
+  text-align: center;
+}
+.cq-error { color: #e05c5c; }
+
+.cq-panel-title {
+  color: #4db8a0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.cq-table-wrap {
+  overflow-x: auto;
+}
+
+.cq-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 560px;
+  width: 100%;
+}
+
+.cq-table th {
+  background: #0f1e35;
+  border-bottom: 1px solid #1e2d4a;
+  color: #7a8fb0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cq-table th.cq-metric-col {
+  text-align: left;
+  min-width: 270px;
+}
+
+.cq-n {
+  color: #4a6080;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.cq-table td {
+  border-bottom: 1px solid #0f1e35;
+  color: #c5d5e8;
+  padding: 7px 12px;
+}
+
+.cq-metric-label {
+  color: #e0eaf5;
+  font-size: 12px;
+}
+
+.cq-val {
+  color: #c5d5e8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.cq-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cq-timestamp {
+  color: #4a6080;
+  font-size: 11px;
+  margin-top: 4px;
+  text-align: right;
+}

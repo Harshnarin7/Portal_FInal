@@ -1,11 +1,16 @@
 // TrialMonitoringDashboard.jsx — PORTAL Trial Monitoring Dashboard
 // Section 1: CONSORT Participant Flow Table
-// (Section 2 — Data Quality Indicators — is a separate, later addition.)
+// Section 2: Data Quality Indicators
 
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import "./TrialMonitoringDashboard.css";
+import DataQuality from "./DataQuality";
+import ClinicalQuality from "./ClinicalQuality";
+import BaselineChars from "./BaselineChars";
+import SafetyEvents from "./SafetyEvents";
+import EnrollmentForecast from "./EnrollmentForecast";
 
 const ROW_TYPE_CLASS = {
   awaiting: "tmd-row-awaiting",
@@ -37,28 +42,38 @@ function Row({ row, sites, depth = 0 }) {
   );
 }
 
+const SECTIONS = [
+  { key: "consort",          label: "Section 1 — CONSORT Flow" },
+  { key: "data-quality",     label: "Section 2 — Data Quality" },
+  { key: "clinical-quality", label: "Section 3 — Clinical Quality" },
+  { key: "baseline",         label: "Section 4 — Baseline Chars" },
+  { key: "safety",           label: "Section 5 — Safety & AEs" },
+  { key: "enrollment-forecast", label: "Section 6 — Enrolment Forecast" },
+];
+
 export default function TrialMonitoringDashboard() {
   const { user } = useAuth();
   const isSuperadmin = (user?.role || "").toLowerCase() === "superadmin";
+  const [activeSection, setActiveSection] = useState("consort");
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [consortData, setConsortData] = useState(null);
+  const [consortLoading, setConsortLoading] = useState(true);
+  const [consortError, setConsortError] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadConsort = useCallback(async () => {
+    setConsortLoading(true);
+    setConsortError(null);
     try {
       const res = await api.get("/dashboard/consort");
-      setData(res.data);
+      setConsortData(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load CONSORT flow data");
+      setConsortError(err.response?.data?.detail || "Failed to load CONSORT flow data");
     } finally {
-      setLoading(false);
+      setConsortLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadConsort(); }, [loadConsort]);
 
   const downloadCsv = async () => {
     try {
@@ -81,46 +96,88 @@ export default function TrialMonitoringDashboard() {
       <div className="tmd-topbar">
         <div>
           <div className="tmd-title">Trial Monitoring Dashboard</div>
-          <div className="tmd-subtitle">Section 1 — CONSORT Participant Flow</div>
+          <div className="tmd-section-tabs">
+            {SECTIONS.map(s => (
+              <button
+                key={s.key}
+                className={`tmd-tab ${activeSection === s.key ? "tmd-tab-active" : ""}`}
+                onClick={() => setActiveSection(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
-        {isSuperadmin && data && (
+        {isSuperadmin && consortData && activeSection === "consort" && (
           <button className="tmd-csv-btn" onClick={downloadCsv}>Download CSV</button>
         )}
       </div>
 
-      <div className="tmd-card">
-        {loading && <div className="tmd-state">Loading CONSORT flow…</div>}
-        {error && <div className="tmd-state tmd-error">{error}</div>}
+      {activeSection === "consort" && (
+        <div className="tmd-card">
+          {consortLoading && <div className="tmd-state">Loading CONSORT flow…</div>}
+          {consortError && <div className="tmd-state tmd-error">{consortError}</div>}
 
-        {!loading && !error && data && (
-          <>
-            <table className="tmd-table">
-              <thead>
-                <tr>
-                  <th className="tmd-label-cell">Label</th>
-                  <th className="tmd-num">Overall</th>
-                  {data.sites.map((site) => (
-                    <th key={site} className="tmd-num">{site}</th>
+          {!consortLoading && !consortError && consortData && (
+            <>
+              <table className="tmd-table">
+                <thead>
+                  <tr>
+                    <th className="tmd-label-cell">Label</th>
+                    <th className="tmd-num">Overall</th>
+                    {consortData.sites.map((site) => (
+                      <th key={site} className="tmd-num">{site}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {consortData.rows.map((row) => (
+                    <Row key={row.box} row={row} sites={consortData.sites} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((row) => (
-                  <Row key={row.box} row={row} sites={data.sites} />
-                ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
 
-            {(data.footnotes || []).map((note, i) => (
-              <div key={i} className="tmd-footnote">* {note}</div>
-            ))}
+              {(consortData.footnotes || []).map((note, i) => (
+                <div key={i} className="tmd-footnote">* {note}</div>
+              ))}
 
-            <div className="tmd-timestamp">
-              Data as of {new Date(data.generated_at).toLocaleString()}
-            </div>
-          </>
-        )}
-      </div>
+              <div className="tmd-timestamp">
+                Data as of {new Date(consortData.generated_at).toLocaleString()}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeSection === "data-quality" && (
+        <div className="tmd-card">
+          <DataQuality />
+        </div>
+      )}
+
+      {activeSection === "clinical-quality" && (
+        <div className="tmd-card">
+          <ClinicalQuality />
+        </div>
+      )}
+
+      {activeSection === "baseline" && (
+        <div className="tmd-card">
+          <BaselineChars />
+        </div>
+      )}
+
+      {activeSection === "safety" && (
+        <div className="tmd-card">
+          <SafetyEvents />
+        </div>
+      )}
+
+      {activeSection === "enrollment-forecast" && (
+        <div className="tmd-card">
+          <EnrollmentForecast />
+        </div>
+      )}
     </div>
   );
 }
