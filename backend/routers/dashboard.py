@@ -791,3 +791,233 @@ def get_data_quality(
             "weekly_counts": weekly_counts,
         },
     }
+
+
+# ============================================================
+# SECTION 3 — CLINICAL CARE QUALITY
+# GET /dashboard/clinical-quality
+# ============================================================
+
+def _cq_pct(n, d):
+    if not d:
+        return None
+    return round(100 * (n or 0) / d, 1)
+
+
+def _build_dr(r):
+    n  = int(r["n"] or 0)
+    nd = int(r["n_temp_dr_recorded"] or 0)
+    return {
+        "n": n,
+        "placental_transfusion": {"n": int(r["n_placental_transfusion"] or 0), "pct": _cq_pct(r["n_placental_transfusion"], n)},
+        "cord_clamp_time": {
+            "median": int(r["median_cord_clamp"]) if r["median_cord_clamp"] is not None else None,
+            "p25":    int(r["p25_cord_clamp"])    if r["p25_cord_clamp"]    is not None else None,
+            "p75":    int(r["p75_cord_clamp"])    if r["p75_cord_clamp"]    is not None else None,
+        },
+        "hypothermia_dr":    {"n": int(r["n_hypothermia_dr"] or 0),    "pct": _cq_pct(r["n_hypothermia_dr"],    nd), "denominator": nd},
+        "ppv":               {"n": int(r["n_ppv"] or 0),               "pct": _cq_pct(r["n_ppv"],               n)},
+        "intubation":        {"n": int(r["n_intubation"] or 0),        "pct": _cq_pct(r["n_intubation"],        n)},
+        "chest_compression": {"n": int(r["n_chest_compression"] or 0), "pct": _cq_pct(r["n_chest_compression"], n)},
+        "adrenaline":        {"n": int(r["n_adrenaline"] or 0),        "pct": _cq_pct(r["n_adrenaline"],        n)},
+    }
+
+
+def _build_gh(r):
+    n  = int(r["n"] or 0)
+    nt = int(r["n_temp_axillary_recorded"] or 0)
+    return {
+        "n": n,
+        "plastic_wrap":     {"n": int(r["n_plastic_wrap"] or 0),   "pct": _cq_pct(r["n_plastic_wrap"],   n)},
+        "immediate_kmc":    {"n": int(r["n_immediate_kmc"] or 0),  "pct": _cq_pct(r["n_immediate_kmc"],  n)},
+        "early_cpap":       {"n": int(r["n_early_cpap"] or 0),     "pct": _cq_pct(r["n_early_cpap"],     n)},
+        "caffeine":         {"n": int(r["n_caffeine"] or 0),       "pct": _cq_pct(r["n_caffeine"],       n)},
+        "surfactant":       {"n": int(r["n_surfactant"] or 0),     "pct": _cq_pct(r["n_surfactant"],     n)},
+        "hypothermia_nicu": {"n": int(r["n_hypothermia_nicu"] or 0), "pct": _cq_pct(r["n_hypothermia_nicu"], nt), "denominator": nt},
+    }
+
+
+def _build_resp(r):
+    n = int(r["n_logs"] or 0)
+    return {
+        "n_logs":          n,
+        "invasive_vent":   {"n": int(r["n_invasive"] or 0),        "pct": _cq_pct(r["n_invasive"],        n)},
+        "cpap":            {"n": int(r["n_cpap"] or 0),            "pct": _cq_pct(r["n_cpap"],            n)},
+        "hfnc":            {"n": int(r["n_hfnc"] or 0),            "pct": _cq_pct(r["n_hfnc"],            n)},
+        "room_air":        {"n": int(r["n_room_air"] or 0),        "pct": _cq_pct(r["n_room_air"],        n)},
+        "surfactant_days": {"n": int(r["n_surfactant_days"] or 0), "pct": _cq_pct(r["n_surfactant_days"], n)},
+        "caffeine_days":   {"n": int(r["n_caffeine_days"] or 0),   "pct": _cq_pct(r["n_caffeine_days"],   n)},
+        "pphn":            {"n": int(r["n_pphn"] or 0),            "pct": _cq_pct(r["n_pphn"],            n)},
+        "pulm_hemorrhage": {"n": int(r["n_pulm_hemorrhage"] or 0), "pct": _cq_pct(r["n_pulm_hemorrhage"], n)},
+        "pneumothorax":    {"n": int(r["n_pneumothorax"] or 0),    "pct": _cq_pct(r["n_pneumothorax"],    n)},
+    }
+
+
+def _build_nutr(r):
+    n = int(r["n_logs"] or 0)
+    return {
+        "n_logs":            n,
+        "enteral":           {"n": int(r["n_enteral"] or 0),           "pct": _cq_pct(r["n_enteral"],           n)},
+        "ebm":               {"n": int(r["n_ebm"] or 0),               "pct": _cq_pct(r["n_ebm"],               n)},
+        "pdhm":              {"n": int(r["n_pdhm"] or 0),              "pct": _cq_pct(r["n_pdhm"],              n)},
+        "pn":                {"n": int(r["n_pn"] or 0),                "pct": _cq_pct(r["n_pn"],                n)},
+        "nec_suspected":     {"n": int(r["n_nec_suspected"] or 0),     "pct": _cq_pct(r["n_nec_suspected"],     n)},
+        "nec_confirmed":     {"n": int(r["n_nec_confirmed"] or 0),     "pct": _cq_pct(r["n_nec_confirmed"],     n)},
+        "jaundice_days":     {"n": int(r["n_jaundice_days"] or 0),     "pct": _cq_pct(r["n_jaundice_days"],     n)},
+        "phototherapy_days": {"n": int(r["n_phototherapy_days"] or 0), "pct": _cq_pct(r["n_phototherapy_days"], n)},
+    }
+
+
+def _build_infect(r):
+    n  = int(r["n_logs"] or 0)
+    ns = int(r["n_sepsis_suspected"] or 0)
+    nc = int(r["n_culture_sent"] or 0)
+    return {
+        "n_logs":           n,
+        "sepsis_suspected": {"n": ns, "pct": _cq_pct(ns, n)},
+        "culture_sent_when_suspected": {
+            "n": int(r["n_culture_sent_when_suspected"] or 0),
+            "pct": _cq_pct(r["n_culture_sent_when_suspected"], ns),
+            "denominator": ns,
+        },
+        "culture_positive": {
+            "n": int(r["n_culture_positive"] or 0),
+            "pct": _cq_pct(r["n_culture_positive"], nc),
+            "denominator": nc,
+        },
+        "antibiotic_days": {"n": int(r["n_antibiotic_days"] or 0), "pct": _cq_pct(r["n_antibiotic_days"], n)},
+        "clabsi":          {"n": int(r["n_clabsi"] or 0),          "pct": _cq_pct(r["n_clabsi"],          n)},
+        "vap":             {"n": int(r["n_vap"] or 0),             "pct": _cq_pct(r["n_vap"],             n)},
+    }
+
+
+def _cq_split(rows, builder):
+    overall, by_site = {}, {}
+    for r in rows:
+        sn = r["site_name"]
+        if sn is None or sn == "__overall__":
+            overall = builder(r)
+        else:
+            by_site[sn] = builder(r)
+    return {"overall": overall, "by_site": by_site}
+
+
+@router.get("/clinical-quality")
+def get_clinical_quality(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    DR_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(br.enrollment_id)                                                              AS n,
+            SUM(CASE WHEN br.placental_transfusion  THEN 1 ELSE 0 END)                          AS n_placental_transfusion,
+            ROUND(PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY br.cord_clamp_time))             AS median_cord_clamp,
+            ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY br.cord_clamp_time))             AS p25_cord_clamp,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY br.cord_clamp_time))             AS p75_cord_clamp,
+            SUM(CASE WHEN na.temp_dr IS NOT NULL                        THEN 1 ELSE 0 END)      AS n_temp_dr_recorded,
+            SUM(CASE WHEN na.temp_dr IS NOT NULL AND na.temp_dr < 36.5  THEN 1 ELSE 0 END)     AS n_hypothermia_dr,
+            SUM(CASE WHEN br.ppv_required       THEN 1 ELSE 0 END)                              AS n_ppv,
+            SUM(CASE WHEN br.intubation         THEN 1 ELSE 0 END)                              AS n_intubation,
+            SUM(CASE WHEN br.chest_compression  THEN 1 ELSE 0 END)                              AS n_chest_compression,
+            SUM(CASE WHEN br.adrenaline         THEN 1 ELSE 0 END)                              AS n_adrenaline
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        LEFT JOIN nicu_admission na ON na.enrollment_id = br.enrollment_id
+        WHERE br.randomised = TRUE AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    GH_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(pd.enrollment_id)                                                                        AS n,
+            SUM(CASE WHEN pd.plastic_wrap        THEN 1 ELSE 0 END)                                       AS n_plastic_wrap,
+            SUM(CASE WHEN pd.immediate_kmc       THEN 1 ELSE 0 END)                                       AS n_immediate_kmc,
+            SUM(CASE WHEN pd.early_cpap          THEN 1 ELSE 0 END)                                       AS n_early_cpap,
+            SUM(CASE WHEN pd.caffeine            THEN 1 ELSE 0 END)                                       AS n_caffeine,
+            SUM(CASE WHEN pd.surfactant_required THEN 1 ELSE 0 END)                                       AS n_surfactant,
+            SUM(CASE WHEN na.temp_axillary IS NOT NULL                               THEN 1 ELSE 0 END)   AS n_temp_axillary_recorded,
+            SUM(CASE WHEN na.temp_axillary IS NOT NULL AND na.temp_axillary < 36.5  THEN 1 ELSE 0 END)   AS n_hypothermia_nicu
+        FROM postnatal_day1 pd
+        JOIN birth_resuscitation br ON br.enrollment_id = pd.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        LEFT JOIN nicu_admission na ON na.enrollment_id = pd.enrollment_id
+        WHERE s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    RESP_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(*)                                                                                    AS n_logs,
+            SUM(CASE WHEN r.endotracheal_intubation                          THEN 1 ELSE 0 END)        AS n_invasive,
+            SUM(CASE WHEN NOT COALESCE(r.endotracheal_intubation, FALSE)
+                          AND r.support_modes ILIKE '%%cpap%%'               THEN 1 ELSE 0 END)        AS n_cpap,
+            SUM(CASE WHEN NOT COALESCE(r.endotracheal_intubation, FALSE)
+                          AND (r.support_modes ILIKE '%%hfnc%%'
+                            OR r.support_modes ILIKE '%%high flow%%')        THEN 1 ELSE 0 END)        AS n_hfnc,
+            SUM(CASE WHEN r.respiratory_support = FALSE                      THEN 1 ELSE 0 END)        AS n_room_air,
+            SUM(CASE WHEN r.surfactant                                       THEN 1 ELSE 0 END)        AS n_surfactant_days,
+            SUM(CASE WHEN r.caffeine                                         THEN 1 ELSE 0 END)        AS n_caffeine_days,
+            SUM(CASE WHEN r.pphn                                             THEN 1 ELSE 0 END)        AS n_pphn,
+            SUM(CASE WHEN r.pulm_hemorrhage                                  THEN 1 ELSE 0 END)        AS n_pulm_hemorrhage,
+            SUM(CASE WHEN r.pneumothorax                                     THEN 1 ELSE 0 END)        AS n_pneumothorax
+        FROM resp_cv_neuro_day_logs r
+        JOIN birth_resuscitation br ON br.enrollment_id = r.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE r.submission_status IN ('complete', 'submitted', 'late') AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    NUTR_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(*)                                                                                            AS n_logs,
+            SUM(CASE WHEN i.enteral_feeds_received                                           THEN 1 ELSE 0 END) AS n_enteral,
+            SUM(CASE WHEN i.feed_type ILIKE '%%EBM%%'                                        THEN 1 ELSE 0 END) AS n_ebm,
+            SUM(CASE WHEN i.feed_type ILIKE '%%PDHM%%' OR i.feed_type ILIKE '%%DHM%%'        THEN 1 ELSE 0 END) AS n_pdhm,
+            SUM(CASE WHEN i.parenteral_nutrition                                              THEN 1 ELSE 0 END) AS n_pn,
+            SUM(CASE WHEN i.nec_suspected                                                    THEN 1 ELSE 0 END) AS n_nec_suspected,
+            SUM(CASE WHEN i.nec_confirmed_stage IS NOT NULL AND i.nec_confirmed_stage != ''  THEN 1 ELSE 0 END) AS n_nec_confirmed,
+            SUM(CASE WHEN i.jaundice                                                         THEN 1 ELSE 0 END) AS n_jaundice_days,
+            SUM(CASE WHEN i.phototherapy                                                     THEN 1 ELSE 0 END) AS n_phototherapy_days
+        FROM infect_gi_hema_day_logs i
+        JOIN birth_resuscitation br ON br.enrollment_id = i.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE i.submission_status IN ('complete', 'submitted', 'late') AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    INFECT_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(*)                                                                       AS n_logs,
+            SUM(CASE WHEN i.sepsis_suspected                          THEN 1 ELSE 0 END)  AS n_sepsis_suspected,
+            SUM(CASE WHEN i.sepsis_suspected AND i.blood_culture_sent THEN 1 ELSE 0 END)  AS n_culture_sent_when_suspected,
+            SUM(CASE WHEN i.blood_culture_sent                        THEN 1 ELSE 0 END)  AS n_culture_sent,
+            SUM(CASE WHEN i.blood_culture_positive                    THEN 1 ELSE 0 END)  AS n_culture_positive,
+            SUM(CASE WHEN i.antibiotics                               THEN 1 ELSE 0 END)  AS n_antibiotic_days,
+            SUM(CASE WHEN i.clabsi                                    THEN 1 ELSE 0 END)  AS n_clabsi,
+            SUM(CASE WHEN i.vap                                       THEN 1 ELSE 0 END)  AS n_vap
+        FROM infect_gi_hema_day_logs i
+        JOIN birth_resuscitation br ON br.enrollment_id = i.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE i.submission_status IN ('complete', 'submitted', 'late') AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    def run(q):
+        return db.execute(q).mappings().all()
+
+    return {
+        "generated_at": datetime.utcnow().isoformat(),
+        "delivery_room": _cq_split(run(DR_Q),     _build_dr),
+        "golden_hour":   _cq_split(run(GH_Q),     _build_gh),
+        "respiratory":   _cq_split(run(RESP_Q),   _build_resp),
+        "nutrition":     _cq_split(run(NUTR_Q),   _build_nutr),
+        "infection":     _cq_split(run(INFECT_Q), _build_infect),
+    }
