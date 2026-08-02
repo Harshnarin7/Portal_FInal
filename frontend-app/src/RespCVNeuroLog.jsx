@@ -42,6 +42,90 @@ const LEGEND_ITEMS = [
   { label: "Late",        dot: "#EF4444" },
 ];
 
+/* Every field captured for a day, grouped by section, for the
+   "All Days — Table View" modal (fields run down the rows, days
+   run across the columns). */
+const TABLE_VIEW_FIELD_GROUPS = [
+  {
+    section: "General",
+    rows: [
+      { key: "weight_kg", label: "Weight (kg)" },
+    ],
+  },
+  {
+    section: "Respiratory",
+    rows: [
+      { key: "respiratory_support",       label: "Respiratory Support" },
+      { key: "endotracheal_intubation",   label: "Endotracheal Intubation" },
+      { key: "support_modes",             label: "Support Modes" },
+      { key: "max_fio2",                  label: "Max FiO2", suffix: "%" },
+      { key: "map_cpap",                  label: "MAP / CPAP" },
+      { key: "max_flow",                  label: "Max Flow" },
+      { key: "lowest_ph",                 label: "Lowest pH" },
+      { key: "pao2_range",                label: "PaO2 Range" },
+      { key: "paco2_range",               label: "PaCO2 Range" },
+      { key: "apnea_count",               label: "Apnea Count" },
+      { key: "desaturation_count",        label: "Desaturation Count" },
+      { key: "severe_desaturation_count", label: "Severe Desaturation Count" },
+      { key: "supp_o2",             label: "Supplemental O2", bool: true },
+      { key: "surfactant",          label: "Surfactant", bool: true },
+      { key: "caffeine",            label: "Caffeine", bool: true },
+      { key: "extub_attempted",     label: "Extubation Attempted", bool: true },
+      { key: "extub_failure",       label: "Extubation Failure", bool: true },
+      { key: "pulm_hemorrhage",     label: "Pulmonary Hemorrhage", bool: true },
+      { key: "pneumothorax",        label: "Pneumothorax", bool: true },
+      { key: "chest_drain",         label: "Chest Drain", bool: true },
+      { key: "pphn",                label: "PPHN", bool: true },
+      { key: "postnatal_steroids",  label: "Postnatal Steroids", bool: true },
+    ],
+  },
+  {
+    section: "Cardiovascular",
+    rows: [
+      { key: "pda_suspected",       label: "PDA Suspected", bool: true },
+      { key: "echo_done",           label: "Echo Done", bool: true },
+      { key: "hs_pda",              label: "HS PDA", bool: true },
+      { key: "shock",               label: "Shock", bool: true },
+      { key: "vasoactive_support",  label: "Vasoactive Support", bool: true },
+      { key: "fluid_bolus",         label: "Fluid Bolus" },
+      { key: "vasoactive_drugs",    label: "Vasoactive Drugs" },
+    ],
+  },
+  {
+    section: "Neurological",
+    rows: [
+      { key: "cranial_usg",           label: "Cranial USG", bool: true },
+      { key: "ivh",                   label: "IVH", ivh: true },
+      { key: "pvl_suspected",         label: "PVL Suspected", bool: true },
+      { key: "cpvl_confirmed",        label: "cPVL Confirmed", bool: true },
+      { key: "ventriculomegaly",      label: "Ventriculomegaly", bool: true },
+      { key: "clinical_seizures",     label: "Clinical Seizures", bool: true },
+      { key: "eeg_seizures",          label: "EEG Seizures", bool: true },
+      { key: "aeds_given",            label: "AEDs Given", bool: true },
+      { key: "non_ivh_ich",           label: "Non-IVH ICH", bool: true },
+      { key: "meningitis_suspected",  label: "Meningitis Suspected", bool: true },
+    ],
+  },
+  {
+    section: "Record",
+    rows: [
+      { key: "saved_by", label: "Saved By" },
+    ],
+  },
+];
+
+/* Formats a single field's value for one day's data object `d`. */
+function formatTableViewValue(d, row) {
+  if (row.ivh) {
+    return d.ivh === true ? (d.ivh_grade ? `Yes (Gr ${d.ivh_grade})` : "Yes")
+      : d.ivh === false ? "No" : "—";
+  }
+  const v = d[row.key];
+  if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
+  if (v === null || v === undefined || v === "") return "—";
+  return row.suffix ? `${v}${row.suffix}` : String(v);
+}
+
 /* ══════════════════════════════════════════════════════
    HELPER SUB-COMPONENTS
 ══════════════════════════════════════════════════════ */
@@ -289,6 +373,11 @@ export default function RespCVNeuroLog() {
   const [auditEntries, setAuditEntries]     = useState([]);
   const [auditLoading, setAuditLoading]     = useState(false);
 
+  /* ── All-days table view ── */
+  const [showTableView, setShowTableView]   = useState(false);
+  const [tableViewRows, setTableViewRows]   = useState([]);
+  const [tableViewLoading, setTableViewLoading] = useState(false);
+
   /* ── Site-monitor override ── */
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [overrideReason, setOverrideReason]       = useState("");
@@ -371,9 +460,9 @@ export default function RespCVNeuroLog() {
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
-  // Same-morning grace window: yesterday's day stays open until 08:00 today
+  // Same-morning grace window: yesterday's day stays open until 11:00 today
   // so a nurse finishing a late-night shift can still complete it.
-  const RCN_LATE_GRACE_HOUR = 8;
+  const RCN_LATE_GRACE_HOUR = 11;
   const isLateGraceActiveDay =
     todayNicuDay != null && activeDay === todayNicuDay - 1 &&
     new Date().getHours() < RCN_LATE_GRACE_HOUR;
@@ -884,6 +973,32 @@ export default function RespCVNeuroLog() {
     (dayStatuses[d] || STATUS.EMPTY) === STATUS.EMPTY
   );
 
+  // Fetches full clinical data for every day that has something saved
+  // (status != EMPTY), for the "Table View" overview. Reuses the same
+  // per-day endpoint the form itself already uses to load a single day —
+  // no new backend endpoint needed, just fetched in parallel for every
+  // filled day instead of one at a time.
+  const loadTableViewData = async () => {
+    setShowTableView(true);
+    setTableViewLoading(true);
+    try {
+      const filledDays = days.filter(d => (dayStatuses[d] || STATUS.EMPTY) !== STATUS.EMPTY);
+      const results = await Promise.all(
+        filledDays.map(d =>
+          api.get(`/resp-cv-neuro/${enrollmentId}/${d}`)
+            .then(res => ({ day: d, data: res?.data || null }))
+            .catch(() => ({ day: d, data: null }))
+        )
+      );
+      results.sort((a, b) => a.day - b.day);
+      setTableViewRows(results.filter(r => r.data));
+    } catch (err) {
+      console.error("Table view load failed:", err);
+    } finally {
+      setTableViewLoading(false);
+    }
+  };
+
   /* ════════════════════ RENDER ════════════════════ */
   return (
     <>
@@ -951,34 +1066,46 @@ export default function RespCVNeuroLog() {
         <div className="rcn-timeline-wrap">
           <div className="rcn-timeline-header">
             <span className="rcn-timeline-label">Days</span>
-            <div className="rcn-day1-picker">
-              <label className="rcn-day1-picker-label">
-                Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
-              </label>
-              <input
-                type="date"
-                className="rcn-day1-picker-input"
-                value={day1Date}
-                readOnly={day1DateLocked}
-                disabled={day1DateLocked}
-                title={day1DateLocked
-                  ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                  : "Set once, from the baby's date of birth"}
-                onChange={async e => {
-                  if (day1DateLocked) return;
-                  const v = e.target.value;
-                  setDay1Date(v);
-                  if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
-                  try {
-                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
-                    setDay1EditArmed(false);
-                    setDay1DateSetBy(user?.username || "");
-                  } catch (err) {
-                    setMessage("⚠️ Could not save Day 1 Date — " +
-                      (err?.response?.data?.detail || "it may already be locked"));
-                  }
-                }}
-              />
+            <button
+              type="button"
+              className="rcn-table-view-btn"
+              onClick={loadTableViewData}
+              title="View all filled days in a single table"
+            >
+              <History size={13} /> Table View
+            </button>
+            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}`}>
+              <span className="rcn-day1-picker-icon">📅</span>
+              <div className="rcn-day1-picker-body">
+                <label className="rcn-day1-picker-label">
+                  Day 1 Date
+                  {day1DateLocked && <Lock size={10} className="rcn-day1-picker-lock" />}
+                </label>
+                <input
+                  type="date"
+                  className="rcn-day1-picker-input"
+                  value={day1Date}
+                  readOnly={day1DateLocked}
+                  disabled={day1DateLocked}
+                  title={day1DateLocked
+                    ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
+                    : "Set once, from the baby's date of birth"}
+                  onChange={async e => {
+                    if (day1DateLocked) return;
+                    const v = e.target.value;
+                    setDay1Date(v);
+                    if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
+                    try {
+                      await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
+                      setDay1EditArmed(false);
+                      setDay1DateSetBy(user?.username || "");
+                    } catch (err) {
+                      setMessage("⚠️ Could not save Day 1 Date — " +
+                        (err?.response?.data?.detail || "it may already be locked"));
+                    }
+                  }}
+                />
+              </div>
               {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
                 <button
                   type="button"
@@ -1090,7 +1217,7 @@ export default function RespCVNeuroLog() {
         {/* ══ DAILY SUMMARY CARD ══ */}
         <div className="rcn-summary">
           <div className="rcn-summary-left">
-            <h2 className="rcn-summary-title">NICU Day {activeDay}</h2>
+            <h2 className="rcn-summary-title">Day {activeDay}</h2>
             <div className="rcn-summary-meta">
               <Clock size={13} />
               <span>
@@ -1483,6 +1610,78 @@ export default function RespCVNeuroLog() {
           onCancel={() => setShowModal(false)}
           submitting={submitting}
         />
+      )}
+
+      {/* ══ TABLE VIEW MODAL ══ */}
+      {showTableView && (
+        <div className="rcn-modal-overlay" onClick={() => setShowTableView(false)}>
+          <div className="rcn-modal rcn-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="rcn-modal-header">
+              <div className="rcn-modal-icon"><History size={18} /></div>
+              <div>
+                <h3 className="rcn-modal-title">All Days — Table View</h3>
+                <p className="rcn-modal-subtitle">Every day filled in so far for this baby, side by side</p>
+              </div>
+              <button className="rcn-modal-close" type="button" onClick={() => setShowTableView(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rcn-modal-body rcn-table-view-body">
+              {tableViewLoading ? (
+                <p className="rcn-table-view-empty">Loading all days&hellip;</p>
+              ) : tableViewRows.length === 0 ? (
+                <p className="rcn-table-view-empty">No days have been filled in yet.</p>
+              ) : (
+                <div className="rcn-table-view-scroll">
+                  <table className="rcn-table-view rcn-table-view--vertical">
+                    <thead>
+                      <tr>
+                        <th className="rcn-table-view-field-header">Field</th>
+                        {tableViewRows.map(({ day }) => {
+                          const st  = dayStatuses[day] || STATUS.EMPTY;
+                          const cfg = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
+                          return (
+                            <th key={day} className="rcn-table-view-day-header">
+                              <button
+                                type="button"
+                                className="rcn-table-view-goto-btn"
+                                onClick={() => { setActiveDay(day); setShowTableView(false); }}
+                                title="Go to this day"
+                              >
+                                Day {day}
+                              </button>
+                              <span className="rcn-table-view-day-status">
+                                <span className="rcn-table-view-status-dot" style={{ background: cfg.dot }} />
+                                {cfg.label}
+                              </span>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {TABLE_VIEW_FIELD_GROUPS.map(group => (
+                        <React.Fragment key={group.section}>
+                          <tr className="rcn-table-view-section-row">
+                            <td colSpan={tableViewRows.length + 1}>{group.section}</td>
+                          </tr>
+                          {group.rows.map(row => (
+                            <tr key={row.key}>
+                              <td className="rcn-table-view-field-cell">{row.label}</td>
+                              {tableViewRows.map(({ day, data: d }) => (
+                                <td key={day}>{formatTableViewValue(d, row)}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══ AUDIT TRAIL MODAL ══ */}
