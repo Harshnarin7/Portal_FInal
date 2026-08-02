@@ -1021,3 +1021,122 @@ def get_clinical_quality(
         "nutrition":     _cq_split(run(NUTR_Q),   _build_nutr),
         "infection":     _cq_split(run(INFECT_Q), _build_infect),
     }
+
+
+# ============================================================
+# SECTION 4 — BASELINE CHARACTERISTICS
+# GET /dashboard/baseline
+# ============================================================
+
+def _bl_pct(n, d):
+    if not d:
+        return None
+    return round(100 * (n or 0) / d, 1)
+
+
+def _build_infant(r):
+    n  = int(r["n"] or 0)
+    nc = int(r["n_centile_recorded"] or 0)
+    return {
+        "n": n,
+        "ga_weeks": {
+            "median": float(r["median_ga"]) if r["median_ga"] is not None else None,
+            "p25":    float(r["p25_ga"])    if r["p25_ga"]    is not None else None,
+            "p75":    float(r["p75_ga"])    if r["p75_ga"]    is not None else None,
+        },
+        "birth_weight_g": {
+            "median": int(r["median_bw"]) if r["median_bw"] is not None else None,
+            "p25":    int(r["p25_bw"])    if r["p25_bw"]    is not None else None,
+            "p75":    int(r["p75_bw"])    if r["p75_bw"]    is not None else None,
+        },
+        "male":    {"n": int(r["n_male"] or 0),    "pct": _bl_pct(r["n_male"],    n)},
+        "dsd":     {"n": int(r["n_dsd"] or 0),     "pct": _bl_pct(r["n_dsd"],     n)},
+        "sga":     {"n": int(r["n_sga"] or 0),     "pct": _bl_pct(r["n_sga"],     nc), "denominator": nc},
+        "vaginal": {"n": int(r["n_vaginal"] or 0), "pct": _bl_pct(r["n_vaginal"], n)},
+        "lscs":    {"n": int(r["n_lscs"] or 0),    "pct": _bl_pct(r["n_lscs"],    n)},
+    }
+
+
+def _build_antenatal(r):
+    n  = int(r["n"] or 0)
+    ns = int(r["n_steroids"] or 0)
+    return {
+        "n": n,
+        "steroids":          {"n": ns,                                "pct": _bl_pct(ns,                         n)},
+        "complete_steroids": {"n": int(r["n_complete_steroids"] or 0),"pct": _bl_pct(r["n_complete_steroids"],   ns), "denominator": ns},
+        "mgso4":             {"n": int(r["n_mgso4"] or 0),           "pct": _bl_pct(r["n_mgso4"],               n)},
+        "hdp":               {"n": int(r["n_hdp"] or 0),             "pct": _bl_pct(r["n_hdp"],                 n)},
+        "pprom":             {"n": int(r["n_pprom"] or 0),           "pct": _bl_pct(r["n_pprom"],               n)},
+        "fgr":               {"n": int(r["n_fgr"] or 0),             "pct": _bl_pct(r["n_fgr"],                 n)},
+        "multiple":          {"n": int(r["n_multiple"] or 0),        "pct": _bl_pct(r["n_multiple"],            n)},
+    }
+
+
+def _bl_split(rows, builder):
+    overall, by_site = {}, {}
+    for r in rows:
+        sn = r["site_name"]
+        if sn is None or sn == "__overall__":
+            overall = builder(r)
+        else:
+            by_site[sn] = builder(r)
+    return {"overall": overall, "by_site": by_site}
+
+
+@router.get("/baseline")
+def get_baseline(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    INFANT_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(br.enrollment_id)                                                                                      AS n,
+            ROUND(CAST(PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY br.gestation_weeks + br.gestation_days / 7.0) AS numeric), 1) AS median_ga,
+            ROUND(CAST(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY br.gestation_weeks + br.gestation_days / 7.0) AS numeric), 1) AS p25_ga,
+            ROUND(CAST(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY br.gestation_weeks + br.gestation_days / 7.0) AS numeric), 1) AS p75_ga,
+            ROUND(PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY br.birth_weight))                                        AS median_bw,
+            ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY br.birth_weight))                                        AS p25_bw,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY br.birth_weight))                                        AS p75_bw,
+            SUM(CASE WHEN br.gender = 'Male'                                                          THEN 1 ELSE 0 END) AS n_male,
+            SUM(CASE WHEN br.gender NOT IN ('Male', 'Female') AND br.gender IS NOT NULL               THEN 1 ELSE 0 END) AS n_dsd,
+            SUM(CASE WHEN br.intrauterine_centile ~ '^[0-9.]+$'
+                      AND CAST(br.intrauterine_centile AS FLOAT) < 10                                 THEN 1 ELSE 0 END) AS n_sga,
+            SUM(CASE WHEN br.intrauterine_centile ~ '^[0-9.]+$'                                       THEN 1 ELSE 0 END) AS n_centile_recorded,
+            SUM(CASE WHEN br.delivery_mode = 'Vaginal'                                                THEN 1 ELSE 0 END) AS n_vaginal,
+            SUM(CASE WHEN br.delivery_mode = 'LSCS'                                                   THEN 1 ELSE 0 END) AS n_lscs
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    ANTENATAL_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(md.enrollment_id)                                                                                          AS n,
+            SUM(CASE WHEN LOWER(md.antenatal_steroids) = 'yes'                                               THEN 1 ELSE 0 END) AS n_steroids,
+            SUM(CASE WHEN LOWER(md.antenatal_steroids) = 'yes' AND md.steroid_doses IN ('2', '4')            THEN 1 ELSE 0 END) AS n_complete_steroids,
+            SUM(CASE WHEN LOWER(md.antenatal_mgso4) = 'yes'                                                  THEN 1 ELSE 0 END) AS n_mgso4,
+            SUM(CASE WHEN LOWER(md.hdp) = 'yes'                                                              THEN 1 ELSE 0 END) AS n_hdp,
+            SUM(CASE WHEN LOWER(md.pprom) = 'yes'                                                            THEN 1 ELSE 0 END) AS n_pprom,
+            SUM(CASE WHEN LOWER(md.fgr) = 'yes'                                                              THEN 1 ELSE 0 END) AS n_fgr,
+            SUM(CASE WHEN md.multiple IS NOT NULL AND LOWER(md.multiple) NOT IN ('no', 'singleton', '')      THEN 1 ELSE 0 END) AS n_multiple
+        FROM maternal_details md
+        JOIN birth_resuscitation br ON br.enrollment_id = md.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    def run(q):
+        return db.execute(q).mappings().all()
+
+    return {
+        "generated_at": datetime.utcnow().isoformat(),
+        "infant":     _bl_split(run(INFANT_Q),     _build_infant),
+        "antenatal":  _bl_split(run(ANTENATAL_Q),  _build_antenatal),
+    }
