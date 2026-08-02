@@ -8,6 +8,7 @@ import { useAuth } from "./context/AuthContext";
 import "./TrialMonitoringDashboard.css";
 import DataQuality from "./DataQuality";
 import ClinicalQuality from "./ClinicalQuality";
+import BaselineChars from "./BaselineChars";
 
 const ROW_TYPE_CLASS = {
   awaiting: "tmd-row-awaiting",
@@ -43,6 +44,7 @@ const SECTIONS = [
   { key: "consort",          label: "Section 1 — CONSORT Flow" },
   { key: "data-quality",     label: "Section 2 — Data Quality" },
   { key: "clinical-quality", label: "Section 3 — Clinical Quality" },
+  { key: "baseline",         label: "Section 4 — Baseline Chars" },
 ];
 
 export default function TrialMonitoringDashboard() {
@@ -152,6 +154,12 @@ export default function TrialMonitoringDashboard() {
       {activeSection === "clinical-quality" && (
         <div className="tmd-card">
           <ClinicalQuality />
+        </div>
+      )}
+
+      {activeSection === "baseline" && (
+        <div className="tmd-card">
+          <BaselineChars />
         </div>
       )}
     </div>
