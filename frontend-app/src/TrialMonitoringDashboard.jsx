@@ -7,6 +7,7 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import "./TrialMonitoringDashboard.css";
 import DataQuality from "./DataQuality";
+import ClinicalQuality from "./ClinicalQuality";
 
 const ROW_TYPE_CLASS = {
   awaiting: "tmd-row-awaiting",
@@ -39,8 +40,9 @@ function Row({ row, sites, depth = 0 }) {
 }
 
 const SECTIONS = [
-  { key: "consort", label: "Section 1 — CONSORT Flow" },
-  { key: "data-quality", label: "Section 2 — Data Quality" },
+  { key: "consort",          label: "Section 1 — CONSORT Flow" },
+  { key: "data-quality",     label: "Section 2 — Data Quality" },
+  { key: "clinical-quality", label: "Section 3 — Clinical Quality" },
 ];
 
 export default function TrialMonitoringDashboard() {
@@ -144,6 +146,12 @@ export default function TrialMonitoringDashboard() {
       {activeSection === "data-quality" && (
         <div className="tmd-card">
           <DataQuality />
+        </div>
+      )}
+
+      {activeSection === "clinical-quality" && (
+        <div className="tmd-card">
+          <ClinicalQuality />
         </div>
       )}
     </div>
