@@ -1140,3 +1140,184 @@ def get_baseline(
         "infant":     _bl_split(run(INFANT_Q),     _build_infant),
         "antenatal":  _bl_split(run(ANTENATAL_Q),  _build_antenatal),
     }
+
+
+# ============================================================
+# SECTION 5 — ADVERSE EVENTS AND SAEs
+# GET /dashboard/safety
+# ============================================================
+
+def _sf_pct(n, d):
+    if not d:
+        return None
+    return round(100 * (n or 0) / d, 1)
+
+
+def _build_safety_row(r, total_n):
+    n = int(r["n"] or 0)
+    return {"n": n, "pct": _sf_pct(n, total_n)}
+
+
+@router.get("/safety")
+def get_safety(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    # Total randomised per site (denominator)
+    DENOM_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(br.enrollment_id) AS n
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    # SAE counts by site
+    SAE_Q = text("""
+        SELECT
+            COALESCE(sr.site, '__overall__') AS site_name,
+            COUNT(*) AS n_sae,
+            SUM(CASE WHEN LOWER(sr.severity) = 'mild'     THEN 1 ELSE 0 END) AS n_mild,
+            SUM(CASE WHEN LOWER(sr.severity) = 'moderate' THEN 1 ELSE 0 END) AS n_moderate,
+            SUM(CASE WHEN LOWER(sr.severity) = 'severe'   THEN 1 ELSE 0 END) AS n_severe,
+            SUM(CASE WHEN LOWER(sr.causality) IN ('probable','definite','possible') THEN 1 ELSE 0 END) AS n_related,
+            SUM(CASE WHEN LOWER(sr.outcome) = 'fatal'     THEN 1 ELSE 0 END) AS n_fatal
+        FROM sae_reports sr
+        GROUP BY GROUPING SETS ((sr.site), ())
+    """)
+
+    # Mortality from study_outcomes (joined to randomised cohort)
+    MORT_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(so.enrollment_id)                                                                AS n,
+            SUM(CASE WHEN so.mortality_in_hospital = TRUE    THEN 1 ELSE 0 END) AS n_hosp,
+            SUM(CASE WHEN so.mortality_7_days = TRUE         THEN 1 ELSE 0 END) AS n_7d,
+            SUM(CASE WHEN so.mortality_28_days = TRUE        THEN 1 ELSE 0 END) AS n_28d,
+            SUM(CASE WHEN so.mortality_after_discharge = TRUE THEN 1 ELSE 0 END) AS n_post_dc
+        FROM study_outcomes so
+        JOIN birth_resuscitation br ON br.enrollment_id = so.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    # Major morbidities from neonatal_morbidities
+    MORB_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__overall__') AS site_name,
+            COUNT(nm.enrollment_id)                                                                          AS n,
+            SUM(CASE WHEN nm.ivh_present = 'Yes'                                               THEN 1 ELSE 0 END) AS n_ivh_any,
+            SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4')                 THEN 1 ELSE 0 END) AS n_ivh_severe,
+            SUM(CASE WHEN nm.nec = TRUE                                                        THEN 1 ELSE 0 END) AS n_nec_any,
+            SUM(CASE WHEN nm.nec = TRUE AND nm.nec_stage IN ('2','3','2a','2b','3a','3b')      THEN 1 ELSE 0 END) AS n_nec_2plus,
+            SUM(CASE WHEN nm.bpd = TRUE                                                        THEN 1 ELSE 0 END) AS n_bpd,
+            SUM(CASE WHEN nm.rop_treatment = 'Yes'                                             THEN 1 ELSE 0 END) AS n_rop_tx,
+            SUM(CASE WHEN nm.sepsis = TRUE                                                     THEN 1 ELSE 0 END) AS n_sepsis,
+            SUM(CASE WHEN nm.pneumothorax = TRUE                                               THEN 1 ELSE 0 END) AS n_pneumo
+        FROM neonatal_morbidities nm
+        JOIN birth_resuscitation br ON br.enrollment_id = nm.enrollment_id AND br.randomised = TRUE
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY GROUPING SETS ((s.site_name), ())
+    """)
+
+    def run(q):
+        return db.execute(q).mappings().all()
+
+    denom_rows = run(DENOM_Q)
+    denom_overall = {r["site_name"] if r["site_name"] else "__overall__": int(r["n"] or 0) for r in denom_rows}
+    total_n = denom_overall.get("__overall__", 0) or denom_overall.get(None, 0)
+
+    def denom_for(site):
+        return denom_overall.get(site, 0) or denom_overall.get("__overall__" if site is None else site, 0)
+
+    # Build SAE summary
+    sae_rows = run(SAE_Q)
+    sae_overall, sae_by_site = {}, {}
+    for r in sae_rows:
+        sn = r["site_name"]
+        d = {
+            "n_sae": int(r["n_sae"] or 0),
+            "n_mild": int(r["n_mild"] or 0),
+            "n_moderate": int(r["n_moderate"] or 0),
+            "n_severe": int(r["n_severe"] or 0),
+            "n_related": int(r["n_related"] or 0),
+            "n_fatal": int(r["n_fatal"] or 0),
+        }
+        if sn is None or sn == "__overall__":
+            sae_overall = d
+        else:
+            sae_by_site[sn] = d
+    if not sae_overall:
+        sae_overall = {"n_sae": 0, "n_mild": 0, "n_moderate": 0, "n_severe": 0, "n_related": 0, "n_fatal": 0}
+
+    # Build mortality
+    def _build_mort(r):
+        n = int(r["n"] or 0)
+        return {
+            "n": n,
+            "in_hospital":       {"n": int(r["n_hosp"]   or 0), "pct": _sf_pct(r["n_hosp"],   n)},
+            "at_7_days":         {"n": int(r["n_7d"]     or 0), "pct": _sf_pct(r["n_7d"],     n)},
+            "at_28_days":        {"n": int(r["n_28d"]    or 0), "pct": _sf_pct(r["n_28d"],    n)},
+            "after_discharge":   {"n": int(r["n_post_dc"] or 0), "pct": _sf_pct(r["n_post_dc"], n)},
+        }
+
+    mort_rows = run(MORT_Q)
+    mort_overall, mort_by_site = {}, {}
+    for r in mort_rows:
+        sn = r["site_name"]
+        if sn is None or sn == "__overall__":
+            mort_overall = _build_mort(r)
+        else:
+            mort_by_site[sn] = _build_mort(r)
+
+    # Build morbidities
+    def _build_morb(r):
+        n = int(r["n"] or 0)
+        return {
+            "n": n,
+            "ivh_any":    {"n": int(r["n_ivh_any"]    or 0), "pct": _sf_pct(r["n_ivh_any"],    n)},
+            "ivh_severe": {"n": int(r["n_ivh_severe"]  or 0), "pct": _sf_pct(r["n_ivh_severe"], n)},
+            "nec_any":    {"n": int(r["n_nec_any"]    or 0), "pct": _sf_pct(r["n_nec_any"],    n)},
+            "nec_2plus":  {"n": int(r["n_nec_2plus"]  or 0), "pct": _sf_pct(r["n_nec_2plus"],  n)},
+            "bpd":        {"n": int(r["n_bpd"]        or 0), "pct": _sf_pct(r["n_bpd"],        n)},
+            "rop_tx":     {"n": int(r["n_rop_tx"]     or 0), "pct": _sf_pct(r["n_rop_tx"],     n)},
+            "sepsis":     {"n": int(r["n_sepsis"]     or 0), "pct": _sf_pct(r["n_sepsis"],     n)},
+            "pneumo":     {"n": int(r["n_pneumo"]     or 0), "pct": _sf_pct(r["n_pneumo"],     n)},
+        }
+
+    morb_rows = run(MORB_Q)
+    morb_overall, morb_by_site = {}, {}
+    for r in morb_rows:
+        sn = r["site_name"]
+        if sn is None or sn == "__overall__":
+            morb_overall = _build_morb(r)
+        else:
+            morb_by_site[sn] = _build_morb(r)
+
+    # Sites list (from denominator)
+    sites = [k for k in denom_overall if k not in (None, "__overall__")]
+
+    return {
+        "generated_at": datetime.utcnow().isoformat(),
+        "sites": sites,
+        "randomised_n": total_n,
+        "sae": {
+            "overall": sae_overall,
+            "by_site": sae_by_site,
+        },
+        "mortality": {
+            "overall": mort_overall,
+            "by_site": mort_by_site,
+        },
+        "morbidity": {
+            "overall": morb_overall,
+            "by_site": morb_by_site,
+        },
+    }
