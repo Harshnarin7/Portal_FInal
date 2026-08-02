@@ -1321,3 +1321,47 @@ def get_safety(
             "by_site": morb_by_site,
         },
     }
+
+
+# ============================================================
+# SECTION 6 — ENROLLMENT TREND & FORECAST
+# GET /dashboard/enrollment-trend
+# ============================================================
+
+@router.get("/enrollment-trend")
+def get_enrollment_trend(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    TREND_Q = text("""
+        SELECT
+            DATE(br.created_at) AS enrol_date,
+            COUNT(*)            AS daily_n
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE
+          AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY DATE(br.created_at)
+        ORDER BY enrol_date
+    """)
+
+    rows = db.execute(TREND_Q).mappings().all()
+
+    by_date = []
+    cumulative = 0
+    for r in rows:
+        cumulative += int(r["daily_n"])
+        by_date.append({
+            "date":       str(r["enrol_date"]),
+            "n":          int(r["daily_n"]),
+            "cumulative": cumulative,
+        })
+
+    return {
+        "generated_at":     datetime.utcnow().isoformat(),
+        "total_randomised": cumulative,
+        "by_date":          by_date,
+    }
