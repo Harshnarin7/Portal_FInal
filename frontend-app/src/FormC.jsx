@@ -71,6 +71,43 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
   );
 }
 
+/* ── MultiToggle — like Toggle but allows multiple simultaneous selections
+   (used for Steroid Drug: Betamethasone / Dexamethasone can both be picked,
+   but selecting "Not known" clears them and vice-versa) ── */
+function MultiToggle({ name, value, options, onToggle, disabled, error }) {
+  const selected = String(value || "").split(",").map(s => s.trim()).filter(Boolean);
+  const isActive = (opt) => {
+    const v = typeof opt === "object" ? opt.value : opt;
+    return selected.includes(v);
+  };
+
+  return (
+    <>
+      <div style={{ display: "block", lineHeight: 0 }}>
+        <div className={`fc-toggle-group${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
+          {options.map((opt, idx) => {
+            const v = typeof opt === "object" ? opt.value : opt;
+            const l = typeof opt === "object" ? opt.label : opt;
+            const active = isActive(opt);
+            return (
+              <button
+                key={String(v)}
+                type="button"
+                disabled={disabled}
+                className={`fc-toggle-btn${active ? " fc-active fc-other" : ""}${idx > 0 ? " fc-divider" : ""}`}
+                onClick={() => !disabled && onToggle(name, v)}
+              >
+                {l}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {error && <div className="field-error">{error}</div>}
+    </>
+  );
+}
+
 const FieldError = ({ msg }) => msg ? <div className="field-error">{msg}</div> : null;
 
 export default function FormC() {
@@ -86,6 +123,10 @@ export default function FormC() {
   const [isEditing,      setIsEditing]      = useState(false);
   const [message,        setMessage]        = useState("");
   const [isFormCLoaded,  setIsFormCLoaded]  = useState(false);
+  // Holds this enrollment's own screening_id (from Form A), so the
+  // "Previous" button can navigate to the correct Form B record instead of
+  // relying on browser history.
+  const [screeningIdForBack, setScreeningIdForBack] = useState("");
   const [errors,         setErrors]         = useState({});
   const [touched,        setTouched]        = useState({});
   // session state managed by useFormSession hook
@@ -223,6 +264,7 @@ export default function FormC() {
           const resA = await api.get(`/screenings/by-enrollment/${enrollmentId}`);
           formAData = resA.data;
           if (formAData?.screening_id) {
+            setScreeningIdForBack(formAData.screening_id);
             try {
               const piiRes = await api.get(`/pii/screening/${formAData.screening_id}`);
               formAData = { ...formAData, ...piiRes.data };
@@ -433,6 +475,24 @@ export default function FormC() {
   };
 
   const handleToggle = (name, value) => {
+    set({ [name]: value });
+    touchField(name);
+    setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
+  };
+
+  /* Steroid Drug — multi-select: Beta only, Dexa only, both Beta+Dexa,
+     or "Not known" alone. Picking "Not known" clears Beta/Dexa; picking
+     Beta/Dexa clears "Not known". */
+  const handleSteroidDrugToggle = (name, clicked) => {
+    const current = String(formData[name] || "").split(",").map(s => s.trim()).filter(Boolean);
+    let next;
+    if (clicked === "Not known") {
+      next = current.includes("Not known") ? [] : ["Not known"];
+    } else {
+      const base = current.filter(v => v !== "Not known");
+      next = base.includes(clicked) ? base.filter(v => v !== clicked) : [...base, clicked];
+    }
+    const value = next.join(",");
     set({ [name]: value });
     touchField(name);
     setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
@@ -662,7 +722,14 @@ export default function FormC() {
   }, [formData, isFormCLoaded, buildPayload, markFormCompleted, session]); // eslint-disable-line
 
   const handleNext     = async () => { const ok = await saveForm(); if (ok) navigate(`/form-d/${formData.enrollment_id}`); };
-  const handlePrevious = () => navigate(-1);
+  // FIX: navigate(-1) relied on browser history, which lands on whatever
+  // page happened to be previous in this tab's history — not necessarily
+  // Form B. Navigate to the actual Form B route (using this enrollment's
+  // own screening_id) instead.
+  const handlePrevious = () => {
+    if (screeningIdForBack) navigate(`/form-b/${screeningIdForBack}`);
+    else navigate(-1);
+  };
 
   const scrollToFirstError = (list) => {
     if (!list?.length) return;
@@ -990,9 +1057,9 @@ export default function FormC() {
                     <div className="form-grid-2">
                       <div className="form-group">
                         <label>20. Drug<span className="required">*</span></label>
-                        <Toggle name="steroid_drug" value={formData.steroid_drug}
-                          options={["Betamethasone","Dexamethasone"]}
-                          onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
+                        <MultiToggle name="steroid_drug" value={formData.steroid_drug}
+                          options={["Betamethasone","Dexamethasone","Not known"]}
+                          onToggle={handleSteroidDrugToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
                       </div>
                       <div className="form-group">
                         <label>21. No. of Doses<span className="required">*</span></label>

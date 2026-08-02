@@ -517,6 +517,13 @@ class NICUAdmission(Base):
     day1_date_set_by  = Column(String, nullable=True)
     day1_date_set_at  = Column(DateTime, nullable=True)
 
+    # True only once the user has explicitly clicked Save (full validation
+    # passed) — as opposed to merely existing because the 10s background
+    # autosave silently persisted an in-progress draft. Used so reopening
+    # a record only autosave has touched doesn't lock it read-only; only
+    # a genuinely finished record does.
+    finalized = Column(Boolean, default=False, nullable=True)
+
 
 
 # ==========================================================

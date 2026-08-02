@@ -89,7 +89,7 @@ const RULES = {
   },
   adverse_effects:  { required: (fd) => fd.surfactant_required === "Yes", type: "toggle" },
   adverse_type:     { required: (fd) => fd.adverse_effects === "Yes", type: "pill" },
-  adverse_type_other:{ required: (fd) => fd.adverse_type === "Other", type: "text",
+  adverse_type_other:{ required: (fd) => Array.isArray(fd.adverse_type) && fd.adverse_type.includes("Other"), type: "text",
     validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
 
   // LISA — catheter type now has 3 options per CRF: Infant feeding tube / LISA catheter / Other
@@ -168,11 +168,14 @@ function validateField(name, value, formData) {
   const isRequired = typeof rule.required === "function"
     ? rule.required(formData) : rule.required;
 
+  const isEmpty = value === "" || value === null || value === undefined
+    || (Array.isArray(value) && value.length === 0);
+
   // Not applicable
-  if (!isRequired && (value === "" || value === null || value === undefined)) return null;
+  if (!isRequired && isEmpty) return null;
 
   // Required check
-  if (isRequired && (value === "" || value === null || value === undefined)) {
+  if (isRequired && isEmpty) {
     if (rule.type === "toggle" || rule.type === "pill")
       return { level: "error", msg: "Please select an option" };
     return { level: "error", msg: "Required" };
@@ -291,6 +294,14 @@ export default function FormD() {
   const autoSaveTimer  = useRef(null);
   const firstErrRef = useRef(null);
 
+  // Popup shown when an NBS re-assessment differs from the previously
+  // recorded GA by more than 2 weeks. gaDiffDismissedFor remembers which
+  // exact entered value the user already acknowledged, so editing the
+  // weeks/days further (a genuinely new value) can prompt again, but
+  // re-rendering with the same value they already dismissed does not nag.
+  const [showGaDiffModal, setShowGaDiffModal] = useState(false);
+  const gaDiffDismissedFor = useRef(null);
+
   const isFieldEditable = true; // Form D is always editable
 
   const [formData, setFormData] = useState({
@@ -304,7 +315,7 @@ export default function FormD() {
     premedication_given: "", premedication_drugs: "", premedication_other: "",
     lisa_catheter: "", device_assistance: "", device_type: "",
     surfactant_brand: "", surfactant_dose: "", adverse_effects: "",
-    adverse_type: "", adverse_type_other: "", mode_of_support: [],
+    adverse_type: [], adverse_type_other: "", mode_of_support: [],
     early_cpap: "", humidified_gas: "", max_fio2_1hr: "",
     caffeine: "", caffeine_dose: "", intubation_after_resus: "",
     immediate_kmc: "", device_type_other: "",
@@ -363,6 +374,21 @@ export default function FormD() {
         ? prev.mode_of_support.filter(i => i !== mode)
         : [...(prev.mode_of_support || []), mode],
     }));
+  };
+
+  const handleAdverseTypeChange = (type) => {
+    setFormData(prev => {
+      const isSelected = prev.adverse_type?.includes(type);
+      const next = isSelected
+        ? prev.adverse_type.filter(i => i !== type)
+        : [...(prev.adverse_type || []), type];
+      // Clear the free-text "specify" field if "Other" gets deselected
+      return {
+        ...prev,
+        adverse_type: next,
+        adverse_type_other: (type === "Other" && isSelected) ? "" : prev.adverse_type_other,
+      };
+    });
   };
 
   const num = (v) => (v === "" || v === undefined) ? null : Number(v);
@@ -446,6 +472,12 @@ export default function FormD() {
           ? d.mode_of_support.split(",").map(s => s.trim()).filter(Boolean)
           : [];
 
+        /* adverse_type is saved as "Bradycardia, Desaturation" string —
+           restore as array, same as mode_of_support above */
+        const adverseTypeArray = d.adverse_type
+          ? d.adverse_type.split(",").map(s => s.trim()).filter(Boolean)
+          : [];
+
         setFormData(prev => ({
           ...prev,
           // ── Identification (from Form B already set, but override if present) ──
@@ -488,7 +520,7 @@ export default function FormD() {
 
           // ── Adverse Effects ──
           adverse_effects:    fromBool(d.adverse_effects),
-          adverse_type:       d.adverse_type       || "",
+          adverse_type:       adverseTypeArray,
           adverse_type_other: d.adverse_type_other || "",
 
           // ── Early Respiratory Support ──
@@ -514,7 +546,14 @@ export default function FormD() {
         }));
 
         setIsRecordSaved(true);
-        // Do NOT set isSaved(true) here — form stays editable until user explicitly saves
+        // Also mark isSaved true — this record is confirmed to exist in
+        // the DB. (Previously left false on load with a comment saying it
+        // kept the form editable, but isFieldEditable is hardcoded `true`
+        // in this form regardless of isSaved — so that never did anything
+        // except force a redundant re-save every time you reopened an
+        // already-completed Form D, just to re-enable Print/Edit Form/
+        // the Next → Form E button.)
+        setIsSaved(true);
       } catch (err) {
         // 404 = no saved record yet — that's fine, form starts blank
         if (err?.response?.status !== 404)
@@ -637,7 +676,7 @@ export default function FormD() {
     surfactant_brand:  formData.surfactant_brand,
     surfactant_dose:   num(formData.surfactant_dose),
     adverse_effects:   yesNoToBool(formData.adverse_effects),
-    adverse_type:      formData.adverse_type,
+    adverse_type:      formData.adverse_type.join(", "),
     early_cpap:        yesNoToBool(formData.early_cpap),
     humidified_gas:    yesNoToBool(formData.humidified_gas),
     max_fio2_1hr:      num(formData.max_fio2_1hr),
@@ -663,6 +702,24 @@ export default function FormD() {
   }), [formData]); // eslint-disable-line
 
   /* ── Save logic: unchanged payload ── */
+  // Popup for a >2-week NBS/original GA difference. Runs on BLUR (see
+  // onBlur on the weeks/days inputs below), not on every keystroke — a
+  // live per-keystroke check meant it fired mid-edit on every intermediate
+  // digit while someone was retyping the number (e.g. backspacing "28" to
+  // "2" then typing "8" back in), which is exactly what was happening.
+  const checkGaDiffOnBlur = () => {
+    if (formData.ga_method !== "NBS") return;
+    const original = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
+    const entered = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
+    if (original === null || entered === null || Math.abs(entered - original) <= 14) return;
+    if (gaDiffDismissedFor.current !== entered) setShowGaDiffModal(true);
+  };
+
+  const dismissGaDiffModal = () => {
+    gaDiffDismissedFor.current = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
+    setShowGaDiffModal(false);
+  };
+
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
 
@@ -898,12 +955,12 @@ export default function FormD() {
                       options={["USG","LMP","NBS"]}
                       onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
                       disabled={!isFieldEditable}/>
-                    <div className="form-grid-2" style={{ marginTop: 8 }}>
+                    <div className="form-grid-2 ga-weeks-days-row" style={{ marginTop: 8 }}>
                       <FieldWrap name="gestation_weeks"
                         formData={formData} touched={touched}
                         label="Weeks" required={isRequired("gestation_weeks")}>
                         <input type="number" name="gestation_weeks" value={formData.gestation_weeks || ""}
-                          min="18" max="42" readOnly={!isFieldEditable}
+                          min="18" max="42" readOnly={!isFieldEditable || formData.ga_method !== "NBS"}
                           className={`emr-input${vr("gestation_weeks")?.level === "error" ? " fv-input-error" : vr("gestation_weeks")?.level === "ok" ? " fv-input-ok" : ""}`}
                           onChange={e => {
                             touch("gestation_weeks");
@@ -911,13 +968,14 @@ export default function FormD() {
                             if (v === "" || (/^\d{0,2}$/.test(v) && Number(v) <= 42)) {
                               setFormData(p => ({ ...p, gestation_weeks: v }));
                             }
-                          }} />
+                          }}
+                          onBlur={checkGaDiffOnBlur} />
                       </FieldWrap>
                       <FieldWrap name="gestation_days"
                         formData={formData} touched={touched}
                         label="Days" required={isRequired("gestation_days")}>
                         <input type="number" name="gestation_days" value={formData.gestation_days || ""}
-                          min="0" max="6" readOnly={!isFieldEditable}
+                          min="0" max="6" readOnly={!isFieldEditable || formData.ga_method !== "NBS"}
                           className={`emr-input${vr("gestation_days")?.level === "error" ? " fv-input-error" : vr("gestation_days")?.level === "ok" ? " fv-input-ok" : ""}`}
                           onChange={e => {
                             touch("gestation_days");
@@ -925,9 +983,15 @@ export default function FormD() {
                             if (v === "" || (/^\d$/.test(v) && Number(v) <= 6)) {
                               setFormData(p => ({ ...p, gestation_days: v }));
                             }
-                          }} />
+                          }}
+                          onBlur={checkGaDiffOnBlur} />
                       </FieldWrap>
                     </div>
+                    {formData.ga_method && formData.ga_method !== "NBS" && (
+                      <div className="fv-msg" style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
+                        Carried over from the earlier {formData.ga_method} estimate. Switch to NBS to enter a new newborn assessment.
+                      </div>
+                    )}
                     {formData.ga_method === "NBS" && (() => {
                       const original = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
                       const entered = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
@@ -984,7 +1048,7 @@ export default function FormD() {
                   </FieldWrap>
                   <FieldWrap name="et_intubation"
                     formData={formData} touched={touched}
-                    label="10. ET intubation for resuscitation" required={isRequired("et_intubation")}>
+                    label="10. Endotracheal intubation for resuscitation" required={isRequired("et_intubation")}>
                     <SegmentedToggle name="et_intubation" value={formData.et_intubation}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} />
@@ -1278,16 +1342,16 @@ export default function FormD() {
                               "Other",
                             ].map(type => (
                               <button key={type} type="button"
-                                className={`rx-horizontal-btn${formData.adverse_type === type ? " active" : ""}`}
+                                className={`rx-horizontal-btn${formData.adverse_type.includes(type) ? " active" : ""}`}
                                 style={{ whiteSpace: "normal", textAlign: "center", minWidth: 80, height: "auto", minHeight: 36, lineHeight: 1.3, padding: "6px 14px" }}
-                                onClick={() => { if (!isFieldEditable) return; touch("adverse_type"); setFormData(p => ({ ...p, adverse_type: type })); }}
+                                onClick={() => { if (!isFieldEditable) return; touch("adverse_type"); handleAdverseTypeChange(type); }}
                                 disabled={!isFieldEditable}>{type}</button>
                             ))}
                           </div>
                           {touched.adverse_type && vr("adverse_type")?.level === "error" && (
                             <div className="fv-msg fv-msg-error">{vr("adverse_type").msg}</div>
                           )}
-                          {formData.adverse_type === "Other" && (
+                          {formData.adverse_type.includes("Other") && (
                             <div style={{ marginTop:10 }}>
                               <FieldWrap name="adverse_type_other"
                     formData={formData} touched={touched}
@@ -1522,7 +1586,7 @@ export default function FormD() {
 
       {/* STICKY FOOTER */}
       <div className="form-navigation">
-        <button type="button" className="btn btn-secondary btn-outline" onClick={() => navigate(-1)}>
+        <button type="button" className="btn btn-secondary btn-outline" onClick={() => navigate(`/form-c/${enrollmentId}`)}>
           <ArrowLeft size={15} /> Maternal Details
         </button>
         <button type="button"
@@ -1575,6 +1639,23 @@ export default function FormD() {
           NICU Admission <ArrowRight size={15} />
         </button>
       </div>
+
+      {showGaDiffModal && (
+        <div className="modal-overlay" onClick={dismissGaDiffModal}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon">⚠️</div>
+            <div className="modal-title">Gestational age differs by more than 2 weeks</div>
+            <p className="modal-subtext">
+              The newborn (NBS) assessment — <strong>{formData.gestation_weeks}w {formData.gestation_days}d</strong> —
+              differs from the previously recorded gestational age — <strong>{formData.original_gestation_weeks}w {formData.original_gestation_days}d</strong> —
+              by more than 2 weeks. This NBS-based gestational age will now be used on subsequent forms.
+            </p>
+            <button type="button" className="modal-btn" onClick={dismissGaDiffModal}>
+              OK, understood
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

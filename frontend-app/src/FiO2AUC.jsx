@@ -12,13 +12,22 @@ import "./styles/FiO2AUC.css";
    CONSTANTS & PURE HELPERS
  */
 const DAYS   = [1, 2, 3, 4, 5, 6, 7];
-const mkRow  = () => ({ id: Date.now() + Math.random(), fio2: "", dur: "" });
-const mkDay  = d => ({ day: d, expanded: d === 1, start1: "", start2: "", w1: [mkRow()], w2: [mkRow()] });
+const mkRow  = (fio2 = "", dur = "") => ({ id: Date.now() + Math.random(), fio2, dur });
+// FIX (faster data entry): a brand-new window almost always starts as a
+// single FiO2 value covering the whole 12h block. Defaulting the first
+// row's duration to 12 means the nurse only has to type the FiO2 value —
+// no need to also type "12" for the common single-value case. If the
+// value changes mid-block, adding a row (see addRow below) recomputes
+// this automatically.
+const mkDay  = d => ({ day: d, expanded: d === 1, start1: "", start2: "", w1: [mkRow("", 12)], w2: [mkRow("", 12)] });
 
 const rowAUC      = (fio2, dur) => ((parseFloat(fio2) || 0) / 100) * (parseFloat(dur) || 0);
 const windowAUC   = rows => rows.reduce((s, r) => s + rowAUC(r.fio2, r.dur), 0);
 const windowHours = rows => rows.reduce((s, r) => s + (parseFloat(r.dur) || 0), 0);
 const dayAUC      = (w1, w2) => windowAUC(w1) + windowAUC(w2);
+// Total hours actually logged across all days so far (as opposed to the
+// full 168h of a complete 7-day record).
+const totalHoursLogged = daysArr => daysArr.reduce((s, d) => s + windowHours(d.w1) + windowHours(d.w2), 0);
 const clamp       = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 const totalGestationDays = (weeks, days) => {
   if (weeks === null || weeks === undefined || weeks === "") return null;
@@ -50,13 +59,16 @@ function HoursBar({ used }) {
   const over = used > 12.01;
   const done = Math.abs(used - 12) < 0.01;
   const cls  = over ? "hb-danger" : done ? "hb-ok" : used >= 9 ? "hb-warn" : "hb-idle";
+  // FIX (faster data entry): show remaining hours directly instead of
+  // making the nurse subtract "used" from 12 herself.
+  const remaining = Math.max(0, +(12 - used).toFixed(2));
   return (
     <div className="hb-wrap">
       <div className="hb-track">
         <div className={`hb-fill ${cls}`} style={{ width: `${pct}%` }} />
       </div>
       <span className={`hb-label ${cls}`}>
-        {used.toFixed(1)} / 12 h {done ? "" : over ? "exceeds 12h" : ""}
+        {used.toFixed(1)} / 12 h {done ? "" : over ? "exceeds 12h" : `\u2014 ${remaining}h remaining`}
       </span>
     </div>
   );
@@ -92,12 +104,12 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
         return (
           <div key={row.id} className="entry-row">
             <input
-              type="number" min={21} max={100} placeholder="21-100"
+              type="number" min={21} max={100} placeholder="21-100" inputMode="decimal"
               value={row.fio2}
               className={`entry-input${fioErr ? " entry-input--err" : row.fio2 ? " entry-input--ok" : ""}`}
               onChange={e => onRowChange(row.id, "fio2", e.target.value)} />
             <input
-              type="number" min={0} max={12} placeholder="0-12"
+              type="number" min={0} max={12} placeholder="0-12" inputMode="decimal"
               value={row.dur}
               className={`entry-input${row.dur && Number(row.dur) < 0 ? " entry-input--err" : row.dur ? " entry-input--ok" : ""}`}
               onChange={e => onRowChange(row.id, "dur", e.target.value)} />
@@ -158,6 +170,11 @@ export default function Fio2AUCForm() {
   // so autosave and the unload-warning keep working after the first save.
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState(""); // "saving" | "saved" | "error" | ""
+  // Shown when a window (1-12h or 13-24h) first reaches its full 12h of
+  // logged duration.
+  const [completionPopup, setCompletionPopup] = useState(null); // {day, window} | null
+  // Shown after the Save button successfully saves the form.
+  const [showSavedPopup, setShowSavedPopup] = useState(false);
   
   /*  Auto-save refs  */
   const autoSaveTimer = useRef(null);
@@ -281,9 +298,36 @@ export default function Fio2AUCForm() {
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, ...fn(d) } : d)), []);
 
   const toggleDay     = d  => setDay(d, x => ({ expanded: !x.expanded }));
-  const addRow        = (d, win) => { setHasUnsavedChanges(true); setDay(d, x => ({ [win]: [...x[win], mkRow()] })); };
+  const addRow = (d, win) => {
+    setHasUnsavedChanges(true);
+    setDay(d, x => {
+      const existing = x[win];
+      const lastRow = existing[existing.length - 1];
+      // FIX (faster data entry): prefill the new row instead of leaving it
+      // blank. Duration defaults to whatever time is left to complete the
+      // 12h window (based on the durations already entered) — the nurse
+      // only needs to shorten it if there's yet another change coming.
+      // FiO2 copies down from the previous row, since most mid-window
+      // changes are small adjustments rather than a completely different
+      // value typed from scratch; it's one tap to overwrite if different.
+      const remaining = Math.max(0, +(12 - windowHours(existing)).toFixed(2));
+      return { [win]: [...existing, mkRow(lastRow?.fio2 ?? "", remaining > 0 ? remaining : "")] };
+    });
+  };
   const updateStartTime = (d, field, value) => {
     setHasUnsavedChanges(true);
+    // FIX (faster data entry): the "13-24h" window start time is almost
+    // always exactly 12 hours after the "1-12h" start time. Auto-filling
+    // it saves a second manual time entry per day; it stays fully
+    // editable afterward, and we only auto-fill it if the nurse hasn't
+    // already typed something different into it themselves.
+    if (field === "start1" && value) {
+      const [hh, mm] = value.split(":").map(Number);
+      const total = (hh * 60 + mm + 12 * 60) % (24 * 60);
+      const auto = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+      setDay(d, x => ({ start1: value, start2: x.start2 ? x.start2 : auto }));
+      return;
+    }
     setDay(d, () => ({ [field]: value }));
   };
   const delRow        = (d, win, id) => {
@@ -292,6 +336,17 @@ export default function Fio2AUCForm() {
   };
   const updateRow     = (d, win, id, field, value) => {
     setHasUnsavedChanges(true);
+    // Compute before/after hours for THIS window outside the setDays
+    // updater (rather than inside it) so the popup only fires once per
+    // real transition, not potentially twice under React StrictMode's
+    // double-invocation of state updaters in development.
+    const currentDay = days.find(x => x.day === d);
+    const prevRows = currentDay ? currentDay[win] : [];
+    const prevHrs = windowHours(prevRows);
+    const newRows = prevRows.map(r => r.id === id ? { ...r, [field]: value } : r);
+    const newHrs = windowHours(newRows);
+    const justHitTwelve = Math.abs(newHrs - 12) < 0.01 && Math.abs(prevHrs - 12) >= 0.01;
+
     setDays(prev => {
       const updated = prev.map(x => x.day === d
         ? { ...x, [win]: x[win].map(r => r.id === id ? { ...r, [field]: value } : r) }
@@ -310,12 +365,26 @@ export default function Fio2AUCForm() {
         return x;
       });
     });
+
+    if (justHitTwelve) {
+      setCompletionPopup({ day: d, window: win === "w1" ? "1\u201312h" : "13\u201324h" });
+    }
   };
 
   /*  Totals  */
   const grandTotal   = days.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
-  const meanFiO2     = ((grandTotal / 168) * 100).toFixed(1);
-  const excessO2     = Math.max(0, grandTotal - 0.21 * 168).toFixed(2);
+  // FIX: previously always divided/subtracted against a fixed 168h (7-day)
+  // baseline, which silently treated every not-yet-logged hour as "21%
+  // FiO2, zero excess" — making these KPIs look artificially low/zero
+  // until all 7 days were complete, even with real data entered for
+  // Day 1-2. Using hours actually logged so far instead means the number
+  // reflects real exposure at any point during the week. Once all 168
+  // hours ARE logged, this produces exactly the same final numbers as
+  // the old fixed-168 formula did — nothing changes about the Day-7
+  // clinical endpoint itself.
+  const hoursLoggedSoFar = totalHoursLogged(days);
+  const meanFiO2     = hoursLoggedSoFar > 0 ? ((grandTotal / hoursLoggedSoFar) * 100).toFixed(1) : "0.0";
+  const excessO2     = Math.max(0, grandTotal - 0.21 * hoursLoggedSoFar).toFixed(2);
   const daysComplete = days.filter(d => {
     const h1 = windowHours(d.w1);
     const h2 = windowHours(d.w2);
@@ -324,8 +393,9 @@ export default function Fio2AUCForm() {
 
   const buildDraftPayload = (currentDays) => {
     const total = currentDays.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
-    const mean = ((total / 168) * 100).toFixed(1);
-    const excess = Math.max(0, total - 0.21 * 168).toFixed(2);
+    const hoursLogged = totalHoursLogged(currentDays);
+    const mean = hoursLogged > 0 ? ((total / hoursLogged) * 100).toFixed(1) : "0.0";
+    const excess = Math.max(0, total - 0.21 * hoursLogged).toFixed(2);
     return {
       enrollment_id:   enrollmentId,
       total_auc:       parseFloat(total.toFixed(3)),
@@ -338,6 +408,20 @@ export default function Fio2AUCForm() {
     };
   };
 
+  /*  Auto-dismiss the window-completion popup  */
+  useEffect(() => {
+    if (!completionPopup) return;
+    const t = setTimeout(() => setCompletionPopup(null), 4000);
+    return () => clearTimeout(t);
+  }, [completionPopup]);
+
+  /*  Auto-dismiss the save-confirmation popup  */
+  useEffect(() => {
+    if (!showSavedPopup) return;
+    const t = setTimeout(() => setShowSavedPopup(false), 3000);
+    return () => clearTimeout(t);
+  }, [showSavedPopup]);
+
   /*  Auto-save every 10 seconds (silent, no validation messages)  */
   const autoSave = useCallback(async () => {
     // Only autosave when there's something new to persist; this is a dirty-flag
@@ -348,8 +432,9 @@ export default function Fio2AUCForm() {
     try {
       const currentDays = daysRef.current;
       const grandTotalVal = currentDays.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
-      const meanFiO2Val = ((grandTotalVal / 168) * 100).toFixed(1);
-      const excessO2Val = Math.max(0, grandTotalVal - 0.21 * 168).toFixed(2);
+      const hoursLoggedVal = totalHoursLogged(currentDays);
+      const meanFiO2Val = hoursLoggedVal > 0 ? ((grandTotalVal / hoursLoggedVal) * 100).toFixed(1) : "0.0";
+      const excessO2Val = Math.max(0, grandTotalVal - 0.21 * hoursLoggedVal).toFixed(2);
       
       const fio2_logs = currentDays.flatMap(d => [
         { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
@@ -444,6 +529,7 @@ export default function Fio2AUCForm() {
       setMessage("FiO2 data saved successfully");
       setIsSaved(true);
       setHasUnsavedChanges(false);
+      setShowSavedPopup(true);
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {
@@ -491,6 +577,23 @@ export default function Fio2AUCForm() {
       const ok = await handleSubmit();
       if (ok) navigate(`/form-e/${enrollmentId}`);
     }
+  };
+
+  // FIX (Export PDF): previously just called window.print() directly, which
+  // (a) printed the whole app shell — sidebar, buttons, footer — see the
+  // @media print rules in FiO2AUC.css for that half of the fix, and (b)
+  // only showed whichever single day happened to be expanded on screen,
+  // since collapsed days only render a summary chip, not the actual rows.
+  // Expanding every day first means the printed/PDF output has full detail
+  // for all recorded days; the previous expand/collapse state is restored
+  // afterward so it doesn't disrupt what the nurse was doing on screen.
+  const handleExportPdf = () => {
+    const prevExpanded = days.map(d => d.expanded);
+    setDays(prev => prev.map(d => ({ ...d, expanded: true })));
+    setTimeout(() => {
+      window.print();
+      setDays(prev => prev.map((d, i) => ({ ...d, expanded: prevExpanded[i] })));
+    }, 50);
   };
 
   /* 
@@ -594,11 +697,8 @@ export default function Fio2AUCForm() {
             Daily FiO2 Logging (First 7 Days)
           </h3>
           <div className="fio2-section-actions">
-            <button type="button" className="btn-export" onClick={() => window.print()}>
+            <button type="button" className="btn-export" onClick={handleExportPdf}>
               &#11123; Export PDF
-            </button>
-            <button type="button" className="btn-submit" onClick={handleSubmit}>
-              &#128190; Save
             </button>
           </div>
         </div>
@@ -773,6 +873,34 @@ export default function Fio2AUCForm() {
           Resp-CV-Neuro <ArrowRight size={15} />
         </button>
       </div>
+
+      {/* WINDOW COMPLETION POPUP */}
+      {completionPopup && (
+        <div className="fio2-completion-popup-overlay" onClick={() => setCompletionPopup(null)}>
+          <div className="fio2-completion-popup-box" onClick={e => e.stopPropagation()}>
+            <div className="fio2-completion-popup-icon">&#10003;</div>
+            <h3>12 Hours Logged</h3>
+            <p>Day {completionPopup.day} &middot; {completionPopup.window} window is now fully accounted for.</p>
+            <button type="button" className="fio2-completion-popup-btn" onClick={() => setCompletionPopup(null)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SAVE CONFIRMATION POPUP */}
+      {showSavedPopup && (
+        <div className="fio2-completion-popup-overlay" onClick={() => setShowSavedPopup(false)}>
+          <div className="fio2-completion-popup-box" onClick={e => e.stopPropagation()}>
+            <div className="fio2-completion-popup-icon">&#128190;</div>
+            <h3>Form Saved</h3>
+            <p>FiO2 AUC data has been saved successfully.</p>
+            <button type="button" className="fio2-completion-popup-btn" onClick={() => setShowSavedPopup(false)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

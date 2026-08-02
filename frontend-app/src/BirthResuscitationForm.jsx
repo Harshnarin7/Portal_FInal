@@ -361,6 +361,17 @@ export default function BirthResuscitationForm() {
     ? <>{babyAdmissionRule.label}{requiredMark}</>
     : babyAdmissionRule.label;
 
+  // "Baby Annual No." means something different per site — not just a
+  // REDCap-only PGIMER field. GMCH-A has no equivalent number at all;
+  // AMC's is really the delivery room logbook serial; IOG's is the SNCU
+  // number. Sites with no entry here (GMCH-A, GMCH) don't show the field.
+  const BABY_ANNUAL_RULES = {
+    PGIMER: { label: "7. Baby Annual No.", placeholder: "4-digit annual number", min: 4, max: 4, numeric: true },
+    AMC:    { label: "7. Delivery Room Logbook Serial No.", placeholder: "Logbook serial number", min: 0, max: 20, numeric: false },
+    IOG:    { label: "7. SNCU No.", placeholder: "4-digit SNCU number", min: 4, max: 4, numeric: true },
+  };
+  const babyAnnualRule = BABY_ANNUAL_RULES[siteName] || null;
+
   const BLANK = {
     /* B1 */
     screening_id:"", enrollment_id:"", screening_datetime:"",
@@ -411,6 +422,15 @@ export default function BirthResuscitationForm() {
     },
   };
   const [formData, setFormData] = useState(BLANK);
+  // Live check (not just at Save) — birth can't be recorded as happening
+  // before the mother was even screened.
+  const birthBeforeScreening = (() => {
+    if (!formData.date_of_birth || !formData.time_of_birth || !formData.screening_datetime) return false;
+    const birthMoment     = new Date(`${formData.date_of_birth}T${formData.time_of_birth}`);
+    const screeningMoment = new Date(formData.screening_datetime);
+    if (isNaN(birthMoment) || isNaN(screeningMoment)) return false;
+    return birthMoment < screeningMoment;
+  })();
   const set = patch => setFormData(p => ({ ...p, ...patch }));
   const handleChange = e => set({ [e.target.name]: e.target.value });
 
@@ -487,6 +507,23 @@ export default function BirthResuscitationForm() {
     const randD = randomisationGA % 7;
     set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
   }, [formData.date_of_birth, formData.screening_datetime, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
+
+  /* ── Strata — auto-derived from Gestation at Randomization ──
+     Strata buckets exist purely to split the two eligible GA bands (24–27+6
+     vs 28–31+6 weeks); since that number is already computed above from
+     data already on file, there's no reason to make the nurse pick it
+     manually — that's just a second chance to enter it wrong. Only fills
+     in once GA-at-randomization is actually known, and never overwrites a
+     value already loaded from a saved record (e.g. one entered before this
+     was automated, or a legacy manual edit) unless it's inconsistent with
+     the computed GA, so we don't fight a genuine correction. */
+  useEffect(() => {
+    if (formData.randomised !== "Yes") return;
+    if (formData.gestation_rand_weeks === "" || formData.gestation_rand_weeks === null) return;
+    const totalDays = Number(formData.gestation_rand_weeks) * 7 + Number(formData.gestation_rand_days || 0);
+    const computedStrata = totalDays < (28 * 7) ? "< 28 weeks" : "≥ 28 – 31 weeks";
+    if (formData.strata !== computedStrata) set({ strata: computedStrata });
+  }, [formData.randomised, formData.gestation_rand_weeks, formData.gestation_rand_days]); // eslint-disable-line
 
   /* ── Cord-clamping time in seconds from birth ── */
   useEffect(() => {
@@ -675,6 +712,8 @@ export default function BirthResuscitationForm() {
       add("B1. Baby Admission No.", "baby_admission_no");
     if(formData.baby_admission_no && !new RegExp(`^\\d{${babyAdmissionRule.min},${babyAdmissionRule.max}}$`).test(formData.baby_admission_no))
       add(`B1. ${babyAdmissionRule.label.replace(/^6\\.\\s*/, "")} must be ${babyAdmissionRule.min === babyAdmissionRule.max ? `${babyAdmissionRule.max}` : `${babyAdmissionRule.min}-${babyAdmissionRule.max}`} digits`, "baby_admission_no");
+    if(babyAnnualRule && babyAnnualRule.numeric && formData.baby_annual_no && !new RegExp(`^\\d{${babyAnnualRule.min},${babyAnnualRule.max}}$`).test(formData.baby_annual_no))
+      add(`B1. ${babyAnnualRule.label.replace(/^7\.\s*/, "")} must be ${babyAnnualRule.max} digits`, "baby_annual_no");
     if(!formData.date_of_birth)      add("B2. Date of Birth",         "date_of_birth");
     if(!formData.time_of_birth)      add("B2. Time of Birth",         "time_of_birth");
     if(!formData.birth_weight)       add("B2. Birth Weight",          "birth_weight");
@@ -682,6 +721,12 @@ export default function BirthResuscitationForm() {
       add("B2. Birth Weight must be 300–6000 g", "birth_weight");
     if(formData.date_of_birth && new Date(`${formData.date_of_birth}T00:00:00`) > new Date())
       add("B2. Date of Birth cannot be in the future", "date_of_birth");
+    if(formData.date_of_birth && formData.time_of_birth && formData.screening_datetime) {
+      const birthMoment     = new Date(`${formData.date_of_birth}T${formData.time_of_birth}`);
+      const screeningMoment = new Date(formData.screening_datetime);
+      if (!isNaN(birthMoment) && !isNaN(screeningMoment) && birthMoment < screeningMoment)
+        add("B2. Date & Time of Birth cannot be before the Screening Date & Time (Form A)", "time_of_birth");
+    }
     if(!formData.gender)             add("B2. Gender",                "gender");
     if(formData.intrauterine_centile!=="" && (Number(formData.intrauterine_centile)<0 || Number(formData.intrauterine_centile)>100))
       add("B2. Intrauterine centile must be 0–100", "intrauterine_centile");
@@ -763,13 +808,16 @@ export default function BirthResuscitationForm() {
       if(!formData.cord_blood_done) add("B6. Cord Blood Analysis",     "cord_blood_done");
       if(formData.cord_blood_done==="No" && !formData.cord_blood_within_1hr)
         add("B6. Sample Within 1 Hour", "cord_blood_within_1hr");
-      if(formData.cord_blood_done==="Yes" || formData.cord_blood_within_1hr==="Yes"){
+      if(formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes"){
         if(!formData.cord_blood_source) add("B6. Cord Blood Source", "cord_blood_source");
+      }
+      if(formData.cord_blood_done==="Yes" || (formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes")){
         if(formData.cord_ph==="") add("B6. Cord Blood pH", "cord_ph");
         if(formData.cord_sbe==="") add("B6. Cord Blood SBE", "cord_sbe");
         if(formData.cord_pco2==="") add("B6. Cord Blood pCO2", "cord_pco2");
       }
-      if(!formData.resus_failure)   add("B6. Resuscitation Failure",  "resus_failure");
+      if(formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="No" && !formData.resus_failure)
+        add("B6. Resuscitation Failure",  "resus_failure");
       if(!formData.reason_exit_trial_gas) add("B6. Reason for Exit",  "reason_exit_trial_gas");
       if(formData.reason_exit_trial_gas==="Other" && !formData.reason_exit_trial_gas_other)
         add("B6. Other Exit Reason", "reason_exit_trial_gas_other");
@@ -1166,11 +1214,17 @@ export default function BirthResuscitationForm() {
                       }}
                       placeholder={babyAdmissionRule.placeholder} readOnly={!isFieldEditable || siteName === "IOG"}/>
                   </div>
-                  {isPgiSite && (
+                  {babyAnnualRule && (
                     <div className="form-group">
-                      <label>7. Baby Annual No. <span className="field-note">(REDCap)</span></label>
+                      <label>{babyAnnualRule.label}</label>
                       <input name="baby_annual_no" value={formData.baby_annual_no||""}
-                        onChange={handleChange} placeholder="Annual number" readOnly={!isFieldEditable}/>
+                        maxLength={babyAnnualRule.max || undefined}
+                        inputMode={babyAnnualRule.numeric ? "numeric" : "text"}
+                        onChange={e=>{
+                          const v = e.target.value;
+                          if (!babyAnnualRule.numeric || /^\d*$/.test(v)) set({ baby_annual_no: v });
+                        }}
+                        placeholder={babyAnnualRule.placeholder} readOnly={!isFieldEditable}/>
                     </div>
                   )}
                 </div>
@@ -1218,6 +1272,12 @@ export default function BirthResuscitationForm() {
                     </select>
                   </div>
                 </div>
+
+                {birthBeforeScreening && (
+                  <div className="alert-danger" style={{marginTop:8, marginBottom:8}}>
+                    ❌ Date &amp; Time of Birth cannot be before the Screening Date &amp; Time recorded in Form A.
+                  </div>
+                )}
 
                 <div className="form-grid-3">
                   <div className="form-group">
@@ -1421,13 +1481,8 @@ export default function BirthResuscitationForm() {
                     {formData.randomised==="Yes" && (
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>27. Strata{requiredMark}</label>
-                          <select name="strata" value={formData.strata||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="< 28 weeks">&lt; 28 weeks</option>
-                            <option value="≥ 28 – 31 weeks">≥ 28 – 31 weeks</option>
-                          </select>
+                          <label>27. Strata <span className="field-note">(auto, from Gestation at Randomization)</span></label>
+                          <input value={formData.strata||""} readOnly className="readonly-input" placeholder="—"/>
                         </div>
                         <div/>
                       </div>
@@ -1783,7 +1838,7 @@ export default function BirthResuscitationForm() {
                               <td key={t} style={{padding:"6px 8px",textAlign:"center",borderBottom:"1px solid #f3f4f6"}}>
                                 <IntvCell
                                   value={formData.interventions[row.key]?.[t]}
-                                  disabled={!isFieldEditable||(row.key==="chest_compression"&&formData.chest_compression==="No")}
+                                  disabled={!isFieldEditable}
                                   onChange={v=>handleIntv(row.key,t,v)}/>
                               </td>
                             ))}
@@ -1835,10 +1890,12 @@ export default function BirthResuscitationForm() {
                 </div>
                 <div className="form-section-body">
 
-                  {/* 56. Cord Blood */}
+                  {/* 56. Cord Blood
+                      Branching: 56=Yes -> only 59. 56=No -> ask 57.
+                      57=Yes -> 58 + 59. 57=No -> 60 (Resuscitation Failure). */}
                   <YesNoToggle label={<>56. Cord Blood Analysis Done{requiredMark}</>}
                     name="cord_blood_done" value={formData.cord_blood_done||""}
-                    onChange={e=>{handleChange(e);if(e.target.value==="Yes")set({cord_blood_within_1hr:""});else set({cord_blood_within_1hr:"",cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});}}
+                    onChange={e=>{handleChange(e);set({cord_blood_within_1hr:"",cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:"",resus_failure:""});}}
                     disabled={!isFieldEditable}/>
 
                   {formData.cord_blood_done==="No" && (
@@ -1848,7 +1905,11 @@ export default function BirthResuscitationForm() {
                           <label>57. Within 1 hour of birth — sample taken?{requiredMark}</label>
                           <select name="cord_blood_within_1hr" value={formData.cord_blood_within_1hr||""}
                             disabled={!isFieldEditable}
-                            onChange={e=>{handleChange(e);if(e.target.value==="No")set({cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});}}>
+                            onChange={e=>{
+                              handleChange(e);
+                              if (e.target.value==="Yes") set({ resus_failure:"" });
+                              else set({cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});
+                            }}>
                             <option value="">-- Select --</option>
                             <option value="Yes">Yes</option>
                             <option value="No">No</option>
@@ -1859,7 +1920,8 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {(formData.cord_blood_done==="Yes" || formData.cord_blood_within_1hr==="Yes") && (
+                  {/* 58. Source — only on the 57=Yes branch */}
+                  {formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
@@ -1873,6 +1935,12 @@ export default function BirthResuscitationForm() {
                         </div>
                         <div/>
                       </div>
+                    </div>
+                  )}
+
+                  {/* 59. pH/SBE/pCO2 — on 56=Yes branch, or the 56=No + 57=Yes branch */}
+                  {(formData.cord_blood_done==="Yes" || (formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes")) && (
+                    <div className="followup-box">
                       <div className="form-grid-3">
                         <div className="form-group">
                           <label>59. pH{requiredMark}</label>
@@ -1898,10 +1966,12 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 60. Resuscitation Failure */}
-                  <YesNoToggle label={<>60. Resuscitation Failure{requiredMark}</>}
-                    name="resus_failure" value={formData.resus_failure}
-                    onChange={handleChange} disabled={!isFieldEditable}/>
+                  {/* 60. Resuscitation Failure — only on the 56=No + 57=No branch */}
+                  {formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="No" && (
+                    <YesNoToggle label={<>60. Resuscitation Failure{requiredMark}</>}
+                      name="resus_failure" value={formData.resus_failure}
+                      onChange={handleChange} disabled={!isFieldEditable}/>
+                  )}
 
                   <div className="form-grid-2" style={{marginTop:14}}>
                     <div className="form-group">

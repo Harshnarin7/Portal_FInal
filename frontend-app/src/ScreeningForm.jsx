@@ -156,6 +156,28 @@ export default function ScreeningForm() {
     "AMC":     "06",
   };
 
+  /* Per-site format rules for Maternal UID (16) and Hospital Admission
+     Number (17) — confirmed with the study team 2026-08-01. Sites/fields
+     not listed here have no strict pattern (kept as free alphanumeric,
+     required-non-empty only where applicable) rather than guessing a
+     format that could block a legitimate entry. */
+  const idFieldRule = (site, field) => {
+    if (field === "maternal_uid") {
+      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
+      if (site === "AMC")    return { pattern: /^\d+\/\d{4}$/, hint: "Must be in serial/year format, e.g. 123/2026", charFilter: /[^0-9/]/g, maxLen: 15, required: true };
+      return null;
+    }
+    if (field === "hospital_admission_number") {
+      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
+      if (site === "GMCH-A") return { pattern: /^\d{11}$/, hint: "Must be exactly 11 digits", charFilter: /[^0-9]/g, maxLen: 11, required: false };
+      if (site === "GMCH")   return { pattern: /^\d{9,11}$/, hint: "Must be 9–11 digits", charFilter: /[^0-9]/g, maxLen: 11, required: false };
+      if (site === "IOG")    return { pattern: /^\d{4,6}$/, hint: "Must be 4–6 digits", charFilter: /[^0-9]/g, maxLen: 6, required: false };
+      if (site === "AMC")    return { pattern: /^\d+\/\d{4}$/, hint: "Must be in serial/year format, e.g. 123/2026", charFilter: /[^0-9/]/g, maxLen: 15, required: false };
+      return null;
+    }
+    return null;
+  };
+
   /* Display label → internal value mapping */
   const SITE_DISPLAY = {
     "PGIMER":  "PGIMER Chandigarh",
@@ -479,16 +501,29 @@ export default function ScreeningForm() {
       return;
     }
     if (name === "maternal_uid") {
-      // PGIMER: numeric only (10 digits mandatory)
-      // Dibrugarh: alphanumeric serial/year
-      // GMCH/IOG: autofilled from maternal UID
-      set({ maternal_uid: value.replace(/[^a-zA-Z0-9/]/g, "") });
+      // Site-specific formats (confirmed 2026-08-01):
+      //   PGIMER: exactly 10 digits, numeric only
+      //   AMC:    serial/year, e.g. "123/2026"
+      //   GMCH / GMCH-A / IOG: no strict digit format specified — kept as
+      //   free alphanumeric (required-non-empty only) rather than guessing
+      //   a pattern that could block legitimate entries.
+      const rule = idFieldRule(formData.site_name, "maternal_uid");
+      const filtered = rule ? value.replace(rule.charFilter, "") : value.replace(/[^a-zA-Z0-9/]/g, "");
+      const capped = rule ? filtered.slice(0, rule.maxLen) : filtered;
+      set({ maternal_uid: capped });
       return;
     }
     if (name === "hospital_admission_number") {
-      // Site-specific: Aurangabad=11 digits, Dibrugarh=serial/year, GMCH Chd=9-11 digits, IOG=4-6 digits
-      const v = value.replace(/[^a-zA-Z0-9/]/g, "");
-      if (v.length <= 15) set({ hospital_admission_number: v });
+      // Site-specific formats (confirmed 2026-08-01):
+      //   PGIMER: required, exactly 10 digits
+      //   GMCH-A: optional, 11 digits if provided
+      //   GMCH:   optional, 9–11 digits if provided
+      //   IOG:    optional, 4–6 digits if provided
+      //   AMC:    optional, serial/year if provided (e.g. "123/2026")
+      const rule = idFieldRule(formData.site_name, "hospital_admission_number");
+      const filtered = rule ? value.replace(rule.charFilter, "") : value.replace(/[^a-zA-Z0-9/]/g, "");
+      const capped = filtered.slice(0, rule ? rule.maxLen : 15);
+      set({ hospital_admission_number: capped });
       return;
     }
 
@@ -537,7 +572,22 @@ export default function ScreeningForm() {
     }
     if (name === "mother_first_name" && !value.trim()) newErrors.mother_first_name = "Required";
     if (name === "husband_first_name" && !value.trim()) newErrors.husband_first_name = "Required";
-    if (name === "maternal_uid" && !value.trim())       newErrors.maternal_uid = "Required";
+    if (name === "maternal_uid") {
+      if (!value.trim()) {
+        newErrors.maternal_uid = "Required";
+      } else {
+        const rule = idFieldRule(formData.site_name, "maternal_uid");
+        newErrors.maternal_uid = rule && !rule.pattern.test(value.trim()) ? rule.hint : "";
+      }
+    }
+    if (name === "hospital_admission_number") {
+      const rule = idFieldRule(formData.site_name, "hospital_admission_number");
+      if (!value.trim()) {
+        newErrors.hospital_admission_number = (rule && rule.required) ? "Required" : "";
+      } else {
+        newErrors.hospital_admission_number = rule && !rule.pattern.test(value.trim()) ? rule.hint : "";
+      }
+    }
     setErrors(newErrors);
   };
 
@@ -552,6 +602,21 @@ export default function ScreeningForm() {
     if (!formData.mother_first_name)     add("Mother's First Name (A3)",           "mother_first_name");
     if (!formData.husband_first_name)    add("Husband's First Name (A3)",          "husband_first_name");
     if (!formData.maternal_uid)          add("Maternal UID / CR Number (A3)",      "maternal_uid");
+    else {
+      const uidRule = idFieldRule(formData.site_name, "maternal_uid");
+      if (uidRule && !uidRule.pattern.test(formData.maternal_uid.trim())) {
+        add(`Maternal UID — ${uidRule.hint} (A3)`, "maternal_uid");
+      }
+    }
+    {
+      const hanRule = idFieldRule(formData.site_name, "hospital_admission_number");
+      const hanValue = formData.hospital_admission_number?.trim();
+      if (hanRule?.required && !hanValue) {
+        add("Hospital Admission Number (A3)", "hospital_admission_number");
+      } else if (hanValue && hanRule && !hanRule.pattern.test(hanValue)) {
+        add(`Hospital Admission Number — ${hanRule.hint} (A3)`, "hospital_admission_number");
+      }
+    }
     if (!formData.mother_contact)        add("Mother's Mobile Number (A3)",        "mother_contact");
     else if (formData.mother_contact.length !== 10) add("Mother's Mobile — must be 10 digits (A3)", "mother_contact");
     if (!formData.husband_contact)       add("Husband's Mobile Number (A3)",       "husband_contact");
@@ -1211,36 +1276,38 @@ export default function ScreeningForm() {
                       <label>16. Maternal UID (CR number)<span className="required">*</span></label>
                       <input name="maternal_uid" value={formData.maternal_uid||""}
                         onChange={handleChange}
+                        onBlur={handleBlur}
                         maxLength={15}
                         inputMode={formData.site_name === "PGIMER" ? "numeric" : "text"}
                         placeholder={
                           formData.site_name === "PGIMER" ? "10-digit CR number" :
-                          formData.site_name === "AMC"      ? "Serial number/Year" :
+                          formData.site_name === "AMC"      ? "e.g. 123/2026" :
                           formData.site_name === "GMCH"    ? "CR number" :
                           formData.site_name === "IOG"         ? "CR number (auto from UID)" :
                           "CR / UID number"
                         }
-                        disabled={!isFieldEditable}/>
+                        disabled={!isFieldEditable}
+                        className={errors.maternal_uid ? "input-error" : ""}/>
+                      {errors.maternal_uid && <div className="field-error">{errors.maternal_uid}</div>}
                     </div>
                     <div className="form-group">
-                      <label>17. Hospital Admission Number</label>
+                      <label>17. Hospital Admission Number{formData.site_name === "PGIMER" && <span className="required">*</span>}</label>
                       <input name="hospital_admission_number" value={formData.hospital_admission_number||""}
                         maxLength={15}
                         inputMode={["PGIMER","GMCH-A","GMCH","IOG"].includes(formData.site_name) ? "numeric" : "text"}
                         placeholder={
                           formData.site_name === "GMCH-A"   ? "11-digit admission number" :
-                          formData.site_name === "AMC"      ? "Serial number/Year" :
+                          formData.site_name === "AMC"      ? "e.g. 123/2026" :
                           formData.site_name === "GMCH"    ? "9–11 digit number" :
                           formData.site_name === "IOG"         ? "4–6 digit MRD number" :
                           formData.site_name === "PGIMER"  ? "10-digit admission number" :
                           "Admission / MRD number"
                         }
                         disabled={!isFieldEditable}
-                        onChange={e => {
-                          if (!isFieldEditable) return;
-                          const v = e.target.value.replace(/[^a-zA-Z0-9/]/g, "");
-                          if (v.length <= 15) set({ hospital_admission_number: v });
-                        }}/>
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        className={errors.hospital_admission_number ? "input-error" : ""}/>
+                      {errors.hospital_admission_number && <div className="field-error">{errors.hospital_admission_number}</div>}
                     </div>
                   </div>
 

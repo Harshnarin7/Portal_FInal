@@ -407,7 +407,7 @@ export default function FormL() {
 
       {/* ── action buttons ── */}
       <div className="form-action-bar">
-        <button className="btn-secondary" onClick={() => navigate(-1)}>
+        <button className="btn-secondary" onClick={() => navigate(`/form-k/${formData.enrollment_id}`)}>
           <ArrowLeft size={16} /> Back
         </button>
         <div style={{ display: "flex", gap: 12 }}>

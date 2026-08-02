@@ -237,6 +237,11 @@ NICU_ADMISSION_COLUMN_PATCHES_V2 = [
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_pip DOUBLE PRECISION",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_peep DOUBLE PRECISION",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_map DOUBLE PRECISION",
+    # Distinguishes an explicitly-completed record (Save clicked, full
+    # validation passed) from one that only exists because the 10s
+    # background autosave silently persisted an in-progress draft —
+    # reopening the latter should stay editable, not lock until Edit.
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS finalized BOOLEAN DEFAULT FALSE",
 ]
 
 INFECT_GI_HEMA_COLUMN_PATCHES = [

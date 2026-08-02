@@ -856,7 +856,8 @@ class NICUAdmissionCreate(BaseModel):
     designation: Optional[str] = None
     signature: Optional[str] = None
     completion_date: Optional[date] = None
-    
+    finalized: Optional[bool] = None
+
 class NICUAdmissionOut(NICUAdmissionCreate):
     id: int
 

@@ -603,7 +603,7 @@ export default function FormK() {
 
       {/* ── action buttons ── */}
       <div className="form-action-bar">
-        <button className="btn-secondary" onClick={() => navigate(-1)}>
+        <button className="btn-secondary" onClick={() => navigate(`/form-j/${formData.enrollment_id}`)}>
           <ArrowLeft size={16} /> Back
         </button>
 

@@ -38,6 +38,7 @@ export default function SegmentedToggle({ name, value, options, onChange, disabl
     <div
       style={{
         display: "inline-flex",
+        alignSelf: "flex-start",
         alignItems: "center",
         gap: 0,
         border: `1.5px solid ${error ? "#fca5a5" : activeColor ? activeColor.border : "#e2e8f0"}`,

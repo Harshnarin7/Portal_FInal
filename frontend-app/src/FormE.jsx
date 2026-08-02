@@ -463,7 +463,12 @@ export default function FormE() {
           completion_date: e.completion_date || "",
         }));
 
-        setIsSaved(true);
+        // Only lock the form read-only-until-Edit if this record was
+        // explicitly finalized via the real Save button. A record that
+        // only exists because the background autosave silently
+        // persisted an in-progress draft (finalized still false/null)
+        // should stay editable when reopened.
+        setIsSaved(!!e.finalized);
         setIsFormELoaded(true);
         resetInitialRender();
       })
@@ -623,6 +628,11 @@ export default function FormE() {
       completed_by: formData.completed_by,
       designation: formData.designation,
       completion_date: formData.completion_date || null,
+      // Only the explicit, fully-validated Save sets this — autosave's
+      // payload (buildAutoPayload) never includes this key, and the
+      // backend is set up to leave finalized untouched when it's absent
+      // rather than resetting it on every 10s autosave tick.
+      finalized: true,
     };
     try {
       if (isSaved) {
@@ -678,7 +688,12 @@ export default function FormE() {
         console.error("Save before back failed:", err);
       }
     }
-    navigate(-1);
+    // FIX: navigate(-1) used browser history "go back", which lands on
+    // whatever page happened to be previous in THIS TAB's history (e.g. the
+    // FiO2 AUC helper form, if that was visited earlier in the session) —
+    // not necessarily Form D. Navigate to the actual Form D route instead,
+    // the same way handleNext explicitly targets the FiO2 AUC route above.
+    navigate(`/form-d/${enrollmentId}`);
   };
 
   const nurses = ["Geetika","Navkiran Kaur","Priyanka Thakur","Seemran Kaur",

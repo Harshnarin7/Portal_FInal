@@ -140,3 +140,13 @@
   border-color: #16a34a !important;
   background: #f0fdf4 !important;
 }
+
+/* The Weeks/Days row inside "5. Gestational Age By" uses FieldWrap, which
+   wraps each field in its own .form-group (margin-bottom: 20px from
+   global.css) — nested inside the section's own outer .form-group. That
+   doubled-up margin was pushing the warning/hint text below it far down
+   the page. Zero it out here; spacing to the hint text below is handled
+   explicitly via marginTop on that element instead. */
+.ga-weeks-days-row .form-group {
+  margin-bottom: 0;
+}

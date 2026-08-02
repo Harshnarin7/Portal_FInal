@@ -550,7 +550,63 @@
   }
 }
 
-/* ══ RESPONSIVE ══ */
+/* ══ WINDOW COMPLETION POPUP ══ */
+.fio2-completion-popup-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,.45);
+  backdrop-filter: blur(6px);
+  display: grid; place-items: center;
+  z-index: 9999;
+}
+.fio2-completion-popup-box {
+  background: #fff; border-radius: 16px;
+  width: 380px; max-width: 92vw;
+  padding: 28px; text-align: center;
+  box-shadow: 0 20px 50px rgba(0,0,0,.2);
+  animation: modalIn .2s ease;
+}
+.fio2-completion-popup-icon {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: #dcfce7; color: #15803d;
+  display: grid; place-items: center;
+  font-size: 26px; margin: 0 auto 14px;
+}
+.fio2-completion-popup-box h3 {
+  font-size: 17px; font-weight: 800; color: #15803d; margin: 0 0 6px;
+}
+.fio2-completion-popup-box p {
+  font-size: 13px; color: #64748b; margin: 0 0 18px; line-height: 1.5;
+}
+.fio2-completion-popup-btn {
+  width: 100%; height: 44px;
+  background: #16a34a; color: #fff;
+  border: none; border-radius: 10px;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background .15s;
+}
+.fio2-completion-popup-btn:hover { background: #15803d; }
+
+/* ══ PRINT / EXPORT PDF ══
+   FIX: "Export PDF" (window.print()) previously printed the entire app
+   shell along with the form — sidebar nav, the save/export buttons
+   themselves, the sticky footer, autosave toast — making the exported
+   PDF unusable as a clean report. These rules hide everything except the
+   actual FiO2 log content when printing. Locked/expand state is handled
+   separately in JS (handleExportPdf expands every day first) so every
+   day's detail is included, not just whichever one was open on screen. */
+@media print {
+  .sidebar,
+  .form-navigation,
+  .fio2-section-actions,
+  .fio2-autosave-toast,
+  .day-header-right .day-chevron,
+  .fio2-completion-popup-overlay {
+    display: none !important;
+  }
+  .fio2-page { padding: 0; }
+  .day-card { break-inside: avoid; box-shadow: none; border: 1px solid #d1d5db; }
+  .kpi-card { box-shadow: none; border: 1px solid #d1d5db; }
+}
 @media (max-width: 1024px) {
   .fio2-kpi-grid { grid-template-columns: 1fr 1fr; }
   .kpi-card--primary { grid-column: 1 / -1; }

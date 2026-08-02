@@ -1311,7 +1311,7 @@ def create_nicu_admission(
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         NICU_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
@@ -1365,7 +1365,7 @@ def update_nicu_admission(
     require_enrollment_access(enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         NICU_PII_FIELDS,
         enrollment_id=enrollment_id,
         site_name=site_for_enrollment(db, enrollment_id),
