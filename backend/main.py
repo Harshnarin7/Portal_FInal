@@ -2127,22 +2127,53 @@ def _compute_completion_pct(record) -> int:
     # ── RESPIRATORY (items 1-22) ──
     resp_bool_fields = [
         "respiratory_support", "endotracheal_intubation",       # 1, 2
-        "supp_o2", "surfactant", "caffeine",                    # 7, 11, 12
-        "extub_attempted", "extub_failure", "pulm_hemorrhage",  # 16, 17, 18
+        "surfactant", "caffeine",                               # 11, 12
+        "extub_attempted", "pulm_hemorrhage",                   # 16, 18
         "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",  # 19-22
     ]
     resp_text_fields = [
-        "map_cpap", "max_fio2", "max_flow",                     # 4, 5, 6
         "lowest_ph", "pao2_range", "paco2_range",                # 8, 9, 10
         "apnea_count", "desaturation_count", "severe_desaturation_count",  # 13, 14, 15
     ]
+    # #3-7 depend on respiratory support mode / status:
+    #  - #4 (MAP/CPAP), #5 (Max FiO2), #6 (Max Gas Flow), #7 (Supplemental O2)
+    #    are only asked when Respiratory support (#1) is Yes — if it's No,
+    #    they're N/A and shouldn't block completion.
+    #  - #4b (the second CPAP/MAP field) only applies when CPAP is combined
+    #    with a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) on the same day.
+    #  - #17 (Extubation failure) is only asked when Extubation attempted
+    #    (#16) is Yes.
+    _modes = [m.strip() for m in (getattr(record, "support_modes", None) or "").split(",") if m.strip()]
+    _pressure_modes = {"NIPPV", "SIMV", "AC", "PSV", "HFOV"}
+    _has_pressure_mode = any(m in _pressure_modes for m in _modes)
+    _has_cpap = "CPAP" in _modes
+    if _has_pressure_mode and _has_cpap:
+        _map_cpap_mode = "BOTH"
+    elif _has_pressure_mode:
+        _map_cpap_mode = "MAP"
+    elif _has_cpap:
+        _map_cpap_mode = "CPAP"
+    elif any(m in {"NC", "HFNC"} for m in _modes):
+        _map_cpap_mode = "NA"
+    else:
+        _map_cpap_mode = None
+    _dual_cpap_map = _map_cpap_mode == "BOTH"
+    _map_cpap_na   = _map_cpap_mode == "NA"
+    _resp_support_no = getattr(record, "respiratory_support", None) is False
+    _extub_attempted_yes = getattr(record, "extub_attempted", None) is True
     resp_done = (
         (1 if answered(getattr(record, "weight_kg", None)) else 0)      # 2.1 weight
         + sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
         + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
         + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
+        + (1 if (_resp_support_no or _map_cpap_na or answered(getattr(record, "map_cpap", None))) else 0)  # 4
+        + (1 if (_dual_cpap_map and answered(getattr(record, "map_cpap_secondary", None))) else 0)  # 4b
+        + (1 if (_resp_support_no or answered(getattr(record, "max_fio2", None))) else 0)   # 5
+        + (1 if (_resp_support_no or answered(getattr(record, "max_flow", None))) else 0)   # 6
+        + (1 if (_resp_support_no or answered(getattr(record, "supp_o2", None))) else 0)    # 7
+        + (1 if (not _extub_attempted_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
     )
-    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 1  # = 23 (weight + items 1-22)
+    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 5 + (1 if _dual_cpap_map else 0)  # weight + #3,4,5,6,7,17 (+4b when dual)
 
     # ── CARDIOVASCULAR (items 23-29) ──
     cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27

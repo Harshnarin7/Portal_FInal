@@ -1903,7 +1903,8 @@ class RespCVNeuroDayCreate(BaseModel):
     respiratory_support: Optional[bool]  = None  # #1
     endotracheal_intubation: Optional[bool] = None  # #2
     support_modes:      Optional[str]   = None  # #3
-    map_cpap:           Optional[float] = None  # #4
+    map_cpap:           Optional[float] = None  # #4 (MAP value, or CPAP value if CPAP is the only pressure mode)
+    map_cpap_secondary: Optional[float] = None  # #4b — CPAP value, only used when CPAP AND a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) are BOTH selected
     max_fio2:           Optional[float] = None  # #5
     max_flow:           Optional[float] = None  # #6
     supp_o2:            Optional[bool]  = None  # #7

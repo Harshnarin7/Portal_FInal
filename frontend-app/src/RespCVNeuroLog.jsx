@@ -60,10 +60,11 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "support_modes",             label: "Support Modes" },
       { key: "max_fio2",                  label: "Max FiO2", suffix: "%" },
       { key: "map_cpap",                  label: "MAP / CPAP" },
+      { key: "map_cpap_secondary",        label: "MAP / CPAP (2nd value, if both)" },
       { key: "max_flow",                  label: "Max Flow" },
-      { key: "lowest_ph",                 label: "Lowest pH" },
-      { key: "pao2_range",                label: "PaO2 Range" },
-      { key: "paco2_range",               label: "PaCO2 Range" },
+      { key: "lowest_ph",                 label: "pH (lowest)" },
+      { key: "pao2_range",                label: "PaO₂ (lowest–highest)" },
+      { key: "paco2_range",               label: "PaCO₂ (lowest–highest)" },
       { key: "apnea_count",               label: "Apnea Count" },
       { key: "desaturation_count",        label: "Desaturation Count" },
       { key: "severe_desaturation_count", label: "Severe Desaturation Count" },
@@ -126,6 +127,143 @@ function formatTableViewValue(d, row) {
   return row.suffix ? `${v}${row.suffix}` : String(v);
 }
 
+/* Validates the free-text weight field, which accepts one or more
+   comma-separated readings (e.g. "1250g, 1245g" or "1.25kg").
+   Returns an error string, or null when valid / empty. */
+function validateWeightEntries(str) {
+  if (!str || !str.trim()) return null;
+  const entries = str.split(",").map(s => s.trim()).filter(Boolean);
+  for (const entry of entries) {
+    const m = entry.match(/^(\d+(?:\.\d+)?)\s*(g|kg)?$/i);
+    if (!m) return `"${entry}" isn't a valid weight — use e.g. 1250g or 1.25kg`;
+    const num = parseFloat(m[1]);
+    const unit = (m[2] || "g").toLowerCase();
+    if (unit === "kg") {
+      if (num < 0.2 || num > 8) return `"${entry}" is outside the expected 0.2–8 kg range`;
+    } else if (num < 200 || num > 8000) {
+      return `"${entry}" is outside the expected 200–8000 g range`;
+    }
+  }
+  return null;
+}
+
+/* Derives what the "MAP/CPAP" field should show based on the
+   selected respiratory support mode(s):
+   - NC / HFNC only  → "NA" (field not applicable)
+   - CPAP + a MAP-generating mode together → "BOTH" (show two fields)
+   - CPAP alone      → "CPAP"
+   - Any other mode alone (NIPPV, SIMV, A/C, PSV, HFOV) → "MAP"
+   - Nothing selected yet → null (fall back to default label) */
+function getMapCpapMode(modes) {
+  if (!modes || modes.length === 0) return null;
+  const pressureModes = ["NIPPV", "SIMV", "AC", "PSV", "HFOV"];
+  const hasPressureMode = modes.some(m => pressureModes.includes(m));
+  const hasCPAP = modes.includes("CPAP");
+  if (hasPressureMode && hasCPAP) return "BOTH";
+  if (hasPressureMode) return "MAP";
+  if (hasCPAP) return "CPAP";
+  if (modes.some(m => ["NC", "HFNC"].includes(m))) return "NA";
+  return null;
+}
+
+/* Validates the MAP/CPAP number field. Range depends on which
+   reading is being taken (CPAP vs MAP), since normal MAP runs
+   higher than normal CPAP. Returns an error string, or null when
+   valid / empty. */
+function validateMapCpap(value, mode) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (mode === "CPAP") {
+    if (num < 3 || num > 12) return "CPAP is usually 3–12 cmH₂O — please double-check this value";
+  } else if (mode === "MAP") {
+    if (num < 4 || num > 30) return "MAP is usually 4–30 cmH₂O — please double-check this value";
+  } else if (num > 40) {
+    return "This value looks too high for MAP/CPAP — please double-check";
+  }
+  return null;
+}
+
+/* Validates Max FiO2 (%). Room air is 21% and 100% is the physical
+   ceiling, so anything outside that band is invalid. */
+function validateMaxFio2(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 21) return "Max FiO₂ can't be below 21% (room air)";
+  if (num > 100) return "Max FiO₂ can't be above 100%";
+  return null;
+}
+
+/* Validates Max Gas Flow (L/min). Flags negative values and values
+   well outside what's typically used in a NICU. */
+function validateMaxFlow(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (num > 30) return "Max Gas Flow is usually 0–30 L/min — please double-check this value";
+  return null;
+}
+
+/* Validates the Lowest pH reading. */
+function validatePh(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 6.6 || num > 7.8) return "pH is usually 6.6–7.8 — please double-check this value";
+  return null;
+}
+
+/* Validates a single PaO2/PaCO2 reading (lowest or highest) against
+   a physiologically plausible mmHg range. */
+function validateBloodGasValue(value, { min, max, label }) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < min || num > max) return `${label} is usually ${min}–${max} mmHg — please double-check`;
+  return null;
+}
+
+/* Cross-checks that the lowest value isn't greater than the highest. */
+function validateRangeOrder(low, high) {
+  if (low === "" || high === "" || low == null || high == null) return null;
+  const lo = Number(low), hi = Number(high);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  if (lo > hi) return "Lowest value can't be greater than highest";
+  return null;
+}
+
+/* Validates an episode-count field (apnea / desaturation / severe
+   desaturation) — must be a non-negative whole number. */
+function validateCount(value, { max = 50, label } = {}) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (!Number.isInteger(num)) return "Enter a whole number";
+  if (num < 0) return "Value can't be negative";
+  if (num > max) return `${label ? label + " " : ""}seems unusually high — please double-check`;
+  return null;
+}
+
+/* Splits the stored "lowest-highest" string (or the literal "Not Done")
+   into its three parts for the PaO2/PaCO2 UI. */
+function parseRangeField(str) {
+  if (!str) return { low: "", high: "", notDone: false };
+  if (str.trim().toLowerCase() === "not done") return { low: "", high: "", notDone: true };
+  const parts = str.split("-").map(s => s.trim());
+  if (parts.length === 2) return { low: parts[0], high: parts[1], notDone: false };
+  return { low: str.trim(), high: "", notDone: false }; // legacy single-value fallback
+}
+
+/* Recombines the PaO2/PaCO2 UI state back into the stored string format. */
+function combineRangeField(low, high, notDone) {
+  if (notDone) return "Not Done";
+  if (low === "" && high === "") return null;
+  return `${low}-${high}`;
+}
+
 /* ══════════════════════════════════════════════════════
    HELPER SUB-COMPONENTS
 ══════════════════════════════════════════════════════ */
@@ -168,10 +306,13 @@ function YNToggle({ value, onChange, disabled }) {
   );
 }
 
-function YNRow({ label, value, onChange, disabled }) {
+function YNRow({ label, value, onChange, disabled, hint }) {
   return (
     <div className="rcn-yn-row">
-      <span className="rcn-yn-label">{label}</span>
+      <span className="rcn-yn-label">
+        {label}
+        {hint && <span className="rcn-yn-hint">{hint}</span>}
+      </span>
       <YNToggle value={value} onChange={onChange} disabled={disabled} />
     </div>
   );
@@ -404,12 +545,17 @@ export default function RespCVNeuroLog() {
   const [supportModes, setSupportModes] = useState([]);
   const [respiratorySupport, setRespiratorySupport] = useState(null); // #1
   const [endotrachealIntubation, setEndotrachealIntubation] = useState(null); // #2
-  const [mapCpap, setMapCpap]           = useState(""); // #4
+  const [mapCpap, setMapCpap]           = useState(""); // #4  (MAP value, or the CPAP value when CPAP is the only pressure mode)
+  const [mapCpapSecondary, setMapCpapSecondary] = useState(""); // #4b (CPAP value, only when CPAP + a MAP-generating mode are both selected)
   const [maxFio2, setMaxFio2]           = useState("");
   const [maxFlow, setMaxFlow]           = useState("");
   const [lowestPh, setLowestPh]         = useState(""); // #8
-  const [pao2Range, setPao2Range]       = useState(""); // #9
-  const [paco2Range, setPaco2Range]     = useState(""); // #10
+  const [pao2Low, setPao2Low]           = useState(""); // #9
+  const [pao2High, setPao2High]         = useState("");
+  const [pao2NotDone, setPao2NotDone]   = useState(false);
+  const [paco2Low, setPaco2Low]         = useState(""); // #10
+  const [paco2High, setPaco2High]       = useState("");
+  const [paco2NotDone, setPaco2NotDone] = useState(false);
   const [apneaCount, setApneaCount]             = useState(""); // #13
   const [desatCount, setDesatCount]             = useState(""); // #14
   const [severeDesatCount, setSevereDesatCount] = useState(""); // #15
@@ -603,11 +749,16 @@ export default function RespCVNeuroLog() {
           setRespiratorySupport(d.respiratory_support ?? null);
           setEndotrachealIntubation(d.endotracheal_intubation ?? null);
           setMapCpap(d.map_cpap != null ? String(d.map_cpap) : "");
+          setMapCpapSecondary(d.map_cpap_secondary != null ? String(d.map_cpap_secondary) : "");
           setMaxFio2(d.max_fio2 != null ? String(d.max_fio2) : "");
           setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
           setLowestPh(d.lowest_ph || "");
-          setPao2Range(d.pao2_range || "");
-          setPaco2Range(d.paco2_range || "");
+          {
+            const pao2Parsed = parseRangeField(d.pao2_range);
+            setPao2Low(pao2Parsed.low); setPao2High(pao2Parsed.high); setPao2NotDone(pao2Parsed.notDone);
+            const paco2Parsed = parseRangeField(d.paco2_range);
+            setPaco2Low(paco2Parsed.low); setPaco2High(paco2Parsed.high); setPaco2NotDone(paco2Parsed.notDone);
+          }
           setApneaCount(d.apnea_count || "");
           setDesatCount(d.desaturation_count || "");
           setSevereDesatCount(d.severe_desaturation_count || "");
@@ -674,8 +825,10 @@ export default function RespCVNeuroLog() {
     setWeightKg("");
     setSupportModes([]);
     setRespiratorySupport(null); setEndotrachealIntubation(null);
-    setMapCpap(""); setMaxFio2(""); setMaxFlow("");
-    setLowestPh(""); setPao2Range(""); setPaco2Range("");
+    setMapCpap(""); setMapCpapSecondary(""); setMaxFio2(""); setMaxFlow("");
+    setLowestPh("");
+    setPao2Low(""); setPao2High(""); setPao2NotDone(false);
+    setPaco2Low(""); setPaco2High(""); setPaco2NotDone(false);
     setApneaCount(""); setDesatCount(""); setSevereDesatCount("");
     setRespEvents({ supp_o2: null, surfactant: null, caffeine: null,
       extub_attempted: null, extub_failure: null,
@@ -702,27 +855,55 @@ export default function RespCVNeuroLog() {
 
   // ── RESPIRATORY (spec items 1-22) ────────────────────────
   const RESP_EVENT_KEYS = [
-    "supp_o2","surfactant","caffeine",
-    "extub_attempted","extub_failure","pulm_hemorrhage","pneumothorax",
+    "surfactant","caffeine",
+    "extub_attempted","pulm_hemorrhage","pneumothorax",
     "chest_drain","pphn","postnatal_steroids",
-  ]; // items 7,11,12,16-22 = 10 keys
+  ]; // items 11,12,16,18-22 = 8 keys (supp_o2 / item 7 and extub_failure / item 17 counted separately below — both gated on other fields)
   const respEventsAnswered = RESP_EVENT_KEYS.filter(k => respEvents[k] !== null).length;
-  const respTotal    = 23; // weight(2.1) + items 1-22
+  const isExtubAttemptedYes = respEvents.extub_attempted === true;
+  const respSupportIsNo = respiratorySupport === false;
+  const isRespSupportYes = respiratorySupport === true;
+  const weightError  = validateWeightEntries(weightKg);
+  const mapCpapMode  = getMapCpapMode(supportModes);
+  const mapCpapModeForCount = mapCpapMode;
+  const isMapCpapNA  = mapCpapMode === "NA";
+  const isMapCpapBoth = mapCpapMode === "BOTH";
+  const mapCpapError = isMapCpapNA ? null : validateMapCpap(mapCpap, isMapCpapBoth ? "MAP" : mapCpapMode);
+  const mapCpapSecondaryError = isMapCpapBoth ? validateMapCpap(mapCpapSecondary, "CPAP") : null;
+  const maxFio2Error = isRespSupportYes ? validateMaxFio2(maxFio2) : null;
+  const maxFlowError = isRespSupportYes ? validateMaxFlow(maxFlow) : null;
+  const phError = validatePh(lowestPh);
+  const pao2LowError  = pao2NotDone ? null : validateBloodGasValue(pao2Low,  { min: 20, max: 600, label: "PaO₂ lowest" });
+  const pao2HighError = pao2NotDone ? null : validateBloodGasValue(pao2High, { min: 20, max: 600, label: "PaO₂ highest" });
+  const pao2OrderError = pao2NotDone ? null : validateRangeOrder(pao2Low, pao2High);
+  const paco2LowError  = paco2NotDone ? null : validateBloodGasValue(paco2Low,  { min: 15, max: 150, label: "PaCO₂ lowest" });
+  const paco2HighError = paco2NotDone ? null : validateBloodGasValue(paco2High, { min: 15, max: 150, label: "PaCO₂ highest" });
+  const paco2OrderError = paco2NotDone ? null : validateRangeOrder(paco2Low, paco2High);
+  const apneaCountError = validateCount(apneaCount, { max: 50, label: "Apnea episode count" });
+  const desatCountError = validateCount(desatCount, { max: 50, label: "Desaturation count" });
+  const severeDesatCountError = validateCount(severeDesatCount, { max: 50, label: "Severe desaturation count" })
+    || ((desatCount !== "" && severeDesatCount !== "" && Number(severeDesatCount) > Number(desatCount))
+      ? "Severe desaturations can't exceed total desaturations (#14)"
+      : null);
+  const respTotal    = 23 + (isMapCpapBoth ? 1 : 0); // weight(2.1) + items 1-22 (+4b when both CPAP & MAP selected)
   const respAnswered = Math.min(
     (weightKg !== "" ? 1 : 0)                      // 2.1 weight
     + (respiratorySupport !== null ? 1 : 0)          // 1
     + (endotrachealIntubation !== null ? 1 : 0)    // 2
-    + (supportModes.length > 0 ? 1 : 0)            // 3
-    + (mapCpap !== "" ? 1 : 0)                     // 4
-    + (maxFio2 !== "" ? 1 : 0)                     // 5
-    + (maxFlow  !== "" ? 1 : 0)                    // 6
+    + ((respSupportIsNo || supportModes.length > 0) ? 1 : 0)                        // 3
+    + ((respSupportIsNo || mapCpapModeForCount === "NA" || mapCpap !== "") ? 1 : 0) // 4
+    + (isMapCpapBoth && mapCpapSecondary !== "" ? 1 : 0)                            // 4b
+    + ((respSupportIsNo || maxFio2 !== "") ? 1 : 0)                                 // 5
+    + ((respSupportIsNo || maxFlow !== "") ? 1 : 0)                                 // 6
+    + ((respSupportIsNo || respEvents.supp_o2 !== null) ? 1 : 0)                    // 7
     + (lowestPh !== "" ? 1 : 0)                    // 8
-    + (pao2Range !== "" ? 1 : 0)                   // 9
-    + (paco2Range !== "" ? 1 : 0)                  // 10
+    + ((pao2NotDone || (pao2Low !== "" && pao2High !== "")) ? 1 : 0)   // 9
+    + ((paco2NotDone || (paco2Low !== "" && paco2High !== "")) ? 1 : 0) // 10
     + (apneaCount !== "" ? 1 : 0)                  // 13
     + (desatCount !== "" ? 1 : 0)                  // 14
     + (severeDesatCount !== "" ? 1 : 0)            // 15
-    + respEventsAnswered,                          // 7,11,12,16-22
+    + ((!isExtubAttemptedYes || respEvents.extub_failure !== null) ? 1 : 0)      // 17
+    + respEventsAnswered,                          // 11,12,16,18-22
     respTotal
   );
 
@@ -767,10 +948,14 @@ export default function RespCVNeuroLog() {
 
   /* ── Helpers ── */
   const toggleMode = (mode) => {
-    if (!isFieldEditable) return;
-    setSupportModes(prev =>
-      prev.includes(mode) ? prev.filter(m => m !== mode) : [...prev, mode]
-    );
+    if (!isFieldEditable || respiratorySupport !== true) return;
+    setSupportModes(prev => {
+      const next = prev.includes(mode) ? prev.filter(m => m !== mode) : [...prev, mode];
+      const nextMode = getMapCpapMode(next);
+      if (nextMode === "NA") setMapCpap("");
+      if (nextMode !== "BOTH") setMapCpapSecondary("");
+      return next;
+    });
   };
   const toggleDrug = (drug) => {
     if (!isFieldEditable) return;
@@ -795,11 +980,12 @@ export default function RespCVNeuroLog() {
       respiratory_support: respiratorySupport,
       endotracheal_intubation: endotrachealIntubation,
       map_cpap:            mapCpap !== "" ? Number(mapCpap) : null,
+      map_cpap_secondary:  mapCpapSecondary !== "" ? Number(mapCpapSecondary) : null,
       max_fio2:            maxFio2 !== "" ? Number(maxFio2) : null,
       max_flow:            maxFlow !== "" ? Number(maxFlow) : null,
       lowest_ph:           lowestPh || null,
-      pao2_range:          pao2Range || null,
-      paco2_range:         paco2Range || null,
+      pao2_range:          combineRangeField(pao2Low, pao2High, pao2NotDone),
+      paco2_range:         combineRangeField(paco2Low, paco2High, paco2NotDone),
       apnea_count:              apneaCount || null,
       desaturation_count:       desatCount || null,
       severe_desaturation_count: severeDesatCount || null,
@@ -893,11 +1079,16 @@ export default function RespCVNeuroLog() {
       setRespiratorySupport(d.respiratory_support ?? null);
       setEndotrachealIntubation(d.endotracheal_intubation ?? null);
       setMapCpap(d.map_cpap != null ? String(d.map_cpap) : "");
+      setMapCpapSecondary(d.map_cpap_secondary != null ? String(d.map_cpap_secondary) : "");
       setMaxFio2(d.max_fio2 != null ? String(d.max_fio2) : "");
       setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
       setLowestPh(d.lowest_ph || "");
-      setPao2Range(d.pao2_range || "");
-      setPaco2Range(d.paco2_range || "");
+      {
+        const pao2Parsed = parseRangeField(d.pao2_range);
+        setPao2Low(pao2Parsed.low); setPao2High(pao2Parsed.high); setPao2NotDone(pao2Parsed.notDone);
+        const paco2Parsed = parseRangeField(d.paco2_range);
+        setPaco2Low(paco2Parsed.low); setPaco2High(paco2Parsed.high); setPaco2NotDone(paco2Parsed.notDone);
+      }
       setApneaCount(d.apnea_count || "");
       setDesatCount(d.desaturation_count || "");
       setSevereDesatCount(d.severe_desaturation_count || "");
@@ -1320,11 +1511,12 @@ export default function RespCVNeuroLog() {
               </label>
               <input
                 type="text" placeholder="e.g. 1250g, 1245g"
-                className="rcn-text-input"
+                className={`rcn-text-input${weightError ? " rcn-text-input--error" : ""}`}
                 value={weightKg}
                 onChange={e => isFieldEditable && setWeightKg(e.target.value)}
                 readOnly={!isFieldEditable}
               />
+              {weightError && <span className="rcn-field-error">{weightError}</span>}
             </div>
 
             {/* ════ RESPIRATORY ════ */}
@@ -1338,16 +1530,31 @@ export default function RespCVNeuroLog() {
               {/* #1-2 Respiratory support / Endotracheally intubated */}
               <div className="rcn-yn-list">
                 <YNRow label="1. Respiratory support" value={respiratorySupport}
-                  onChange={v => isFieldEditable && setRespiratorySupport(v)} disabled={!isFieldEditable} />
+                  onChange={v => {
+                    if (!isFieldEditable) return;
+                    setRespiratorySupport(v);
+                    if (v !== true) {
+                      setSupportModes([]);
+                      setMapCpap("");
+                      setMapCpapSecondary("");
+                      setMaxFio2("");
+                      setMaxFlow("");
+                      setResp("supp_o2", null);
+                    }
+                  }} disabled={!isFieldEditable} />
                 <YNRow label="2. Endotracheally intubated" value={endotrachealIntubation}
                   onChange={v => isFieldEditable && setEndotrachealIntubation(v)} disabled={!isFieldEditable} />
               </div>
 
-              {/* #3 Mode Pills */}
+              {/* #3 Mode Pills — only relevant once Respiratory support = Yes */}
               <div className="rcn-field-group">
                 <label className="rcn-field-label">
                   3. Mode
-                  <span className="rcn-field-sub">NC, HFNC, CPAP, NIPPV, SIMV, A/C, PSV, HFOV — select all that apply</span>
+                  <span className="rcn-field-sub">
+                    {isRespSupportYes
+                      ? "NC, HFNC, CPAP, NIPPV, SIMV, A/C, PSV, HFOV — select all that apply"
+                      : "Enabled once Respiratory support (#1) is Yes"}
+                  </span>
                 </label>
                 <div className="rcn-pills">
                   {["NC","HFNC","CPAP","NIPPV","SIMV","AC","PSV","HFOV"].map(mode => (
@@ -1356,80 +1563,231 @@ export default function RespCVNeuroLog() {
                       type="button"
                       className={`rcn-pill${supportModes.includes(mode) ? " rcn-pill--on" : ""}`}
                       onClick={() => toggleMode(mode)}
-                      disabled={!isFieldEditable}
+                      disabled={!isFieldEditable || !isRespSupportYes}
                     >{mode}</button>
                   ))}
                 </div>
               </div>
 
-              {/* #4-6 MAP/CPAP, Max FiO2, Max Flow */}
-              <div className="rcn-inputs-row rcn-inputs-row--3col">
-                <div className="rcn-input-group">
-                  <label className="rcn-field-label">4. MAP/CPAP</label>
-                  <div className="rcn-num-input">
-                    <input
-                      type="number" placeholder="0"
-                      value={mapCpap}
-                      onChange={e => isFieldEditable && setMapCpap(e.target.value)}
-                      readOnly={!isFieldEditable}
-                    />
-                    <span className="rcn-num-unit">cm H₂O</span>
+              {/* #4 (+4b) MAP/CPAP, #5 Max FiO2, #6 Max Flow */}
+              <div className={`rcn-inputs-row ${isMapCpapBoth ? "rcn-inputs-row--4col" : "rcn-inputs-row--3col"}`}>
+                {isMapCpapBoth ? (
+                  <>
+                    <div className="rcn-input-group">
+                      <label className="rcn-field-label">4. Max CPAP</label>
+                      <div className={`rcn-num-input${mapCpapSecondaryError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="0"
+                          value={mapCpapSecondary}
+                          onChange={e => isFieldEditable && isRespSupportYes && setMapCpapSecondary(e.target.value)}
+                          readOnly={!isFieldEditable || !isRespSupportYes}
+                          disabled={!isRespSupportYes}
+                          min="0" max="50" step="0.5"
+                        />
+                        <span className="rcn-num-unit">cm H₂O</span>
+                      </div>
+                      {mapCpapSecondaryError && <span className="rcn-field-error">{mapCpapSecondaryError}</span>}
+                    </div>
+                    <div className="rcn-input-group">
+                      <label className="rcn-field-label">4b. Max MAP</label>
+                      <div className={`rcn-num-input${mapCpapError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="0"
+                          value={mapCpap}
+                          onChange={e => isFieldEditable && isRespSupportYes && setMapCpap(e.target.value)}
+                          readOnly={!isFieldEditable || !isRespSupportYes}
+                          disabled={!isRespSupportYes}
+                          min="0" max="50" step="0.5"
+                        />
+                        <span className="rcn-num-unit">cm H₂O</span>
+                      </div>
+                      {mapCpapError && <span className="rcn-field-error">{mapCpapError}</span>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rcn-input-group">
+                    <label className="rcn-field-label">
+                      4. {mapCpapMode === "CPAP" ? "Max CPAP" : mapCpapMode === "MAP" ? "Max MAP" : "Max CPAP/MAP"}
+                    </label>
+                    {isMapCpapNA ? (
+                      <div className="rcn-num-input rcn-num-input--na">
+                        <span className="rcn-na-value">NA</span>
+                        <span className="rcn-num-unit">mode doesn't generate pressure</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className={`rcn-num-input${mapCpapError ? " rcn-num-input--error" : ""}`}>
+                          <input
+                            type="number" placeholder="0"
+                            value={mapCpap}
+                            onChange={e => isFieldEditable && isRespSupportYes && setMapCpap(e.target.value)}
+                            readOnly={!isFieldEditable || !isRespSupportYes}
+                            disabled={!isRespSupportYes}
+                            min="0" max="50" step="0.5"
+                          />
+                          <span className="rcn-num-unit">cm H₂O</span>
+                        </div>
+                        {mapCpapError && <span className="rcn-field-error">{mapCpapError}</span>}
+                      </>
+                    )}
                   </div>
-                </div>
+                )}
                 <div className="rcn-input-group">
                   <label className="rcn-field-label">5. Max FiO₂</label>
-                  <div className="rcn-num-input">
+                  <div className={`rcn-num-input${maxFio2Error ? " rcn-num-input--error" : ""}`}>
                     <input
                       type="number" placeholder="21"
                       value={maxFio2}
-                      onChange={e => isFieldEditable && setMaxFio2(e.target.value)}
+                      onChange={e => isFieldEditable && isRespSupportYes && setMaxFio2(e.target.value)}
                       min="21" max="100"
-                      readOnly={!isFieldEditable}
+                      readOnly={!isFieldEditable || !isRespSupportYes}
+                      disabled={!isRespSupportYes}
                     />
                     <span className="rcn-num-unit">%</span>
                   </div>
+                  {maxFio2Error && <span className="rcn-field-error">{maxFio2Error}</span>}
                 </div>
                 <div className="rcn-input-group">
                   <label className="rcn-field-label">6. Max Gas Flow</label>
-                  <div className="rcn-num-input">
+                  <div className={`rcn-num-input${maxFlowError ? " rcn-num-input--error" : ""}`}>
                     <input
                       type="number" placeholder="0"
                       value={maxFlow}
-                      onChange={e => isFieldEditable && setMaxFlow(e.target.value)}
-                      min="0"
-                      readOnly={!isFieldEditable}
+                      onChange={e => isFieldEditable && isRespSupportYes && setMaxFlow(e.target.value)}
+                      min="0" max="30"
+                      readOnly={!isFieldEditable || !isRespSupportYes}
+                      disabled={!isRespSupportYes}
                     />
                     <span className="rcn-num-unit">L/min</span>
                   </div>
+                  {maxFlowError && <span className="rcn-field-error">{maxFlowError}</span>}
                 </div>
               </div>
 
               {/* #7 Supplemental O2 */}
               <div className="rcn-yn-list">
                 <YNRow label="7. Supplemental O₂ >21% (any)" value={respEvents.supp_o2}
-                  onChange={v => setResp("supp_o2", v)} disabled={!isFieldEditable} />
+                  onChange={v => isRespSupportYes && setResp("supp_o2", v)}
+                  disabled={!isFieldEditable || !isRespSupportYes} />
+              </div>
+              {!isRespSupportYes && (
+                <p className="rcn-field-hint">Enabled once Respiratory support (#1) is Yes</p>
+              )}
+
+              {/* #8 pH */}
+              <div className="rcn-field-group rcn-field-group--narrow">
+                <label className="rcn-field-label">8. <span className="rcn-field-label--exact-case">pH</span><span className="rcn-field-sub">(lowest of the day)</span></label>
+                <div className={`rcn-num-input${phError ? " rcn-num-input--error" : ""}`}>
+                  <input
+                    type="number" placeholder="7.25" step="0.01"
+                    value={lowestPh}
+                    onChange={e => isFieldEditable && setLowestPh(e.target.value)}
+                    readOnly={!isFieldEditable}
+                  />
+                </div>
+                {phError && <span className="rcn-field-error">{phError}</span>}
               </div>
 
-              {/* #8-10 Lowest pH, PaO2, PaCO2 */}
-              <div className="rcn-inputs-row rcn-inputs-row--3col">
-                <div className="rcn-input-group">
-                  <label className="rcn-field-label">8. Lowest pH</label>
-                  <input type="text" placeholder="e.g. 7.25" className="rcn-text-input"
-                    value={lowestPh} onChange={e => isFieldEditable && setLowestPh(e.target.value)}
-                    readOnly={!isFieldEditable} />
+              {/* #9 PaO2 */}
+              <div className="rcn-field-group">
+                <div className="rcn-field-label-row">
+                  <label className="rcn-field-label">9. <span className="rcn-field-label--exact-case">PaO₂</span> <span className="rcn-field-sub">(mmHg)</span></label>
+                  <button
+                    type="button"
+                    className={`rcn-notdone-toggle${pao2NotDone ? " rcn-notdone-toggle--on" : ""}`}
+                    onClick={() => isFieldEditable && setPao2NotDone(v => !v)}
+                    disabled={!isFieldEditable}
+                  >{pao2NotDone ? "Undo" : "Not Done"}</button>
                 </div>
-                <div className="rcn-input-group">
-                  <label className="rcn-field-label">9. PaO₂ (lowest–highest)</label>
-                  <input type="text" placeholder="e.g. 45-72" className="rcn-text-input"
-                    value={pao2Range} onChange={e => isFieldEditable && setPao2Range(e.target.value)}
-                    readOnly={!isFieldEditable} />
+                {pao2NotDone ? (
+                  <button
+                    type="button"
+                    className="rcn-num-input rcn-num-input--na rcn-num-input--na-clickable"
+                    onClick={() => isFieldEditable && setPao2NotDone(false)}
+                    disabled={!isFieldEditable}
+                    title="Click to enter values instead"
+                  >
+                    <span className="rcn-na-value">Not Done</span>
+                    <span className="rcn-num-unit">tap to change</span>
+                  </button>
+                ) : (
+                  <>
+                    <div className="rcn-range-pair">
+                      <div className={`rcn-num-input rcn-num-input--sm${pao2LowError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="Lowest"
+                          value={pao2Low}
+                          onChange={e => isFieldEditable && setPao2Low(e.target.value)}
+                          readOnly={!isFieldEditable}
+                        />
+                      </div>
+                      <span className="rcn-range-sep">–</span>
+                      <div className={`rcn-num-input rcn-num-input--sm${pao2HighError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="Highest"
+                          value={pao2High}
+                          onChange={e => isFieldEditable && setPao2High(e.target.value)}
+                          readOnly={!isFieldEditable}
+                        />
+                      </div>
+                      <span className="rcn-num-unit">mmHg</span>
+                    </div>
+                    {(pao2LowError || pao2HighError || pao2OrderError) && (
+                      <span className="rcn-field-error">{pao2LowError || pao2HighError || pao2OrderError}</span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* #10 PaCO2 */}
+              <div className="rcn-field-group">
+                <div className="rcn-field-label-row">
+                  <label className="rcn-field-label">10. <span className="rcn-field-label--exact-case">PaCO₂</span> <span className="rcn-field-sub">(mmHg)</span></label>
+                  <button
+                    type="button"
+                    className={`rcn-notdone-toggle${paco2NotDone ? " rcn-notdone-toggle--on" : ""}`}
+                    onClick={() => isFieldEditable && setPaco2NotDone(v => !v)}
+                    disabled={!isFieldEditable}
+                  >{paco2NotDone ? "Undo" : "Not Done"}</button>
                 </div>
-                <div className="rcn-input-group">
-                  <label className="rcn-field-label">10. PaCO₂ (lowest–highest)</label>
-                  <input type="text" placeholder="e.g. 35-55" className="rcn-text-input"
-                    value={paco2Range} onChange={e => isFieldEditable && setPaco2Range(e.target.value)}
-                    readOnly={!isFieldEditable} />
-                </div>
+                {paco2NotDone ? (
+                  <button
+                    type="button"
+                    className="rcn-num-input rcn-num-input--na rcn-num-input--na-clickable"
+                    onClick={() => isFieldEditable && setPaco2NotDone(false)}
+                    disabled={!isFieldEditable}
+                    title="Click to enter values instead"
+                  >
+                    <span className="rcn-na-value">Not Done</span>
+                    <span className="rcn-num-unit">tap to change</span>
+                  </button>
+                ) : (
+                  <>
+                    <div className="rcn-range-pair">
+                      <div className={`rcn-num-input rcn-num-input--sm${paco2LowError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="Lowest"
+                          value={paco2Low}
+                          onChange={e => isFieldEditable && setPaco2Low(e.target.value)}
+                          readOnly={!isFieldEditable}
+                        />
+                      </div>
+                      <span className="rcn-range-sep">–</span>
+                      <div className={`rcn-num-input rcn-num-input--sm${paco2HighError ? " rcn-num-input--error" : ""}`}>
+                        <input
+                          type="number" placeholder="Highest"
+                          value={paco2High}
+                          onChange={e => isFieldEditable && setPaco2High(e.target.value)}
+                          readOnly={!isFieldEditable}
+                        />
+                      </div>
+                      <span className="rcn-num-unit">mmHg</span>
+                    </div>
+                    {(paco2LowError || paco2HighError || paco2OrderError) && (
+                      <span className="rcn-field-error">{paco2LowError || paco2HighError || paco2OrderError}</span>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* #11-12 Surfactant, Caffeine */}
@@ -1444,30 +1802,56 @@ export default function RespCVNeuroLog() {
               <div className="rcn-inputs-row rcn-inputs-row--3col">
                 <div className="rcn-input-group">
                   <label className="rcn-field-label">13. No of Apnea episodes</label>
-                  <input type="text" placeholder="e.g. 2" className="rcn-text-input"
-                    value={apneaCount} onChange={e => isFieldEditable && setApneaCount(e.target.value)}
-                    readOnly={!isFieldEditable} />
+                  <div className={`rcn-num-input${apneaCountError ? " rcn-num-input--error" : ""}`}>
+                    <input
+                      type="number" placeholder="0" min="0" step="1"
+                      value={apneaCount}
+                      onChange={e => isFieldEditable && setApneaCount(e.target.value)}
+                      readOnly={!isFieldEditable}
+                    />
+                  </div>
+                  {apneaCountError && <span className="rcn-field-error">{apneaCountError}</span>}
                 </div>
                 <div className="rcn-input-group">
                   <label className="rcn-field-label">14. No of Desaturations (&lt;91%)</label>
-                  <input type="text" placeholder="e.g. 3" className="rcn-text-input"
-                    value={desatCount} onChange={e => isFieldEditable && setDesatCount(e.target.value)}
-                    readOnly={!isFieldEditable} />
+                  <div className={`rcn-num-input${desatCountError ? " rcn-num-input--error" : ""}`}>
+                    <input
+                      type="number" placeholder="0" min="0" step="1"
+                      value={desatCount}
+                      onChange={e => isFieldEditable && setDesatCount(e.target.value)}
+                      readOnly={!isFieldEditable}
+                    />
+                  </div>
+                  {desatCountError && <span className="rcn-field-error">{desatCountError}</span>}
                 </div>
                 <div className="rcn-input-group">
                   <label className="rcn-field-label">15. No of severe desaturations (&lt;80%)</label>
-                  <input type="text" placeholder="e.g. 1" className="rcn-text-input"
-                    value={severeDesatCount} onChange={e => isFieldEditable && setSevereDesatCount(e.target.value)}
-                    readOnly={!isFieldEditable} />
+                  <div className={`rcn-num-input${severeDesatCountError ? " rcn-num-input--error" : ""}`}>
+                    <input
+                      type="number" placeholder="0" min="0" step="1"
+                      value={severeDesatCount}
+                      onChange={e => isFieldEditable && setSevereDesatCount(e.target.value)}
+                      readOnly={!isFieldEditable}
+                    />
+                  </div>
+                  {severeDesatCountError && <span className="rcn-field-error">{severeDesatCountError}</span>}
                 </div>
               </div>
 
               {/* #16-22 remaining respiratory events */}
               <div className="rcn-field-group">
                 <div className="rcn-yn-list">
+                  <YNRow label="16. Extubation attempted" value={respEvents.extub_attempted}
+                    onChange={v => {
+                      if (!isFieldEditable) return;
+                      setResp("extub_attempted", v);
+                      if (v !== true) setResp("extub_failure", null);
+                    }} disabled={!isFieldEditable} />
+                  <YNRow label="17. Extubation failure (<72h from extubation)" value={respEvents.extub_failure}
+                    onChange={v => isExtubAttemptedYes && setResp("extub_failure", v)}
+                    disabled={!isFieldEditable || !isExtubAttemptedYes}
+                    hint={!isExtubAttemptedYes ? "Enabled once Extubation attempted (#16) is Yes" : null} />
                   {[
-                    { k: "extub_attempted",    l: "16. Extubation attempted" },
-                    { k: "extub_failure",      l: "17. Extubation failure (<72h from extubation)" },
                     { k: "pulm_hemorrhage",    l: "18. Pulmonary hemorrhage" },
                     { k: "pneumothorax",       l: "19. Pneumothorax" },
                     { k: "chest_drain",        l: "20. Chest drain in situ" },

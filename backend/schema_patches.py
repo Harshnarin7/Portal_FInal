@@ -118,6 +118,7 @@ RESP_CV_NEURO_DAY_COLUMN_PATCHES = [
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS respiratory_support BOOLEAN",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS endotracheal_intubation BOOLEAN",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap DOUBLE PRECISION",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap_secondary DOUBLE PRECISION",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS lowest_ph VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS pao2_range VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS paco2_range VARCHAR",

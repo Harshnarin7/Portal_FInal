@@ -1543,7 +1543,8 @@ class RespCVNeuroDayLog(Base):
     respiratory_support = Column(Boolean, nullable=True)   # #1
     endotracheal_intubation = Column(Boolean, nullable=True)  # #2
     support_modes      = Column(String, nullable=True)   # "NC, HFNC, CPAP"  #3
-    map_cpap           = Column(Float,  nullable=True)   # cm H2O  #4
+    map_cpap           = Column(Float,  nullable=True)   # cm H2O  #4 (MAP value, or the only value when CPAP is the sole pressure mode)
+    map_cpap_secondary = Column(Float,  nullable=True)   # cm H2O  #4b (CPAP value, only when CPAP + a MAP-generating mode are both selected)
     max_fio2           = Column(Float,  nullable=True)   # %  #5
     max_flow           = Column(Float,  nullable=True)   # L/min  #6
 
