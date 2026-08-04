@@ -44,6 +44,115 @@ const LEGEND_ITEMS = [
   { label: "Late",        dot: "#EF4444" },
 ];
 
+/* Every field captured for a day, grouped by section, for the
+   "All Days — Table View" modal (fields run down the rows, days
+   run across the columns). Same pattern as Helper Form 2. */
+const TABLE_VIEW_FIELD_GROUPS = [
+  {
+    section: "Infection",
+    rows: [
+      { key: "sepsis_suspected",        label: "Sepsis Suspected", bool: true },
+      { key: "blood_culture_sent",      label: "Blood Culture Sent", bool: true },
+      { key: "blood_culture_positive",  label: "Blood Culture Positive", bool: true },
+      { key: "antibiotics",             label: "Antibiotics", bool: true },
+      { key: "lp_done",                 label: "LP Done", bool: true },
+      { key: "meningitis",              label: "Meningitis", bool: true },
+      { key: "meningitis_type",         label: "Meningitis Type" },
+      { key: "clabsi",                  label: "CLABSI", bool: true },
+      { key: "vap",                     label: "VAP", bool: true },
+    ],
+  },
+  {
+    section: "Gastrointestinal",
+    rows: [
+      { key: "npo",                     label: "NPO", bool: true },
+      { key: "men",                     label: "MEN (Minimal Enteral Nutrition)", bool: true },
+      { key: "enteral_feeds_received",  label: "Enteral Feeds Received", bool: true },
+      { key: "feed_type",               label: "Feed Type", list: true },
+      { key: "cumulative_feed_volume",  label: "Cumulative Feed Volume", suffix: "ml" },
+      { key: "feed_volume",             label: "Feed Volume", suffix: "ml/kg/d" },
+      { key: "iv_fluids",               label: "IV Fluids", bool: true },
+      { key: "parenteral_nutrition",    label: "Parenteral Nutrition", bool: true },
+      { key: "probiotic",               label: "Probiotic", bool: true },
+      { key: "feed_intolerance",        label: "Feed Intolerance", bool: true },
+      { key: "nec_suspected",           label: "NEC Suspected", bool: true },
+      { key: "nec_confirmed_stage",     label: "NEC Confirmed Stage" },
+      { key: "cholestasis",             label: "Cholestasis", bool: true },
+    ],
+  },
+  {
+    section: "Hematology",
+    rows: [
+      { key: "hb_value",                label: "Hb Value", suffix: "g/dL" },
+      { key: "jaundice",                label: "Jaundice", bool: true },
+      { key: "phototherapy",            label: "Phototherapy", bool: true },
+      { key: "peak_tsb",                label: "Peak TSB", suffix: "mg/dL" },
+      { key: "exchange_transfusion",    label: "Exchange Transfusion", bool: true },
+      { key: "prbc_transfusion",        label: "PRBC Transfusion", bool: true },
+      { key: "platelet_transfusion",    label: "Platelet Transfusion", bool: true },
+      { key: "ffp_cryo",                label: "FFP / Cryo Transfusion", bool: true },
+    ],
+  },
+  {
+    section: "Record",
+    rows: [
+      { key: "saved_by", label: "Saved By" },
+    ],
+  },
+];
+
+/* Formats a single field's value for one day's data object `d`. */
+function formatTableViewValue(d, row) {
+  const v = d[row.key];
+  if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
+  if (row.list) return Array.isArray(v) && v.length > 0 ? v.join(", ") : "—";
+  if (v === null || v === undefined || v === "") return "—";
+  return row.suffix ? `${v}${row.suffix}` : String(v);
+}
+
+/* Validates Cumulative Feed Volume (#14, ml). Flags negative values
+   and values well outside what's typically given in a day. */
+function validateCumulativeFeedVolume(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (num > 1000) return "Cumulative Feed Volume seems unusually high — please double-check";
+  return null;
+}
+
+/* Validates Feed Volume (#15, ml/kg/d). Standard feeding targets
+   top out around 180-200ml/kg/d, so flag anything well beyond that. */
+function validateFeedVolume(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (num > 220) return "Feed Volume is usually up to ~200ml/kg/d — please double-check this value";
+  return null;
+}
+
+/* Validates Hb Value (#23, g/dL). Flags negative/implausible values. */
+function validateHbValue(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (num > 30) return "Hb Value above 30g/dL is implausible — please double-check";
+  if (num < 3) return "Hb Value below 3g/dL is extremely rare — please double-check";
+  return null;
+}
+
+/* Validates Peak TSB (#26, mg/dL). Flags negative/implausible values. */
+function validatePeakTsb(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 0) return "Value can't be negative";
+  if (num > 35) return "Peak TSB above 35mg/dL is extremely rare — please double-check";
+  return null;
+}
+
 /* ══════════════════════════════════════════════════════
    SHARED SUB-COMPONENTS (identical to Helper Form 2)
 ══════════════════════════════════════════════════════ */
@@ -86,21 +195,28 @@ function YNRow({ label, value, onChange, disabled, hidden }) {
   );
 }
 
-function NumRow({ label, value, onChange, disabled, unit, placeholder = "0" }) {
+function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", error, width = 140 }) {
   return (
-    <div className="rcn-yn-row">
-      <span className="rcn-yn-label">{label}</span>
-      <div className="rcn-num-input" style={{ width: 140 }}>
-        <input
-          type="number" min="0" step="0.1"
-          placeholder={placeholder}
-          value={value ?? ""}
-          onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
-          readOnly={disabled}
-        />
-        {unit && <span className="rcn-num-unit">{unit}</span>}
+    <>
+      <div className="rcn-yn-row">
+        <span className="rcn-yn-label">{label}</span>
+        <div className={`rcn-num-input${error ? " rcn-num-input--error" : ""}`} style={{ width }}>
+          <input
+            type="number" min="0" step="0.1"
+            placeholder={placeholder}
+            value={value ?? ""}
+            onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
+            readOnly={disabled}
+          />
+          {unit && <span className="rcn-num-unit">{unit}</span>}
+        </div>
       </div>
-    </div>
+      {error && (
+        <span className="rcn-field-error" style={{ display: "block", textAlign: "right", marginTop: -8, marginBottom: 8 }}>
+          {error}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -334,6 +450,11 @@ export default function InfectGIHemaLog() {
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copySourceDay, setCopySourceDay] = useState([]);
 
+  /* ── All-days table view ── */
+  const [showTableView, setShowTableView]   = useState(false);
+  const [tableViewRows, setTableViewRows]   = useState([]);
+  const [tableViewLoading, setTableViewLoading] = useState(false);
+
   /* ── Day 1 Date — backend-synced lock state ── */
   const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
   const [day1DateSetBy, setDay1DateSetBy]     = useState("");
@@ -408,9 +529,18 @@ export default function InfectGIHemaLog() {
 
   /* ── Derived visibility flags ── */
   const sepsisYes    = infData.sepsis_suspected === true;
+  const bloodCultureSentYes = infData.blood_culture_sent === true;
   const meningitisYes = infData.meningitis === true;
+  const npoNo        = giData.npo === false;
+  const enteralYes   = giData.enteral_feeds_received === true;
   const necYes       = giData.nec_suspected === true;
   const jaundiceYes  = hemaData.jaundice === true;
+
+  /* ── Live field validation ── */
+  const cumulativeFeedVolumeError = validateCumulativeFeedVolume(giData.cumulative_feed_volume);
+  const feedVolumeError           = validateFeedVolume(giData.feed_volume);
+  const hbValueError              = validateHbValue(hemaData.hb_value);
+  const peakTsbError               = validatePeakTsb(hemaData.peak_tsb);
 
   /* ── Calendar-based day locking ──
      todayNicuDay = which NICU day number corresponds to the real
@@ -462,28 +592,43 @@ export default function InfectGIHemaLog() {
   // Helper to check if value is answered
   const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
-  // Infection: 6 base + 3 conditional (sepsis) + 1 conditional (meningitis)
+  // Infection: 6 base + 1 conditional (sepsis: blood_culture_sent) +
+  //   1 further-conditional (blood_culture_sent=Yes: blood_culture_positive) +
+  //   1 conditional (meningitis)
   // Fields 1-9: sepsis_suspected, blood_culture_sent, blood_culture_positive, antibiotics, lp_done, meningitis, meningitis_type, clabsi, vap
-  const INF_BASE    = ["sepsis_suspected","antibiotics","lp_done","meningitis","clabsi","vap"];
-  const INF_SEPSIS  = ["blood_culture_sent","blood_culture_positive"];
-  const INF_MENING  = ["meningitis_type"];
+  const INF_BASE      = ["sepsis_suspected","antibiotics","lp_done","meningitis","clabsi","vap"];
+  const INF_SEPSIS    = ["blood_culture_sent"];
+  const INF_CULTURE   = ["blood_culture_positive"];
+  const INF_MENING    = ["meningitis_type"];
 
-  const infTotal    = INF_BASE.length + (sepsisYes ? INF_SEPSIS.length : 0) + (meningitisYes ? INF_MENING.length : 0);
+  const infTotal    = INF_BASE.length
+    + (sepsisYes ? INF_SEPSIS.length : 0)
+    + (sepsisYes && bloodCultureSentYes ? INF_CULTURE.length : 0)
+    + (meningitisYes ? INF_MENING.length : 0);
   const infAnswered = Math.min(
     INF_BASE.filter(k => ans(infData[k])).length
     + (sepsisYes ? INF_SEPSIS.filter(k => ans(infData[k])).length : 0)
+    + (sepsisYes && bloodCultureSentYes ? INF_CULTURE.filter(k => ans(infData[k])).length : 0)
     + (meningitisYes ? INF_MENING.filter(k => ans(infData[k])).length : 0),
     infTotal
   );
 
-  // GI: 12 base + 1 conditional (NEC)
+  // GI: 7 always-visible + 4 conditional (NPO=No) + 1 further-conditional
+  //   (NPO=No & Enteral Feeds Received=Yes: feed_type) + 1 conditional (NEC)
   // Fields 10-22: npo, men, enteral_feeds_received, feed_type, cumulative_feed_volume, feed_volume, iv_fluids, parenteral_nutrition, probiotic, feed_intolerance, nec_suspected, nec_confirmed_stage, cholestasis
-  const GI_BASE  = ["npo","men","enteral_feeds_received","feed_type","cumulative_feed_volume","feed_volume","iv_fluids","parenteral_nutrition","probiotic","feed_intolerance","nec_suspected","cholestasis"];
-  const GI_NEC   = ["nec_confirmed_stage"];
+  const GI_ALWAYS    = ["npo","iv_fluids","parenteral_nutrition","probiotic","feed_intolerance","nec_suspected","cholestasis"];
+  const GI_NPO_NO    = ["men","enteral_feeds_received","cumulative_feed_volume","feed_volume"];
+  const GI_FEED_TYPE = ["feed_type"];
+  const GI_NEC       = ["nec_confirmed_stage"];
 
-  const giTotal    = GI_BASE.length + (necYes ? GI_NEC.length : 0);
+  const giTotal    = GI_ALWAYS.length
+    + (npoNo ? GI_NPO_NO.length : 0)
+    + (npoNo && enteralYes ? GI_FEED_TYPE.length : 0)
+    + (necYes ? GI_NEC.length : 0);
   const giAnswered = Math.min(
-    GI_BASE.filter(k => ans(giData[k])).length
+    GI_ALWAYS.filter(k => ans(giData[k])).length
+    + (npoNo ? GI_NPO_NO.filter(k => ans(giData[k])).length : 0)
+    + (npoNo && enteralYes ? GI_FEED_TYPE.filter(k => ans(giData[k])).length : 0)
     + (necYes ? GI_NEC.filter(k => ans(giData[k])).length : 0),
     giTotal
   );
@@ -814,6 +959,32 @@ export default function InfectGIHemaLog() {
     (dayStatuses[d] || STATUS.EMPTY) === STATUS.EMPTY
   );
 
+  // Fetches full clinical data for every day that has something saved
+  // (status != EMPTY), for the "Table View" overview. Reuses the same
+  // per-day endpoint the form itself already uses to load a single day —
+  // no new backend endpoint needed, just fetched in parallel for every
+  // filled day instead of one at a time. Same pattern as Helper Form 2.
+  const loadTableViewData = async () => {
+    setShowTableView(true);
+    setTableViewLoading(true);
+    try {
+      const filledDays = days.filter(d => (dayStatuses[d] || STATUS.EMPTY) !== STATUS.EMPTY);
+      const results = await Promise.all(
+        filledDays.map(d =>
+          api.get(`/infect-gi-hema/${enrollmentId}/${d}`)
+            .then(res => ({ day: d, data: res?.data || null }))
+            .catch(() => ({ day: d, data: null }))
+        )
+      );
+      results.sort((a, b) => a.day - b.day);
+      setTableViewRows(results.filter(r => r.data));
+    } catch (err) {
+      console.error("Table view load failed:", err);
+    } finally {
+      setTableViewLoading(false);
+    }
+  };
+
   /* ════════════════════ RENDER ════════════════════ */
   return (
     <>
@@ -882,6 +1053,14 @@ export default function InfectGIHemaLog() {
         <div className="rcn-timeline-wrap">
           <div className="rcn-timeline-header">
             <span className="rcn-timeline-label">Days</span>
+            <button
+              type="button"
+              className="rcn-table-view-btn"
+              onClick={loadTableViewData}
+              title="View all filled days in a single table"
+            >
+              <History size={13} /> Table View
+            </button>
             <div className="rcn-day1-picker">
               <label className="rcn-day1-picker-label">
                 Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
@@ -1021,7 +1200,7 @@ export default function InfectGIHemaLog() {
         {/* ── Daily Summary Card ── */}
         <div className="rcn-summary">
           <div className="rcn-summary-left">
-            <h2 className="rcn-summary-title">NICU Day {activeDay}</h2>
+            <h2 className="rcn-summary-title">Day {activeDay}</h2>
             <div className="rcn-summary-meta">
               <Clock size={13} />
               <span>{isSaved ? "Completed" : "Not yet started"} — complete by 08:00 AM rounds</span>
@@ -1123,10 +1302,20 @@ export default function InfectGIHemaLog() {
                   <div className="rcn-subsection-title">2-3. If Sepsis Suspected</div>
                   <div className="rcn-yn-list">
                     <YNRow label="2. Blood Culture Sent" value={infData.blood_culture_sent}
-                      onChange={v => setInf("blood_culture_sent", v)} disabled={!isFieldEditable} />
-                    <YNRow label="3. Blood Culture Positive" value={infData.blood_culture_positive}
-                      onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable} />
+                      onChange={v => {
+                        setInf("blood_culture_sent", v);
+                        if (v !== true) setInfData(p => ({ ...p, blood_culture_positive: null }));
+                      }} disabled={!isFieldEditable} />
                   </div>
+
+                  {bloodCultureSentYes && (
+                    <div className="rcn-subsection">
+                      <div className="rcn-yn-list">
+                        <YNRow label="3. Blood Culture Positive" value={infData.blood_culture_positive}
+                          onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1174,24 +1363,48 @@ export default function InfectGIHemaLog() {
               answered={giAnswered} total={giTotal} defaultOpen={true}>
 
               <div className="rcn-yn-list">
-                <YNRow label="10. NPO" value={giData.npo} onChange={v => setGi("npo", v)} disabled={!isFieldEditable} />
-                <YNRow label="11. MEN (Minimal Enteral Nutrition)" value={giData.men} onChange={v => setGi("men", v)} disabled={!isFieldEditable} />
-                <YNRow label="12. Enteral Feeds Received" value={giData.enteral_feeds_received} onChange={v => setGi("enteral_feeds_received", v)} disabled={!isFieldEditable} />
+                <YNRow label="10. NPO" value={giData.npo}
+                  onChange={v => {
+                    setGi("npo", v);
+                    if (v !== false) {
+                      setGiData(p => ({ ...p, men: null, enteral_feeds_received: null,
+                        feed_type: [], cumulative_feed_volume: null, feed_volume: null }));
+                    }
+                  }} disabled={!isFieldEditable} />
               </div>
 
-              <div className="rcn-subsection" style={{marginTop:16}}>
-                <div className="rcn-subsection-title">13. Feed Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span></div>
-                <PillMulti
-                  options={["PDHM","EBM","FM"]}
-                  value={giData.feed_type}
-                  onChange={v => isFieldEditable && setGiData(p => ({ ...p, feed_type: v }))}
-                  disabled={!isFieldEditable}
-                />
-              </div>
+              {npoNo && (
+                <div className="rcn-subsection">
+                  <div className="rcn-subsection-title">11-15. If NPO = No</div>
+                  <div className="rcn-yn-list">
+                    <YNRow label="11. MEN (Minimal Enteral Nutrition)" value={giData.men} onChange={v => setGi("men", v)} disabled={!isFieldEditable} />
+                    <YNRow label="12. Enteral Feeds Received" value={giData.enteral_feeds_received}
+                      onChange={v => {
+                        setGi("enteral_feeds_received", v);
+                        if (v !== true) setGiData(p => ({ ...p, feed_type: [] }));
+                      }} disabled={!isFieldEditable} />
+                  </div>
+
+                  {enteralYes && (
+                    <div className="rcn-subsection">
+                      <div className="rcn-subsection-title">13. Feed Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span></div>
+                      <PillMulti
+                        options={["PDHM","EBM","FM"]}
+                        value={giData.feed_type}
+                        onChange={v => isFieldEditable && setGiData(p => ({ ...p, feed_type: v }))}
+                        disabled={!isFieldEditable}
+                      />
+                    </div>
+                  )}
+
+                  <div className="rcn-yn-list" style={{marginTop:16}}>
+                    <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" error={cumulativeFeedVolumeError} width={220} />
+                    <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" error={feedVolumeError} width={220} />
+                  </div>
+                </div>
+              )}
 
               <div className="rcn-yn-list" style={{marginTop:16}}>
-                <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" />
-                <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" />
                 <YNRow label="16. IV Fluids" value={giData.iv_fluids} onChange={v => setGi("iv_fluids", v)} disabled={!isFieldEditable} />
                 <YNRow label="17. Parenteral Nutrition" value={giData.parenteral_nutrition} onChange={v => setGi("parenteral_nutrition", v)} disabled={!isFieldEditable} />
                 <YNRow label="18. Probiotic" value={giData.probiotic} onChange={v => setGi("probiotic", v)} disabled={!isFieldEditable} />
@@ -1236,7 +1449,7 @@ export default function InfectGIHemaLog() {
               answered={hemaAnswered} total={hemaTotal} defaultOpen={true}>
 
               <div className="rcn-yn-list">
-                <NumRow label="23. Hb Value (g/dL)" value={hemaData.hb_value} onChange={v => setHema("hb_value", v)} disabled={!isFieldEditable} unit="g/dL" placeholder="0.0" />
+                <NumRow label="23. Hb Value (g/dL)" value={hemaData.hb_value} onChange={v => setHema("hb_value", v)} disabled={!isFieldEditable} unit="g/dL" placeholder="0.0" error={hbValueError} />
                 <YNRow label="24. Jaundice" value={hemaData.jaundice}
                   onChange={v => {
                     setHema("jaundice", v);
@@ -1255,7 +1468,7 @@ export default function InfectGIHemaLog() {
               )}
 
               <div className="rcn-yn-list">
-                <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" />
+                <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" error={peakTsbError} />
                 <YNRow label="27. Exchange Transfusion" value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
                 <YNRow label="28. PRBC Transfusion" value={hemaData.prbc_transfusion} onChange={v => setHema("prbc_transfusion", v)} disabled={!isFieldEditable} />
                 <YNRow label="29. Platelet Transfusion" value={hemaData.platelet_transfusion} onChange={v => setHema("platelet_transfusion", v)} disabled={!isFieldEditable} />
@@ -1282,6 +1495,78 @@ export default function InfectGIHemaLog() {
       {showModal && (
         <SubmitModal day={activeDay} completionPct={completionPct}
           onConfirm={handleSubmit} onCancel={() => setShowModal(false)} submitting={submitting} />
+      )}
+
+      {/* ══ TABLE VIEW MODAL ══ */}
+      {showTableView && (
+        <div className="rcn-modal-overlay" onClick={() => setShowTableView(false)}>
+          <div className="rcn-modal rcn-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="rcn-modal-header">
+              <div className="rcn-modal-icon"><History size={18} /></div>
+              <div>
+                <h3 className="rcn-modal-title">All Days — Table View</h3>
+                <p className="rcn-modal-subtitle">Every day filled in so far for this baby, side by side</p>
+              </div>
+              <button className="rcn-modal-close" type="button" onClick={() => setShowTableView(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rcn-modal-body rcn-table-view-body">
+              {tableViewLoading ? (
+                <p className="rcn-table-view-empty">Loading all days&hellip;</p>
+              ) : tableViewRows.length === 0 ? (
+                <p className="rcn-table-view-empty">No days have been filled in yet.</p>
+              ) : (
+                <div className="rcn-table-view-scroll">
+                  <table className="rcn-table-view rcn-table-view--vertical">
+                    <thead>
+                      <tr>
+                        <th className="rcn-table-view-field-header">Field</th>
+                        {tableViewRows.map(({ day }) => {
+                          const st  = dayStatuses[day] || STATUS.EMPTY;
+                          const cfg = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
+                          return (
+                            <th key={day} className="rcn-table-view-day-header">
+                              <button
+                                type="button"
+                                className="rcn-table-view-goto-btn"
+                                onClick={() => { setActiveDay(day); setShowTableView(false); }}
+                                title="Go to this day"
+                              >
+                                Day {day}
+                              </button>
+                              <span className="rcn-table-view-day-status">
+                                <span className="rcn-table-view-status-dot" style={{ background: cfg.dot }} />
+                                {cfg.label}
+                              </span>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {TABLE_VIEW_FIELD_GROUPS.map(group => (
+                        <React.Fragment key={group.section}>
+                          <tr className="rcn-table-view-section-row">
+                            <td colSpan={tableViewRows.length + 1}>{group.section}</td>
+                          </tr>
+                          {group.rows.map(row => (
+                            <tr key={row.key}>
+                              <td className="rcn-table-view-field-cell">{row.label}</td>
+                              {tableViewRows.map(({ day, data: d }) => (
+                                <td key={day}>{formatTableViewValue(d, row)}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══ SITE-MONITOR OVERRIDE MODAL ══ */}

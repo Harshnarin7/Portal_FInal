@@ -10,7 +10,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Shield, FileCheck, Copy, Edit,
-  AlertOctagon, Unlock,
+  AlertOctagon, Unlock, History,
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════════════
@@ -35,6 +35,86 @@ const LEGEND_ITEMS = [
   { label:"Submitted",   dot:"#0F4C81" },
   { label:"Late",        dot:"#EF4444" },
 ];
+
+/* Every field captured for a day, grouped by section, for the
+   "All Days — Table View" modal (fields run down the rows, days
+   run across the columns). Same pattern as Helper Forms 2 & 3. */
+const TABLE_VIEW_FIELD_GROUPS = [
+  {
+    section: "Metabolic",
+    rows: [
+      { key: "lowest_glucose",        label: "Lowest Glucose", suffix: "mg/dL" },
+      { key: "hypoglycemia_episodes", label: "Hypoglycemia Episodes" },
+      { key: "hypoglycemia_rx",       label: "Hypoglycemia Rx", bool: true },
+      { key: "highest_glucose",       label: "Highest Glucose", suffix: "mg/dL" },
+      { key: "insulin",               label: "Hyperglycemia Rx (Insulin)", bool: true },
+      { key: "metabolic_acidosis",    label: "Metabolic Acidosis", bool: true },
+      { key: "sodium_value",          label: "Sodium Value", suffix: "mmol/L" },
+      { key: "potassium_value",       label: "Potassium Value", suffix: "mmol/L" },
+      { key: "ionized_calcium_value", label: "Ionized Calcium Value", suffix: "mmol/L" },
+      { key: "osteopenia_suspected",  label: "Osteopenia Suspected", bool: true },
+    ],
+  },
+  {
+    section: "Renal",
+    rows: [
+      { key: "aki_stage",             label: "AKI Stage" },
+      { key: "creatinine",            label: "Serum Creatinine", suffix: "mg/dL" },
+      { key: "urine_output_total",    label: "Urine Output Total" },
+      { key: "dialysis_crrt",         label: "Dialysis / CRRT", bool: true },
+    ],
+  },
+  {
+    section: "Thermoregulation",
+    rows: [
+      { key: "axillary_temperature",  label: "Axillary Temperature", suffix: "°C" },
+    ],
+  },
+  {
+    section: "Vascular Access",
+    rows: [
+      { key: "picc_in_situ",          label: "PICC In Situ", bool: true },
+      { key: "uvc_in_situ",           label: "UVC In Situ", bool: true },
+      { key: "uac_in_situ",           label: "UAC In Situ", bool: true },
+      { key: "peripheral_iv",         label: "Peripheral IV", bool: true },
+      { key: "peripheral_arterial",   label: "Peripheral Arterial", bool: true },
+      { key: "extravasation_injury",  label: "Extravasation Injury", bool: true },
+      { key: "line_complication",     label: "Line Complication", bool: true },
+    ],
+  },
+  {
+    section: "Ophthalmology (ROP)",
+    rows: [
+      { key: "rop_screening_due",     label: "ROP Screening Due", bool: true },
+      { key: "rop_screened",          label: "ROP Screened", bool: true },
+      { key: "rop_detected",          label: "ROP Detected", bool: true },
+      { key: "rop_stage",             label: "ROP Stage" },
+      { key: "plus_disease",          label: "Plus Disease", bool: true },
+      { key: "rop_treatment",         label: "ROP Treatment", bool: true },
+    ],
+  },
+  {
+    section: "Location & Outcome",
+    rows: [
+      { key: "location",              label: "Location" },
+      { key: "survived_the_day",      label: "Survived the Day", bool: true },
+    ],
+  },
+  {
+    section: "Record",
+    rows: [
+      { key: "saved_by", label: "Saved By" },
+    ],
+  },
+];
+
+/* Formats a single field's value for one day's data object `d`. */
+function formatTableViewValue(d, row) {
+  const v = d[row.key];
+  if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
+  if (v === null || v === undefined || v === "") return "—";
+  return row.suffix ? `${v}${row.suffix}` : String(v);
+}
 
 /* ══════════════════════════════════════════════════════
    SHARED SUB-COMPONENTS — identical to Helper Forms 2 & 3
@@ -309,6 +389,11 @@ export default function MetabRenalVascEyeLog() {
   const [submittedBy, setSubmittedBy]     = useState("");
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copySourceDay, setCopySourceDay] = useState([]);
+
+  /* ── All-days table view ── */
+  const [showTableView, setShowTableView]   = useState(false);
+  const [tableViewRows, setTableViewRows]   = useState([]);
+  const [tableViewLoading, setTableViewLoading] = useState(false);
 
   /* ── Day 1 Date — backend-synced lock state ── */
   const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
@@ -780,6 +865,31 @@ export default function MetabRenalVascEyeLog() {
     (dayStatuses[d] || STATUS.EMPTY) === STATUS.EMPTY
   );
 
+  // Fetches full clinical data for every day that has something saved
+  // (status != EMPTY), for the "Table View" overview. Reuses the same
+  // per-day endpoint the form itself already uses to load a single day —
+  // no new backend endpoint needed. Same pattern as Helper Forms 2 & 3.
+  const loadTableViewData = async () => {
+    setShowTableView(true);
+    setTableViewLoading(true);
+    try {
+      const filledDays = days.filter(d => (dayStatuses[d] || STATUS.EMPTY) !== STATUS.EMPTY);
+      const results = await Promise.all(
+        filledDays.map(d =>
+          api.get(`/metab-renal-vasc-eye/${enrollmentId}/${d}`)
+            .then(res => ({ day: d, data: res?.data || null }))
+            .catch(() => ({ day: d, data: null }))
+        )
+      );
+      results.sort((a, b) => a.day - b.day);
+      setTableViewRows(results.filter(r => r.data));
+    } catch (err) {
+      console.error("Table view load failed:", err);
+    } finally {
+      setTableViewLoading(false);
+    }
+  };
+
   /* ═══════════════════════════════════════ RENDER ═══════════════════════════════════════ */
   return (
     <>
@@ -848,6 +958,14 @@ export default function MetabRenalVascEyeLog() {
         <div className="rcn-timeline-wrap">
           <div className="rcn-timeline-header">
             <span className="rcn-timeline-label">Days</span>
+            <button
+              type="button"
+              className="rcn-table-view-btn"
+              onClick={loadTableViewData}
+              title="View all filled days in a single table"
+            >
+              <History size={13} /> Table View
+            </button>
             <div className="rcn-day1-picker">
               <label className="rcn-day1-picker-label">
                 Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
@@ -1209,6 +1327,78 @@ export default function MetabRenalVascEyeLog() {
       {showModal && (
         <SubmitModal day={activeDay} completionPct={completionPct}
           onConfirm={handleSubmit} onCancel={() => setShowModal(false)} submitting={submitting}/>
+      )}
+
+      {/* ══ TABLE VIEW MODAL ══ */}
+      {showTableView && (
+        <div className="rcn-modal-overlay" onClick={() => setShowTableView(false)}>
+          <div className="rcn-modal rcn-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="rcn-modal-header">
+              <div className="rcn-modal-icon"><History size={18} /></div>
+              <div>
+                <h3 className="rcn-modal-title">All Days — Table View</h3>
+                <p className="rcn-modal-subtitle">Every day filled in so far for this baby, side by side</p>
+              </div>
+              <button className="rcn-modal-close" type="button" onClick={() => setShowTableView(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rcn-modal-body rcn-table-view-body">
+              {tableViewLoading ? (
+                <p className="rcn-table-view-empty">Loading all days&hellip;</p>
+              ) : tableViewRows.length === 0 ? (
+                <p className="rcn-table-view-empty">No days have been filled in yet.</p>
+              ) : (
+                <div className="rcn-table-view-scroll">
+                  <table className="rcn-table-view rcn-table-view--vertical">
+                    <thead>
+                      <tr>
+                        <th className="rcn-table-view-field-header">Field</th>
+                        {tableViewRows.map(({ day }) => {
+                          const st  = dayStatuses[day] || STATUS.EMPTY;
+                          const cfg = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
+                          return (
+                            <th key={day} className="rcn-table-view-day-header">
+                              <button
+                                type="button"
+                                className="rcn-table-view-goto-btn"
+                                onClick={() => { setActiveDay(day); setShowTableView(false); }}
+                                title="Go to this day"
+                              >
+                                Day {day}
+                              </button>
+                              <span className="rcn-table-view-day-status">
+                                <span className="rcn-table-view-status-dot" style={{ background: cfg.dot }} />
+                                {cfg.label}
+                              </span>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {TABLE_VIEW_FIELD_GROUPS.map(group => (
+                        <React.Fragment key={group.section}>
+                          <tr className="rcn-table-view-section-row">
+                            <td colSpan={tableViewRows.length + 1}>{group.section}</td>
+                          </tr>
+                          {group.rows.map(row => (
+                            <tr key={row.key}>
+                              <td className="rcn-table-view-field-cell">{row.label}</td>
+                              {tableViewRows.map(({ day, data: d }) => (
+                                <td key={day}>{formatTableViewValue(d, row)}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══ SITE-MONITOR OVERRIDE MODAL ══ */}
