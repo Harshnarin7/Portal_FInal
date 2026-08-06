@@ -1074,6 +1074,8 @@ class NeonatalMorbiditiesCreate(BaseModel):
     ich_type: Optional[str] = None
     ivh_date_left: Optional[date] = None
     ivh_date_right: Optional[date] = None
+    ivh_age_days_left: Optional[int] = None
+    ivh_age_days_right: Optional[int] = None
     ivh_description: Optional[str] = None
     ivh_description_left: Optional[str] = None
     ivh_description_right: Optional[str] = None

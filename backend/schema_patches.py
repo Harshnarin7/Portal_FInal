@@ -350,6 +350,8 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ich_type VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_date_left DATE",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_date_right DATE",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_age_days_left INTEGER",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_age_days_right INTEGER",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_description VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_description_left VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivh_description_right VARCHAR",

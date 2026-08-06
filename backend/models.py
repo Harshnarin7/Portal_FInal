@@ -648,6 +648,8 @@ class NeonatalMorbidities(Base):
     ich_type = Column(String)
     ivh_date_left = Column(Date)
     ivh_date_right = Column(Date)
+    ivh_age_days_left = Column(Integer)
+    ivh_age_days_right = Column(Integer)
     ivh_description = Column(String)
     ivh_description_left = Column(String)
     ivh_description_right = Column(String)

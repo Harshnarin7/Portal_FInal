@@ -10,7 +10,7 @@ import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
-import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList } from "lucide-react";
+import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
 
 /* ─── YesNoToggle — animated sliding segment (same component as Form A / ScreeningForm.jsx) ─── */
@@ -68,6 +68,12 @@ ivh_side: "",
 ivh_grade: "",
 ivh_date: "",
 ivh_age_days: "",
+ivh_grade_left: "",
+ivh_grade_right: "",
+ivh_date_left: "",
+ivh_date_right: "",
+ivh_age_days_left: "",
+ivh_age_days_right: "",
 pvhi: "",
 phh: "",
 vp_shunt: "",
@@ -465,18 +471,44 @@ useEffect(() => {
         const existing = rows.length ? rows[rows.length - 1] : null;
         if (!existing) return;
 
-        setFormData(prev => ({
-          ...prev,
-          ...existing,
-          // map backend booleans back to the Yes/No selects the UI uses
-          ivh_present: existing.ivh === true ? "Yes" : existing.ivh === false ? "No" : prev.ivh_present,
-          pvl_present: existing.pvl === true ? "Yes" : existing.pvl === false ? "No" : prev.pvl_present,
-          ventriculomegaly_present:
-            existing.ventriculomegaly === true ? "Yes" :
-            existing.ventriculomegaly === false ? "No" : prev.ventriculomegaly_present,
-          infections: Array.isArray(existing.infections) ? existing.infections : (prev.infections || []),
-          enrollment_id: enrollmentId,
-        }));
+        setFormData(prev => {
+          // "Both" was the old value for the Side dropdown; the CRF calls
+          // it "Bilateral" — normalise so old records still render correctly.
+          const side = existing.ivh_side === "Both" ? "Bilateral" : existing.ivh_side;
+
+          // Backward-compat: records saved before this form was split into
+          // separate Right/Left grade-date-age blocks stored a single-side
+          // IVH's grade/date/age in the shared ivh_grade/ivh_date/ivh_age_days
+          // columns rather than the side-specific *_left/*_right ones. Migrate
+          // them on load so that data isn't lost under the new always-split
+          // fields (they're still saved back into *_left/*_right on next save).
+          // Grades used to be stored as "1"-"4"; the CRF uses Roman numerals
+          // ("I"-"IV"). Normalise old numeric grades so they still populate
+          // the select correctly instead of appearing blank.
+          const toRomanGrade = g => ({ "1":"I", "2":"II", "3":"III", "4":"IV" }[g] || g || "");
+
+          const ivh_grade_right    = toRomanGrade(existing.ivh_grade_right    || (side === "Right" ? existing.ivh_grade    : null));
+          const ivh_grade_left     = toRomanGrade(existing.ivh_grade_left     || (side === "Left"  ? existing.ivh_grade    : null));
+          const ivh_date_right     = existing.ivh_date_right     || (side === "Right" ? existing.ivh_date     : null) || "";
+          const ivh_date_left      = existing.ivh_date_left      || (side === "Left"  ? existing.ivh_date     : null) || "";
+          const ivh_age_days_right = existing.ivh_age_days_right ?? (side === "Right" ? existing.ivh_age_days : null) ?? "";
+          const ivh_age_days_left  = existing.ivh_age_days_left  ?? (side === "Left"  ? existing.ivh_age_days : null) ?? "";
+
+          return {
+            ...prev,
+            ...existing,
+            ivh_side: side, ivh_grade_right, ivh_grade_left, ivh_date_right, ivh_date_left,
+            ivh_age_days_right, ivh_age_days_left,
+            // map backend booleans back to the Yes/No selects the UI uses
+            ivh_present: existing.ivh === true ? "Yes" : existing.ivh === false ? "No" : prev.ivh_present,
+            pvl_present: existing.pvl === true ? "Yes" : existing.pvl === false ? "No" : prev.pvl_present,
+            ventriculomegaly_present:
+              existing.ventriculomegaly === true ? "Yes" :
+              existing.ventriculomegaly === false ? "No" : prev.ventriculomegaly_present,
+            infections: Array.isArray(existing.infections) ? existing.infections : (prev.infections || []),
+            enrollment_id: enrollmentId,
+          };
+        });
       } catch (err) {
         // No saved Form H yet for this enrollment — start blank, this is expected for a new form.
         console.log("No existing Form H record yet for this enrollment.");
@@ -500,22 +532,60 @@ const validateIVH = (name, value, updatedForm = formData) => {
       if (!value) error = "Please select IVH status";
       break;
 
-    case "ivh_grade":
+    case "ivh_side":
       if (updatedForm.ivh_present === "Yes" && !value) {
-        error = "IVH grade is required";
+        error = "Side is required";
       }
       break;
 
-    case "ivh_date":
-      if (updatedForm.ivh_present === "Yes" && !value) {
-        error = "IVH date is required";
+    case "ivh_grade_right":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Right" || updatedForm.ivh_side === "Bilateral")
+        && !value) {
+        error = "Right IVH grade is required";
       }
       break;
 
-    case "ivh_age_days":
-      if (updatedForm.ivh_present === "Yes") {
+    case "ivh_grade_left":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Left" || updatedForm.ivh_side === "Bilateral")
+        && !value) {
+        error = "Left IVH grade is required";
+      }
+      break;
+
+    case "ivh_date_right":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Right" || updatedForm.ivh_side === "Bilateral")
+        && !value) {
+        error = "Right IVH date is required";
+      }
+      break;
+
+    case "ivh_date_left":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Left" || updatedForm.ivh_side === "Bilateral")
+        && !value) {
+        error = "Left IVH date is required";
+      }
+      break;
+
+    case "ivh_age_days_right":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Right" || updatedForm.ivh_side === "Bilateral")) {
         if (value === "") {
-          error = "IVH age is required";
+          error = "Right IVH age is required";
+        } else if (value < 0 || value > 120) {
+          error = "Must be between 0–120 days";
+        }
+      }
+      break;
+
+    case "ivh_age_days_left":
+      if (updatedForm.ivh_present === "Yes"
+        && (updatedForm.ivh_side === "Left" || updatedForm.ivh_side === "Bilateral")) {
+        if (value === "") {
+          error = "Left IVH age is required";
         } else if (value < 0 || value > 120) {
           error = "Must be between 0–120 days";
         }
@@ -2715,9 +2785,45 @@ const num = (v) => {
 
       ivh: yesNoToBool(formData.ivh_present),
       ivh_side: formData.ivh_side || null,
-      ivh_grade: formData.ivh_grade || formData.ivh_grade_left || formData.ivh_grade_right || null,
-      ivh_date: formData.ivh_date || formData.ivh_date_left || formData.ivh_date_right || null,
-      ivh_age_days: num(formData.ivh_age_days),
+      // The CRF always captures Right and Left grade/date/age separately
+      // (fields 3-5 and 6-8) — only send the side(s) actually selected so a
+      // grade entered for one side never leaks into the other on save.
+      ivh_grade_right: (formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") ? (formData.ivh_grade_right || null) : null,
+      ivh_grade_left:  (formData.ivh_side === "Left"  || formData.ivh_side === "Bilateral") ? (formData.ivh_grade_left  || null) : null,
+      ivh_date_right:  (formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") ? (formData.ivh_date_right  || null) : null,
+      ivh_date_left:   (formData.ivh_side === "Left"  || formData.ivh_side === "Bilateral") ? (formData.ivh_date_left   || null) : null,
+      ivh_age_days_right: (formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") ? num(formData.ivh_age_days_right) : null,
+      ivh_age_days_left:  (formData.ivh_side === "Left"  || formData.ivh_side === "Bilateral") ? num(formData.ivh_age_days_left)  : null,
+      // Legacy "worst side" mirror fields — kept in sync so existing
+      // dashboard queries (e.g. severe-IVH stats keyed off ivh_grade) still
+      // work without changes. Bilateral picks whichever side graded worse.
+      ivh_grade: (() => {
+        const gnum = g => ({ I:1, II:2, III:3, IV:4 }[g] || 0);
+        if (formData.ivh_side === "Bilateral") {
+          return gnum(formData.ivh_grade_right) >= gnum(formData.ivh_grade_left)
+            ? (formData.ivh_grade_right || formData.ivh_grade_left || null)
+            : (formData.ivh_grade_left || null);
+        }
+        return formData.ivh_grade_right || formData.ivh_grade_left || null;
+      })(),
+      ivh_date: (() => {
+        const gnum = g => ({ I:1, II:2, III:3, IV:4 }[g] || 0);
+        if (formData.ivh_side === "Bilateral") {
+          return gnum(formData.ivh_grade_right) >= gnum(formData.ivh_grade_left)
+            ? (formData.ivh_date_right || formData.ivh_date_left || null)
+            : (formData.ivh_date_left || null);
+        }
+        return formData.ivh_date_right || formData.ivh_date_left || null;
+      })(),
+      ivh_age_days: (() => {
+        const gnum = g => ({ I:1, II:2, III:3, IV:4 }[g] || 0);
+        if (formData.ivh_side === "Bilateral") {
+          return num(gnum(formData.ivh_grade_right) >= gnum(formData.ivh_grade_left)
+            ? (formData.ivh_age_days_right || formData.ivh_age_days_left)
+            : formData.ivh_age_days_left);
+        }
+        return num(formData.ivh_age_days_right || formData.ivh_age_days_left);
+      })(),
 
       pvl: yesNoToBool(formData.pvl_present),
       ventriculomegaly: yesNoToBool(formData.ventriculomegaly_present),
@@ -2832,15 +2938,21 @@ const getIVHSummary = () => {
 
   let parts = ["IVH"];
 
-  // Side + Grade logic
-  if (formData.ivh_side === "Both") {
+  // Side + Grade logic — grades are now always captured per-side
+  // (Right in ivh_grade_right, Left in ivh_grade_left), regardless of
+  // whether Side is Right, Left, or Bilateral.
+  if (formData.ivh_side === "Bilateral") {
     if (formData.ivh_grade_left && formData.ivh_grade_right) {
       parts.push(`L${formData.ivh_grade_left}/R${formData.ivh_grade_right}`);
+    } else if (formData.ivh_grade_right) {
+      parts.push(`R${formData.ivh_grade_right}`);
+    } else if (formData.ivh_grade_left) {
+      parts.push(`L${formData.ivh_grade_left}`);
     }
-  } else {
-    if (formData.ivh_grade) {
-      parts.push(`G${formData.ivh_grade}`);
-    }
+  } else if (formData.ivh_side === "Right" && formData.ivh_grade_right) {
+    parts.push(`R${formData.ivh_grade_right}`);
+  } else if (formData.ivh_side === "Left" && formData.ivh_grade_left) {
+    parts.push(`L${formData.ivh_grade_left}`);
   }
 
   // PVHI / PHH / Shunt
@@ -3627,10 +3739,19 @@ const peripheralStatus= getPeripheralStatus();
   return (
     <>
     <form className="screening-form" onSubmit={handleSubmit}>
-       <div className="form-a-header">
-  <div className="form-a-header-main"><h2>
-        Form H — Neonatal Morbidities Assessment
-      </h2></div></div>
+       <div className="form-header-action-row">
+         <div className="form-header-title-area">
+           <div className="form-breadcrumb"><Home size={12}/> FORM H</div>
+           <h2 className="form-main-title">Neonatal Morbidities Assessment</h2>
+           <p className="form-main-subtitle">Diagnosed morbidities and complications during NICU stay · Complete when diagnosed or at discharge</p>
+         </div>
+         <div className="form-header-meta-area">
+           <div className="screening-id-badge">
+             <span className="id-label">Enrollment ID</span>
+             <span className="id-val">{formData.enrollment_id || "—"}</span>
+           </div>
+         </div>
+       </div>
      {/* ================= IDENTIFICATION ================= */}
 <div className="form-section soft-blue">
   <h3>IDENTIFICATION</h3>
@@ -3677,172 +3798,150 @@ const peripheralStatus= getPeripheralStatus();
       <div className="card-body">
 
         <div className="form-group">
-          <YesNoToggle label="1. Any IVH diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleChange} onBlur={handleBlur} required />
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
 
         {formData.ivh_present === "Yes" && (
           <>
             <div className="form-row">
+              <div className="form-group">
+                <label><span className="field-num">2.</span> Side<span className="required">*</span></label>
+                <select
+                  name="ivh_side"
+                  value={formData.ivh_side || ""}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                >
+                  <option value="">-- Select --</option>
+                  <option value="Right">Right</option>
+                  <option value="Left">Left</option>
+                  <option value="Bilateral">Bilateral</option>
+                </select>
+                {touched.ivh_side && errors.ivh_side && <div className="error-text">{errors.ivh_side}</div>}
+              </div>
+            </div>
 
-  {/* SIDE */}
-  <div className="form-group">
-    <label>Side<span className="required">*</span></label>
-    <select
-      name="ivh_side"
-      value={formData.ivh_side || ""}
-      onChange={handleChange}
-    >
-      <option value="">-- Select --</option>
-      <option>Right</option>
-      <option>Left</option>
-      <option>Both</option>
-    </select>
-  </div>
+            {(formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">3.</span> Right: Max Grade<span className="required">*</span></label>
+                  <select
+                    name="ivh_grade_right"
+                    value={formData.ivh_grade_right || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  >
+                    <option value="">-- Select --</option>
+                    <option value="I">I</option>
+                    <option value="II">II</option>
+                    <option value="III">III</option>
+                    <option value="IV">IV</option>
+                  </select>
+                  {touched.ivh_grade_right && errors.ivh_grade_right && <div className="error-text">{errors.ivh_grade_right}</div>}
+                </div>
 
-  {/* GRADES */}
-  {formData.ivh_side === "Both" ? (
-    <>
-      <div className="form-group">
-        <label>Left Grade<span className="required">*</span></label>
-        <select
-          name="ivh_grade_left"
-          value={formData.ivh_grade_left || ""}
-          onChange={handleChange}
-        >
-          <option value="">-- Select --</option>
-          <option value="1">Grade 1</option>
-          <option value="2">Grade 2</option>
-          <option value="3">Grade 3</option>
-          <option value="4">Grade 4</option>
-        </select>
-      </div>
+                <div className="form-group">
+                  <label><span className="field-num">4.</span> Date<span className="required">*</span></label>
+                  <DatePicker
+                    selected={formData.ivh_date_right ? parseDateOnly(formData.ivh_date_right) : null}
+                    onChange={(date) => {
+                      const v = date ? toDateOnlyValue(date) : "";
+                      setFormData(prev => ({ ...prev, ivh_date_right: v }));
+                      validateIVH("ivh_date_right", v, { ...formData, ivh_date_right: v });
+                    }}
+                    onBlur={() => { setTouched(prev => ({ ...prev, ivh_date_right: true })); validateIVH("ivh_date_right", formData.ivh_date_right); }}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="Select date"
+                  />
+                  {touched.ivh_date_right && errors.ivh_date_right && <div className="error-text">{errors.ivh_date_right}</div>}
+                </div>
 
-      <div className="form-group">
-        <label>Right Grade<span className="required">*</span></label>
-        <select
-          name="ivh_grade_right"
-          value={formData.ivh_grade_right || ""}
-          onChange={handleChange}
-        >
-          <option value="">-- Select --</option>
-          <option value="1">Grade 1</option>
-          <option value="2">Grade 2</option>
-          <option value="3">Grade 3</option>
-          <option value="4">Grade 4</option>
-        </select>
-      </div>
-    </>
-  ) : (
-    <div className="form-group">
-      <label>Worst Grade<span className="required">*</span></label>
-      <select
-        name="ivh_grade"
-        value={formData.ivh_grade || ""}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option value="1">Grade 1</option>
-        <option value="2">Grade 2</option>
-        <option value="3">Grade 3</option>
-        <option value="4">Grade 4</option>
-      </select>
-    </div>
-  )}
+                <div className="form-group">
+                  <label><span className="field-num">5.</span> Age (days)<span className="required">*</span></label>
+                  <input
+                    type="number"
+                    name="ivh_age_days_right"
+                    value={formData.ivh_age_days_right || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  />
+                  {touched.ivh_age_days_right && errors.ivh_age_days_right && <div className="error-text">{errors.ivh_age_days_right}</div>}
+                </div>
+              </div>
+            )}
 
-</div>
-<div className="form-group">
-  <label><span className="field-num">8.</span> IVH Description</label>
-  <textarea
-    name="ivh_description"
-    value={formData.ivh_description || ""}
-    onChange={handleChange}
-    placeholder="Enter details (e.g. bleed extent, complications)"
-    rows={2}
-  />
-</div>
+            {(formData.ivh_side === "Left" || formData.ivh_side === "Bilateral") && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">6.</span> Left: Max Grade<span className="required">*</span></label>
+                  <select
+                    name="ivh_grade_left"
+                    value={formData.ivh_grade_left || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  >
+                    <option value="">-- Select --</option>
+                    <option value="I">I</option>
+                    <option value="II">II</option>
+                    <option value="III">III</option>
+                    <option value="IV">IV</option>
+                  </select>
+                  {touched.ivh_grade_left && errors.ivh_grade_left && <div className="error-text">{errors.ivh_grade_left}</div>}
+                </div>
 
+                <div className="form-group">
+                  <label><span className="field-num">7.</span> Date<span className="required">*</span></label>
+                  <DatePicker
+                    selected={formData.ivh_date_left ? parseDateOnly(formData.ivh_date_left) : null}
+                    onChange={(date) => {
+                      const v = date ? toDateOnlyValue(date) : "";
+                      setFormData(prev => ({ ...prev, ivh_date_left: v }));
+                      validateIVH("ivh_date_left", v, { ...formData, ivh_date_left: v });
+                    }}
+                    onBlur={() => { setTouched(prev => ({ ...prev, ivh_date_left: true })); validateIVH("ivh_date_left", formData.ivh_date_left); }}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="Select date"
+                  />
+                  {touched.ivh_date_left && errors.ivh_date_left && <div className="error-text">{errors.ivh_date_left}</div>}
+                </div>
 
+                <div className="form-group">
+                  <label><span className="field-num">8.</span> Age (days)<span className="required">*</span></label>
+                  <input
+                    type="number"
+                    name="ivh_age_days_left"
+                    value={formData.ivh_age_days_left || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  />
+                  {touched.ivh_age_days_left && errors.ivh_age_days_left && <div className="error-text">{errors.ivh_age_days_left}</div>}
+                </div>
+              </div>
+            )}
 
-
-            <div className="form-row">
-
-  {formData.ivh_side === "Both" ? (
-    <>
-      {/* LEFT DATE */}
-      <div className="form-group">
-        <label>Left Date<span className="required">*</span></label>
-        <DatePicker
-  selected={formData.ivh_date_left ? parseDateOnly(formData.ivh_date_left) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      ivh_date_left: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Left date"
-/>
-      </div>
-
-      {/* RIGHT DATE */}
-      <div className="form-group">
-        <label>Right Date<span className="required">*</span></label>
-        <DatePicker
-  selected={formData.ivh_date_right ? parseDateOnly(formData.ivh_date_right) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      ivh_date_right: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Right date"
-/>
-      </div>
-    </>
-  ) : (
-    <div className="form-group">
-      <label>Date of maximum grade<span className="required">*</span></label>
-      <DatePicker
-  selected={formData.ivh_date ? parseDateOnly(formData.ivh_date) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      ivh_date: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Select date"
-/>
-    </div>
-  )}
-
-  {/* AGE (COMMON) */}
-  <div className="form-group">
-    <label>Age (days)<span className="required">*</span></label>
-    <input
-      type="number"
-      name="ivh_age_days"
-      value={formData.ivh_age_days || ""}
-      onChange={handleChange}
-      onBlur={handleBlur}
-    />
-  </div>
-
-</div>
+            <div className="form-group">
+              <label><span className="field-num">9.</span> Description of IVH</label>
+              <textarea
+                name="ivh_description"
+                value={formData.ivh_description || ""}
+                onChange={handleChange}
+                placeholder="Enter details (e.g. bleed extent, complications)"
+                rows={2}
+              />
+            </div>
 
             <div className="form-row">
               <div className="form-group">
-                <YesNoToggle label="Periventricular Hemorrhagic Infarction" name="pvhi" value={formData.pvhi} onChange={handleChange} />
+                <YesNoToggle label="10. PVHI" name="pvhi" value={formData.pvhi} onChange={handleChange} />
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="Posthemorrhagic Hydrocephalus" name="phh" value={formData.phh} onChange={handleChange} />
+                <YesNoToggle label="11. PHH" name="phh" value={formData.phh} onChange={handleChange} />
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="Ventriculoperitoneal Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleChange} />
+                <YesNoToggle label="12. VP Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleChange} />
               </div>
             </div>
           </>

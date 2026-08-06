@@ -376,3 +376,31 @@
   font-size: 12px;
   margin-right: 2px;
 }
+
+/* ============================================================
+   FormH — IVH Right/Left grade-date-age rows (H1.1, fields 3-8).
+   The app bundles every form's CSS globally, and several other
+   forms (e.g. FormC.css) define UNSCOPED rules for the same
+   selectors this page uses — .form-group select,
+   .react-datepicker-wrapper input, .form-group input[type=number]
+   — at a different forced height (42px vs. this app's base 48px).
+   Depending on cascade order that fight can leave the grade
+   select, the DatePicker, and the age input at mismatched
+   heights within the same row, which visually knocks their
+   labels out of alignment. Scoping under .ivh-row and
+   re-asserting the height with !important makes this row immune
+   to whatever any other page's stylesheet does elsewhere in the
+   bundle.
+   ============================================================ */
+.ivh-row {
+  align-items: flex-start;
+}
+.ivh-row .form-group select,
+.ivh-row .form-group input,
+.ivh-row .form-group .react-datepicker-wrapper,
+.ivh-row .form-group .react-datepicker-wrapper input,
+.ivh-row .form-group .react-datepicker__input-container,
+.ivh-row .form-group .react-datepicker__input-container input {
+  height: 48px !important;
+  box-sizing: border-box !important;
+}
