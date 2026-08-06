@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -500,15 +500,28 @@ export default function MetabRenalVascEyeLog() {
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
-  // Same-morning grace window: yesterday's day stays open until 08:00 today
+  // Same-morning grace window: yesterday's day stays open until 11:00 today
   // so a nurse finishing a late-night shift can still complete it.
-  const MRVE_LATE_GRACE_HOUR = 8;
+  // (Aligned to 11am to match Helper 2/3 — this was inconsistently 8am.)
+  const MRVE_LATE_GRACE_HOUR = 11;
   const isLateGraceActiveDay =
     todayNicuDay != null && activeDay === todayNicuDay - 1 &&
     new Date().getHours() < MRVE_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < new Date(overrideUntil);
+
+  // Default which day's tab opens on first load: before 11am, default to
+  // yesterday's (still-open) day; from 11am on, default to today's day.
+  // Runs once, so it never fights the nurse's own tab clicks afterward.
+  const initialDaySetRef = useRef(false);
+  useEffect(() => {
+    if (initialDaySetRef.current || todayNicuDay == null) return;
+    initialDaySetRef.current = true;
+    const beforeGrace = new Date().getHours() < MRVE_LATE_GRACE_HOUR;
+    const defaultDay = (beforeGrace && todayNicuDay - 1 >= 1) ? todayNicuDay - 1 : todayNicuDay;
+    setActiveDay(defaultDay);
+  }, [todayNicuDay]);
 
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
   const isFieldEditable =
@@ -1104,10 +1117,10 @@ export default function MetabRenalVascEyeLog() {
         {/* ── Summary Card ── */}
         <div className="rcn-summary">
           <div className="rcn-summary-left">
-            <h2 className="rcn-summary-title">NICU Day {activeDay}</h2>
+            <h2 className="rcn-summary-title">Day {activeDay}</h2>
             <div className="rcn-summary-meta">
               <Clock size={13}/>
-              <span>{isSaved?"Completed":"Not yet started"} — complete by 08:00 AM rounds</span>
+              <span>{isSaved?"Completed":"Not yet started"} — complete by 11:00 AM</span>
             </div>
             {!isSubmitted && !isFutureActiveDay && !isPastActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -630,6 +630,21 @@ export default function RespCVNeuroLog() {
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < new Date(overrideUntil);
+
+  // Default which day's tab opens on first load, following the same
+  // 11am rule as the lock above: before 11am, default to yesterday's
+  // (still-open) day so a nurse finishing an overnight shift lands where
+  // they left off; from 11am on, default to today's day. Runs once —
+  // after that the nurse's own tab clicks take over, so this never
+  // fights manual navigation.
+  const initialDaySetRef = useRef(false);
+  useEffect(() => {
+    if (initialDaySetRef.current || todayNicuDay == null) return;
+    initialDaySetRef.current = true;
+    const beforeGrace = new Date().getHours() < RCN_LATE_GRACE_HOUR;
+    const defaultDay = (beforeGrace && todayNicuDay - 1 >= 1) ? todayNicuDay - 1 : todayNicuDay;
+    setActiveDay(defaultDay);
+  }, [todayNicuDay]);
 
   const isFieldEditable  =
     (!isSubmitted || isOverrideActiveDay) &&
@@ -1431,7 +1446,7 @@ export default function RespCVNeuroLog() {
             <div className="rcn-summary-meta">
               <Clock size={13} />
               <span>
-                {isSaved ? "Completed" : "Not yet started"} — complete by 08:00 AM rounds
+                {isSaved ? "Completed" : "Not yet started"} — complete by 11:00 AM 
               </span>
             </div>
             {/* Copy from previous day button */}
