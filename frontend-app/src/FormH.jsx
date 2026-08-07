@@ -101,6 +101,7 @@ steroid_drug:"",
 steroid_drug_other:"",
 age_steroid:"",
 steroid_dose:"",
+steroid_dose_2:"",
 steroid_indication:"",
 steroid_indication_other:"",
 
@@ -109,6 +110,12 @@ pvl_present: "",
 pvl_side: "",
 pvl_grade: "",
 pvl_date: "",
+pvl_grade_right: "",
+pvl_date_right: "",
+pvl_age_days_right: "",   // CRF #17
+pvl_grade_left: "",
+pvl_date_left: "",
+pvl_age_days_left: "",    // CRF #20
 
 // Ventriculomegaly
 ventriculomegaly: "",
@@ -123,7 +130,8 @@ mca_ri: "",
 seizures: "",
 seizure_date: "",
 seizure_type: "",
-eeg_result: "",
+eeg: "",
+status_epilepticus: "",   // CRF #31
 aeds_required: "",
 aed_name: "",
 seizure_etiology: "",
@@ -148,6 +156,10 @@ pn_other_text:"",
 strain_mono:false,
 strain_bi:false,
 strain_multi:false,
+strain_others:false,
+
+fi_others:false,
+fi_others_text:"",
 
 lactobacillus:"",
 bifidobacterium:"",
@@ -2312,6 +2324,7 @@ useEffect(() => {
       steroid_drug_other: "",
       age_steroid: "",
       steroid_dose: "",
+      steroid_dose_2: "",
       steroid_indication: "",
       steroid_indication_other: ""
     }));
@@ -2322,6 +2335,7 @@ useEffect(() => {
       steroid_drug_other: "",
       age_steroid: "",
       steroid_dose: "",
+      steroid_dose_2: "",
       steroid_indication: "",
       steroid_indication_other: ""
     }));
@@ -2826,8 +2840,39 @@ const num = (v) => {
       })(),
 
       pvl: yesNoToBool(formData.pvl_present),
+      // Same side-conditional pattern as IVH above (fields 15-17 / 18-20) —
+      // only send the side(s) actually selected so a grade entered for one
+      // side never leaks into the other on save.
+      pvl_grade_right: (formData.pvl_side === "Right" || formData.pvl_side === "Both") ? (formData.pvl_grade_right || null) : null,
+      pvl_grade_left:  (formData.pvl_side === "Left"  || formData.pvl_side === "Both") ? (formData.pvl_grade_left  || null) : null,
+      pvl_date_right:  (formData.pvl_side === "Right" || formData.pvl_side === "Both") ? (formData.pvl_date_right  || null) : null,
+      pvl_date_left:   (formData.pvl_side === "Left"  || formData.pvl_side === "Both") ? (formData.pvl_date_left   || null) : null,
+      pvl_age_days_right: (formData.pvl_side === "Right" || formData.pvl_side === "Both") ? num(formData.pvl_age_days_right) : null,
+      pvl_age_days_left:  (formData.pvl_side === "Left"  || formData.pvl_side === "Both") ? num(formData.pvl_age_days_left)  : null,
+      // Legacy "worst side" mirror fields, same convention as ivh_grade/
+      // ivh_date above — keeps any existing dashboard queries keyed off the
+      // old single pvl_grade/pvl_date columns still working.
+      pvl_grade: (() => {
+        const gnum = g => Number(g) || 0;
+        if (formData.pvl_side === "Both") {
+          return gnum(formData.pvl_grade_right) >= gnum(formData.pvl_grade_left)
+            ? (formData.pvl_grade_right || formData.pvl_grade_left || null)
+            : (formData.pvl_grade_left || null);
+        }
+        return formData.pvl_grade_right || formData.pvl_grade_left || null;
+      })(),
+      pvl_date: (() => {
+        const gnum = g => Number(g) || 0;
+        if (formData.pvl_side === "Both") {
+          return gnum(formData.pvl_grade_right) >= gnum(formData.pvl_grade_left)
+            ? (formData.pvl_date_right || formData.pvl_date_left || null)
+            : (formData.pvl_date_left || null);
+        }
+        return formData.pvl_date_right || formData.pvl_date_left || null;
+      })(),
       ventriculomegaly: yesNoToBool(formData.ventriculomegaly_present),
       seizures: yesNoToBool(formData.seizures),
+      status_epilepticus: yesNoToBool(formData.status_epilepticus),
       bpd: yesNoToBool(formData.bpd),
       postnatal_steroids: yesNoToBool(formData.postnatal_steroids),
       feed_intolerance: yesNoToBool(formData.feed_intolerance),
@@ -3977,135 +4022,129 @@ const peripheralStatus= getPeripheralStatus();
       <div className="card-body">
 
         <div className="form-group">
-          <YesNoToggle label="PVL diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleChange} onBlur={handleBlur} required />
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
 
         {formData.pvl_present === "Yes" && (
           <>
-            {/* ---------------- SIDE + GRADE ---------------- */}
-<div className="form-row">
+            <div className="form-row">
+              <div className="form-group">
+                <label><span className="field-num">14.</span> Side<span className="required">*</span></label>
+                <select
+                  name="pvl_side"
+                  value={formData.pvl_side || ""}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                >
+                  <option value="">-- Select --</option>
+                  <option value="Right">Right</option>
+                  <option value="Left">Left</option>
+                  {/* value kept as "Both" for backward compatibility with
+                      already-saved records — CRF label is "Bilateral" */}
+                  <option value="Both">Bilateral</option>
+                </select>
+                {touched.pvl_side && errors.pvl_side && <div className="error-text">{errors.pvl_side}</div>}
+              </div>
+            </div>
 
-  {/* SIDE */}
-  <div className="form-group">
-    <label>Side<span className="required">*</span></label>
-    <select
-      name="pvl_side"
-      value={formData.pvl_side || ""}
-      onChange={handleChange}
-    >
-      <option value="">-- Select --</option>
-      <option>Right</option>
-      <option>Left</option>
-      <option>Both</option>
-    </select>
-  </div>
+            {(formData.pvl_side === "Right" || formData.pvl_side === "Both") && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">15.</span> If Right: Max Grade<span className="required">*</span></label>
+                  <select
+                    name="pvl_grade_right"
+                    value={formData.pvl_grade_right || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  >
+                    <option value="">-- Select --</option>
+                    {/* values kept as 1-4 for backward compatibility with
+                        already-saved records — CRF labels are Roman numerals */}
+                    <option value="1">I (Flare)</option>
+                    <option value="2">II (Localized cysts)</option>
+                    <option value="3">III (Extensive cysts)</option>
+                    <option value="4">IV (Subcortical)</option>
+                  </select>
+                  {touched.pvl_grade_right && errors.pvl_grade_right && <div className="error-text">{errors.pvl_grade_right}</div>}
+                </div>
 
-  {/* GRADE */}
-  {formData.pvl_side === "Both" ? (
-    <>
-      <div className="form-group">
-        <label><span className="field-num">5.</span> Left Grade<span className="required">*</span></label>
-        <select
-          name="pvl_grade_left"
-          value={formData.pvl_grade_left || ""}
-          onChange={handleChange}
-        >
-          <option value="">-- Select --</option>
-          <option value="1">Grade 1 (Flare)</option>
-          <option value="2">Grade 2 (Localized cysts)</option>
-          <option value="3">Grade 3 (Extensive cysts)</option>
-          <option value="4">Grade 4 (Subcortical)</option>
-        </select>
-      </div>
+                <div className="form-group">
+                  <label><span className="field-num">16.</span> Date<span className="required">*</span></label>
+                  <DatePicker
+                    selected={formData.pvl_date_right ? parseDateOnly(formData.pvl_date_right) : null}
+                    onChange={(date) => {
+                      const v = date ? toDateOnlyValue(date) : "";
+                      setFormData(prev => ({ ...prev, pvl_date_right: v }));
+                    }}
+                    onBlur={() => setTouched(prev => ({ ...prev, pvl_date_right: true }))}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="Select date"
+                  />
+                  {touched.pvl_date_right && errors.pvl_date_right && <div className="error-text">{errors.pvl_date_right}</div>}
+                </div>
 
-      <div className="form-group">
-        <label><span className="field-num">34.</span> Right Grade<span className="required">*</span></label>
-        <select
-          name="pvl_grade_right"
-          value={formData.pvl_grade_right || ""}
-          onChange={handleChange}
-        >
-          <option value="">-- Select --</option>
-          <option value="1">Grade 1 (Flare)</option>
-          <option value="2">Grade 2 (Localized cysts)</option>
-          <option value="3">Grade 3 (Extensive cysts)</option>
-          <option value="4">Grade 4 (Subcortical)</option>
-        </select>
-      </div>
-    </>
-  ) : (
-    <div className="form-group">
-      <label>Grade<span className="required">*</span></label>
-      <select
-        name="pvl_grade"
-        value={formData.pvl_grade || ""}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option value="1">Grade 1 (Flare)</option>
-          <option value="2">Grade 2 (Localized cysts)</option>
-          <option value="3">Grade 3 (Extensive cysts)</option>
-          <option value="4">Grade 4 (Subcortical)</option>
-      </select>
-    </div>
-  )}
+                <div className="form-group">
+                  <label><span className="field-num">17.</span> Age (days)<span className="required">*</span></label>
+                  <input
+                    type="number"
+                    name="pvl_age_days_right"
+                    value={formData.pvl_age_days_right || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  />
+                  {touched.pvl_age_days_right && errors.pvl_age_days_right && <div className="error-text">{errors.pvl_age_days_right}</div>}
+                </div>
+              </div>
+            )}
 
-</div>
+            {(formData.pvl_side === "Left" || formData.pvl_side === "Both") && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">18.</span> If Left: Max Grade<span className="required">*</span></label>
+                  <select
+                    name="pvl_grade_left"
+                    value={formData.pvl_grade_left || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  >
+                    <option value="">-- Select --</option>
+                    <option value="1">I (Flare)</option>
+                    <option value="2">II (Localized cysts)</option>
+                    <option value="3">III (Extensive cysts)</option>
+                    <option value="4">IV (Subcortical)</option>
+                  </select>
+                  {touched.pvl_grade_left && errors.pvl_grade_left && <div className="error-text">{errors.pvl_grade_left}</div>}
+                </div>
 
-{/* ---------------- DATE ---------------- */}
-<div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">19.</span> Date<span className="required">*</span></label>
+                  <DatePicker
+                    selected={formData.pvl_date_left ? parseDateOnly(formData.pvl_date_left) : null}
+                    onChange={(date) => {
+                      const v = date ? toDateOnlyValue(date) : "";
+                      setFormData(prev => ({ ...prev, pvl_date_left: v }));
+                    }}
+                    onBlur={() => setTouched(prev => ({ ...prev, pvl_date_left: true }))}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="Select date"
+                  />
+                  {touched.pvl_date_left && errors.pvl_date_left && <div className="error-text">{errors.pvl_date_left}</div>}
+                </div>
 
-  {formData.pvl_side === "Both" ? (
-    <>
-      <div className="form-group">
-        <label>Left Date<span className="required">*</span></label>
-        <DatePicker
-  selected={formData.pvl_date_left ? parseDateOnly(formData.pvl_date_left) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      pvl_date_left: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Left date"
-/>
-      </div>
-
-      <div className="form-group">
-        <label>Right Date<span className="required">*</span></label>
-        <DatePicker
-  selected={formData.pvl_date_right ? parseDateOnly(formData.pvl_date_right) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      pvl_date_right: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Right date"
-/>
-      </div>
-    </>
-  ) : (
-    <div className="form-group">
-      <label>Date<span className="required">*</span></label>
-      <DatePicker
-  selected={formData.pvl_date ? parseDateOnly(formData.pvl_date) : null}
-  onChange={(date) =>
-    setFormData(prev => ({
-      ...prev,
-      pvl_date: date ? toDateOnlyValue(date) : ""
-    }))
-  }
-  dateFormat="dd-MM-yyyy"
-  placeholderText="Select date"
-/>
-    </div>
-  )}
-
-</div>
+                <div className="form-group">
+                  <label><span className="field-num">20.</span> Age (days)<span className="required">*</span></label>
+                  <input
+                    type="number"
+                    name="pvl_age_days_left"
+                    value={formData.pvl_age_days_left || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  />
+                  {touched.pvl_age_days_left && errors.pvl_age_days_left && <div className="error-text">{errors.pvl_age_days_left}</div>}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -4140,7 +4179,7 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* Present */}
       <div className="form-group">
-        <YesNoToggle label="Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="21. Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleChange} onBlur={handleBlur} required />
 
         {touched.ventriculomegaly_present &&
           errors.ventriculomegaly_present && (
@@ -4156,7 +4195,7 @@ const peripheralStatus= getPeripheralStatus();
           <div className="form-row">
 
             <div className="form-group">
-              <label>Severity</label>
+              <label><span className="field-num">22.</span> Severity</label>
               <select
                 name="ventriculomegaly_severity"
                 value={formData.ventriculomegaly_severity || ""}
@@ -4171,7 +4210,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-group">
               <label>
-                VI max (mm) <span className="required">*</span>
+                <span className="field-num">23.</span> Maximum VI (mm) <span className="required">*</span>
               </label>
               <input
                 type="number"
@@ -4192,7 +4231,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-group">
               <label>
-                Anterior Horn Width (mm) 
+                AHW (mm) <span style={{fontSize:10, fontWeight:400, color:"#9ca3af"}}>(part of #23)</span>
               </label>
               <input
                 type="number"
@@ -4209,7 +4248,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-group">
               <label>
-                TOD max (mm) 
+                <span className="field-num">24.</span> Maximum TOD (mm)
               </label>
               <input
                 type="number"
@@ -4230,7 +4269,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-group">
               <label>
-                Anterior Cerebral Artery Resistive Index (ACA RI)
+                <span className="field-num">25.</span> ACA RI
               </label>
               <input
                 type="number"
@@ -4248,7 +4287,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-group">
               <label>
-                Middle Cerebral Artery Resistive Index (MCA RI)
+                <span className="field-num">26.</span> MCA RI
               </label>
               <input
                 type="number"
@@ -4284,8 +4323,8 @@ const peripheralStatus= getPeripheralStatus();
       <span className="icon">{getStatusIcon(formData.seizures)}</span>
 
       {formData.seizures === "Yes"
-        ? formData.aeds_required === "Yes"
-          ? "Yes • AED"
+        ? formData.status_epilepticus === "Yes"
+          ? "Yes • Status Epilepticus"
           : "Yes"
         : formData.seizures || "Not filled"}
     </span>
@@ -4298,14 +4337,14 @@ const peripheralStatus= getPeripheralStatus();
       <div className="card-body">
 
         <div className="form-group">
-          <YesNoToggle label="Seizures" name="seizures" value={formData.seizures} onChange={handleChange} required />
+          <YesNoToggle label="27. Seizures" name="seizures" value={formData.seizures} onChange={handleChange} required />
         </div>
 
         {formData.seizures === "Yes" && (
           <>
             <div className="form-row">
               <div className="form-group">
-                <label>Date<span className="required">*</span></label>
+                <label><span className="field-num">28.</span> Date<span className="required">*</span></label>
                 <DatePicker
   selected={formData.seizure_date ? parseDateOnly(formData.seizure_date) : null}
   onChange={(date) =>
@@ -4321,7 +4360,7 @@ const peripheralStatus= getPeripheralStatus();
               </div>
 
               <div className="form-group">
-                <label>Type<span className="required">*</span></label>
+                <label><span className="field-num">29.</span> Type<span className="required">*</span></label>
                 <select name="seizure_type" value={formData.seizure_type || ""} onChange={handleChange}>
                   <option value="">-- Select --</option>
                   <option>Subtle</option>
@@ -4334,7 +4373,7 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="form-row">
               <div className="form-group">
-                <label>EEG</label>
+                <label><span className="field-num">30.</span> EEG</label>
                 <select name="eeg" value={formData.eeg || ""} onChange={handleChange}>
                   <option value="">-- Select --</option>
                   <option>Not done</option>
@@ -4344,122 +4383,125 @@ const peripheralStatus= getPeripheralStatus();
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="AED Required" name="aeds_required" value={formData.aeds_required} onChange={handleChange} />
+                <YesNoToggle label="31. Status Epilepticus" name="status_epilepticus" value={formData.status_epilepticus} onChange={handleChange} />
               </div>
-              {formData.aeds_required === "Yes" && (
-    <div className="form-group">
-      <label>No. of AED<span className="required">*</span></label>
-      <select
-        name="aed_number"
-        value={formData.aed_number || ""}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        {[1,2,3,4,5,6].map(num => (
-          <option key={num} value={num}>{num}</option>
-        ))}
-      </select>
-    </div>
-  )}
-              
+
+              <div className="form-group">
+                <label><span className="field-num">32.</span> No. of AEDs</label>
+                <select
+                  name="aed_number"
+                  value={formData.aed_number || ""}
+                  onChange={handleChange}
+                >
+                  <option value="">-- Select --</option>
+                  {[1,2,3,4,5,6].map(num => (
+                    <option key={num} value={num}>{num}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-           {formData.aeds_required === "Yes" && (
-  <>
 
-    {/* WHICH AED */}
-    <div className="form-group">
-      <label>Which AED<span className="required">*</span></label>
+            {/* WHICH AED */}
+            <div className="form-group">
+              <label><span className="field-num">33.</span> Which AED</label>
 
-      <div className="checkbox-group">
-        {[
-          "Phenytoin",
-          "Phenobarbital",
-          "Midazolam",
-          "Lorazepam",
-          "Pyridoxine",
-          "Other"
-        ].map((drug) => (
-          <label key={drug} className="checkbox-item">
-            <input
-              type="checkbox"
-              checked={formData.aed_type?.includes(drug)}
-              onChange={() => {
-                const selected = formData.aed_type || [];
+              <div className="checkbox-group">
+                {[
+                  { value: "Phenytoin",      label: "Phenytoin" },
+                  // stored value kept as "Phenobarbital" for backward
+                  // compatibility with already-saved records — CRF label is
+                  // "Phenobarbitone"
+                  { value: "Phenobarbital",  label: "Phenobarbitone" },
+                  { value: "Levetiracetam",  label: "Levetiracetam" },
+                  { value: "Midazolam",      label: "Midazolam" },
+                  { value: "Lorazepam",      label: "Lorazepam" },
+                  { value: "Pyridoxine",     label: "Pyridoxine" },
+                  // stored value kept as "Other" for backward compatibility
+                  { value: "Other",          label: "Others" },
+                ].map(({ value, label }) => (
+                  <label key={value} className="checkbox-item">
+                    <input
+                      type="checkbox"
+                      checked={formData.aed_type?.includes(value)}
+                      onChange={() => {
+                        const selected = formData.aed_type || [];
 
-                if (selected.includes(drug)) {
-                  setFormData(prev => ({
-                    ...prev,
-                    aed_type: selected.filter(d => d !== drug)
-                  }));
-                } else {
-                  setFormData(prev => ({
-                    ...prev,
-                    aed_type: [...selected, drug]
-                  }));
-                }
-              }}
-            />
-            {drug}
-          </label>
-        ))}
-      </div>
-    </div>
+                        if (selected.includes(value)) {
+                          setFormData(prev => ({
+                            ...prev,
+                            aed_type: selected.filter(d => d !== value)
+                          }));
+                        } else {
+                          setFormData(prev => ({
+                            ...prev,
+                            aed_type: [...selected, value]
+                          }));
+                        }
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
 
-    {/* OTHER AED */}
-    {formData.aed_type?.includes("Other") && (
-      <div className="form-group">
-        <label>Specify AED<span className="required">*</span></label>
-        <input
-          type="text"
-          name="aed_other"
-          value={formData.aed_other || ""}
-          onChange={handleChange}
-          placeholder="Enter AED name"
-        />
-      </div>
-    )}
+            {/* OTHER AED */}
+            {formData.aed_type?.includes("Other") && (
+              <div className="form-group">
+                <label>Specify AED<span className="required">*</span></label>
+                <input
+                  type="text"
+                  name="aed_other"
+                  value={formData.aed_other || ""}
+                  onChange={handleChange}
+                  placeholder="Enter AED name"
+                />
+              </div>
+            )}
 
-  </>
-)}
-{formData.aeds_required === "Yes" && (
-  <div className="form-row">
+            <div className="form-row">
 
-    {/* ETIOLOGY */}
-    <div className="form-group">
-      <label>Etiology<span className="required">*</span></label>
-      <select
-        name="etiology"
-        value={formData.etiology || ""}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option>Asphyxia</option>
-        <option>Low Na</option>
-        <option>Low Ca</option>
-        <option>Low K</option>
-        <option>Hypoglycemia</option>
-        <option>Intracranial bleed / hemorrhage</option>
-        <option>Meningitis</option>
-        <option>Other</option>
-      </select>
-    </div>
+              {/* ETIOLOGY */}
+              <div className="form-group">
+                <label><span className="field-num">34.</span> Etiology</label>
+                <select
+                  name="etiology"
+                  value={formData.etiology || ""}
+                  onChange={handleChange}
+                >
+                  <option value="">-- Select --</option>
+                  <option value="Asphyxia">Asphyxia</option>
+                  {/* stored values kept as "Low Na"/"Low Ca" for backward
+                      compatibility with already-saved records — CRF labels
+                      are "Hyponatremia"/"Hypocalcemia" */}
+                  <option value="Low Na">Hyponatremia</option>
+                  <option value="Low Ca">Hypocalcemia</option>
+                  <option value="Low K">Hypokalemia</option>
+                  <option value="Hypoglycemia">Hypoglycemia</option>
+                  {/* stored value kept as "Intracranial bleed / hemorrhage"
+                      for backward compatibility — CRF label is
+                      "Intracranial hemorrhage" */}
+                  <option value="Intracranial bleed / hemorrhage">Intracranial hemorrhage</option>
+                  <option value="Meningitis">Meningitis</option>
+                  <option value="Other">Others</option>
+                </select>
+              </div>
 
-    {/* OTHER TEXT */}
-    {formData.etiology === "Other" && (
-      <div className="form-group">
-        <label>Specify Etiology<span className="required">*</span></label>
-        <input
-          type="text"
-          name="etiology_other"
-          value={formData.etiology_other || ""}
-          onChange={handleChange}
-          placeholder="Enter cause"
-        />
-      </div>
-    )}
+              {/* OTHER TEXT */}
+              {formData.etiology === "Other" && (
+                <div className="form-group">
+                  <label>Specify Etiology<span className="required">*</span></label>
+                  <input
+                    type="text"
+                    name="etiology_other"
+                    value={formData.etiology_other || ""}
+                    onChange={handleChange}
+                    placeholder="Enter cause"
+                  />
+                </div>
+              )}
 
-  </div>
-)}
+            </div>
           </>
         )}
       </div>
@@ -4496,7 +4538,6 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "bpd" && (
       <div className="card-body">
 
-
 {/* BPD */}
 <div className="form-group">
   <YesNoToggle label="35. BPD Diagnosed" name="bpd" value={formData.bpd} onChange={handleChange} onBlur={handleBlur} required />
@@ -4510,7 +4551,7 @@ const peripheralStatus= getPeripheralStatus();
   <>
     <div className="form-group">
       <label>
-        Type of Respiratory Support (36 weeks PMA) <span className="required">*</span>
+        <span className="field-num">36.</span> At 36 wks PMA <span className="required">*</span>
       </label>
 
       <select
@@ -4520,10 +4561,9 @@ const peripheralStatus= getPeripheralStatus();
         onBlur={handleBlur}
       >
         <option value="">-- Select --</option>
-        <option value="None">None</option>
         <option value="NC ≤ 2L">NC ≤ 2L</option>
-        <option value="NC > 2L / CPAP">NC &gt; 2L / CPAP</option>
-        <option value="Mechanical ventilation">Mechanical ventilation</option>
+        <option value="NC > 2L / CPAP / NIPPV">NC &gt; 2L / CPAP / NIPPV</option>
+        <option value="Invasive mechanical ventilation">Invasive mechanical ventilation</option>
       </select>
 
       {touched.bpd_support_36w && errors.bpd_support_36w && (
@@ -4532,7 +4572,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-      <label><span className="field-num">37.</span> 
+      <label><span className="field-num">37.</span>
         Grade (Jensen) <span className="required">*</span>
       </label>
 
@@ -4543,7 +4583,6 @@ const peripheralStatus= getPeripheralStatus();
         onBlur={handleBlur}
       >
         <option value="">-- Select --</option>
-        <option value="No BPD">No BPD</option>
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
@@ -4555,13 +4594,28 @@ const peripheralStatus= getPeripheralStatus();
     </div>
   </>
 )}
+</div>
+    )}
+  </div>
 
-<div className="form-row">
+  {/* ================= RESPIRATORY SUPPORT (+ Postnatal Steroids) ================= */}
+  <div className="card">
+    <div className="card-header-row" onClick={() => setOpenSection(openSection === "support" ? null : "support")}>
+      <span><span className="sec-num sub">H2.2</span> Respiratory Support</span>
+      <span className={`summary ${respSummary.className}`}>
+  <span className="icon">{respSummary.icon}</span>
+  {respSummary.text}
+</span>
 
-  {/* Oxygen Days */}
+      <span className="arrow">{openSection === "support" ? "▲" : "▼"}</span>
+    </div>
+
+    {openSection === "support" && (
+      <div className="card-body">
+
+  {/* 38. O2 Days */}
   <div className="form-group">
-    <label>Oxygen Days</label>
-
+    <label><span className="field-num">38.</span> O2 Days</label>
     <input
       type="number"
       name="oxygen_days"
@@ -4573,532 +4627,361 @@ const peripheralStatus= getPeripheralStatus();
       step="1"
       placeholder="0–365"
     />
-
     {touched.oxygen_days && errors.oxygen_days && (
       <div className="error-text">{errors.oxygen_days}</div>
     )}
   </div>
 
-  {/* Vent Days */}
-  <div className="form-group">
-    <label>Ventilation Days</label>
-
-    <input
-      type="number"
-      name="vent_days"
-      value={formData.vent_days || ""}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      min="0"
-      max="365"
-      step="1"
-      placeholder="0–365"
-    />
-
-    {touched.vent_days && errors.vent_days && (
-      <div className="error-text">{errors.vent_days}</div>
-    )}
-  </div>
-
-  {/* CPAP Days */}
-  <div className="form-group">
-    <label>CPAP Days</label>
-
-    <input
-      type="number"
-      name="cpap_days"
-      value={formData.cpap_days || ""}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      min="0"
-      max="365"
-      step="1"
-      placeholder="0–365"
-    />
-
-    {touched.cpap_days && errors.cpap_days && (
-      <div className="error-text">{errors.cpap_days}</div>
-    )}
-  </div>
-</div>
-</div>
-    )}
-  </div>
-   {/* ================= RESPIRATORY SUPPORT ================= */}
-
-
-  {/* ================= RESP SUPPORT ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "support" ? null : "support")}>
-      <span><span className="sec-num sub">H2.2</span> Respiratory Support</span>
-      <span className={`summary ${respSummary.className}`}>
-  <span className="icon">{respSummary.icon}</span>
-  {respSummary.text}
-</span>
-
-
-      <span className="arrow">{openSection === "support" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "support" && (
-      <div className="card-body">
-
-  {/* CPAP */}
+  {/* 39/40. Nasal Cannula */}
   <div className="form-row">
     <div className="form-group">
-      <label>CPAP<span className="required">*</span></label>
-      <select value={formData.cpap || ""} disabled>
-  <option value="">-- Select --</option>
-  <option value="Yes">Yes</option>
-  <option value="No">No</option>
-</select>
+      <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleChange} onBlur={handleBlur} required />
+    </div>
+
+    {formData.nasal_cannula === "Yes" && (
+      <div className="form-group">
+        <label><span className="field-num">40.</span> Days</label>
+        <input
+          type="number"
+          name="nasal_cannula_days"
+          value={formData.nasal_cannula_days || ""}
+          placeholder="0–365"
+          min="0"
+          max="365"
+          step="1"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") { setFormData({ ...formData, nasal_cannula_days: "" }); return; }
+            if (!/^\d+$/.test(value)) return;
+            const num = Number(value);
+            if (num < 0 || num > 365) return;
+            setFormData({ ...formData, nasal_cannula_days: value });
+          }}
+          onBlur={(e) => {
+            let num = Number(e.target.value);
+            if (num > 365) num = 365;
+            if (num < 0) num = 0;
+            setFormData({ ...formData, nasal_cannula_days: num });
+          }}
+        />
+      </div>
+    )}
+  </div>
+
+  {/* 41/42. CPAP */}
+  <div className="form-row">
+    <div className="form-group">
+      <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleChange} onBlur={handleBlur} required />
     </div>
 
     {formData.cpap === "Yes" && (
       <div className="form-group">
-  <label>Days</label>
-  <input
-    type="number"
-    value={formData.cpap_days || ""}
-    disabled
-    placeholder="0–365"
-  />
-</div>
+        <label><span className="field-num">42.</span> Days</label>
+        <input
+          type="number"
+          name="cpap_days"
+          value={formData.cpap_days || ""}
+          placeholder="0–365"
+          min="0"
+          max="365"
+          step="1"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") { setFormData({ ...formData, cpap_days: "" }); return; }
+            if (!/^\d+$/.test(value)) return;
+            const num = Number(value);
+            if (num < 0 || num > 365) return;
+            setFormData({ ...formData, cpap_days: value });
+          }}
+          onBlur={(e) => {
+            let num = Number(e.target.value);
+            if (num > 365) num = 365;
+            if (num < 0) num = 0;
+            setFormData({ ...formData, cpap_days: num });
+          }}
+        />
+      </div>
     )}
   </div>
 
-  {/* NIPPV */}
+  {/* 43/44. NIPPV */}
   <div className="form-row">
     <div className="form-group">
-      <label>NIPPV<span className="required">*</span></label>
-      <select value={formData.nippv || ""} disabled>
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
+      <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleChange} onBlur={handleBlur} required />
     </div>
 
     {formData.nippv === "Yes" && (
       <div className="form-group">
-        <label>Days</label>
+        <label><span className="field-num">44.</span> Days</label>
         <input
-  type="number"
-  name="nippv_days"
-  value={formData.nippv_days || ""}
-  placeholder="0–365"
-  min="0"
-  max="365"
-  step="1"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    if (value === "") {
-      setFormData({ ...formData, nippv_days: "" });
-      return;
-    }
-
-    if (!/^\d+$/.test(value)) return;
-
-    const num = Number(value);
-    if (num < 0 || num > 365) return;
-
-    setFormData({
-      ...formData,
-      nippv_days: value
-    });
-  }}
-  onBlur={(e) => {
-    let num = Number(e.target.value);
-
-    if (num > 365) num = 365;
-    if (num < 0) num = 0;
-
-    setFormData({
-      ...formData,
-      nippv_days: num
-    });
-  }}
-/>
+          type="number"
+          name="nippv_days"
+          value={formData.nippv_days || ""}
+          placeholder="0–365"
+          min="0"
+          max="365"
+          step="1"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") { setFormData({ ...formData, nippv_days: "" }); return; }
+            if (!/^\d+$/.test(value)) return;
+            const num = Number(value);
+            if (num < 0 || num > 365) return;
+            setFormData({ ...formData, nippv_days: value });
+          }}
+          onBlur={(e) => {
+            let num = Number(e.target.value);
+            if (num > 365) num = 365;
+            if (num < 0) num = 0;
+            setFormData({ ...formData, nippv_days: num });
+          }}
+        />
       </div>
     )}
   </div>
 
+  {/* 45/46. HFNC */}
   <div className="form-row">
-  <div className="form-group">
-    <label>HFNC<span className="required">*</span></label>
-    <select value={formData.hfnc || ""} disabled>
-      <option value="">-- Select --</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
+    <div className="form-group">
+      <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleChange} onBlur={handleBlur} required />
+    </div>
+
+    {formData.hfnc === "Yes" && (
+      <div className="form-group">
+        <label><span className="field-num">46.</span> Days</label>
+        <input
+          type="number"
+          name="hfnc_days"
+          value={formData.hfnc_days || ""}
+          placeholder="0–365"
+          min="0"
+          max="365"
+          step="1"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") { setFormData({ ...formData, hfnc_days: "" }); return; }
+            if (!/^\d+$/.test(value)) return;
+            const num = Number(value);
+            if (num < 0 || num > 365) return;
+            setFormData({ ...formData, hfnc_days: value });
+          }}
+          onBlur={(e) => {
+            let num = Number(e.target.value);
+            if (num > 365) num = 365;
+            if (num < 0) num = 0;
+            setFormData({ ...formData, hfnc_days: num });
+          }}
+        />
+      </div>
+    )}
   </div>
 
-  {formData.hfnc === "Yes" && (
-    <div className="form-group">
-      <label>Days</label>
-      <input
-        type="number"
-        name="hfnc_days"
-        value={formData.hfnc_days || ""}
-        placeholder="0–365"
-        min="0"
-        max="365"
-        step="1"
-        onChange={(e) => {
-          const value = e.target.value;
-
-          if (value === "") {
-            setFormData({ ...formData, hfnc_days: "" });
-            return;
-          }
-
-          if (!/^\d+$/.test(value)) return;
-
-          const num = Number(value);
-          if (num < 0 || num > 365) return;
-
-          setFormData({
-            ...formData,
-            hfnc_days: value
-          });
-        }}
-        onBlur={(e) => {
-          let num = Number(e.target.value);
-
-          if (num > 365) num = 365;
-          if (num < 0) num = 0;
-
-          setFormData({
-            ...formData,
-            hfnc_days: num
-          });
-        }}
-      />
-    </div>
-  )}
-</div>
-
-  {/* Mechanical Ventilation */}
+  {/* 47/48. Invasive mechanical ventilation */}
   <div className="form-row">
     <div className="form-group">
-      <label><span className="field-num">47.</span> Invasive Mechanical Ventilation<span className="required">*</span></label>
-      <select value={formData.invasive_ventilation || ""} disabled>
-        <option value="">-- Select --</option>
-        <option>Yes</option>
-        <option>No</option>
-      </select>
+      <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleChange} onBlur={handleBlur} required />
     </div>
 
     {formData.invasive_ventilation === "Yes" && (
       <div className="form-group">
-        <label>Days</label>
+        <label><span className="field-num">48.</span> Days</label>
         <input
-  type="number"
-  name="imv_days"
-  value={formData.imv_days || ""}
-  placeholder="0–365"
-  min="0"
-  max="365"
-  step="1"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    if (value === "") {
-      setFormData({ ...formData, imv_days: "" });
-      return;
-    }
-
-    if (!/^\d+$/.test(value)) return;
-
-    const num = Number(value);
-    if (num < 0 || num > 365) return;
-
-    setFormData({
-      ...formData,
-      imv_days: value
-    });
-  }}
-  onBlur={(e) => {
-    let num = Number(e.target.value);
-
-    if (num > 365) num = 365;
-    if (num < 0) num = 0;
-
-    setFormData({
-      ...formData,
-      imv_days: num
-    });
-  }}
-/>
+          type="number"
+          name="imv_days"
+          value={formData.imv_days || ""}
+          placeholder="0–365"
+          min="0"
+          max="365"
+          step="1"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") { setFormData({ ...formData, imv_days: "" }); return; }
+            if (!/^\d+$/.test(value)) return;
+            const num = Number(value);
+            if (num < 0 || num > 365) return;
+            setFormData({ ...formData, imv_days: value });
+          }}
+          onBlur={(e) => {
+            let num = Number(e.target.value);
+            if (num > 365) num = 365;
+            if (num < 0) num = 0;
+            setFormData({ ...formData, imv_days: num });
+          }}
+        />
       </div>
     )}
   </div>
 
-<div className="form-row">
-  <div className="form-group">
-    <label>Nasal Cannula<span className="required">*</span></label>
-    <select value={formData.nasal_cannula || ""} disabled>
-      <option value="">-- Select --</option>
-      <option>Yes</option>
-      <option>No</option>
-    </select>
-  </div>
-
-  {formData.nasal_cannula === "Yes" && (
-    <div className="form-group">
-      <label>Days</label>
-      <input
-        type="number"
-        name="nasal_cannula_days"
-        value={formData.nasal_cannula_days || ""}
-        placeholder="0–365"
-        min="0"
-        max="365"
-        step="1"
-        onChange={(e) => {
-          const value = e.target.value;
-
-          if (value === "") {
-            setFormData({ ...formData, nasal_cannula_days: "" });
-            return;
-          }
-
-          if (!/^\d+$/.test(value)) return;
-
-          const num = Number(value);
-          if (num < 0 || num > 365) return;
-
-          setFormData({
-            ...formData,
-            nasal_cannula_days: value
-          });
-        }}
-        onBlur={(e) => {
-          let num = Number(e.target.value);
-
-          if (num > 365) num = 365;
-          if (num < 0) num = 0;
-
-          setFormData({
-            ...formData,
-            nasal_cannula_days: num
-          });
-        }}
-      />
-    </div>
-  )}
-</div>
-  {/* Oxygen exposure */}
+  {/* 49. Integrated oxygen exposure */}
   <div className="form-group">
     <label><span className="field-num">49.</span> Integrated Oxygen Exposure</label>
     <input
-  type="number"
-  name="oxygen_exposure"
-  value={formData.oxygen_exposure || ""}
-  placeholder="0–10000"
-  min="0"
-  max="10000"
-  step="1"
-  onChange={(e) => {
-    const value = e.target.value;
-
-    // ✅ allow empty
-    if (value === "") {
-      setFormData({ ...formData, oxygen_exposure: "" });
-      return;
-    }
-
-    // ✅ allow only digits
-    if (!/^\d+$/.test(value)) return;
-
-    const num = Number(value);
-
-    // 🚫 block out of range
-    if (num < 0 || num > 10000) return;
-
-    setFormData({
-      ...formData,
-      oxygen_exposure: value
-    });
-  }}
-  onBlur={(e) => {
-    let num = Number(e.target.value);
-
-    // ✅ clamp value safely
-    if (num > 10000) num = 10000;
-    if (num < 0) num = 0;
-
-    setFormData({
-      ...formData,
-      oxygen_exposure: num
-    });
-  }}
-/>
-  </div>
-  </div>
-    )}
+      type="number"
+      name="oxygen_exposure"
+      value={formData.oxygen_exposure || ""}
+      placeholder="0–10000"
+      min="0"
+      max="10000"
+      step="1"
+      onChange={(e) => {
+        const value = e.target.value;
+        if (value === "") { setFormData({ ...formData, oxygen_exposure: "" }); return; }
+        if (!/^\d+$/.test(value)) return;
+        const num = Number(value);
+        if (num < 0 || num > 10000) return;
+        setFormData({ ...formData, oxygen_exposure: value });
+      }}
+      onBlur={(e) => {
+        let num = Number(e.target.value);
+        if (num > 10000) num = 10000;
+        if (num < 0) num = 0;
+        setFormData({ ...formData, oxygen_exposure: num });
+      }}
+    />
   </div>
 
-   {/* ================= STEROIDS ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "steroids" ? null : "steroids")}>
-      <span>Postnatal Steroids</span>
-      <span className={`summary ${getRespStatusClass(formData.postnatal_steroids)}`}>
-  <span className="icon">{getRespIcon(formData.postnatal_steroids)}</span>
-
-  {formData.postnatal_steroids || "Not filled"}
-</span>
-      <span className="arrow">{openSection === "steroids" ? "▲" : "▼"}</span>
+  {/* 50. Postnatal steroids */}
+  <div className="form-row">
+    <div className="form-group">
+      <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleChange} required />
+      {touched.postnatal_steroids && errors.postnatal_steroids && (
+        <div className="error-text">{errors.postnatal_steroids}</div>
+      )}
     </div>
-
-    {openSection === "steroids" && (
-      <div className="card-body">
-
-<div className="form-row">
-  <div className="form-group">
-    <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleChange} required />
-
-    {touched.postnatal_steroids && errors.postnatal_steroids && (
-      <div className="error-text">{errors.postnatal_steroids}</div>
-    )}
   </div>
-</div>
 
-{/* Steroid Details */}
-{formData.postnatal_steroids === "Yes" && (
-  <>
-    <div className="form-row">
+  {formData.postnatal_steroids === "Yes" && (
+    <>
+      {/* 51. Age at steroid */}
+      <div className="form-row">
+        <div className="form-group">
+          <label><span className="field-num">51.</span> Age at Steroid (days) <span className="required">*</span></label>
+          <input
+            type="number"
+            name="steroid_age_days"
+            value={formData.steroid_age_days || ""}
+            placeholder="0–365"
+            min="0"
+            max="365"
+            step="1"
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "") { setFormData({ ...formData, steroid_age_days: "" }); return; }
+              if (!/^\d+$/.test(value)) return;
+              const num = Number(value);
+              if (num < 0 || num > 365) return;
+              setFormData({ ...formData, steroid_age_days: value });
+            }}
+            onBlur={(e) => {
+              let num = Number(e.target.value);
+              if (num > 365) num = 365;
+              if (num < 0) num = 0;
+              setFormData({ ...formData, steroid_age_days: num });
+              handleBlur(e);
+            }}
+          />
+          {touched.steroid_age_days && errors.steroid_age_days && (
+            <div className="error-text">{errors.steroid_age_days}</div>
+          )}
+        </div>
 
-      {/* Drug */}
-      <div className="form-group">
-        <label>
-          Drug <span className="required">*</span>
-        </label>
-
-        <select
-          name="steroid_drug"
-          value={formData.steroid_drug || ""}
-          onChange={handleChange}
-          onBlur={handleBlur}
-        >
-          <option value="">-- Select --</option>
-          <option value="Hydrocortisone">Hydrocortisone</option>
-          <option value="Dexamethasone">Dexamethasone</option>
-          <option value="Budesonide">Budesonide</option>
-          <option value="Other">Other</option>
-        </select>
-
-        {touched.steroid_drug && errors.steroid_drug && (
-          <div className="error-text">{errors.steroid_drug}</div>
-        )}
+        {/* 52. Drug */}
+        <div className="form-group">
+          <label><span className="field-num">52.</span> Drug <span className="required">*</span></label>
+          <select
+            name="steroid_drug"
+            value={formData.steroid_drug || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          >
+            <option value="">-- Select --</option>
+            <option value="Hydrocortisone">Hydrocortisone</option>
+            <option value="Dexamethasone">Dexamethasone</option>
+            <option value="Budesonide">Budesonide</option>
+            <option value="Other">Other</option>
+          </select>
+          {touched.steroid_drug && errors.steroid_drug && (
+            <div className="error-text">{errors.steroid_drug}</div>
+          )}
+        </div>
       </div>
 
-      {/* Other Drug */}
       {formData.steroid_drug === "Other" && (
         <div className="form-group">
-          <label>
-            Other Drug <span className="required">*</span>
-          </label>
-
+          <label>Other Drug <span className="required">*</span></label>
           <input
             type="text"
             name="steroid_drug_other"
             value={formData.steroid_drug_other || ""}
             onChange={(e) => {
               let value = e.target.value;
-
-              // allow only text
               if (/^[A-Za-z\s]*$/.test(value)) {
-                setFormData({
-                  ...formData,
-                  steroid_drug_other: value
-                });
-
-                validateRespSupport("steroid_drug_other", value, {
-                  ...formData,
-                  steroid_drug_other: value
-                });
+                setFormData({ ...formData, steroid_drug_other: value });
+                validateRespSupport("steroid_drug_other", value, { ...formData, steroid_drug_other: value });
               }
             }}
             onBlur={handleBlur}
             placeholder="Enter drug name"
           />
-
           {touched.steroid_drug_other && errors.steroid_drug_other && (
             <div className="error-text">{errors.steroid_drug_other}</div>
           )}
         </div>
       )}
-    </div>
 
-    <div className="form-row">
+      {/* 53/54. Cumulative dose — 1st and 2nd drug */}
+      <div className="form-row">
+        <div className="form-group">
+          <label><span className="field-num">53.</span> Cumulative Dose (mg/kg) — 1st drug <span className="required">*</span></label>
+          <input
+            type="number"
+            name="steroid_dose"
+            value={formData.steroid_dose || ""}
+            placeholder="0–300"
+            min="0"
+            max="300"
+            step="0.1"
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "") { setFormData({ ...formData, steroid_dose: "" }); return; }
+              if (!/^\d*\.?\d*$/.test(value)) return;
+              const num = Number(value);
+              if (num < 0 || num > 300) return;
+              setFormData({ ...formData, steroid_dose: value });
+            }}
+            onBlur={handleBlur}
+          />
+          {touched.steroid_dose && errors.steroid_dose && (
+            <div className="error-text">{errors.steroid_dose}</div>
+          )}
+        </div>
 
-      {/* Age */}
-      <div className="form-group">
-        <label><span className="field-num">51.</span> 
-          Age at Steroid (days) <span className="required">*</span>
-        </label>
-
-        <input
-    type="number"
-    value={formData.steroid_age_days || ""}
-    disabled
-  />
-
-        {touched.age_steroid && errors.age_steroid && (
-          <div className="error-text">{errors.age_steroid}</div>
-        )}
+        <div className="form-group">
+          <label><span className="field-num">54.</span> Cumulative Dose (mg/kg) — 2nd drug</label>
+          <input
+            type="number"
+            name="steroid_dose_2"
+            value={formData.steroid_dose_2 || ""}
+            placeholder="0–300 (if a second course/drug was given)"
+            min="0"
+            max="300"
+            step="0.1"
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "") { setFormData({ ...formData, steroid_dose_2: "" }); return; }
+              if (!/^\d*\.?\d*$/.test(value)) return;
+              const num = Number(value);
+              if (num < 0 || num > 300) return;
+              setFormData({ ...formData, steroid_dose_2: value });
+            }}
+            onBlur={handleBlur}
+          />
+        </div>
       </div>
 
-      {/* Dose */}
+      {/* 55. Indication */}
       <div className="form-group">
-        <label><span className="field-num">201.</span> 
-          Cumulative Dose (mg/kg) <span className="required">*</span>
-        </label>
-
-        <input
-          type="number"
-          name="steroid_dose"
-          value={formData.steroid_dose || ""}
-          placeholder="0–300"
-          min="0"
-          max="300"
-          step="0.1"
-          onChange={(e) => {
-            const value = e.target.value;
-
-            if (value === "") {
-              setFormData({ ...formData, steroid_dose: "" });
-              return;
-            }
-
-            if (!/^\d*\.?\d*$/.test(value)) return;
-
-            const num = Number(value);
-            if (num < 0 || num > 300) return;
-
-            setFormData({
-              ...formData,
-              steroid_dose: value
-            });
-          }}
-          onBlur={handleBlur}
-        />
-
-        {touched.steroid_dose && errors.steroid_dose && (
-          <div className="error-text">{errors.steroid_dose}</div>
-        )}
-      </div>
-    </div>
-
-    <div className="form-row">
-
-      {/* Indication */}
-      <div className="form-group">
-        <label>
-          Indication <span className="required">*</span>
-        </label>
-
+        <label><span className="field-num">55.</span> Indication <span className="required">*</span></label>
         <select
           name="steroid_indication"
           value={formData.steroid_indication || ""}
@@ -5111,19 +4994,14 @@ const peripheralStatus= getPeripheralStatus();
           <option value="BPD">BPD</option>
           <option value="Other">Other</option>
         </select>
-
         {touched.steroid_indication && errors.steroid_indication && (
           <div className="error-text">{errors.steroid_indication}</div>
         )}
       </div>
 
-      {/* Other Indication */}
       {formData.steroid_indication === "Other" && (
         <div className="form-group">
-          <label>
-            Specify Other <span className="required">*</span>
-          </label>
-
+          <label>Specify Other <span className="required">*</span></label>
           <input
             type="text"
             name="steroid_indication_other"
@@ -5131,26 +5009,22 @@ const peripheralStatus= getPeripheralStatus();
             onChange={handleChange}
             onBlur={handleBlur}
           />
-
-          {touched.steroid_indication_other &&
-            errors.steroid_indication_other && (
-              <div className="error-text">
-                {errors.steroid_indication_other}
-              </div>
-            )}
+          {touched.steroid_indication_other && errors.steroid_indication_other && (
+            <div className="error-text">{errors.steroid_indication_other}</div>
+          )}
         </div>
       )}
-    </div>
-  </>
-)}</div>
+    </>
+  )}
 
-)}
+</div>
+    )}
   </div>
-  {/* ================= OTHER RESP ================= */}
+
+  {/* ================= OTHER RESPIRATORY (+ Rx + Extubation) ================= */}
   <div className="card">
     <div className="card-header-row" onClick={() => setOpenSection(openSection === "otherResp" ? null : "otherResp")}>
       <span><span className="sec-num sub">H2.3</span> Other Respiratory</span>
-      
 
 <span className={`summary ${
   hasYes ? "status-yes" : hasNo ? "status-no" : "status-empty"
@@ -5158,7 +5032,6 @@ const peripheralStatus= getPeripheralStatus();
   <span className="icon">
     {hasYes ? "✔" : hasNo ? "✖" : "—"}
   </span>
-
   {hasYes ? "Yes" : hasNo ? "No" : "Not filled"}
 </span>
       <span className="arrow">{openSection === "otherResp" ? "▲" : "▼"}</span>
@@ -5167,62 +5040,27 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "otherResp" && (
       <div className="card-body">
 
-
-{/* Pulmonary Hemorrhage */}
+{/* 56. Pulmonary Hemorrhage */}
 <div className="form-group">
-  <label><span className="field-num">56.</span> 
-    Pulmonary Hemorrhage <span className="required">*</span>
-  </label>
-
-  <select
-    name="pulmonary_hemorrhage"
-    value={formData.pulmonary_hemorrhage || ""}
-    onChange={handleChange}
-    onBlur={handleBlur}
-    disabled
-  >
-    <option value="">-- Select --</option>
-    <option value="Yes">Yes</option>
-    <option value="No">No</option>
-  </select>
-
+  <YesNoToggle label="56. Pulmonary Hemorrhage" name="pulmonary_hemorrhage" value={formData.pulmonary_hemorrhage} onChange={handleChange} onBlur={handleBlur} required />
   {touched.pulmonary_hemorrhage && errors.pulmonary_hemorrhage && (
     <div className="error-text">{errors.pulmonary_hemorrhage}</div>
   )}
 </div>
 
-{/* Pneumothorax */}
+{/* 57. Pneumothorax */}
 <div className="form-group">
-  <label>
-    Pneumothorax <span className="required">*</span>
-  </label>
-
-  <select
-  name="pneumothorax"
-  value={formData.pneumothorax || ""}
-  onChange={handleChange}
-  disabled
->
-    <option value="">-- Select --</option>
-    <option value="Yes">Yes</option>
-    <option value="No">No</option>
-  </select>
-
+  <YesNoToggle label="57. Pneumothorax" name="pneumothorax" value={formData.pneumothorax} onChange={handleChange} onBlur={handleBlur} required />
   {touched.pneumothorax && errors.pneumothorax && (
     <div className="error-text">{errors.pneumothorax}</div>
   )}
 </div>
 
-{/* Conditional section */}
 {formData.pneumothorax === "Yes" && (
   <div className="followup-box">
-
-    {/* Side */}
+    {/* 58. Side */}
     <div className="form-group">
-      <label>
-        Side <span className="required">*</span>
-      </label>
-
+      <label><span className="field-num">58.</span> Side <span className="required">*</span></label>
       <select
         name="pneumothorax_side"
         value={formData.pneumothorax_side || ""}
@@ -5232,31 +5070,16 @@ const peripheralStatus= getPeripheralStatus();
         <option value="">-- Select --</option>
         <option value="Right">Right</option>
         <option value="Left">Left</option>
-        <option value="Both">Both</option>
+        <option value="Both">Bilateral</option>
       </select>
-
       {touched.pneumothorax_side && errors.pneumothorax_side && (
         <div className="error-text">{errors.pneumothorax_side}</div>
       )}
     </div>
 
-    {/* Chest Drain */}
+    {/* 59. Chest drain */}
     <div className="form-group">
-      <label><span className="field-num">59.</span> 
-        Chest drain <span className="required">*</span>
-      </label>
-
-      <select
-  name="chest_drain"
-  value={formData.chest_drain || ""}
-  onChange={handleChange}
-  disabled
->
-        <option value="">-- Select --</option>
-        <option value="Yes">Yes</option>
-        <option value="No">No</option>
-      </select>
-
+      <YesNoToggle label="59. Chest drain" name="chest_drain" value={formData.chest_drain} onChange={handleChange} onBlur={handleBlur} required />
       {touched.chest_drain && errors.chest_drain && (
         <div className="error-text">{errors.chest_drain}</div>
       )}
@@ -5264,153 +5087,77 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 )}
 
-{/* Pulmonary Hypertension */}
+{/* 60. Pulmonary Hypertension */}
 <div className="form-group">
-  <label>
-    Pulmonary Hypertension <span className="required">*</span>
-  </label>
-
-  <select
-  name="pulmonary_hypertension"
-  value={formData.pulmonary_hypertension || ""}
-  onChange={handleChange} disabled
->
-    <option value="">-- Select --</option>
-    <option value="Yes">Yes</option>
-    <option value="No">No</option>
-  </select>
-
-  {touched.pulmonary_htn && errors.pulmonary_htn && (
-    <div className="error-text">{errors.pulmonary_htn}</div>
+  <YesNoToggle label="60. Pulmonary Hypertension" name="pulmonary_hypertension" value={formData.pulmonary_hypertension} onChange={handleChange} onBlur={handleBlur} required />
+  {touched.pulmonary_hypertension && errors.pulmonary_hypertension && (
+    <div className="error-text">{errors.pulmonary_hypertension}</div>
   )}
-</div></div>
-    )}
-  </div>
- {/* ================= RX ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "rx" ? null : "rx")}>
-      <span>Rx</span>
-      <span className="summary">
-  {formData.rx_sildenafil || formData.rx_ino
-    ? "Treatment Given"
-    : "Not filled"}
-</span>
-      <span className="arrow">{openSection === "rx" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "rx" && (
-      <div className="card-body">
-
-<div className="rx-card">
-
-  <p className="rx-subtitle">
-    Select treatment given
-  </p>
-
-  <div className="rx-grid">
-
-    <label className="rx-option">
-      <input
-        type="checkbox"
-        name="rx_sildenafil"
-        checked={formData.rx_sildenafil || false}
-        onChange={handleChange}
-      />
-      <span>Sildenafil</span>
-    </label>
-
-    <label className="rx-option">
-      <input
-        type="checkbox"
-        name="rx_ino"
-        checked={formData.rx_ino || false}
-        onChange={handleChange}
-      />
-      <span>iNO</span>
-    </label>
-      <label className="rx-option">
-    <input
-      type="checkbox"
-      name="rx_vaso"
-      checked={formData.rx_vaso || false}
-      onChange={handleChange}
-    />
-    <span>Vasopressin</span>
-  </label>
-
-  {/* 🔥 NEW */}
-  <label className="rx-option">
-    <input
-      type="checkbox"
-      name="rx_miliri"
-      checked={formData.rx_miliri || false}
-      onChange={handleChange}
-    />
-    <span>Milrinone</span>
-  </label>
-
-    <label className="rx-option">
-      <input
-        type="checkbox"
-        name="rx_other"
-        checked={formData.rx_other || false}
-        onChange={handleChange}
-      />
-      <span>Other</span>
-    </label>
-
-  </div>
-
 </div>
 
-{formData.rx_other && (
-  <div className="form-group" style={{marginTop:"10px"}}>
-    <label>Other (Specify)</label>
-    <input
-      name="rx_other_text"
-      value={formData.rx_other_text || ""}
-      onChange={handleChange}
-      placeholder="Specify treatment"
-    />
-  </div>
-)}</div>
-    )}
-  </div>
-
- {/* ================= EXTUBATION ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "extubation" ? null : "extubation")}>
-      <span>Extubation Failure</span>
-      <span className={`summary ${getRespStatusClass(formData.extubation_failure)}`}>
-  <span className="icon">{getRespIcon(formData.extubation_failure)}</span>
-
-  {formData.extubation_failure || "Not filled"}
-</span>
-      <span className="arrow">{openSection === "extubation" ? "▲" : "▼"}</span>
+{/* 61. Rx */}
+<div className="form-group">
+  <label><span className="field-num">61.</span> Rx</label>
+  <div className="rx-card">
+    <p className="rx-subtitle">Select treatment given</p>
+    <div className="rx-grid">
+      <label className="rx-option">
+        <input type="checkbox" name="rx_sildenafil" checked={formData.rx_sildenafil || false} onChange={handleChange} />
+        <span>Sildenafil</span>
+      </label>
+      <label className="rx-option">
+        <input type="checkbox" name="rx_ino" checked={formData.rx_ino || false} onChange={handleChange} />
+        <span>iNO</span>
+      </label>
+      <label className="rx-option">
+        <input type="checkbox" name="rx_miliri" checked={formData.rx_miliri || false} onChange={handleChange} />
+        <span>Miliri</span>
+      </label>
+      <label className="rx-option">
+        <input type="checkbox" name="rx_vaso" checked={formData.rx_vaso || false} onChange={handleChange} />
+        <span>Vaso</span>
+      </label>
+      <label className="rx-option">
+        <input type="checkbox" name="rx_other" checked={formData.rx_other || false} onChange={handleChange} />
+        <span>Other</span>
+      </label>
     </div>
+  </div>
 
-    {openSection === "extubation" && (
-      <div className="card-body">
+  {formData.rx_other && (
+    <div className="form-group" style={{marginTop:"10px"}}>
+      <label>Other (Specify)</label>
+      <input
+        name="rx_other_text"
+        value={formData.rx_other_text || ""}
+        onChange={handleChange}
+        placeholder="Specify treatment"
+      />
+    </div>
+  )}
+</div>
 
+{/* 62/63. Extubation Failure */}
 <div className="form-row">
-  
   <div className="form-group">
     <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleChange} />
   </div>
 
-  <div className="form-group">
-    <label>Episodes</label>
-    <input
-      type="number"
-      name="extubation_episodes"
-      value={formData.extubation_episodes || ""}
-      onChange={handleChange}
-      placeholder="Number of episodes"
-      disabled={formData.extubation_failure !== "Yes"}
-    />
-  </div>
+  {formData.extubation_failure === "Yes" && (
+    <div className="form-group">
+      <label><span className="field-num">63.</span> Episodes</label>
+      <input
+        type="number"
+        name="extubation_episodes"
+        value={formData.extubation_episodes || ""}
+        onChange={handleChange}
+        placeholder="Number of episodes"
+      />
+    </div>
+  )}
+</div>
 
-</div></div>
+</div>
     )}
   </div>
 
@@ -5420,7 +5167,6 @@ const peripheralStatus= getPeripheralStatus();
       <span><span className="sec-num sub">H2.4</span> Apnea of Prematurity</span>
       <span className={`summary ${getRespStatusClass(formData.apnea)}`}>
   <span className="icon">{getRespIcon(formData.apnea)}</span>
-
   {formData.apnea || "Not filled"}
 </span>
       <span className="arrow">{openSection === "apnea" ? "▲" : "▼"}</span>
@@ -5430,23 +5176,18 @@ const peripheralStatus= getPeripheralStatus();
       <div className="card-body">
 
 <div className="form-row">
-
-  {/* Apnea */}
+  {/* 64. Apnea */}
   <div className="form-group">
-    <YesNoToggle label="Apnea of Prematurity" name="apnea" value={formData.apnea} onChange={handleChange} onBlur={handleBlur} required />
-
+    <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleChange} onBlur={handleBlur} required />
     {touched.apnea && errors.apnea && (
       <div className="error-text">{errors.apnea}</div>
     )}
   </div>
 
-  {/* Onset Age */}
+  {/* 65. Age at onset */}
   {formData.apnea === "Yes" && (
     <div className="form-group">
-      <label>
-        Age at onset (days) <span className="required">*</span>
-      </label>
-
+      <label><span className="field-num">65.</span> Age at onset (days) <span className="required">*</span></label>
       <input
         type="number"
         name="apnea_onset_age"
@@ -5458,7 +5199,6 @@ const peripheralStatus= getPeripheralStatus();
         step="1"
         placeholder="0–60"
       />
-
       {touched.apnea_onset_age && errors.apnea_onset_age && (
         <div className="error-text">{errors.apnea_onset_age}</div>
       )}
@@ -5467,23 +5207,18 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 <div className="form-row">
-
-  {/* Caffeine */}
+  {/* 66. Caffeine */}
   <div className="form-group">
-    <YesNoToggle label="Caffeine used" name="caffeine_used" value={formData.caffeine_used} onChange={handleChange} onBlur={handleBlur} required />
-
+    <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleChange} onBlur={handleBlur} required />
     {touched.caffeine_used && errors.caffeine_used && (
       <div className="error-text">{errors.caffeine_used}</div>
     )}
   </div>
 
-  {/* Duration */}
+  {/* 67. Days */}
   {formData.caffeine_used === "Yes" && (
     <div className="form-group">
-      <label>
-        Caffeine duration (days) <span className="required">*</span>
-      </label>
-
+      <label><span className="field-num">67.</span> Days <span className="required">*</span></label>
       <input
         type="number"
         name="caffeine_duration"
@@ -5495,20 +5230,15 @@ const peripheralStatus= getPeripheralStatus();
         step="1"
         placeholder="0–60"
       />
-
       {touched.caffeine_duration && errors.caffeine_duration && (
         <div className="error-text">{errors.caffeine_duration}</div>
       )}
     </div>
   )}
-</div> </div>
+</div>
+</div>
     )}
   </div>
-   
-
-  
-
-
 </div>
 
 
@@ -5539,12 +5269,13 @@ const peripheralStatus= getPeripheralStatus();
   <div className="form-row">
     <div className="form-group">
       <YesNoToggle label="68. Feed Intolerance" name="feed_intolerance" value={formData.feed_intolerance} onChange={handleChange} />
+      <div className="field-hint">Record First Event</div>
     </div>
   </div>
 
   {formData.feed_intolerance === "Yes" && (
     <div className="fi-card">
-      <p className="fi-subtitle">If 'Yes', specify:</p>
+      <p className="fi-subtitle">69. If 'Yes', specify (select all that apply):</p>
 
       <div className="fi-grid">
         <label className="fi-option">
@@ -5586,7 +5317,29 @@ const peripheralStatus= getPeripheralStatus();
           />
           <span>Sluggish / absent bowel sounds</span>
         </label>
+
+        <label className="fi-option">
+          <input
+            type="checkbox"
+            name="fi_others"
+            checked={formData.fi_others || false}
+            onChange={handleChange}
+          />
+          <span>Others</span>
+        </label>
       </div>
+
+      {formData.fi_others && (
+        <div className="form-group" style={{marginTop:"10px"}}>
+          <label>Specify Other</label>
+          <input
+            name="fi_others_text"
+            value={formData.fi_others_text || ""}
+            onChange={handleChange}
+            placeholder="Specify"
+          />
+        </div>
+      )}
     </div>
   )}
   </div>
@@ -5614,7 +5367,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="card-body">
 
 <div className="form-group">
-  <YesNoToggle label="NEC Diagnosed" name="nec" value={formData.nec} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="70. NEC" name="nec" value={formData.nec} onChange={handleChange} onBlur={handleBlur} required />
 
   {touched.nec && errors.nec && (
     <div className="error-text">{errors.nec}</div>
@@ -5625,7 +5378,7 @@ const peripheralStatus= getPeripheralStatus();
   <>
     <div className="form-group">
       <label>
-        Stage <span className="required">*</span>
+        <span className="field-num">71.</span> Max Stage <span className="required">*</span>
       </label>
 
       <select
@@ -5651,7 +5404,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
       <div className="form-group">
         <label>
-          Date of diagnosis <span className="required">*</span>
+          <span className="field-num">72.</span> Date <span className="required">*</span>
         </label>
 
         <input
@@ -5669,7 +5422,7 @@ const peripheralStatus= getPeripheralStatus();
 
       <div className="form-group">
         <label>
-          Age at diagnosis (days) <span className="required">*</span>
+          <span className="field-num">73.</span> Age (days) <span className="required">*</span>
         </label>
 
         <input
@@ -5688,7 +5441,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-      <YesNoToggle label="Surgery required" name="nec_surgery" value={formData.nec_surgery} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="74. Surgical intervention required" name="nec_surgery" value={formData.nec_surgery} onChange={handleChange} onBlur={handleBlur} required />
 
       {touched.nec_surgery && errors.nec_surgery && (
         <div className="error-text">{errors.nec_surgery}</div>
@@ -5699,7 +5452,7 @@ const peripheralStatus= getPeripheralStatus();
       <>
         <div className="form-group">
           <label>
-            Type of surgery <span className="required">*</span>
+            <span className="field-num">75.</span> Type of surgical intervention <span className="required">*</span>
           </label>
 
           <select
@@ -5718,47 +5471,51 @@ const peripheralStatus= getPeripheralStatus();
           )}
         </div>
 
-        <div className="form-row">
-          <div className="form-group">
-            <YesNoToggle label="Resection" name="nec_resection" value={formData.nec_resection} onChange={handleChange} onBlur={handleBlur} required />
+        {formData.nec_surgery_type === "Laparotomy" && (
+          <>
+            <div className="form-row">
+              <div className="form-group">
+                <YesNoToggle label="76. If Laparotomy, Resection" name="nec_resection" value={formData.nec_resection} onChange={handleChange} onBlur={handleBlur} required />
 
-            {touched.nec_resection && errors.nec_resection && (
-              <div className="error-text">{errors.nec_resection}</div>
-            )}
-          </div>
-
-          {formData.nec_resection === "Yes" && (
-            <div className="form-group">
-              <label>
-                Resection Length (cm) <span className="required">*</span>
-              </label>
-
-              <input
-                type="number"
-                name="nec_resection_length"
-                value={formData.nec_resection_length || ""}
-                placeholder="0–200"
-                onChange={handleChange}
-                onBlur={handleBlur}
-              />
-
-              {touched.nec_resection_length &&
-                errors.nec_resection_length && (
-                  <div className="error-text">
-                    {errors.nec_resection_length}
-                  </div>
+                {touched.nec_resection && errors.nec_resection && (
+                  <div className="error-text">{errors.nec_resection}</div>
                 )}
+              </div>
+
+              {formData.nec_resection === "Yes" && (
+                <div className="form-group">
+                  <label>
+                    <span className="field-num">77.</span> Length (cm) <span className="required">*</span>
+                  </label>
+
+                  <input
+                    type="number"
+                    name="nec_resection_length"
+                    value={formData.nec_resection_length || ""}
+                    placeholder="0–200"
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                  />
+
+                  {touched.nec_resection_length &&
+                    errors.nec_resection_length && (
+                      <div className="error-text">
+                        {errors.nec_resection_length}
+                      </div>
+                    )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="form-group">
-          <YesNoToggle label="Stoma" name="nec_stoma" value={formData.nec_stoma} onChange={handleChange} onBlur={handleBlur} required />
+            <div className="form-group">
+              <YesNoToggle label="78. Stoma" name="nec_stoma" value={formData.nec_stoma} onChange={handleChange} onBlur={handleBlur} required />
 
-          {touched.nec_stoma && errors.nec_stoma && (
-            <div className="error-text">{errors.nec_stoma}</div>
-          )}
-        </div>
+              {touched.nec_stoma && errors.nec_stoma && (
+                <div className="error-text">{errors.nec_stoma}</div>
+              )}
+            </div>
+          </>
+        )}
       </>
     )}
   </>
@@ -5771,7 +5528,7 @@ const peripheralStatus= getPeripheralStatus();
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "feeding" ? null : "feeding")}
   >
-    <span>Feeding & Nutrition</span>
+    <span><span className="sec-num sub">H3.2</span> Feeding &amp; Nutrition</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.pn)}`}>
@@ -5788,7 +5545,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ---------------- BASIC FIELDS ---------------- */}
 <div className="form-row">
   <div className="form-group">
-    <label><span className="field-num">150.</span> Age at 1st enteral feed (days)</label>
+    <label><span className="field-num">79.</span> Age at 1st Enteral Feed (days)</label>
     <input
       type="number"
       name="age_first_feed"
@@ -5802,7 +5559,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   <div className="form-group">
-    <label><span className="field-num">151.</span> Age at full feeds (days)</label>
+    <label><span className="field-num">80.</span> Age at Full Feeds (days)</label>
     <input
       type="number"
       name="age_full_feeds"
@@ -5818,7 +5575,7 @@ const peripheralStatus= getPeripheralStatus();
 
 <div className="form-row">
   <div className="form-group">
-    <label><span className="field-num">152.</span> PDHM (days)</label>
+    <label><span className="field-num">81.</span> PDHM (days)</label>
     <input
       type="number"
       name="pdhm_days"
@@ -5832,7 +5589,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   <div className="form-group">
-    <label>EBM (days)</label>
+    <label><span className="field-num">82.</span> EBM (days)</label>
     <input
       type="number"
       name="ebm_days"
@@ -5846,7 +5603,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   <div className="form-group">
-    <label>Formula milk (days)</label>
+    <label><span className="field-num">83.</span> FM (days)</label>
     <input
       type="number"
       name="fm_days"
@@ -5862,14 +5619,14 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- PN ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="Parenteral Nutrition (PN)" name="pn" value={formData.pn} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="84. PN" name="pn" value={formData.pn} onChange={handleChange} onBlur={handleBlur} required />
   {errors.pn && <div className="error-text">{errors.pn}</div>}
 </div>
 
 {formData.pn === "Yes" && (
   <>
     <div className="form-group">
-      <label>Total PN days</label>
+      <label><span className="field-num">85.</span> Total PN Days</label>
       <input
         type="number"
         name="pn_days"
@@ -5884,11 +5641,11 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* ---------------- PN ADVERSE ---------------- */}
     <div className="pn-adverse-card">
-      <YesNoToggle label="157. Adverse Effects of PN" name="pn_adverse" value={formData.pn_adverse} onChange={handleChange} />
+      <YesNoToggle label="86. Adverse Effects of PN" name="pn_adverse" value={formData.pn_adverse} onChange={handleChange} />
 
       {formData.pn_adverse === "Yes" && (
         <>
-          <div className="adverse-title">Select adverse effects *</div>
+          <div className="adverse-title">87. If 'Yes', specify *</div>
 
           <div className="pn-checkbox-grid">
             <label><input type="checkbox" name="pn_cholestasis" checked={formData.pn_cholestasis || false} onChange={handleChange}/> Cholestasis</label>
@@ -5898,7 +5655,6 @@ const peripheralStatus= getPeripheralStatus();
             <label><input type="checkbox" name="pn_other" checked={formData.pn_other || false} onChange={handleChange}/> Other</label>
           </div>
 
-          {/* ✅ STEP 3 ERROR */}
           {errors.pn_adverse_group && (
             <div className="error-text">{errors.pn_adverse_group}</div>
           )}
@@ -5917,29 +5673,38 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* ---------------- PROBIOTIC ---------------- */}
     <div className="probiotic-card">
-      <YesNoToggle label="Probiotic" name="probiotic" value={formData.probiotic} onChange={handleChange} required />
+      <YesNoToggle label="88. Probiotic" name="probiotic" value={formData.probiotic} onChange={handleChange} required />
 
       {formData.probiotic === "Yes" && (
         <>
-          <div className="adverse-title">Select strain type *</div>
+          <div className="adverse-title">89. Strains *</div>
 
           <div className="pn-checkbox-grid">
             <label><input type="checkbox" name="strain_mono" checked={formData.strain_mono || false} onChange={handleChange}/> Mono</label>
             <label><input type="checkbox" name="strain_bi" checked={formData.strain_bi || false} onChange={handleChange}/> Bi</label>
             <label><input type="checkbox" name="strain_multi" checked={formData.strain_multi || false} onChange={handleChange}/> Multi</label>
+            <label><input type="checkbox" name="strain_others" checked={formData.strain_others || false} onChange={handleChange}/> Others</label>
           </div>
 
-          {/* ✅ STEP 3 ERROR */}
           {errors.strain_group && (
             <div className="error-text">{errors.strain_group}</div>
           )}
+
+          <div className="form-row" style={{marginTop:"10px"}}>
+            <div className="form-group">
+              <YesNoToggle label="90. Lactobacillus" name="lactobacillus" value={formData.lactobacillus} onChange={handleChange} />
+            </div>
+            <div className="form-group">
+              <YesNoToggle label="91. Bifidobacterium" name="bifidobacterium" value={formData.bifidobacterium} onChange={handleChange} />
+            </div>
+          </div>
         </>
       )}
     </div>
 
     {/* ---------------- CHOLESTASIS ---------------- */}
     <div className="form-group">
-      <YesNoToggle label="Cholestasis" name="cholestasis" value={formData.cholestasis} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="92. Cholestasis" name="cholestasis" value={formData.cholestasis} onChange={handleChange} onBlur={handleBlur} required />
 
       {errors.cholestasis && (
         <div className="error-text">{errors.cholestasis}</div>
@@ -5949,11 +5714,11 @@ const peripheralStatus= getPeripheralStatus();
     {formData.cholestasis === "Yes" && (
       <div className="form-row">
         <div className="form-group">
-          <YesNoToggle label="164. TPN Associated" name="tpn_associated" value={formData.tpn_associated} onChange={handleChange} />
+          <YesNoToggle label="93. TPN Associated" name="tpn_associated" value={formData.tpn_associated} onChange={handleChange} />
         </div>
 
         <div className="form-group">
-          <label><span className="field-num">165.</span> Max Direct Bilirubin</label>
+          <label><span className="field-num">94.</span> Max Direct Bilirubin (mg/dL)</label>
           <input
             type="number"
             name="max_direct_bilirubin"
@@ -5976,7 +5741,6 @@ const peripheralStatus= getPeripheralStatus();
 
 )}
   </div>
-
 </div>
 
 {/* ================= METABOLIC ================= */}

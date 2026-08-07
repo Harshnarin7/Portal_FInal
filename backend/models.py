@@ -661,6 +661,9 @@ class NeonatalMorbidities(Base):
     pvl_grade_left = Column(String)
     pvl_grade_right = Column(String)
     pvl_present = Column(String)
+    pvl_age_days_left = Column(Integer)   # CRF #20
+    pvl_age_days_right = Column(Integer)  # CRF #17
+    status_epilepticus = Column(Boolean)  # CRF #31
     tod_max = Column(Float)
     ventriculomegaly_present = Column(String)
     vi_max = Column(Float)
@@ -701,6 +704,9 @@ class NeonatalMorbidities(Base):
     rx_sildenafil = Column(Boolean)
     rx_vaso = Column(Boolean)
     steroid_dose = Column(Float)
+    # New field 54: cumulative dose for a second steroid drug, when the
+    # baby received more than one course/drug during their stay.
+    steroid_dose_2 = Column(Float)
     steroid_drug_other = Column(String)
     steroid_indication_other = Column(String)
 
@@ -714,6 +720,11 @@ class NeonatalMorbidities(Base):
     fi_altered_aspirates = Column(Boolean)
     fi_prefeed_aspirates = Column(Boolean)
     fi_sluggish_bowel = Column(Boolean)
+    # New: item 69's "Others" free-text option (was missing entirely)
+    fi_others = Column(Boolean)
+    fi_others_text = Column(String)
+    # New: item 89's "Others" option for probiotic strain type
+    strain_others = Column(Boolean)
     fm_days = Column(Integer)
     lactobacillus = Column(String)
     nec_age_days = Column(Integer)

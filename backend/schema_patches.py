@@ -401,6 +401,8 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS rx_sildenafil BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS rx_vaso BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS steroid_dose DOUBLE PRECISION",
+    # New field 54: cumulative dose (mg/kg) for a second steroid drug.
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS steroid_dose_2 DOUBLE PRECISION",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS steroid_drug_other VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS steroid_indication_other VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS age_first_feed INTEGER",
@@ -412,6 +414,12 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fi_altered_aspirates BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fi_prefeed_aspirates BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fi_sluggish_bowel BOOLEAN",
+    # New (item 69): the "Others" option was missing entirely from Feed
+    # Intolerance's checkbox group.
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fi_others BOOLEAN",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fi_others_text VARCHAR",
+    # New (item 89): the "Others" option was missing from Probiotic Strains.
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS strain_others BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS fm_days INTEGER",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS lactobacillus VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS nec_age_days INTEGER",

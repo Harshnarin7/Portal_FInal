@@ -1087,6 +1087,9 @@ class NeonatalMorbiditiesCreate(BaseModel):
     pvl_grade_left: Optional[str] = None
     pvl_grade_right: Optional[str] = None
     pvl_present: Optional[str] = None
+    pvl_age_days_left: Optional[int] = None   # CRF #20
+    pvl_age_days_right: Optional[int] = None  # CRF #17
+    status_epilepticus: Optional[bool] = None  # CRF #31
     tod_max: Optional[float] = None
     ventriculomegaly_present: Optional[str] = None
     vi_max: Optional[float] = None
@@ -1127,6 +1130,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     rx_sildenafil: Optional[bool] = None
     rx_vaso: Optional[bool] = None
     steroid_dose: Optional[float] = None
+    steroid_dose_2: Optional[float] = None
     steroid_drug_other: Optional[str] = None
     steroid_indication_other: Optional[str] = None
 
@@ -1140,6 +1144,9 @@ class NeonatalMorbiditiesCreate(BaseModel):
     fi_altered_aspirates: Optional[bool] = None
     fi_prefeed_aspirates: Optional[bool] = None
     fi_sluggish_bowel: Optional[bool] = None
+    fi_others: Optional[bool] = None
+    fi_others_text: Optional[str] = None
+    strain_others: Optional[bool] = None
     fm_days: Optional[int] = None
     lactobacillus: Optional[str] = None
     nec_age_days: Optional[int] = None
