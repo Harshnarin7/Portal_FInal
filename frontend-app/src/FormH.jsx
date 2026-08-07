@@ -168,6 +168,30 @@ cholestasis:"",
 tpn_associated:"",
 max_direct_bilirubin:"",
 
+// ---------------- METABOLIC (H4.1) — added fields ----------------
+hypoglycemia_episodes: "",
+hypoglycemia_rx: "",
+hypoglycemia_rx_duration: "",
+hyperglycemia_rx: "",
+hyponatremia: false,
+hyponatremia_status: "",
+hyponatremia_symptoms: "",
+hypernatremia: false,
+hypernatremia_status: "",
+hypernatremia_symptoms: "",
+hypokalemia: false,
+hypokalemia_status: "",
+hypokalemia_symptoms: "",
+hyperkalemia: false,
+hyperkalemia_status: "",
+hyperkalemia_symptoms: "",
+hypocalcemia: false,
+hypocalcemia_status: "",
+hypocalcemia_symptoms: "",
+hypercalcemia: false,
+hypercalcemia_status: "",
+hypercalcemia_symptoms: "",
+
   });
 
   
@@ -1715,7 +1739,15 @@ const validateMetabolic = (name, value, updatedForm = formData) => {
       if (!value) error = "Required";
       break;
 
-    // ---------------- HYPOGLYCEMIA ----------------
+    // ---------------- HYPOGLYCEMIA (95-99) ----------------
+    case "hypoglycemia_episodes":
+      if (updatedForm.hypoglycemia === "Yes") {
+        if (!value) error = "Required";
+        else if (!isNumber(value)) error = "Only numbers";
+        else if (value < 0 || value > 50) error = "0–50 episodes";
+      }
+      break;
+
     case "hypoglycemia_lowest":
       if (updatedForm.hypoglycemia === "Yes") {
         if (!value) error = "Required";
@@ -1724,7 +1756,19 @@ const validateMetabolic = (name, value, updatedForm = formData) => {
       }
       break;
 
-    // ---------------- HYPERGLYCEMIA ----------------
+    case "hypoglycemia_rx":
+      if (updatedForm.hypoglycemia === "Yes" && !value) error = "Required";
+      break;
+
+    case "hypoglycemia_rx_duration":
+      if (updatedForm.hypoglycemia === "Yes" && updatedForm.hypoglycemia_rx === "Yes") {
+        if (!value) error = "Required";
+        else if (!isNumber(value)) error = "Only numbers";
+        else if (value < 0 || value > 60) error = "0–60 days";
+      }
+      break;
+
+    // ---------------- HYPERGLYCEMIA (100-102) ----------------
     case "hyperglycemia_highest":
       if (updatedForm.hyperglycemia === "Yes") {
         if (!value) error = "Required";
@@ -1733,7 +1777,11 @@ const validateMetabolic = (name, value, updatedForm = formData) => {
       }
       break;
 
-    // ---------------- DYSELECTROLYTEMIA ----------------
+    case "hyperglycemia_rx":
+      if (updatedForm.hyperglycemia === "Yes" && !value) error = "Required";
+      break;
+
+    // ---------------- DYSELECTROLYTEMIA (104-111) ----------------
     case "dyselectro_group":
       if (updatedForm.dyselectrolytemia === "Yes") {
         const anyChecked =
@@ -1745,7 +1793,49 @@ const validateMetabolic = (name, value, updatedForm = formData) => {
       }
       break;
 
-    // ---------------- OSTEOPENIA ----------------
+    case "hyponatremia_status":
+      if (updatedForm.dyselectro_na && updatedForm.hyponatremia && !value) error = "Required";
+      break;
+    case "hyponatremia_symptoms":
+      if (updatedForm.dyselectro_na && updatedForm.hyponatremia && updatedForm.hyponatremia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    case "hypernatremia_status":
+      if (updatedForm.dyselectro_na && updatedForm.hypernatremia && !value) error = "Required";
+      break;
+    case "hypernatremia_symptoms":
+      if (updatedForm.dyselectro_na && updatedForm.hypernatremia && updatedForm.hypernatremia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    case "hypokalemia_status":
+      if (updatedForm.dyselectro_k && updatedForm.hypokalemia && !value) error = "Required";
+      break;
+    case "hypokalemia_symptoms":
+      if (updatedForm.dyselectro_k && updatedForm.hypokalemia && updatedForm.hypokalemia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    case "hyperkalemia_status":
+      if (updatedForm.dyselectro_k && updatedForm.hyperkalemia && !value) error = "Required";
+      break;
+    case "hyperkalemia_symptoms":
+      if (updatedForm.dyselectro_k && updatedForm.hyperkalemia && updatedForm.hyperkalemia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    case "hypocalcemia_status":
+      if (updatedForm.dyselectro_ca && updatedForm.hypocalcemia && !value) error = "Required";
+      break;
+    case "hypocalcemia_symptoms":
+      if (updatedForm.dyselectro_ca && updatedForm.hypocalcemia && updatedForm.hypocalcemia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    case "hypercalcemia_status":
+      if (updatedForm.dyselectro_ca && updatedForm.hypercalcemia && !value) error = "Required";
+      break;
+    case "hypercalcemia_symptoms":
+      if (updatedForm.dyselectro_ca && updatedForm.hypercalcemia && updatedForm.hypercalcemia_status === "Symptomatic" && !value) error = "Required";
+      break;
+
+    // ---------------- OSTEOPENIA (112-115) ----------------
     case "alp_peak":
       if (updatedForm.osteopenia === "Yes") {
         if (!value) error = "Required";
@@ -1774,10 +1864,13 @@ const validateMetabolic = (name, value, updatedForm = formData) => {
       break;
   }
 
+  // NOTE: this used to unconditionally overwrite errors.dyselectro_group
+  // with whatever field was JUST validated (e.g. validating alp_peak would
+  // clobber the dyselectro_group error with alp_peak's error/blank state).
+  // Only touch dyselectro_group when it's actually the field being validated.
   setErrors(prev => ({
     ...prev,
     [name]: error,
-    dyselectro_group: error
   }));
 };
 
@@ -2518,13 +2611,25 @@ useEffect(() => {
 
 useEffect(() => {
   if (formData.hypoglycemia === "No") {
-    setFormData(prev => ({ ...prev, hypoglycemia_lowest: "" }));
+    setFormData(prev => ({
+      ...prev,
+      hypoglycemia_episodes: "",
+      hypoglycemia_lowest: "",
+      hypoglycemia_rx: "",
+      hypoglycemia_rx_duration: "",
+    }));
   }
 }, [formData.hypoglycemia]);
 
 useEffect(() => {
+  if (formData.hypoglycemia_rx === "No") {
+    setFormData(prev => ({ ...prev, hypoglycemia_rx_duration: "" }));
+  }
+}, [formData.hypoglycemia_rx]);
+
+useEffect(() => {
   if (formData.hyperglycemia === "No") {
-    setFormData(prev => ({ ...prev, hyperglycemia_highest: "" }));
+    setFormData(prev => ({ ...prev, hyperglycemia_highest: "", hyperglycemia_rx: "" }));
   }
 }, [formData.hyperglycemia]);
 
@@ -2538,6 +2643,71 @@ useEffect(() => {
     }));
   }
 }, [formData.dyselectrolytemia]);
+
+// Unchecking a Type (Na/K/Ionized Ca) clears its Hypo/Hyper detail fields
+// (106-111) so stale values from a previously-checked type aren't
+// silently carried forward and submitted.
+useEffect(() => {
+  if (!formData.dyselectro_na) {
+    setFormData(prev => ({
+      ...prev,
+      hyponatremia: false, hyponatremia_status: "", hyponatremia_symptoms: "",
+      hypernatremia: false, hypernatremia_status: "", hypernatremia_symptoms: "",
+    }));
+  }
+}, [formData.dyselectro_na]);
+
+useEffect(() => {
+  if (!formData.dyselectro_k) {
+    setFormData(prev => ({
+      ...prev,
+      hypokalemia: false, hypokalemia_status: "", hypokalemia_symptoms: "",
+      hyperkalemia: false, hyperkalemia_status: "", hyperkalemia_symptoms: "",
+    }));
+  }
+}, [formData.dyselectro_k]);
+
+useEffect(() => {
+  if (!formData.dyselectro_ca) {
+    setFormData(prev => ({
+      ...prev,
+      hypocalcemia: false, hypocalcemia_status: "", hypocalcemia_symptoms: "",
+      hypercalcemia: false, hypercalcemia_status: "", hypercalcemia_symptoms: "",
+    }));
+  }
+}, [formData.dyselectro_ca]);
+
+// Unchecking a Hypo/Hyper checkbox, or switching its status away from
+// Symptomatic, clears the now-inapplicable status/symptoms text.
+useEffect(() => {
+  if (!formData.hyponatremia) setFormData(prev => ({ ...prev, hyponatremia_status: "", hyponatremia_symptoms: "" }));
+  else if (formData.hyponatremia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hyponatremia_symptoms: "" }));
+}, [formData.hyponatremia, formData.hyponatremia_status]);
+
+useEffect(() => {
+  if (!formData.hypernatremia) setFormData(prev => ({ ...prev, hypernatremia_status: "", hypernatremia_symptoms: "" }));
+  else if (formData.hypernatremia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hypernatremia_symptoms: "" }));
+}, [formData.hypernatremia, formData.hypernatremia_status]);
+
+useEffect(() => {
+  if (!formData.hypokalemia) setFormData(prev => ({ ...prev, hypokalemia_status: "", hypokalemia_symptoms: "" }));
+  else if (formData.hypokalemia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hypokalemia_symptoms: "" }));
+}, [formData.hypokalemia, formData.hypokalemia_status]);
+
+useEffect(() => {
+  if (!formData.hyperkalemia) setFormData(prev => ({ ...prev, hyperkalemia_status: "", hyperkalemia_symptoms: "" }));
+  else if (formData.hyperkalemia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hyperkalemia_symptoms: "" }));
+}, [formData.hyperkalemia, formData.hyperkalemia_status]);
+
+useEffect(() => {
+  if (!formData.hypocalcemia) setFormData(prev => ({ ...prev, hypocalcemia_status: "", hypocalcemia_symptoms: "" }));
+  else if (formData.hypocalcemia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hypocalcemia_symptoms: "" }));
+}, [formData.hypocalcemia, formData.hypocalcemia_status]);
+
+useEffect(() => {
+  if (!formData.hypercalcemia) setFormData(prev => ({ ...prev, hypercalcemia_status: "", hypercalcemia_symptoms: "" }));
+  else if (formData.hypercalcemia_status !== "Symptomatic") setFormData(prev => ({ ...prev, hypercalcemia_symptoms: "" }));
+}, [formData.hypercalcemia, formData.hypercalcemia_status]);
 
 useEffect(() => {
   if (formData.osteopenia === "No") {
@@ -3180,6 +3350,23 @@ const getDyselectroSummary = () => {
   if (formData.dyselectro_ca) list.push("Ca");
 
   return list.length ? list.join(", ") : "Yes";
+};
+
+// Consolidated summary for the single H4.1 Metabolic Disturbances card
+// (fields 95-115), mirroring getIVHSummary()'s style for H1.1.
+const getMetabolicSummary = () => {
+  const parts = [];
+  if (formData.hypoglycemia === "Yes") parts.push(formData.hypoglycemia_lowest ? `Hypo ${formData.hypoglycemia_lowest}` : "Hypo");
+  if (formData.hyperglycemia === "Yes") parts.push(formData.hyperglycemia_highest ? `Hyper ${formData.hyperglycemia_highest}` : "Hyper");
+  if (formData.metabolic_acidosis === "Yes") parts.push("Acidosis");
+  if (formData.dyselectrolytemia === "Yes") parts.push(`Dyselectro: ${getDyselectroSummary()}`);
+  if (formData.osteopenia === "Yes") parts.push("Osteopenia");
+  if (!parts.length) {
+    if (!formData.hypoglycemia && !formData.hyperglycemia && !formData.metabolic_acidosis
+      && !formData.dyselectrolytemia && !formData.osteopenia) return "Not filled";
+    return "No abnormalities";
+  }
+  return parts.join(" • ");
 };
 
 
@@ -5746,349 +5933,340 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= METABOLIC ================= */}
 <div className="form-section soft-blue">
   <h3><Activity size={17} className="sec-icon" /> <span className="sec-num">H4</span> METABOLIC</h3>
-  <div className="pn-adverse-card">
-  <h4>Metabolic Disturbances</h4>
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "hypo" ? null : "hypo")}
-  >
-    <span>Hypoglycemia</span>
 
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.hypoglycemia)}`}>
-        <span className="icon">{getStatusIcon(formData.hypoglycemia)}</span>
+  {/* ================= METABOLIC DISTURBANCES ================= */}
+  <div className="card">
 
-        {formData.hypoglycemia === "Yes"
-          ? formData.hypoglycemia_lowest
-            ? `${formData.hypoglycemia_lowest} mg/dL`
-            : "Yes"
-          : formData.hypoglycemia || "Not filled"}
-      </span>
-</div>
-      <span className="arrow">{openSection === "hypo" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "hypo" && (
-    <div className="card-body">
-{/* ---------------- HYPOGLYCEMIA ---------------- */}
-<div className="form-row">
-  <div className="form-group">
-    <YesNoToggle label="Hypoglycemia (required treatment)" name="hypoglycemia" value={formData.hypoglycemia} onChange={handleChange} onBlur={handleBlur} required />
-
-    {errors.hypoglycemia && (
-      <div className="error-text">{errors.hypoglycemia}</div>
-    )}
-  </div>
-
-  {formData.hypoglycemia === "Yes" && (
-    <div className="form-group">
-      <label>
-        Lowest glucose (mg/dL) <span className="required">*</span>
-      </label>
-
-      <input
-        type="number"
-        name="hypoglycemia_lowest"
-        value={formData.hypoglycemia_lowest || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        min="0"
-        max="200"
-        placeholder="0–200"
-      />
-
-      {errors.hypoglycemia_lowest && (
-        <div className="error-text">{errors.hypoglycemia_lowest}</div>
-      )}
-    </div>
-  )}
-</div>
-   </div>
-  )}
-</div>
-
-
-{/* ---------------- HYPERGLYCEMIA ---------------- */}
-
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "hyper" ? null : "hyper")}
-  >
-    <span>Hyperglycemia</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.hyperglycemia)}`}>
-        <span className="icon">{getStatusIcon(formData.hyperglycemia)}</span>
-
-        {formData.hyperglycemia === "Yes"
-          ? formData.hyperglycemia_highest
-            ? `${formData.hyperglycemia_highest} mg/dL`
-            : "Yes"
-          : formData.hyperglycemia || "Not filled"}
-      </span>
-</div>
-      <span className="arrow">{openSection === "hyper" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "hyper" && (
-    <div className="card-body">
-<div className="form-row">
-  <div className="form-group">
-    <YesNoToggle label="Hyperglycemia (required insulin)" name="hyperglycemia" value={formData.hyperglycemia} onChange={handleChange} onBlur={handleBlur} required />
-
-    {errors.hyperglycemia && (
-      <div className="error-text">{errors.hyperglycemia}</div>
-    )}
-  </div>
-
-  {formData.hyperglycemia === "Yes" && (
-    <div className="form-group">
-      <label>
-        Highest glucose (mg/dL) <span className="required">*</span>
-      </label>
-
-      <input
-        type="number"
-        name="hyperglycemia_highest"
-        value={formData.hyperglycemia_highest || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        min="0"
-        max="500"
-        placeholder="0–500"
-      />
-
-      {errors.hyperglycemia_highest && (
-        <div className="error-text">{errors.hyperglycemia_highest}</div>
-      )}
-    </div>
-  )}
-</div>
-</div>
-  )}
-</div>
-{/* ---------------- METABOLIC ACIDOSIS ---------------- */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "acid" ? null : "acid")}
-  >
-    <span>Metabolic Acidosis</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.metabolic_acidosis)}`}>
-        <span className="icon">{getStatusIcon(formData.metabolic_acidosis)}</span>
-        {formData.metabolic_acidosis || "Not filled"}
-      </span>
-</div>
-      <span className="arrow">{openSection === "acid" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "acid" && (
-    <div className="card-body">
-<div className="form-group">
-  <YesNoToggle label="174. Metabolic Acidosis (pH &lt; 7.2)" name="metabolic_acidosis" value={formData.metabolic_acidosis} onChange={handleChange} onBlur={handleBlur} required />
-
-  {errors.metabolic_acidosis && (
-    <div className="error-text">{errors.metabolic_acidosis}</div>
-  )}
-</div>
-</div>
-  )}
-</div>
-{/* ---------------- DYSELECTROLYTEMIA ---------------- */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "dys" ? null : "dys")}
-  >
-    <span>Dyselectrolytemia</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.dyselectrolytemia)}`}>
-        <span className="icon">{getStatusIcon(formData.dyselectrolytemia)}</span>
-        {getDyselectroSummary()}
-      </span>
-</div>
-      <span className="arrow">{openSection === "dys" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "dys" && (
-    <div className="card-body">
-<div className="pn-adverse-card">
-
-  <div className="form-group">
-    <YesNoToggle label="Dyselectrolytemia" name="dyselectrolytemia" value={formData.dyselectrolytemia} onChange={handleChange} onBlur={handleBlur} required />
-
-    {errors.dyselectrolytemia && (
-      <div className="error-text">{errors.dyselectrolytemia}</div>
-    )}
-  </div>
-
-  {formData.dyselectrolytemia === "Yes" && (
-    <>
-      <div className="adverse-title">
-        Select electrolyte abnormality <span className="required">*</span>
+    <div
+      className="card-header-row"
+      onClick={() => setOpenSection(openSection === "metabolic" ? null : "metabolic")}
+    >
+      <span><span className="sec-num sub">H4.1</span> Metabolic Disturbances</span>
+      <div className="right-section">
+        <span className={`summary ${getStatusClass(
+          [formData.hypoglycemia, formData.hyperglycemia, formData.metabolic_acidosis, formData.dyselectrolytemia, formData.osteopenia].includes("Yes")
+            ? "Yes"
+            : [formData.hypoglycemia, formData.hyperglycemia, formData.metabolic_acidosis, formData.dyselectrolytemia, formData.osteopenia].some(v => v)
+              ? "No"
+              : ""
+        )}`}>
+          <span className="icon">{getMetabolicSummary() === "Not filled" ? "—" : (getMetabolicSummary() === "No abnormalities" ? "✖" : "✔")}</span>
+          {getMetabolicSummary()}
+        </span>
       </div>
+      <span className="arrow">{openSection === "metabolic" ? "▲" : "▼"}</span>
+    </div>
 
-      <div className="pn-checkbox-grid">
+    {openSection === "metabolic" && (
+      <div className="card-body">
 
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="dyselectro_na"
-            checked={formData.dyselectro_na || false}
-            onChange={handleChange}
-          />
-          Sodium abnormality
-        </label>
+        {/* ---------------- HYPOGLYCEMIA (95-99) ---------------- */}
+        <div className="form-group">
+          <YesNoToggle label="95. Hypoglycemia" name="hypoglycemia" value={formData.hypoglycemia} onChange={handleChange} onBlur={handleBlur} required />
+          {touched.hypoglycemia && errors.hypoglycemia && <div className="error-text">{errors.hypoglycemia}</div>}
+        </div>
 
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="dyselectro_k"
-            checked={formData.dyselectro_k || false}
-            onChange={handleChange}
-          />
-          Potassium abnormality
-        </label>
+        {formData.hypoglycemia === "Yes" && (
+          <>
+            <div className="form-row">
+              <div className="form-group">
+                <label><span className="field-num">96.</span> No. of episodes<span className="required">*</span></label>
+                <input type="number" name="hypoglycemia_episodes" value={formData.hypoglycemia_episodes || ""}
+                  onChange={handleChange} onBlur={handleBlur} min="0" max="50" placeholder="0–50" />
+                {touched.hypoglycemia_episodes && errors.hypoglycemia_episodes && <div className="error-text">{errors.hypoglycemia_episodes}</div>}
+              </div>
 
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="dyselectro_ca"
-            checked={formData.dyselectro_ca || false}
-            onChange={handleChange}
-          />
-          Calcium abnormality
-        </label>
+              <div className="form-group">
+                <label><span className="field-num">97.</span> Lowest value (mg/dL)<span className="required">*</span></label>
+                <input type="number" name="hypoglycemia_lowest" value={formData.hypoglycemia_lowest || ""}
+                  onChange={handleChange} onBlur={handleBlur} min="0" max="200" placeholder="0–200" />
+                {touched.hypoglycemia_lowest && errors.hypoglycemia_lowest && <div className="error-text">{errors.hypoglycemia_lowest}</div>}
+              </div>
+
+              <div className="form-group">
+                <YesNoToggle label="98. Rx" name="hypoglycemia_rx" value={formData.hypoglycemia_rx} onChange={handleChange} onBlur={handleBlur} required />
+                {touched.hypoglycemia_rx && errors.hypoglycemia_rx && <div className="error-text">{errors.hypoglycemia_rx}</div>}
+              </div>
+            </div>
+
+            {formData.hypoglycemia_rx === "Yes" && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">99.</span> Duration of Rx (days)<span className="required">*</span></label>
+                  <input type="number" name="hypoglycemia_rx_duration" value={formData.hypoglycemia_rx_duration || ""}
+                    onChange={handleChange} onBlur={handleBlur} min="0" max="60" placeholder="0–60" />
+                  {touched.hypoglycemia_rx_duration && errors.hypoglycemia_rx_duration && <div className="error-text">{errors.hypoglycemia_rx_duration}</div>}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ---------------- HYPERGLYCEMIA (100-102) ---------------- */}
+        <div className="form-group">
+          <YesNoToggle label="100. Hyperglycemia" name="hyperglycemia" value={formData.hyperglycemia} onChange={handleChange} onBlur={handleBlur} required />
+          {touched.hyperglycemia && errors.hyperglycemia && <div className="error-text">{errors.hyperglycemia}</div>}
+        </div>
+
+        {formData.hyperglycemia === "Yes" && (
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">101.</span> Highest value (mg/dL)<span className="required">*</span></label>
+              <input type="number" name="hyperglycemia_highest" value={formData.hyperglycemia_highest || ""}
+                onChange={handleChange} onBlur={handleBlur} min="0" max="500" placeholder="0–500" />
+              {touched.hyperglycemia_highest && errors.hyperglycemia_highest && <div className="error-text">{errors.hyperglycemia_highest}</div>}
+            </div>
+
+            <div className="form-group">
+              <YesNoToggle label="102. Rx (insulin)" name="hyperglycemia_rx" value={formData.hyperglycemia_rx} onChange={handleChange} onBlur={handleBlur} required />
+              {touched.hyperglycemia_rx && errors.hyperglycemia_rx && <div className="error-text">{errors.hyperglycemia_rx}</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- METABOLIC ACIDOSIS (103) ---------------- */}
+        <div className="form-group">
+          <YesNoToggle label="103. Metabolic Acidosis (pH &lt; 7.2)" name="metabolic_acidosis" value={formData.metabolic_acidosis} onChange={handleChange} onBlur={handleBlur} required />
+          {touched.metabolic_acidosis && errors.metabolic_acidosis && <div className="error-text">{errors.metabolic_acidosis}</div>}
+        </div>
+
+        {/* ---------------- DYSELECTROLYTEMIA (104-111) ---------------- */}
+        <div className="form-group">
+          <YesNoToggle label="104. Dyselectrolytemia" name="dyselectrolytemia" value={formData.dyselectrolytemia} onChange={handleChange} onBlur={handleBlur} required />
+          {touched.dyselectrolytemia && errors.dyselectrolytemia && <div className="error-text">{errors.dyselectrolytemia}</div>}
+        </div>
+
+        {formData.dyselectrolytemia === "Yes" && (
+          <>
+            <div className="form-group">
+              <div className="adverse-title"><span className="field-num">105.</span> Type<span className="required">*</span></div>
+              <div className="pn-checkbox-grid">
+                <label className="checkbox-item">
+                  <input type="checkbox" name="dyselectro_na" checked={formData.dyselectro_na || false} onChange={handleChange} />
+                  Na abnormality
+                </label>
+                <label className="checkbox-item">
+                  <input type="checkbox" name="dyselectro_k" checked={formData.dyselectro_k || false} onChange={handleChange} />
+                  K abnormality
+                </label>
+                <label className="checkbox-item">
+                  <input type="checkbox" name="dyselectro_ca" checked={formData.dyselectro_ca || false} onChange={handleChange} />
+                  Ionized Ca abnormality
+                </label>
+              </div>
+              {errors.dyselectro_group && <div className="error-text">{errors.dyselectro_group}</div>}
+            </div>
+
+            {formData.dyselectro_na && (
+              <div className="pn-adverse-card">
+                <div className="adverse-title">If Na</div>
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hyponatremia" checked={formData.hyponatremia || false} onChange={handleChange} />
+                  <span className="field-num">106.</span> Hyponatremia
+                </label>
+                {formData.hyponatremia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hyponatremia_status" value={formData.hyponatremia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hyponatremia_status && errors.hyponatremia_status && <div className="error-text">{errors.hyponatremia_status}</div>}
+                    </div>
+                    {formData.hyponatremia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hyponatremia_symptoms" value={formData.hyponatremia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hyponatremia_symptoms && errors.hyponatremia_symptoms && <div className="error-text">{errors.hyponatremia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hypernatremia" checked={formData.hypernatremia || false} onChange={handleChange} />
+                  <span className="field-num">107.</span> Hypernatremia
+                </label>
+                {formData.hypernatremia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hypernatremia_status" value={formData.hypernatremia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hypernatremia_status && errors.hypernatremia_status && <div className="error-text">{errors.hypernatremia_status}</div>}
+                    </div>
+                    {formData.hypernatremia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hypernatremia_symptoms" value={formData.hypernatremia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hypernatremia_symptoms && errors.hypernatremia_symptoms && <div className="error-text">{errors.hypernatremia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formData.dyselectro_k && (
+              <div className="pn-adverse-card">
+                <div className="adverse-title">If K</div>
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hypokalemia" checked={formData.hypokalemia || false} onChange={handleChange} />
+                  <span className="field-num">108.</span> Hypokalaemia
+                </label>
+                {formData.hypokalemia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hypokalemia_status" value={formData.hypokalemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hypokalemia_status && errors.hypokalemia_status && <div className="error-text">{errors.hypokalemia_status}</div>}
+                    </div>
+                    {formData.hypokalemia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hypokalemia_symptoms" value={formData.hypokalemia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hypokalemia_symptoms && errors.hypokalemia_symptoms && <div className="error-text">{errors.hypokalemia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hyperkalemia" checked={formData.hyperkalemia || false} onChange={handleChange} />
+                  <span className="field-num">109.</span> Hyperkalaemia
+                </label>
+                {formData.hyperkalemia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hyperkalemia_status" value={formData.hyperkalemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hyperkalemia_status && errors.hyperkalemia_status && <div className="error-text">{errors.hyperkalemia_status}</div>}
+                    </div>
+                    {formData.hyperkalemia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hyperkalemia_symptoms" value={formData.hyperkalemia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hyperkalemia_symptoms && errors.hyperkalemia_symptoms && <div className="error-text">{errors.hyperkalemia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formData.dyselectro_ca && (
+              <div className="pn-adverse-card">
+                <div className="adverse-title">If Ionized Ca</div>
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hypocalcemia" checked={formData.hypocalcemia || false} onChange={handleChange} />
+                  <span className="field-num">110.</span> Hypocalcemia
+                </label>
+                {formData.hypocalcemia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hypocalcemia_status" value={formData.hypocalcemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hypocalcemia_status && errors.hypocalcemia_status && <div className="error-text">{errors.hypocalcemia_status}</div>}
+                    </div>
+                    {formData.hypocalcemia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hypocalcemia_symptoms" value={formData.hypocalcemia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hypocalcemia_symptoms && errors.hypocalcemia_symptoms && <div className="error-text">{errors.hypocalcemia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="checkbox-item">
+                  <input type="checkbox" name="hypercalcemia" checked={formData.hypercalcemia || false} onChange={handleChange} />
+                  <span className="field-num">111.</span> Hypercalcemia
+                </label>
+                {formData.hypercalcemia && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Status<span className="required">*</span></label>
+                      <select name="hypercalcemia_status" value={formData.hypercalcemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
+                        <option value="">-- Select --</option>
+                        <option value="Symptomatic">Symptomatic</option>
+                        <option value="Asymptomatic">Asymptomatic</option>
+                      </select>
+                      {touched.hypercalcemia_status && errors.hypercalcemia_status && <div className="error-text">{errors.hypercalcemia_status}</div>}
+                    </div>
+                    {formData.hypercalcemia_status === "Symptomatic" && (
+                      <div className="form-group">
+                        <label>If symptomatic<span className="required">*</span></label>
+                        <input type="text" name="hypercalcemia_symptoms" value={formData.hypercalcemia_symptoms || ""}
+                          onChange={handleChange} onBlur={handleBlur} placeholder="Describe symptoms" />
+                        {touched.hypercalcemia_symptoms && errors.hypercalcemia_symptoms && <div className="error-text">{errors.hypercalcemia_symptoms}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ---------------- OSTEOPENIA (112-115) ---------------- */}
+        <div className="form-group">
+          <YesNoToggle label="112. Osteopenia" name="osteopenia" value={formData.osteopenia} onChange={handleChange} onBlur={handleBlur} required />
+          {touched.osteopenia && errors.osteopenia && <div className="error-text">{errors.osteopenia}</div>}
+        </div>
+
+        {formData.osteopenia === "Yes" && (
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">113.</span> ALP peak (IU/L)<span className="required">*</span></label>
+              <input type="number" name="alp_peak" value={formData.alp_peak || ""}
+                onChange={handleChange} onBlur={handleBlur} min="0" max="6000" placeholder="0–6000" />
+              {touched.alp_peak && errors.alp_peak && <div className="error-text">{errors.alp_peak}</div>}
+            </div>
+
+            <div className="form-group">
+              <label><span className="field-num">114.</span> Lowest Total Ca<span className="required">*</span></label>
+              <input type="number" step="0.1" name="lowest_calcium" value={formData.lowest_calcium || ""}
+                onChange={handleChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+              {touched.lowest_calcium && errors.lowest_calcium && <div className="error-text">{errors.lowest_calcium}</div>}
+            </div>
+
+            <div className="form-group">
+              <label><span className="field-num">115.</span> Lowest P<span className="required">*</span></label>
+              <input type="number" step="0.1" name="lowest_phosphorus" value={formData.lowest_phosphorus || ""}
+                onChange={handleChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+              {touched.lowest_phosphorus && errors.lowest_phosphorus && <div className="error-text">{errors.lowest_phosphorus}</div>}
+            </div>
+          </div>
+        )}
 
       </div>
-
-      {/* ✅ GROUP ERROR */}
-      {errors.dyselectro_group && (
-        <div className="error-text">{errors.dyselectro_group}</div>
-      )}
-    </>
-  )}
-</div>
-</div>
-  )}
-</div>
-
-{/* ---------------- OSTEOPENIA ---------------- */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "osteo" ? null : "osteo")}
-  >
-    <span>Osteopenia</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.osteopenia)}`}>
-        <span className="icon">{getStatusIcon(formData.osteopenia)}</span>
-
-        {formData.osteopenia === "Yes"
-          ? formData.alp_peak
-            ? `ALP ${formData.alp_peak}`
-            : "Yes"
-          : formData.osteopenia || "Not filled"}
-      </span>
-</div>
-      <span className="arrow">{openSection === "osteo" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "osteo" && (
-    <div className="card-body">
-<div className="form-group">
-  <YesNoToggle label="Osteopenia" name="osteopenia" value={formData.osteopenia} onChange={handleChange} onBlur={handleBlur} required />
-
-  {errors.osteopenia && (
-    <div className="error-text">{errors.osteopenia}</div>
-  )}
-</div>
-
-{formData.osteopenia === "Yes" && (
-  <div className="form-row">
-
-    <div className="form-group">
-      <label>
-        Alkaline Phosphatase Peak (IU/L) <span className="required">*</span>
-      </label>
-
-      <input
-        type="number"
-        name="alp_peak"
-        value={formData.alp_peak || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        min="0"
-        max="5000"
-        placeholder="0–5000"
-      />
-
-      {errors.alp_peak && (
-        <div className="error-text">{errors.alp_peak}</div>
-      )}
-    </div>
-
-    <div className="form-group">
-      <label>
-        Lowest calcium <span className="required">*</span>
-      </label>
-
-      <input
-        type="number"
-        step="0.1"
-        name="lowest_calcium"
-        value={formData.lowest_calcium || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        min="0"
-        max="15"
-        placeholder="0–15"
-      />
-
-      {errors.lowest_calcium && (
-        <div className="error-text">{errors.lowest_calcium}</div>
-      )}
-    </div>
-
-    <div className="form-group">
-      <label>
-        Lowest phosphorus <span className="required">*</span>
-      </label>
-
-      <input
-        type="number"
-        step="0.1"
-        name="lowest_phosphorus"
-        value={formData.lowest_phosphorus || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        min="0"
-        max="15"
-        placeholder="0–15"
-      />
-
-      {errors.lowest_phosphorus && (
-        <div className="error-text">{errors.lowest_phosphorus}</div>
-      )}
-    </div>
-
-  </div>
-)}
-</div>
     )}
   </div>
-</div>
 </div>
 
 {/* ================= PDA ================= */}

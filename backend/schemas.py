@@ -1177,12 +1177,34 @@ class NeonatalMorbiditiesCreate(BaseModel):
     dyselectrolytemia: Optional[str] = None
     hyperglycemia: Optional[str] = None
     hyperglycemia_highest: Optional[float] = None
+    hyperglycemia_rx: Optional[str] = None
     hypoglycemia: Optional[str] = None
+    hypoglycemia_episodes: Optional[int] = None
     hypoglycemia_lowest: Optional[float] = None
+    hypoglycemia_rx: Optional[str] = None
+    hypoglycemia_rx_duration: Optional[int] = None
     lowest_calcium: Optional[float] = None
     lowest_phosphorus: Optional[float] = None
     metabolic_acidosis: Optional[str] = None
     osteopenia: Optional[str] = None
+    hyponatremia: Optional[bool] = None
+    hyponatremia_status: Optional[str] = None
+    hyponatremia_symptoms: Optional[str] = None
+    hypernatremia: Optional[bool] = None
+    hypernatremia_status: Optional[str] = None
+    hypernatremia_symptoms: Optional[str] = None
+    hypokalemia: Optional[bool] = None
+    hypokalemia_status: Optional[str] = None
+    hypokalemia_symptoms: Optional[str] = None
+    hyperkalemia: Optional[bool] = None
+    hyperkalemia_status: Optional[str] = None
+    hyperkalemia_symptoms: Optional[str] = None
+    hypocalcemia: Optional[bool] = None
+    hypocalcemia_status: Optional[str] = None
+    hypocalcemia_symptoms: Optional[str] = None
+    hypercalcemia: Optional[bool] = None
+    hypercalcemia_status: Optional[str] = None
+    hypercalcemia_symptoms: Optional[str] = None
 
     # ---------------- CARDIOVASCULAR (H5) — extended ----------------
     dbp: Optional[float] = None
