@@ -1320,6 +1320,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     # ---------------- THERMOREGULATION (H8) — extended ----------------
     hyperthermia: Optional[str] = None
     hyperthermia_clothing: Optional[bool] = None
+    hyperthermia_environment: Optional[bool] = None
     hyperthermia_equipment: Optional[bool] = None
     hyperthermia_location_dr: Optional[bool] = None
     hyperthermia_location_nicu: Optional[bool] = None
@@ -1327,6 +1328,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     hyperthermia_other: Optional[bool] = None
     hyperthermia_other_text: Optional[str] = None
     hyperthermia_probe: Optional[bool] = None
+    hyperthermia_sepsis: Optional[bool] = None
     hyperthermia_temp: Optional[float] = None
     hyperthermia_wrap: Optional[bool] = None
     hypothermia: Optional[str] = None

@@ -900,6 +900,7 @@ class NeonatalMorbidities(Base):
     # ---------------- THERMOREGULATION (H8) — extended ----------------
     hyperthermia = Column(String)
     hyperthermia_clothing = Column(Boolean)
+    hyperthermia_environment = Column(Boolean)
     hyperthermia_equipment = Column(Boolean)
     hyperthermia_location_dr = Column(Boolean)
     hyperthermia_location_nicu = Column(Boolean)
@@ -907,6 +908,7 @@ class NeonatalMorbidities(Base):
     hyperthermia_other = Column(Boolean)
     hyperthermia_other_text = Column(String)
     hyperthermia_probe = Column(Boolean)
+    hyperthermia_sepsis = Column(Boolean)
     hyperthermia_temp = Column(Float)
     hyperthermia_wrap = Column(Boolean)
     hypothermia = Column(String)
