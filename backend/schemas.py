@@ -1255,6 +1255,8 @@ class NeonatalMorbiditiesCreate(BaseModel):
     anemia_etiology: Optional[str] = None
     anemia_etiology_other: Optional[str] = None
     anemia_onset: Optional[float] = None
+    anemia_symptoms: Optional[str] = None        # CRF #163
+    anemia_symptoms_other: Optional[str] = None
     bind: Optional[str] = None
     cmv_screened: Optional[str] = None
     dvet: Optional[str] = None
@@ -1265,9 +1267,11 @@ class NeonatalMorbiditiesCreate(BaseModel):
     ivig: Optional[str] = None
     jaundice_etiology: Optional[str] = None
     jaundice_etiology_other: Optional[str] = None
+    jaundice_intervention: Optional[str] = None  # CRF #147
     jaundice_onset: Optional[date] = None
     jaundice_passive: Optional[date] = None
     jaundice_type: Optional[str] = None
+    leukoreduced: Optional[str] = None           # CRF #171
     lowest_hb: Optional[float] = None
     peak_tsb: Optional[float] = None
     phototherapy: Optional[str] = None
@@ -1287,7 +1291,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     aki_stage2: Optional[bool] = None
     aki_stage3: Optional[bool] = None
 
-    # ---------------- OPHTHALMOLOGY / ROP (H7) — extended ----------------
+    # ---------------- OPHTHALMOLOGY / ROP (H8) — extended ----------------
     rop: Optional[str] = None
     rop_anti_vegf: Optional[bool] = None
     rop_arop: Optional[str] = None

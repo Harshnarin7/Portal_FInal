@@ -6952,9 +6952,19 @@ const peripheralStatus= getPeripheralStatus();
     
      <h4>Jaundice / Hyperbilirubinemia</h4>
 
+{/* ---------------- REQUIRES INTERVENTION ---------------- */}
+<div className="form-group">
+  <YesNoToggle label="147. Jaundice requiring intervention" name="jaundice_intervention" value={formData.jaundice_intervention} onChange={handleChange} onBlur={handleBlur} required />
+  {errors.jaundice_intervention && (
+    <div className="error-text">{errors.jaundice_intervention}</div>
+  )}
+</div>
+
+{formData.jaundice_intervention === "Yes" && (
+<>
 {/* ---------------- TYPE ---------------- */}
 <div className="form-group">
-  <label>Type <span className="required">*</span></label>
+  <label><span className="field-num">148.</span> Type <span className="required">*</span></label>
   <select
     name="jaundice_type"
     value={formData.jaundice_type || ""}
@@ -6976,7 +6986,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label>Onset date <span className="required">*</span></label>
+        <label><span className="field-num">149.</span> Onset date <span className="required">*</span></label>
         <input
           type="date"
           name="jaundice_onset"
@@ -6990,7 +7000,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">77.</span> Passive date</label>
+        <label><span className="field-num">150.</span> Passive date</label>
         <input
           type="date"
           name="jaundice_passive"
@@ -7005,7 +7015,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label><span className="field-num">78.</span> Peak TSB (mg/dL) <span className="required">*</span></label>
+        <label><span className="field-num">151.</span> Peak TSB (mg/dL) <span className="required">*</span></label>
         <input
           type="number"
           name="peak_tsb"
@@ -7021,8 +7031,10 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <YesNoToggle label="BIND" name="bind" value={formData.bind} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.bind && <div className="error-text">{errors.bind}</div>}
+        <YesNoToggle label="152. Phototherapy" name="phototherapy" value={formData.phototherapy} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.phototherapy && (
+          <div className="error-text">{errors.phototherapy}</div>
+        )}
       </div>
 
     </div>
@@ -7030,14 +7042,14 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="Phototherapy" name="phototherapy" value={formData.phototherapy} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.phototherapy && (
-          <div className="error-text">{errors.phototherapy}</div>
-        )}
+        <YesNoToggle label="153. BIND" name="bind" value={formData.bind} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.bind && <div className="error-text">{errors.bind}</div>}
       </div>
 
       <div className="form-group">
-        <YesNoToggle label="DVET" name="dvet" value={formData.dvet} onChange={handleChange} onBlur={handleBlur} required />
+        {/* stored field name kept as "dvet" for backward compatibility with
+            already-saved records — CRF #154 label is "Exchange transfusion" */}
+        <YesNoToggle label="154. Exchange transfusion" name="dvet" value={formData.dvet} onChange={handleChange} onBlur={handleBlur} required />
         {errors.dvet && <div className="error-text">{errors.dvet}</div>}
       </div>
 
@@ -7045,7 +7057,7 @@ const peripheralStatus= getPeripheralStatus();
 
     {formData.dvet === "Yes" && (
       <div className="form-group">
-        <label>Number of DVET <span className="required">*</span></label>
+        <label><span className="field-num">155.</span> Number of exchange transfusion <span className="required">*</span></label>
         <input
           type="number"
           name="dvet_number"
@@ -7062,12 +7074,12 @@ const peripheralStatus= getPeripheralStatus();
     )}
 
     <div className="form-group">
-      <YesNoToggle label="IVIG" name="ivig" value={formData.ivig} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="156. IVIG" name="ivig" value={formData.ivig} onChange={handleChange} onBlur={handleBlur} required />
       {errors.ivig && <div className="error-text">{errors.ivig}</div>}
     </div>
 
     <div className="form-group">
-    <label>Etiology <span className="required">*</span></label>
+    <label><span className="field-num">157.</span> Etiology <span className="required">*</span></label>
 
     <select
       name="jaundice_etiology"
@@ -7107,7 +7119,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ---------------- CONJUGATED ---------------- */}
 {formData.jaundice_type === "Conjugated" && (
   <div className="form-group">
-    <label>Etiology <span className="required">*</span></label>
+    <label><span className="field-num">158.</span> If conjugated, Etiology <span className="required">*</span></label>
 
     <select
       name="jaundice_etiology"
@@ -7143,16 +7155,18 @@ const peripheralStatus= getPeripheralStatus();
     )}
   </div>
 )}
+</>
+)}
 </div>
   )}
 </div>
-{/* ---------------- ANEMIA ---------------- */}
+{/* ---------------- ANEMIA (continues H6.1 numbering, #159-163) ---------------- */}
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "anemia" ? null : "anemia")}
   >
-    <span>Anemia</span>
+    <span>Anemia <span style={{fontSize:11, fontWeight:400, color:"#9ca3af"}}>(H6.1 continued)</span></span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.anemia)}`}>
@@ -7169,7 +7183,7 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "anemia" && (
     <div className="card-body">
 <div className="form-group">
-  <YesNoToggle label="Anemia" name="anemia" value={formData.anemia} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="159. Anemia" name="anemia" value={formData.anemia} onChange={handleChange} onBlur={handleBlur} required />
   {errors.anemia && <div className="error-text">{errors.anemia}</div>}
 </div>
 
@@ -7178,7 +7192,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label>Age at onset (days) <span className="required">*</span></label>
+        <label><span className="field-num">160.</span> Age at onset (days) <span className="required">*</span></label>
         <input
           type="number"
           name="anemia_onset"
@@ -7194,7 +7208,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">88.</span> Lowest Hb / Hct <span className="required">*</span></label>
+        <label><span className="field-num">161.</span> Lowest Hb / Hct <span className="required">*</span></label>
         <input
           type="number"
           name="lowest_hb"
@@ -7212,24 +7226,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-      <label>Symptoms <span className="required">*</span></label>
-      <select
-        name="anemia_chf"
-        value={formData.anemia_chf || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="Yes">Asymptomatic</option>
-        <option value="No">Congestive Heart Failure</option>
-      </select>
-      {errors.anemia_chf && (
-        <div className="error-text">{errors.anemia_chf}</div>
-      )}
-    </div>
-
-    <div className="form-group">
-      <label>Etiology <span className="required">*</span></label>
+      <label><span className="field-num">162.</span> Etiology <span className="required">*</span></label>
       <select
         name="anemia_etiology"
         value={formData.anemia_etiology || ""}
@@ -7265,12 +7262,42 @@ const peripheralStatus= getPeripheralStatus();
         )}
       </div>
     )}
+
+    <div className="form-group">
+      <label><span className="field-num">163.</span> Symptoms <span className="required">*</span></label>
+      <select
+        name="anemia_symptoms"
+        value={formData.anemia_symptoms || ""}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      >
+        <option value="">-- Select --</option>
+        <option value="CHF">CHF</option>
+        <option value="Asymptomatic">Asymptomatic</option>
+        <option value="Others">Others</option>
+      </select>
+      {errors.anemia_symptoms && (
+        <div className="error-text">{errors.anemia_symptoms}</div>
+      )}
+      {formData.anemia_symptoms === "Others" && (
+        <div style={{ marginTop: "10px" }}>
+          <label>Specify Other <span className="required">*</span></label>
+          <input
+            name="anemia_symptoms_other"
+            value={formData.anemia_symptoms_other || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          />
+        </div>
+      )}
+    </div>
   </>
 )}
 
     </div>
   )}
 </div>
+
     {/* Transfusions */}
     <div className="card">
   <div
@@ -7298,7 +7325,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- PRBC ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="PRBC" name="prbc" value={formData.prbc} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="164. PRBC" name="prbc" value={formData.prbc} onChange={handleChange} onBlur={handleBlur} required />
   {errors.prbc && <div className="error-text">{errors.prbc}</div>}
 </div>
 
@@ -7307,7 +7334,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label><span className="field-num">97.</span> Number of Transfusions <span className="required">*</span></label>
+        <label><span className="field-num">165.</span> Number of Transfusions <span className="required">*</span></label>
         <input
           type="number"
           name="prbc_number"
@@ -7323,7 +7350,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">93.</span> Cumulative volume (ml/kg) <span className="required">*</span></label>
+        <label><span className="field-num">166.</span> If PRBC, Cumulative volume (ml/kg) <span className="required">*</span></label>
         <input
           type="number"
           name="prbc_volume"
@@ -7343,16 +7370,9 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="98. CMV screened" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="CMV screened" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} required />
         {errors.cmv_screened && (
           <div className="error-text">{errors.cmv_screened}</div>
-        )}
-      </div>
-
-      <div className="form-group">
-        <YesNoToggle label="Irradiated" name="irradiated" value={formData.irradiated} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.irradiated && (
-          <div className="error-text">{errors.irradiated}</div>
         )}
       </div>
 
@@ -7362,7 +7382,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- PLATELETS ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="Platelets" name="platelets" value={formData.platelets} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="167. Platelets" name="platelets" value={formData.platelets} onChange={handleChange} onBlur={handleBlur} required />
   {errors.platelets && (
     <div className="error-text">{errors.platelets}</div>
   )}
@@ -7370,7 +7390,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.platelets === "Yes" && (
   <div className="form-group">
-    <label>Number <span className="required">*</span></label>
+    <label><span className="field-num">168.</span> Number of transfusions <span className="required">*</span></label>
     <input
       type="number"
       name="platelet_number"
@@ -7388,7 +7408,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- FFP / CRYO ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="96. FFP / Cryo" name="ffp_cryo" value={formData.ffp_cryo} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="169. FFP / Cryo" name="ffp_cryo" value={formData.ffp_cryo} onChange={handleChange} onBlur={handleBlur} required />
   {errors.ffp_cryo && (
     <div className="error-text">{errors.ffp_cryo}</div>
   )}
@@ -7396,7 +7416,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.ffp_cryo === "Yes" && (
   <div className="form-group">
-    <label>Number <span className="required">*</span></label>
+    <label><span className="field-num">170.</span> Number of transfusions <span className="required">*</span></label>
     <input
       type="number"
       name="ffp_number"
@@ -7411,6 +7431,25 @@ const peripheralStatus= getPeripheralStatus();
     )}
   </div>
 )}
+
+{/* ---------------- LEUKOREDUCED / IRRADIATED ---------------- */}
+<div className="form-row">
+
+  <div className="form-group">
+    <YesNoToggle label="171. Leukoreduced" name="leukoreduced" value={formData.leukoreduced} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.leukoreduced && (
+      <div className="error-text">{errors.leukoreduced}</div>
+    )}
+  </div>
+
+  <div className="form-group">
+    <YesNoToggle label="172. Irradiated" name="irradiated" value={formData.irradiated} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.irradiated && (
+      <div className="error-text">{errors.irradiated}</div>
+    )}
+  </div>
+
+</div>
   </div>
 
 
@@ -7418,17 +7457,171 @@ const peripheralStatus= getPeripheralStatus();
 </div></div>
 
 
+{/* ================= RENAL ================= */}
+<div className="form-section soft-blue">
+
+<h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H7</span> RENAL</h3>
+<div className="card">
+  <div
+    className="card-header-row"
+    onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
+  >
+    <span><span className="sec-num sub">H7.1</span> Acute Kidney Injury (AKI)</span>
+
+    <div className="right-section">
+      <span className={`summary ${getStatusClass(formData.aki)}`}>
+        <span className="icon">{getStatusIcon(formData.aki)}</span>
+        {getAKISummary()}
+      </span>
+</div>
+      <span className="arrow">
+        {openSection === "aki" ? "▲" : "▼"}
+      </span>
+    
+  </div>
+
+  {openSection === "aki" && (
+    <div className="card-body">
+<h4>Acute Kidney Injury (AKI)</h4>
+
+{/* ---------------- AKI ---------------- */}
+<div className="form-row">
+
+  <div className="form-group">
+    <YesNoToggle label="173. AKI" name="aki" value={formData.aki} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.aki && <div className="error-text">{errors.aki}</div>}
+  </div>
+
+  {formData.aki === "Yes" && (
+    <div className="form-group">
+      <label><span className="field-num">174.</span> Date <span className="required">*</span></label>
+      <input
+        type="date"
+        name="aki_date"
+        value={formData.aki_date || ""}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      />
+      {errors.aki_date && (
+        <div className="error-text">{errors.aki_date}</div>
+      )}
+    </div>
+  )}
+
+</div>
+
+{formData.aki === "Yes" && (
+  <>
+
+    {/* ---------------- KDIGO STAGE ---------------- */}
+    <div className="pn-adverse-card">
+
+      <div className="adverse-title">
+        175. Stage (KDIGO) <span className="required">*</span>
+      </div>
+
+      <div className="pn-checkbox-grid">
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage1"
+            checked={formData.aki_stage1 || false}
+            onChange={handleChange}
+          />
+          Stage 1
+        </label>
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage2"
+            checked={formData.aki_stage2 || false}
+            onChange={handleChange}
+          />
+          Stage 2
+        </label>
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage3"
+            checked={formData.aki_stage3 || false}
+            onChange={handleChange}
+          />
+          Stage 3
+        </label>
+
+      </div>
+
+      {/* GROUP ERROR */}
+      {errors.aki_stage_group && (
+        <div className="error-text">{errors.aki_stage_group}</div>
+      )}
+
+    </div>
+
+    {/* ---------------- CREATININE + OLIGURIA ---------------- */}
+    <div style={{ marginTop: "20px" }}>
+      <div className="form-row">
+
+        <div className="form-group">
+          <label><span className="field-num">176.</span> Peak Creatinine (mg/dL) <span className="required">*</span></label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="20"
+            name="aki_peak_creatinine"
+            value={formData.aki_peak_creatinine || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          />
+          {errors.aki_peak_creatinine && (
+            <div className="error-text">{errors.aki_peak_creatinine}</div>
+          )}
+        </div>
+
+        <div className="form-group">
+          <YesNoToggle label="177. Oliguria" name="aki_oliguria" value={formData.aki_oliguria} onChange={handleChange} onBlur={handleBlur} required />
+          {errors.aki_oliguria && (
+            <div className="error-text">{errors.aki_oliguria}</div>
+          )}
+        </div>
+
+      </div>
+    </div>
+
+    {/* ---------------- DIALYSIS ---------------- */}
+    <div className="form-row">
+
+      <div className="form-group">
+        <YesNoToggle label="178. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.aki_dialysis && (
+          <div className="error-text">{errors.aki_dialysis}</div>
+        )}
+      </div>
+
+    </div>
+
+  </>
+)}
+
+</div>
+ 
+  )}
+</div></div>
 {/* ================= OPHTHALMOLOGY ================= */}
 <div className="form-section soft-blue">
 
-<h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H7</span> OPHTHALMOLOGY</h3>
+<h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H8</span> OPHTHALMOLOGY</h3>
 
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "rop" ? null : "rop")}
   >
-    <span><span className="sec-num sub">H7.1</span> Retinopathy of Prematurity (ROP)</span>
+    <span><span className="sec-num sub">H8.1</span> Retinopathy of Prematurity (ROP)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.rop || formData.rop_screened)}`}>
@@ -7671,160 +7864,6 @@ const peripheralStatus= getPeripheralStatus();
 )}
 
 </div> 
-  )}
-</div></div>
-{/* ================= RENAL ================= */}
-<div className="form-section soft-blue">
-
-<h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H8</span> RENAL</h3>
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
-  >
-    <span><span className="sec-num sub">H8.1</span> Acute Kidney Injury (AKI)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.aki)}`}>
-        <span className="icon">{getStatusIcon(formData.aki)}</span>
-        {getAKISummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "aki" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "aki" && (
-    <div className="card-body">
-<h4>Acute Kidney Injury (AKI)</h4>
-
-{/* ---------------- AKI ---------------- */}
-<div className="form-row">
-
-  <div className="form-group">
-    <YesNoToggle label="AKI" name="aki" value={formData.aki} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.aki && <div className="error-text">{errors.aki}</div>}
-  </div>
-
-  {formData.aki === "Yes" && (
-    <div className="form-group">
-      <label>Date <span className="required">*</span></label>
-      <input
-        type="date"
-        name="aki_date"
-        value={formData.aki_date || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.aki_date && (
-        <div className="error-text">{errors.aki_date}</div>
-      )}
-    </div>
-  )}
-
-</div>
-
-{formData.aki === "Yes" && (
-  <>
-
-    {/* ---------------- KDIGO STAGE ---------------- */}
-    <div className="pn-adverse-card">
-
-      <div className="adverse-title">
-        Stage (KDIGO) <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage1"
-            checked={formData.aki_stage1 || false}
-            onChange={handleChange}
-          />
-          Stage 1
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage2"
-            checked={formData.aki_stage2 || false}
-            onChange={handleChange}
-          />
-          Stage 2
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage3"
-            checked={formData.aki_stage3 || false}
-            onChange={handleChange}
-          />
-          Stage 3
-        </label>
-
-      </div>
-
-      {/* GROUP ERROR */}
-      {errors.aki_stage_group && (
-        <div className="error-text">{errors.aki_stage_group}</div>
-      )}
-
-    </div>
-
-    {/* ---------------- CREATININE + OLIGURIA ---------------- */}
-    <div style={{ marginTop: "20px" }}>
-      <div className="form-row">
-
-        <div className="form-group">
-          <label><span className="field-num">103.</span> Peak Creatinine (mg/dL) <span className="required">*</span></label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="20"
-            name="aki_peak_creatinine"
-            value={formData.aki_peak_creatinine || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-          />
-          {errors.aki_peak_creatinine && (
-            <div className="error-text">{errors.aki_peak_creatinine}</div>
-          )}
-        </div>
-
-        <div className="form-group">
-          <YesNoToggle label="Oliguria" name="aki_oliguria" value={formData.aki_oliguria} onChange={handleChange} onBlur={handleBlur} required />
-          {errors.aki_oliguria && (
-            <div className="error-text">{errors.aki_oliguria}</div>
-          )}
-        </div>
-
-      </div>
-    </div>
-
-    {/* ---------------- DIALYSIS ---------------- */}
-    <div className="form-row">
-
-      <div className="form-group">
-        <YesNoToggle label="105. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.aki_dialysis && (
-          <div className="error-text">{errors.aki_dialysis}</div>
-        )}
-      </div>
-
-    </div>
-
-  </>
-)}
-
-</div>
- 
   )}
 </div></div>
 {/* ================= THERMOREGULATION ================= */}

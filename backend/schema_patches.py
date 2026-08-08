@@ -282,6 +282,7 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS seizures BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS seizure_date DATE",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS seizure_type VARCHAR",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS status_epilepticus BOOLEAN",  # CRF #31
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS eeg VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS aeds_required BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS aed_name VARCHAR",
@@ -363,6 +364,8 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS pvl_grade_left VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS pvl_grade_right VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS pvl_present VARCHAR",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS pvl_age_days_left INTEGER",   # CRF #20
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS pvl_age_days_right INTEGER",  # CRF #17
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS tod_max DOUBLE PRECISION",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ventriculomegaly_present VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS vi_max DOUBLE PRECISION",
@@ -523,6 +526,8 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS anemia_etiology VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS anemia_etiology_other VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS anemia_onset DOUBLE PRECISION",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS anemia_symptoms VARCHAR",       # CRF #163
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS anemia_symptoms_other VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS bind VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS cmv_screened VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS dvet VARCHAR",
@@ -533,9 +538,11 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS ivig VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_etiology VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_etiology_other VARCHAR",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_intervention VARCHAR",  # CRF #147
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_onset DATE",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_passive DATE",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS jaundice_type VARCHAR",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS leukoreduced VARCHAR",           # CRF #171
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS lowest_hb DOUBLE PRECISION",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS peak_tsb DOUBLE PRECISION",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS phototherapy VARCHAR",

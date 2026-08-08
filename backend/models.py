@@ -835,6 +835,8 @@ class NeonatalMorbidities(Base):
     anemia_etiology = Column(String)
     anemia_etiology_other = Column(String)
     anemia_onset = Column(Float)
+    anemia_symptoms = Column(String)         # CRF #163 (CHF / Asymptomatic / Others)
+    anemia_symptoms_other = Column(String)
     bind = Column(String)
     cmv_screened = Column(String)
     dvet = Column(String)
@@ -845,9 +847,11 @@ class NeonatalMorbidities(Base):
     ivig = Column(String)
     jaundice_etiology = Column(String)
     jaundice_etiology_other = Column(String)
+    jaundice_intervention = Column(String)   # CRF #147
     jaundice_onset = Column(Date)
     jaundice_passive = Column(Date)
     jaundice_type = Column(String)
+    leukoreduced = Column(String)            # CRF #171
     lowest_hb = Column(Float)
     peak_tsb = Column(Float)
     phototherapy = Column(String)
@@ -867,7 +871,7 @@ class NeonatalMorbidities(Base):
     aki_stage2 = Column(Boolean)
     aki_stage3 = Column(Boolean)
 
-    # ---------------- OPHTHALMOLOGY / ROP (H7) — extended ----------------
+    # ---------------- OPHTHALMOLOGY / ROP (H8) — extended ----------------
     rop = Column(String)
     rop_anti_vegf = Column(Boolean)
     rop_arop = Column(String)
