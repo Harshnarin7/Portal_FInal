@@ -5,6 +5,7 @@ from sqlalchemy import UniqueConstraint
 def utcnow():
     return datetime.now(timezone.utc)
 from db import Base
+from crypto import EncryptedString
 
 
 class User(Base):
@@ -68,25 +69,29 @@ class ParticipantPII(Base):
     screening_id = Column(String, unique=True, index=True, nullable=True)
     site_name = Column(String, index=True, nullable=True)
 
-    mother_first_name = Column(String, nullable=True)
-    mother_surname = Column(String, nullable=True)
-    husband_first_name = Column(String, nullable=True)
-    husband_surname = Column(String, nullable=True)
-    maternal_uid = Column(String, nullable=True)
-    hospital_admission_number = Column(String, nullable=True)
-    mother_contact = Column(String(15), nullable=True)
-    husband_contact = Column(String(15), nullable=True)
-    address = Column(String, nullable=True)
-    email_address = Column(String, nullable=True)
-    house = Column(String, nullable=True)
-    city = Column(String, nullable=True)
-    district = Column(String, nullable=True)
-    state = Column(String, nullable=True)
-    pincode = Column(String, nullable=True)
-    landmark = Column(String, nullable=True)
-    baby_name = Column(String, nullable=True)
-    contact_mother = Column(String(15), nullable=True)
-    contact_husband = Column(String(15), nullable=True)
+    # Encrypted at rest (AWS KMS-wrapped DEK, Fernet) — see crypto.py.
+    # Column type here no longer caps length (ciphertext is longer than
+    # plaintext); the underlying DB columns for the former String(15)
+    # contact fields are widened via schema_patches.py.
+    mother_first_name = Column(EncryptedString, nullable=True)
+    mother_surname = Column(EncryptedString, nullable=True)
+    husband_first_name = Column(EncryptedString, nullable=True)
+    husband_surname = Column(EncryptedString, nullable=True)
+    maternal_uid = Column(EncryptedString, nullable=True)
+    hospital_admission_number = Column(EncryptedString, nullable=True)
+    mother_contact = Column(EncryptedString, nullable=True)
+    husband_contact = Column(EncryptedString, nullable=True)
+    address = Column(EncryptedString, nullable=True)
+    email_address = Column(EncryptedString, nullable=True)
+    house = Column(EncryptedString, nullable=True)
+    city = Column(EncryptedString, nullable=True)
+    district = Column(EncryptedString, nullable=True)
+    state = Column(EncryptedString, nullable=True)
+    pincode = Column(EncryptedString, nullable=True)
+    landmark = Column(EncryptedString, nullable=True)
+    baby_name = Column(EncryptedString, nullable=True)
+    contact_mother = Column(EncryptedString, nullable=True)
+    contact_husband = Column(EncryptedString, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

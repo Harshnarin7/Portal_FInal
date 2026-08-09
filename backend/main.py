@@ -58,6 +58,7 @@ from schema_patches import apply_schema_patches
 from staff_service import seed_site_staff, deactivate_stale_site_staff
 from user_service import seed_login_users
 import security_monitor
+from crypto import decrypt_value
 from pii_service import (
     SCREENING_PII_FIELDS,
     BIRTH_PII_FIELDS,
@@ -135,6 +136,16 @@ def on_startup_migrations():
         apply_schema_patches(engine)
     except Exception as exc:
         logger.warning("Schema patches skipped: %s", exc)
+
+    try:
+        from crypto import _get_fernet
+        _get_fernet()
+        logger.info("✅ PII encryption key (KMS-wrapped DEK) loaded successfully")
+    except Exception as exc:
+        logger.error(
+            "❌ Could not load PII encryption key at startup — participant_pii "
+            "reads/writes will fail until this is fixed: %s", exc
+        )
 
     db = SessionLocal()
     try:
@@ -1204,14 +1215,17 @@ def get_maternal_details(
         ).fetchone()
 
         if pii_row:
-            if pii_row[0]: record_dict["address"]       = pii_row[0]
-            if pii_row[1]: record_dict["email_address"] = pii_row[1]
-            if pii_row[2]: record_dict["house"]         = pii_row[2]
-            if pii_row[3]: record_dict["city"]          = pii_row[3]
-            if pii_row[4]: record_dict["district"]      = pii_row[4]
-            if pii_row[5]: record_dict["state"]         = pii_row[5]
-            if pii_row[6]: record_dict["pincode"]       = pii_row[6]
-            if pii_row[7]: record_dict["landmark"]      = pii_row[7]
+            # Raw SQL bypasses the ORM's EncryptedString type, so these
+            # need an explicit decrypt (see crypto.py — falls back to the
+            # value unchanged if it's still a legacy plaintext row).
+            if pii_row[0]: record_dict["address"]       = decrypt_value(pii_row[0])
+            if pii_row[1]: record_dict["email_address"] = decrypt_value(pii_row[1])
+            if pii_row[2]: record_dict["house"]         = decrypt_value(pii_row[2])
+            if pii_row[3]: record_dict["city"]          = decrypt_value(pii_row[3])
+            if pii_row[4]: record_dict["district"]      = decrypt_value(pii_row[4])
+            if pii_row[5]: record_dict["state"]         = decrypt_value(pii_row[5])
+            if pii_row[6]: record_dict["pincode"]       = decrypt_value(pii_row[6])
+            if pii_row[7]: record_dict["landmark"]      = decrypt_value(pii_row[7])
     except Exception as e:
         logger.warning("Could not rejoin PII fields from participant_pii: %s", e)
 

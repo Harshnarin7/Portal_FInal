@@ -205,6 +205,8 @@ def apply_schema_patches(engine: Engine) -> None:
             conn.execute(text(stmt))
         for stmt in STUDY_OUTCOMES_COLUMN_PATCHES:
             conn.execute(text(stmt))
+        for stmt in PARTICIPANT_PII_WIDEN_PATCHES:
+            conn.execute(text(stmt))
 
 # New fields added post-July-15 deploy — found missing in production 2026-07-19
 # (caused 500 errors on Form D load, Form B NICU fields, Helper 3 day logs)
@@ -709,3 +711,14 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_after_discharge_age_days DOUBLE PRECISION",
 ]
 # total new columns: 82
+
+# 2026-08-09: participant_pii fields are now Fernet-encrypted at rest
+# (see backend/crypto.py). Ciphertext is longer than plaintext, so the
+# 4 columns that were capped at VARCHAR(15) for phone numbers need
+# widening — safe/idempotent to re-run (no-op once already unbounded).
+PARTICIPANT_PII_WIDEN_PATCHES = [
+    "ALTER TABLE participant_pii ALTER COLUMN mother_contact TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN husband_contact TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN contact_mother TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN contact_husband TYPE VARCHAR",
+]
