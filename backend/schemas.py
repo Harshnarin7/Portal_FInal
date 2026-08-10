@@ -2311,6 +2311,11 @@ class MinimalMonitoringDayCreate(BaseModel):
     transfusion_count: Optional[int] = None
     prbc_volume: Optional[float] = None
 
+    entries_json: Optional[str] = None
+    steroid_other: Optional[str] = None
+    apnea_shift: Optional[str] = None
+    feed_shift: Optional[str] = None
+
     submission_status: Optional[str] = "draft"
     saved_at: Optional[datetime] = None
     saved_by: Optional[str] = None

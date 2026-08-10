@@ -1910,6 +1910,12 @@ class MinimalMonitoringDayLog(Base):
     transfusion_count = Column(Integer, nullable=True)
     prbc_volume = Column(Float, nullable=True)
 
+    # Multi-entry block payloads (CRF "+ button to add values") + steroid Other text
+    entries_json = Column(Text, nullable=True)
+    steroid_other = Column(String, nullable=True)
+    apnea_shift = Column(String, nullable=True)
+    feed_shift = Column(String, nullable=True)
+
     submission_status = Column(String, nullable=True, default="empty")
     saved_at          = Column(DateTime, nullable=True)
     saved_by          = Column(String, nullable=True)

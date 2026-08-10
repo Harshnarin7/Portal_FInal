@@ -338,6 +338,24 @@
   background: #fff;
   width: 104px;
 }
+.yes-no-buttons.yn-wide {
+  width: auto;
+  min-width: 180px;
+}
+.yes-no-buttons.yn-wide .yn-thumb {
+  width: 50%;
+}
+.yes-no-buttons.yn-wide.yn-pos-2 .yn-thumb {
+  transform: translateX(100%);
+}
+.yes-no-buttons.yn-wide .yn-btn {
+  width: auto;
+  min-width: 90px;
+  padding: 0 10px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .yn-thumb {
   position: absolute; top: 0; left: 0;
   width: 52px; height: 32px;

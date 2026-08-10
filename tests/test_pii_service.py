@@ -99,14 +99,20 @@ def test_can_view_pii_for_site_site_user_missing_site():
 
 def test_merge_keeps_non_empty_values():
     out = pii._merge(None, a="x", b=1, c=None, d="")
-    assert out == {"a": "x", "b": 1}
+    # Empty string explicitly clears (→ None); None is omitted
+    assert out == {"a": "x", "b": 1, "d": None}
 
 
-def test_merge_falls_back_to_existing_when_new_is_empty():
+def test_merge_empty_string_clears_existing():
     existing = SimpleNamespace(a="old_a", b=None, d="old_d")
     out = pii._merge(existing, a="", b="", c=None, d="new_d")
-    # a -> falls back to existing "old_a"; b -> existing None so dropped;
-    # c -> no existing attr; d -> new value wins
+    # a/b empty string → clear to None; c None → keep omitted; d → new value
+    assert out == {"a": None, "b": None, "d": "new_d"}
+
+
+def test_merge_none_preserves_existing():
+    existing = SimpleNamespace(a="old_a", d="old_d")
+    out = pii._merge(existing, a=None, d="new_d")
     assert out == {"a": "old_a", "d": "new_d"}
 
 

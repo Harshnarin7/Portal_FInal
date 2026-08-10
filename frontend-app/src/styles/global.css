@@ -528,22 +528,34 @@ fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
 /* ════════════════════════════════
    RESPONSIVE
 ════════════════════════════════ */
-@media (max-width: 1024px) {
-  .form-navigation { left: 0; padding: 0 20px; }
+@media (max-width: 1280px) {
+  .form-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
+  .form-navigation {
+    left: 0;
+    padding: 10px 16px;
+    height: auto;
+    min-height: var(--action-bar-height, 80px);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+@media (max-width: 900px) {
   .form-grid-2, .form-grid-3 { grid-template-columns: 1fr; }
   .form-row { flex-direction: column; }
   .form-header-action-row { flex-direction: column; align-items: flex-start; gap: 16px; }
-  .form-main-title { font-size: 26px; }
-  .btn-primary { min-width: 140px; }
-  .form-navigation { padding: 0 16px; gap: 10px; }
+  .form-main-title { font-size: 22px; }
+  .btn-primary { min-width: 0; flex: 1; }
+  .form-navigation { padding: 12px 16px; gap: 10px; }
+  .footer-step-indicator { order: -1; width: 100%; }
+  .btn { flex: 1; min-width: 0; }
 }
 @media (max-width: 600px) {
-  .form-navigation { flex-wrap: wrap; height: auto; padding: 12px 16px; }
-  .footer-step-indicator { order: -1; width: 100%; }
-  .btn { flex: 1; }
+  .form-navigation { flex-wrap: wrap; height: auto; padding: 12px 12px; }
+  .form-main-title { font-size: 20px; }
 }
+
 /* ════════════════════════════════
    YES / NO TOGGLE BUTTONS
 ════════════════════════════════ */

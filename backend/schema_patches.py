@@ -222,6 +222,10 @@ MINIMAL_MONITORING_TABLE_PATCHES = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_minimal_monitoring_day_logs_enrollment_id ON minimal_monitoring_day_logs (enrollment_id)",
     "CREATE INDEX IF NOT EXISTS ix_minimal_monitoring_day_logs_nicu_day ON minimal_monitoring_day_logs (nicu_day)",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS entries_json TEXT",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS steroid_other VARCHAR",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS apnea_shift VARCHAR",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS feed_shift VARCHAR",
 ]
 
 

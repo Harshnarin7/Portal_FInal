@@ -2951,32 +2951,80 @@ def submit_metab_renal_vasc_eye_day(
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 
 
+MINIMAL_MONITORING_CORE_FIELDS = [
+    "record_date", "shift",
+]
+
+# Soft progress fields — filled when values are available (not all required to submit)
 MINIMAL_MONITORING_FIELDS = [
     "record_date", "shift", "axillary_temp", "sbp", "dbp", "map_value",
     "fluid_bolus_given", "vasoactive_drugs", "vasoactive_dose",
     "vasoactive_unit", "pda_agent", "pda_dose", "respiratory_time",
     "respiratory_modes", "max_map_cpap", "max_fio2", "ph", "pao2",
-    "paco2", "apnea_episodes", "desaturation_episodes",
+    "paco2", "apnea_shift", "apnea_episodes", "desaturation_episodes",
     "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
     "glucose", "alp", "total_calcium", "phosphorus",
-    "electrolyte_abnormality", "electrolytes", "hypo_hyper",
-    "symptomatic_status", "cumulative_feed_volume", "direct_bilirubin",
-    "imaging_date", "ventriculomegaly_severity", "vi", "ahw", "tod",
-    "aca_ri", "mca_ri", "transfusion_products", "transfusion_count",
-    "prbc_volume",
+    "electrolyte_abnormality", "hypo_hyper",
+    "symptomatic_status", "cumulative_feed_volume", "feed_shift",
+    "direct_bilirubin", "imaging_date", "ventriculomegaly_severity",
+    "vi", "ahw", "tod", "aca_ri", "mca_ri", "transfusion_products",
+    "transfusion_count", "prbc_volume",
 ]
 
 
 def _minimal_monitoring_completion_pct(r) -> int:
     def ans(v):
+        if isinstance(v, (list, dict)):
+            return bool(v)
         return v is not None and v != ""
+
+    # Prefer entries_json progress when present
+    import json as _json
+    raw = getattr(r, "entries_json", None)
+    if raw:
+        try:
+            entries = _json.loads(raw) if isinstance(raw, str) else raw
+            slots = 0
+            filled = 0
+            for block_entries in (entries or {}).values():
+                if not isinstance(block_entries, list):
+                    continue
+                for entry in block_entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    for k, v in entry.items():
+                        if k in ("id",):
+                            continue
+                        slots += 1
+                        if ans(v):
+                            filled += 1
+            if slots:
+                return min(100, round((filled / slots) * 100))
+        except Exception:
+            pass
+
     total = len(MINIMAL_MONITORING_FIELDS)
     done = sum(1 for key in MINIMAL_MONITORING_FIELDS if ans(getattr(r, key, None)))
     if getattr(r, "symptomatic_status", None) == "symptomatic":
         total += 1
         if ans(getattr(r, "symptomatic_detail", None)):
             done += 1
+    if "Other" in str(getattr(r, "postnatal_steroids", "") or ""):
+        total += 1
+        if ans(getattr(r, "steroid_other", None)):
+            done += 1
+    drugs = getattr(r, "vasoactive_drugs", None)
+    if not ans(drugs):
+        # dose/unit not expected when no vasoactive drugs
+        for skip in ("vasoactive_dose", "vasoactive_unit"):
+            if skip in MINIMAL_MONITORING_FIELDS and not ans(getattr(r, skip, None)):
+                total = max(1, total - 1)
     return min(100, round((done / total) * 100)) if total else 0
+
+
+def _minimal_monitoring_can_submit(r) -> bool:
+    """CRF: fill when values available — only date + shift are required to lock a day."""
+    return bool(getattr(r, "record_date", None)) and bool(getattr(r, "shift", None))
 
 
 @app.get("/minimal-monitoring/{enrollment_id}/summary")

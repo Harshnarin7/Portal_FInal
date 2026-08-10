@@ -163,7 +163,8 @@ export default function ScreeningForm() {
      format that could block a legitimate entry. */
   const idFieldRule = (site, field) => {
     if (field === "maternal_uid") {
-      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
+      // PGIMER Chandigarh CR numbers are 12 digits (site-confirmed).
+      if (site === "PGIMER") return { pattern: /^\d{12}$/, hint: "Must be exactly 12 digits", charFilter: /[^0-9]/g, maxLen: 12, required: true };
       if (site === "AMC")    return { pattern: /^\d+\/\d{4}$/, hint: "Must be in serial/year format, e.g. 123/2026", charFilter: /[^0-9/]/g, maxLen: 15, required: true };
       return null;
     }
@@ -240,16 +241,28 @@ export default function ScreeningForm() {
       const notApprList = d.reason_not_approached
         ? d.reason_not_approached.split(",").map(s=>s.trim()).filter(Boolean) : [];
 
+      /* Drop any identity keys from the clinical payload so a future API
+         change can't overwrite the PII-store values into the wrong boxes. */
+      const {
+        mother_first_name: _mf, mother_surname: _ms,
+        husband_first_name: _hf, husband_surname: _hs,
+        maternal_uid: _mu, hospital_admission_number: _han,
+        mother_contact: _mc, husband_contact: _hc,
+        ...clinical
+      } = d || {};
+
       setFormData(() => ({
-        ...BLANK_FORM, ...d,
-        mother_first_name:         pii.mother_first_name         || d.mother_first_name         || "",
-        mother_surname:            pii.mother_surname            || d.mother_surname            || "",
-        husband_first_name:        pii.husband_first_name        || d.husband_first_name        || "",
-        husband_surname:           pii.husband_surname           || d.husband_surname           || "",
-        maternal_uid:              pii.maternal_uid              || d.maternal_uid              || "",
-        hospital_admission_number: pii.hospital_admission_number || d.hospital_admission_number || "",
-        mother_contact:            pii.mother_contact            || d.mother_contact            || "",
-        husband_contact:           pii.husband_contact           || d.husband_contact           || "",
+        ...BLANK_FORM, ...clinical,
+        /* Identity fields come ONLY from participant_pii. Strip autosave
+           "DRAFT" placeholders so they never reappear as real names. */
+        mother_first_name:         (pii.mother_first_name && pii.mother_first_name !== "DRAFT") ? pii.mother_first_name : "",
+        mother_surname:            pii.mother_surname || "",
+        husband_first_name:        (pii.husband_first_name && pii.husband_first_name !== "DRAFT") ? pii.husband_first_name : "",
+        husband_surname:           pii.husband_surname || "",
+        maternal_uid:              pii.maternal_uid || "",
+        hospital_admission_number: pii.hospital_admission_number || "",
+        mother_contact:            pii.mother_contact || "",
+        husband_contact:           pii.husband_contact || "",
         /* gestation_known/ga_source are now persisted explicitly on the
            backend (see migrations/0002_gestation_known_column.sql), so
            reload no longer needs to guess. The fallback heuristic below
@@ -263,6 +276,10 @@ export default function ScreeningForm() {
         ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         edd_date:           d.expected_delivery_date || "",
         lmp_date:           d.lmp_date || "",
+        /* Restore auto-GA for the "gestation not known" path so field 8
+           shows immediately on reload (also recomputed live from EDD). */
+        auto_ga_weeks:      d.gestation_method ? "" : (d.gestation_weeks ?? ""),
+        auto_ga_days:       d.gestation_method ? "" : (d.gestation_days ?? ""),
         /* A4 exclusion fields — inline ternary avoids const-in-object error.
            (d.exclusion_present != null) means record was saved before → unanswered = "No".
            If never saved → "" so toggles show as unanswered.                              */
@@ -435,26 +452,52 @@ export default function ScreeningForm() {
     if (!formData.lmp_date || !dataLoaded) return;
     if (formData.edd_date) return;
     const edd = parseDateOnly(formData.lmp_date);
+    if (!edd) return;
     edd.setDate(edd.getDate() + 280);
     setFormData(p => ({ ...p, edd_date: toDateOnlyValue(edd) }));
   }, [formData.lmp_date, dataLoaded]); // eslint-disable-line
 
-  /* ─── EDD → GA auto-calc (only when gestation_known=No) ── */
+  /* GA from EDD — timezone-safe local-date math (do NOT use new Date("YYYY-MM-DD")). */
+  const computeAutoGaFromEdd = (eddDateStr) => {
+    if (!eddDateStr) return null;
+    const edd = parseDateOnly(String(eddDateStr).slice(0, 10));
+    if (!edd) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysUntilEdd = Math.round((edd.getTime() - today.getTime()) / 86400000);
+    const gestDays = 280 - daysUntilEdd;
+    if (Number.isNaN(gestDays)) return null;
+    return {
+      weeks: Math.max(0, Math.floor(gestDays / 7)),
+      days: Math.max(0, ((gestDays % 7) + 7) % 7),
+    };
+  };
+
+  /* Keep auto_ga_* in sync for save/eligibility, but display derives from EDD directly
+     so the banner never stays blank when EDD is already visible. */
   useEffect(() => {
     if (!formData.edd_date || !dataLoaded || formData.gestation_known === "Yes") return;
-    const diff = Math.floor(280 - (new Date(formData.edd_date) - new Date()) / 86400000);
-    setFormData(p => ({ ...p, auto_ga_weeks: Math.max(0, Math.floor(diff/7)), auto_ga_days: Math.max(0, diff%7) }));
+    const ga = computeAutoGaFromEdd(formData.edd_date);
+    if (!ga) return;
+    setFormData(p => {
+      if (p.auto_ga_weeks === ga.weeks && p.auto_ga_days === ga.days) return p;
+      return { ...p, auto_ga_weeks: ga.weeks, auto_ga_days: ga.days };
+    });
   }, [formData.edd_date, formData.gestation_known, dataLoaded]); // eslint-disable-line
 
   /* ─── Derived flags ── */
+  const derivedAutoGa = (formData.gestation_known === "No" && formData.ga_source !== "Neither" && formData.edd_date)
+    ? computeAutoGaFromEdd(formData.edd_date)
+    : null;
+
   const getEligibilityStatus = () => {
     let weeks = null, days = 0;
     if (formData.gestation_known === "Yes") {
-      if (!formData.best_ga_weeks) return null;
+      if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
       weeks = Number(formData.best_ga_weeks); days = Number(formData.best_ga_days||0);
     } else if (formData.gestation_known === "No" && formData.ga_source !== "Neither" && formData.edd_date) {
-      if (formData.auto_ga_weeks === "" || formData.auto_ga_weeks === null) return null;
-      weeks = Number(formData.auto_ga_weeks); days = Number(formData.auto_ga_days||0);
+      if (!derivedAutoGa) return null;
+      weeks = derivedAutoGa.weeks; days = derivedAutoGa.days;
     }
     if (weeks === null || isNaN(weeks)) return null;
     const t = weeks * 7 + days;
@@ -472,8 +515,13 @@ export default function ScreeningForm() {
     .some(k => formData[k] === "Yes");
   const allExclusionAnswered = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
     .every(k => formData[k] === "Yes" || formData[k] === "No");
-  const displayWeeks = formData.gestation_known === "Yes" ? formData.best_ga_weeks : formData.auto_ga_weeks;
-  const displayDays  = formData.gestation_known === "Yes" ? (formData.best_ga_days||0) : (formData.auto_ga_days||0);
+  const displayWeeks = formData.gestation_known === "Yes"
+    ? formData.best_ga_weeks
+    : (derivedAutoGa ? derivedAutoGa.weeks : formData.auto_ga_weeks);
+  const displayDays  = formData.gestation_known === "Yes"
+    ? (formData.best_ga_days||0)
+    : (derivedAutoGa ? derivedAutoGa.days : (formData.auto_ga_days||0));
+  const hasDisplayGa = displayWeeks !== "" && displayWeeks !== null && displayWeeks !== undefined && !Number.isNaN(Number(displayWeeks));
 
   /* ─── Field-level change handler ── */
   const set = (patch) => setFormData(p => ({ ...p, ...patch }));
@@ -482,9 +530,17 @@ export default function ScreeningForm() {
     const { name, value } = e.target;
     const newErrors = { ...errors };
 
-    /* Name fields: letters only */
+    /* Name fields: allow letters (any language), spaces, apostrophe, hyphen, period.
+       The old /[^a-zA-Z ]/ filter stripped Indian-script and accented names to "" —
+       so Husband's First Name looked filled but stayed empty → required popup. */
     if (["screened_by","mother_first_name","mother_surname","husband_first_name","husband_surname"].includes(name)) {
-      set({ [name]: value.replace(/[^a-zA-Z ]/g, "") }); return;
+      const cleaned = value.replace(/[^\p{L}\s.'-]/gu, "");
+      set({ [name]: cleaned });
+      if (cleaned.trim()) {
+        setErrors(prev => ({ ...prev, [name]: "" }));
+        setFieldTouched(prev => ({ ...prev, [name]: true }));
+      }
+      return;
     }
     if (name === "site_name")          { set({ site_name:value, site_id:SITE_ID_MAP[value]||"", screened_by:"" }); return; }
     if (name === "gestation_known")    { set({ gestation_known:value, ga_source:"", lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"", best_ga_weeks:"", best_ga_days:"", gestation_method:"" }); return; }
@@ -501,16 +557,18 @@ export default function ScreeningForm() {
       return;
     }
     if (name === "maternal_uid") {
-      // Site-specific formats (confirmed 2026-08-01):
-      //   PGIMER: exactly 10 digits, numeric only
+      // Site-specific formats:
+      //   PGIMER: exactly 12 digits, numeric only
       //   AMC:    serial/year, e.g. "123/2026"
-      //   GMCH / GMCH-A / IOG: no strict digit format specified — kept as
-      //   free alphanumeric (required-non-empty only) rather than guessing
-      //   a pattern that could block legitimate entries.
+      //   GMCH / GMCH-A / IOG: free alphanumeric (required-non-empty)
       const rule = idFieldRule(formData.site_name, "maternal_uid");
       const filtered = rule ? value.replace(rule.charFilter, "") : value.replace(/[^a-zA-Z0-9/]/g, "");
       const capped = rule ? filtered.slice(0, rule.maxLen) : filtered;
       set({ maternal_uid: capped });
+      if (capped.trim()) {
+        const ok = !rule || rule.pattern.test(capped.trim());
+        setErrors(prev => ({ ...prev, maternal_uid: ok ? "" : (rule?.hint || "") }));
+      }
       return;
     }
     if (name === "hospital_admission_number") {
@@ -598,10 +656,10 @@ export default function ScreeningForm() {
 
     if (!formData.screening_datetime)    add("Screening Date & Time (A2)",        "screening_datetime");
     if (!formData.site_name)             add("Site (A2)",                          "site_name");
-    if (!formData.screened_by)           add("Screened By (A2)",                   "screened_by");
-    if (!formData.mother_first_name)     add("Mother's First Name (A3)",           "mother_first_name");
-    if (!formData.husband_first_name)    add("Husband's First Name (A3)",          "husband_first_name");
-    if (!formData.maternal_uid)          add("Maternal UID / CR Number (A3)",      "maternal_uid");
+    if (!formData.screened_by?.trim())   add("Screened By (A2)",                   "screened_by");
+    if (!formData.mother_first_name?.trim())  add("Mother's First Name (A3)",     "mother_first_name");
+    if (!formData.husband_first_name?.trim()) add("Husband's First Name (A3)",    "husband_first_name");
+    if (!formData.maternal_uid?.trim())  add("Maternal UID / CR Number (A3)",      "maternal_uid");
     else {
       const uidRule = idFieldRule(formData.site_name, "maternal_uid");
       if (uidRule && !uidRule.pattern.test(formData.maternal_uid.trim())) {
@@ -682,25 +740,9 @@ export default function ScreeningForm() {
   };
 
   /* ─── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
-  // FIX: gestational age (weeks/days) for the "gestation not known" (EDD/LMP)
-  // path was being read from fd.auto_ga_weeks/auto_ga_days — state fields
-  // populated by a chained pair of useEffects (LMP -> edd_date, then
-  // edd_date -> auto_ga_weeks/days). Autosave runs on its own 10-second
-  // timer with no awareness of whether that two-step calculation has
-  // actually finished, so a save landing in the gap would find
-  // auto_ga_weeks still empty and silently fall back to 0 via
-  // `parseInt(...) || 0` — permanently writing an incorrect "0 weeks, 0
-  // days" to the database with no way for anyone to notice or correct it
-  // afterward. Recomputing directly from fd.edd_date here (the same math
-  // the effect uses) makes the save always correct regardless of whether
-  // the state effect has caught up yet.
-  const computeAutoGaFromEdd = (eddDateStr) => {
-    if (!eddDateStr) return null;
-    const diff = Math.floor(280 - (new Date(eddDateStr) - new Date()) / 86400000);
-    if (Number.isNaN(diff)) return null;
-    return { weeks: Math.max(0, Math.floor(diff / 7)), days: Math.max(0, diff % 7) };
-  };
-
+  // Gestational age for the "gestation not known" path is recomputed from
+  // fd.edd_date at save time so autosave never writes 0w 0d while waiting
+  // for the EDD→auto_ga_* effect to catch up.
   const buildPayloadFrom = (fd, useDraftFallbacks, exclYes) => {
     const exclusionParts = [];
     if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
@@ -709,6 +751,8 @@ export default function ScreeningForm() {
     if (fd.insufficient_time     === "Yes") exclusionParts.push("Insufficient time");
     if (fd.iufd                  === "Yes") exclusionParts.push("IUFD");
 
+    const autoGa = fd.gestation_known === "No" ? computeAutoGaFromEdd(fd.edd_date) : null;
+
     return {
       screening_id:              fd.screening_id    || undefined,
       screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? toDateTimeLocalValue(new Date()) : null),
@@ -716,22 +760,22 @@ export default function ScreeningForm() {
       site_id:                   fd.site_id          || (useDraftFallbacks ? "00"    : null),
       screened_by:               fd.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
       mother_first_name:         fd.mother_first_name || (useDraftFallbacks ? "DRAFT" : fd.mother_first_name),
-      mother_surname:            fd.mother_surname   || null,
+      mother_surname:            fd.mother_surname ?? "",
       husband_first_name:        fd.husband_first_name || (useDraftFallbacks ? "DRAFT" : fd.husband_first_name),
-      husband_surname:           fd.husband_surname  || null,
-      maternal_uid:              fd.maternal_uid     || null,
-      hospital_admission_number: fd.hospital_admission_number || null,
-      mother_contact:            fd.mother_contact   || null,
-      husband_contact:           fd.husband_contact  || null,
+      husband_surname:           fd.husband_surname ?? "",
+      maternal_uid:              fd.maternal_uid ?? "",
+      hospital_admission_number: fd.hospital_admission_number ?? "",
+      mother_contact:            fd.mother_contact ?? "",
+      husband_contact:           fd.husband_contact ?? "",
       gestation_known:           fd.gestation_known || null,
       gestation_weeks:
         fd.gestation_known === "Yes"
           ? (parseInt(fd.best_ga_weeks) || 0)
-          : (computeAutoGaFromEdd(fd.edd_date)?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
+          : (autoGa?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
       gestation_days:
         fd.gestation_known === "Yes"
           ? (parseInt(fd.best_ga_days) || 0)
-          : (computeAutoGaFromEdd(fd.edd_date)?.days ?? (parseInt(fd.auto_ga_days) || 0)),
+          : (autoGa?.days ?? (parseInt(fd.auto_ga_days) || 0)),
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date         || null,
       expected_delivery_date:    fd.edd_date ? String(fd.edd_date).slice(0, 10) : null,
@@ -1100,7 +1144,12 @@ export default function ScreeningForm() {
                         <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
                           readOnly className="readonly-input" placeholder="—"/>
                       </div>
-                      <div/>
+                      <div className="form-group">
+                        <label>8. Calculated gestational age</label>
+                        <input
+                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
+                          readOnly className="readonly-input" placeholder="—"/>
+                      </div>
                     </div>
                   )}
 
@@ -1114,13 +1163,19 @@ export default function ScreeningForm() {
                           dateFormat="dd-MM-yyyy" placeholderText="Select EDD"
                           readOnly={!isFieldEditable}/>
                       </div>
-                      <div/><div/>
+                      <div className="form-group">
+                        <label>8. Calculated gestational age</label>
+                        <input
+                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
+                          readOnly className="readonly-input" placeholder="—"/>
+                      </div>
+                      <div/>
                     </div>
                   )}
                 </>)}
 
                 {/* GA result banner + alerts */}
-                {displayWeeks !== "" && displayWeeks !== null && !gaNotDeterminable && (
+                {hasDisplayGa && !gaNotDeterminable && (
                   <div className="gestation-info-banner">
                     <Info size={15} className="banner-info-icon"/>
                     <span className="banner-text">
@@ -1243,13 +1298,15 @@ export default function ScreeningForm() {
                       <input name="mother_first_name" value={formData.mother_first_name||""}
                         onChange={handleChange} onBlur={handleBlur}
                         placeholder="First name only" disabled={!isFieldEditable}
+                        autoComplete="given-name"
                         className={fieldTouched.mother_first_name && errors.mother_first_name ? "input-error" : ""}/>
                       {fieldTouched.mother_first_name && errors.mother_first_name && <div className="field-error">{errors.mother_first_name}</div>}
                     </div>
                     <div className="form-group">
                       <label>14b. Mother's Surname</label>
                       <input name="mother_surname" value={formData.mother_surname||""}
-                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}/>
+                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}
+                        autoComplete="family-name"/>
                     </div>
                   </div>
 
@@ -1260,13 +1317,15 @@ export default function ScreeningForm() {
                       <input name="husband_first_name" value={formData.husband_first_name||""}
                         onChange={handleChange} onBlur={handleBlur}
                         placeholder="First name only" disabled={!isFieldEditable}
+                        autoComplete="off"
                         className={fieldTouched.husband_first_name && errors.husband_first_name ? "input-error" : ""}/>
                       {fieldTouched.husband_first_name && errors.husband_first_name && <div className="field-error">{errors.husband_first_name}</div>}
                     </div>
                     <div className="form-group">
                       <label>15b. Husband's Surname</label>
                       <input name="husband_surname" value={formData.husband_surname||""}
-                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}/>
+                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}
+                        autoComplete="off"/>
                     </div>
                   </div>
 
@@ -1277,16 +1336,17 @@ export default function ScreeningForm() {
                       <input name="maternal_uid" value={formData.maternal_uid||""}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        maxLength={15}
+                        maxLength={formData.site_name === "PGIMER" ? 12 : 15}
                         inputMode={formData.site_name === "PGIMER" ? "numeric" : "text"}
                         placeholder={
-                          formData.site_name === "PGIMER" ? "10-digit CR number" :
+                          formData.site_name === "PGIMER" ? "12-digit CR number" :
                           formData.site_name === "AMC"      ? "e.g. 123/2026" :
                           formData.site_name === "GMCH"    ? "CR number" :
                           formData.site_name === "IOG"         ? "CR number (auto from UID)" :
                           "CR / UID number"
                         }
                         disabled={!isFieldEditable}
+                        autoComplete="off"
                         className={errors.maternal_uid ? "input-error" : ""}/>
                       {errors.maternal_uid && <div className="field-error">{errors.maternal_uid}</div>}
                     </div>
