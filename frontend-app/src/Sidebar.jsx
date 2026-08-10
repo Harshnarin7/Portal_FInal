@@ -24,6 +24,7 @@ const PREREQS = {
   vs6_1:                ['form_a', 'form_b'],
   infect_gi_hema:       ['form_a', 'form_b'],
   metab_renal_vasc_eye: ['form_a', 'form_b'],
+  minimal_monitoring:   ['form_a', 'form_b'],
   form_f:               ['form_a', 'form_b'],
   form_g:               ['form_a', 'form_b'],
   form_h:               ['form_a', 'form_b'],
@@ -57,6 +58,7 @@ const SECTIONS = [
       { id: 'vs6_1',                label: 'Helper 2', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
       { id: 'infect_gi_hema',       label: 'Helper 3', sub: 'Infect / GI / Hema',  path: '/infect-gi-hema-log',      Icon: Microscope },
       { id: 'metab_renal_vasc_eye', label: 'Helper 4', sub: 'Metab / Renal / Eye', path: '/metab-renal-vasc-eye-log',Icon: TestTube2  },
+      { id: 'minimal_monitoring',   label: 'Helper 5', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
     ],
   },
   {

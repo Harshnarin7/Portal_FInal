@@ -19,10 +19,11 @@ from models import (
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
     CranialUltrasound, ROPScreening, CompositeOutcome,
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
-    MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, CranialUSGRecord, SAEReport, AdverseEvents,
+    MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, MinimalMonitoringDayLog,
+    CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDaySubmit, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -2947,6 +2948,149 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_at      = data.submitted_at
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
+    return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+MINIMAL_MONITORING_FIELDS = [
+    "record_date", "shift", "axillary_temp", "sbp", "dbp", "map_value",
+    "fluid_bolus_given", "vasoactive_drugs", "vasoactive_dose",
+    "vasoactive_unit", "pda_agent", "pda_dose", "respiratory_time",
+    "respiratory_modes", "max_map_cpap", "max_fio2", "ph", "pao2",
+    "paco2", "apnea_episodes", "desaturation_episodes",
+    "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
+    "glucose", "alp", "total_calcium", "phosphorus",
+    "electrolyte_abnormality", "electrolytes", "hypo_hyper",
+    "symptomatic_status", "cumulative_feed_volume", "direct_bilirubin",
+    "imaging_date", "ventriculomegaly_severity", "vi", "ahw", "tod",
+    "aca_ri", "mca_ri", "transfusion_products", "transfusion_count",
+    "prbc_volume",
+]
+
+
+def _minimal_monitoring_completion_pct(r) -> int:
+    def ans(v):
+        return v is not None and v != ""
+    total = len(MINIMAL_MONITORING_FIELDS)
+    done = sum(1 for key in MINIMAL_MONITORING_FIELDS if ans(getattr(r, key, None)))
+    if getattr(r, "symptomatic_status", None) == "symptomatic":
+        total += 1
+        if ans(getattr(r, "symptomatic_detail", None)):
+            done += 1
+    return min(100, round((done / total) * 100)) if total else 0
+
+
+@app.get("/minimal-monitoring/{enrollment_id}/summary")
+def get_minimal_monitoring_summary(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    records = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .order_by(MinimalMonitoringDayLog.nicu_day)
+        .all()
+    )
+    return [
+        {
+            "nicu_day": r.nicu_day,
+            "submission_status": r.submission_status or "empty",
+            "completion_pct": _minimal_monitoring_completion_pct(r),
+            "saved_at": r.saved_at,
+            "submitted_at": r.submitted_at,
+        }
+        for r in records
+    ]
+
+
+@app.get("/minimal-monitoring/{enrollment_id}/{nicu_day}", response_model=MinimalMonitoringDayOut)
+def get_minimal_monitoring_day(
+    enrollment_id: str,
+    nicu_day: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MinimalMonitoringDayLog).filter(
+        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+        MinimalMonitoringDayLog.nicu_day == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="No data for this day")
+    return record
+
+
+@app.post("/minimal-monitoring/", response_model=MinimalMonitoringDayOut)
+def create_minimal_monitoring_day(
+    data: MinimalMonitoringDayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+    existing = db.query(MinimalMonitoringDayLog).filter(
+        MinimalMonitoringDayLog.enrollment_id == data.enrollment_id,
+        MinimalMonitoringDayLog.nicu_day == data.nicu_day,
+    ).first()
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+    record = MinimalMonitoringDayLog(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.put("/minimal-monitoring/{enrollment_id}/{nicu_day}", response_model=MinimalMonitoringDayOut)
+def update_minimal_monitoring_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: MinimalMonitoringDayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MinimalMonitoringDayLog).filter(
+        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+        MinimalMonitoringDayLog.nicu_day == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found - use POST to create")
+    if record.submission_status == "submitted":
+        raise HTTPException(status_code=403, detail="Day is submitted and locked")
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
+            setattr(record, key, value)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.patch("/minimal-monitoring/{enrollment_id}/{nicu_day}/submit")
+def submit_minimal_monitoring_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: MinimalMonitoringDaySubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = db.query(MinimalMonitoringDayLog).filter(
+        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+        MinimalMonitoringDayLog.nicu_day == nicu_day,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+    record.submission_status = "submitted"
+    record.submitted_at = data.submitted_at
+    record.submitted_by = data.submitted_by
+    db.commit()
+    db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 # ============================================================================
 # FORM H â€” CRANIAL USG ENDPOINTS

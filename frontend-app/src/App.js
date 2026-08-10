@@ -26,6 +26,7 @@ import FiO2AUC from "./FiO2AUC";
 import RespCVNeuroLog from "./RespCVNeuroLog";
 import InfectGIHemaLog from "./InfectGIHemaLog";
 import MetabRenalVascEyeLog from "./MetabRenalVascEyeLog";
+import MinimalMonitoringLog from "./MinimalMonitoringLog";
 
 import FormY_SAE from "./FormY_SAE";
 import AdverseEventsForm from "./AdverseEventsForm";
@@ -62,6 +63,7 @@ function AppContent() {
     location.pathname.includes("/vs6-1") ||
     location.pathname.includes("/infect-") ||
     location.pathname.includes("/metab-") ||
+    location.pathname.includes("/minimal-monitoring") ||
     location.pathname.includes("/adverse-") ||
     location.pathname.includes("/sae-");
 
@@ -209,6 +211,7 @@ function AppContent() {
                       <Route path="/vs6-1/:enrollmentId?" element={<ProtectedRoute><FormLayout currentForm="vs6_1"><RespCVNeuroLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/infect-gi-hema-log/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="infect_gi_hema"><InfectGIHemaLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/metab-renal-vasc-eye-log/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="metab_renal_vasc_eye"><MetabRenalVascEyeLog /></FormLayout></ProtectedRoute>} />
+                      <Route path="/minimal-monitoring/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="minimal_monitoring"><MinimalMonitoringLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-y-sae/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_y_sae"><FormY_SAE /></FormLayout></ProtectedRoute>} />
                       <Route path="/adverse-events/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="adverse_events"><AdverseEventsForm /></FormLayout></ProtectedRoute>} />
                       <Route path="/sae-list/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="sae_list"><SeriousAdverseEventsList /></FormLayout></ProtectedRoute>} />

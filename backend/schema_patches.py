@@ -159,6 +159,71 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS survived_the_day BOOLEAN",
 ]
 
+MINIMAL_MONITORING_TABLE_PATCHES = [
+    """
+    CREATE TABLE IF NOT EXISTS minimal_monitoring_day_logs (
+        id SERIAL PRIMARY KEY,
+        enrollment_id VARCHAR NOT NULL,
+        nicu_day INTEGER NOT NULL,
+        record_date VARCHAR,
+        shift VARCHAR,
+        axillary_temp DOUBLE PRECISION,
+        sbp DOUBLE PRECISION,
+        dbp DOUBLE PRECISION,
+        map_value DOUBLE PRECISION,
+        fluid_bolus_given VARCHAR,
+        vasoactive_drugs VARCHAR,
+        vasoactive_dose VARCHAR,
+        vasoactive_unit VARCHAR,
+        pda_agent VARCHAR,
+        pda_dose VARCHAR,
+        respiratory_time VARCHAR,
+        respiratory_modes VARCHAR,
+        max_map_cpap DOUBLE PRECISION,
+        max_fio2 DOUBLE PRECISION,
+        ph DOUBLE PRECISION,
+        pao2 DOUBLE PRECISION,
+        paco2 DOUBLE PRECISION,
+        apnea_episodes INTEGER,
+        desaturation_episodes INTEGER,
+        severe_desaturation_episodes INTEGER,
+        postnatal_steroids VARCHAR,
+        steroid_dose VARCHAR,
+        glucose DOUBLE PRECISION,
+        alp DOUBLE PRECISION,
+        total_calcium DOUBLE PRECISION,
+        phosphorus DOUBLE PRECISION,
+        electrolyte_abnormality BOOLEAN,
+        electrolytes VARCHAR,
+        hypo_hyper VARCHAR,
+        symptomatic_status VARCHAR,
+        symptomatic_detail VARCHAR,
+        cumulative_feed_volume DOUBLE PRECISION,
+        direct_bilirubin DOUBLE PRECISION,
+        imaging_date VARCHAR,
+        ventriculomegaly_severity VARCHAR,
+        vi DOUBLE PRECISION,
+        ahw DOUBLE PRECISION,
+        tod DOUBLE PRECISION,
+        aca_ri DOUBLE PRECISION,
+        mca_ri DOUBLE PRECISION,
+        transfusion_products VARCHAR,
+        transfusion_count INTEGER,
+        prbc_volume DOUBLE PRECISION,
+        submission_status VARCHAR DEFAULT 'empty',
+        saved_at TIMESTAMP,
+        saved_by VARCHAR,
+        submitted_at TIMESTAMP,
+        submitted_by VARCHAR,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP,
+        CONSTRAINT uq_minimal_monitoring_enrollment_day UNIQUE (enrollment_id, nicu_day)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_minimal_monitoring_day_logs_enrollment_id ON minimal_monitoring_day_logs (enrollment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_minimal_monitoring_day_logs_nicu_day ON minimal_monitoring_day_logs (nicu_day)",
+]
+
 
 USERS_COLUMN_PATCHES = [
     # Auth/role-hierarchy rollout: username-only login, temp-password flow,
@@ -190,6 +255,8 @@ def apply_schema_patches(engine: Engine) -> None:
         for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
             conn.execute(text(stmt))
         for stmt in METAB_RENAL_VASC_EYE_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in MINIMAL_MONITORING_TABLE_PATCHES:
             conn.execute(text(stmt))
         for stmt in USERS_COLUMN_PATCHES:
             conn.execute(text(stmt))

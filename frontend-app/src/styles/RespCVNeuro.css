@@ -2111,3 +2111,62 @@
 @media (max-width: 768px) {
   .rcn-modal--wide { max-width: 96vw; }
 }
+.rcn-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rcn-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rcn-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.rcn-input-wrap .rcn-input {
+  width: 100%;
+}
+
+.rcn-unit {
+  position: absolute;
+  right: 10px;
+  color: #64748b;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.rcn-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rcn-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+}
+
+.rcn-check input {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .rcn-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}

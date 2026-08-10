@@ -1850,6 +1850,83 @@ class MetabRenalVascEyeDayLog(Base):
         ),
     )
  
+
+class MinimalMonitoringDayLog(Base):
+    __tablename__ = "minimal_monitoring_day_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    nicu_day      = Column(Integer, nullable=False, index=True)
+
+    record_date = Column(String, nullable=True)
+    shift       = Column(String, nullable=True)
+
+    axillary_temp = Column(Float, nullable=True)
+    sbp           = Column(Float, nullable=True)
+    dbp           = Column(Float, nullable=True)
+    map_value     = Column(Float, nullable=True)
+    fluid_bolus_given = Column(String, nullable=True)
+    vasoactive_drugs  = Column(String, nullable=True)
+    vasoactive_dose   = Column(String, nullable=True)
+    vasoactive_unit   = Column(String, nullable=True)
+    pda_agent         = Column(String, nullable=True)
+    pda_dose          = Column(String, nullable=True)
+
+    respiratory_time = Column(String, nullable=True)
+    respiratory_modes = Column(String, nullable=True)
+    max_map_cpap = Column(Float, nullable=True)
+    max_fio2     = Column(Float, nullable=True)
+    ph           = Column(Float, nullable=True)
+    pao2         = Column(Float, nullable=True)
+    paco2        = Column(Float, nullable=True)
+    apnea_episodes = Column(Integer, nullable=True)
+    desaturation_episodes = Column(Integer, nullable=True)
+    severe_desaturation_episodes = Column(Integer, nullable=True)
+    postnatal_steroids = Column(String, nullable=True)
+    steroid_dose = Column(String, nullable=True)
+
+    glucose = Column(Float, nullable=True)
+    alp     = Column(Float, nullable=True)
+    total_calcium = Column(Float, nullable=True)
+    phosphorus = Column(Float, nullable=True)
+    electrolyte_abnormality = Column(Boolean, nullable=True)
+    electrolytes = Column(String, nullable=True)
+    hypo_hyper = Column(String, nullable=True)
+    symptomatic_status = Column(String, nullable=True)
+    symptomatic_detail = Column(String, nullable=True)
+
+    cumulative_feed_volume = Column(Float, nullable=True)
+    direct_bilirubin = Column(Float, nullable=True)
+
+    imaging_date = Column(String, nullable=True)
+    ventriculomegaly_severity = Column(String, nullable=True)
+    vi = Column(Float, nullable=True)
+    ahw = Column(Float, nullable=True)
+    tod = Column(Float, nullable=True)
+    aca_ri = Column(Float, nullable=True)
+    mca_ri = Column(Float, nullable=True)
+
+    transfusion_products = Column(String, nullable=True)
+    transfusion_count = Column(Integer, nullable=True)
+    prbc_volume = Column(Float, nullable=True)
+
+    submission_status = Column(String, nullable=True, default="empty")
+    saved_at          = Column(DateTime, nullable=True)
+    saved_by          = Column(String, nullable=True)
+    submitted_at      = Column(DateTime, nullable=True)
+    submitted_by      = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'enrollment_id', 'nicu_day',
+            name='uq_minimal_monitoring_enrollment_day'
+        ),
+    )
+
+
 # ============================================================================
 # FORM H — CranialUSGRecord MODEL
 # Add this class to models.py

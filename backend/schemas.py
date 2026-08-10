@@ -2253,6 +2253,84 @@ class MetabRenalVascEyeDayOut(MetabRenalVascEyeDayCreate):
     updated_at:   Optional[datetime] = None
     class Config:
         from_attributes = True
+
+
+class MinimalMonitoringDayCreate(BaseModel):
+    enrollment_id: str
+    nicu_day: int
+
+    record_date: Optional[str] = None
+    shift: Optional[str] = None
+
+    axillary_temp: Optional[float] = None
+    sbp: Optional[float] = None
+    dbp: Optional[float] = None
+    map_value: Optional[float] = None
+    fluid_bolus_given: Optional[str] = None
+    vasoactive_drugs: Optional[str] = None
+    vasoactive_dose: Optional[str] = None
+    vasoactive_unit: Optional[str] = None
+    pda_agent: Optional[str] = None
+    pda_dose: Optional[str] = None
+
+    respiratory_time: Optional[str] = None
+    respiratory_modes: Optional[str] = None
+    max_map_cpap: Optional[float] = None
+    max_fio2: Optional[float] = None
+    ph: Optional[float] = None
+    pao2: Optional[float] = None
+    paco2: Optional[float] = None
+    apnea_episodes: Optional[int] = None
+    desaturation_episodes: Optional[int] = None
+    severe_desaturation_episodes: Optional[int] = None
+    postnatal_steroids: Optional[str] = None
+    steroid_dose: Optional[str] = None
+
+    glucose: Optional[float] = None
+    alp: Optional[float] = None
+    total_calcium: Optional[float] = None
+    phosphorus: Optional[float] = None
+    electrolyte_abnormality: Optional[bool] = None
+    electrolytes: Optional[str] = None
+    hypo_hyper: Optional[str] = None
+    symptomatic_status: Optional[str] = None
+    symptomatic_detail: Optional[str] = None
+
+    cumulative_feed_volume: Optional[float] = None
+    direct_bilirubin: Optional[float] = None
+
+    imaging_date: Optional[str] = None
+    ventriculomegaly_severity: Optional[str] = None
+    vi: Optional[float] = None
+    ahw: Optional[float] = None
+    tod: Optional[float] = None
+    aca_ri: Optional[float] = None
+    mca_ri: Optional[float] = None
+
+    transfusion_products: Optional[str] = None
+    transfusion_count: Optional[int] = None
+    prbc_volume: Optional[float] = None
+
+    submission_status: Optional[str] = "draft"
+    saved_at: Optional[datetime] = None
+    saved_by: Optional[str] = None
+
+
+class MinimalMonitoringDaySubmit(BaseModel):
+    submission_status: str
+    submitted_at: datetime
+    submitted_by: str
+
+
+class MinimalMonitoringDayOut(MinimalMonitoringDayCreate):
+    id: int
+    submitted_at: Optional[datetime] = None
+    submitted_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 # ============================================================================
 # FORM H — Pydantic schemas
 # Add these to schemas.py
