@@ -983,6 +983,8 @@ const validateTemp = (name, value, updatedForm = formData) => {
           updatedForm.hyperthermia_wrap ||
           updatedForm.hyperthermia_equipment ||
           updatedForm.hyperthermia_probe ||
+          updatedForm.hyperthermia_environment ||
+          updatedForm.hyperthermia_sepsis ||
           updatedForm.hyperthermia_other;
 
         if (!any) error = "Select at least one etiology";
@@ -2720,6 +2722,52 @@ useEffect(() => {
   }
 }, [formData.osteopenia]);
 
+// ---------------- THERMOREGULATION (H9, fields 197-205) ----------------
+// Toggling Hypothermia/Hyperthermia to "No" (or clearing the top-level
+// checkbox that gates each free-text "Other" field) previously left every
+// dependent field's data in formData — it just stopped being shown. That
+// meant a clinician who set Hypothermia=Yes, filled in severity/location/
+// etiology, then corrected it to No, would silently submit stale Yes-only
+// data alongside a "No" answer. Clear dependents the same way the other
+// H-sections do.
+useEffect(() => {
+  if (formData.hypothermia === "No") {
+    setFormData(prev => ({
+      ...prev,
+      hypothermia_mild: false, hypothermia_moderate: false, hypothermia_severe: false,
+      hypothermia_lowest_temp: "",
+      hypothermia_location_dr: false, hypothermia_location_transport: false, hypothermia_location_nicu: false,
+      hypothermia_sepsis: false, hypothermia_environment: false, hypothermia_immaturity: false,
+      hypothermia_ivh: false, hypothermia_other: false, hypothermia_other_text: "",
+    }));
+  }
+}, [formData.hypothermia]);
+
+useEffect(() => {
+  if (!formData.hypothermia_other) {
+    setFormData(prev => ({ ...prev, hypothermia_other_text: "" }));
+  }
+}, [formData.hypothermia_other]);
+
+useEffect(() => {
+  if (formData.hyperthermia === "No") {
+    setFormData(prev => ({
+      ...prev,
+      hyperthermia_temp: "",
+      hyperthermia_location_dr: false, hyperthermia_location_transport: false, hyperthermia_location_nicu: false,
+      hyperthermia_clothing: false, hyperthermia_wrap: false, hyperthermia_equipment: false,
+      hyperthermia_probe: false, hyperthermia_environment: false, hyperthermia_sepsis: false,
+      hyperthermia_other: false, hyperthermia_other_text: "",
+    }));
+  }
+}, [formData.hyperthermia]);
+
+useEffect(() => {
+  if (!formData.hyperthermia_other) {
+    setFormData(prev => ({ ...prev, hyperthermia_other_text: "" }));
+  }
+}, [formData.hyperthermia_other]);
+
 useEffect(() => {
   if (formData.non_ivh_ich === "No") {
     setFormData(prev => ({
@@ -3828,8 +3876,6 @@ const getHyperSummary = () => {
 
   return parts.join(" • ");
 };
-
-
 const getHypoSummary = () => {
   if (!formData.hypothermia) return "Not filled";
   if (formData.hypothermia === "No") return "No";
@@ -3854,6 +3900,19 @@ const getHypoSummary = () => {
   if (formData.hypothermia_sepsis) parts.push("Sepsis");
 
   return parts.join(" • ");
+};
+
+// Consolidated summary for the single H9.1 Thermoregulation card
+// (fields 197-205), mirroring getIVHSummary()/getMetabolicSummary()'s style.
+const getThermoSummary = () => {
+  if (!formData.hypothermia && !formData.hyperthermia) return "Not filled";
+
+  const parts = [];
+  if (formData.hypothermia === "Yes") parts.push(getHypoSummary());
+  if (formData.hyperthermia === "Yes") parts.push(getHyperSummary());
+
+  if (!parts.length) return "No";
+  return parts.join("  |  ");
 };
 
 const getPeripheralSummary = () => {
@@ -6952,9 +7011,19 @@ const peripheralStatus= getPeripheralStatus();
     
      <h4>Jaundice / Hyperbilirubinemia</h4>
 
+{/* ---------------- REQUIRES INTERVENTION ---------------- */}
+<div className="form-group">
+  <YesNoToggle label="147. Jaundice requiring intervention" name="jaundice_intervention" value={formData.jaundice_intervention} onChange={handleChange} onBlur={handleBlur} required />
+  {errors.jaundice_intervention && (
+    <div className="error-text">{errors.jaundice_intervention}</div>
+  )}
+</div>
+
+{formData.jaundice_intervention === "Yes" && (
+<>
 {/* ---------------- TYPE ---------------- */}
 <div className="form-group">
-  <label>Type <span className="required">*</span></label>
+  <label><span className="field-num">148.</span> Type <span className="required">*</span></label>
   <select
     name="jaundice_type"
     value={formData.jaundice_type || ""}
@@ -6976,7 +7045,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label>Onset date <span className="required">*</span></label>
+        <label><span className="field-num">149.</span> Onset date <span className="required">*</span></label>
         <input
           type="date"
           name="jaundice_onset"
@@ -6990,7 +7059,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">77.</span> Passive date</label>
+        <label><span className="field-num">150.</span> Passive date</label>
         <input
           type="date"
           name="jaundice_passive"
@@ -7005,7 +7074,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label><span className="field-num">78.</span> Peak TSB (mg/dL) <span className="required">*</span></label>
+        <label><span className="field-num">151.</span> Peak TSB (mg/dL) <span className="required">*</span></label>
         <input
           type="number"
           name="peak_tsb"
@@ -7021,8 +7090,10 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <YesNoToggle label="BIND" name="bind" value={formData.bind} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.bind && <div className="error-text">{errors.bind}</div>}
+        <YesNoToggle label="152. Phototherapy" name="phototherapy" value={formData.phototherapy} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.phototherapy && (
+          <div className="error-text">{errors.phototherapy}</div>
+        )}
       </div>
 
     </div>
@@ -7030,14 +7101,14 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="Phototherapy" name="phototherapy" value={formData.phototherapy} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.phototherapy && (
-          <div className="error-text">{errors.phototherapy}</div>
-        )}
+        <YesNoToggle label="153. BIND" name="bind" value={formData.bind} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.bind && <div className="error-text">{errors.bind}</div>}
       </div>
 
       <div className="form-group">
-        <YesNoToggle label="DVET" name="dvet" value={formData.dvet} onChange={handleChange} onBlur={handleBlur} required />
+        {/* stored field name kept as "dvet" for backward compatibility with
+            already-saved records — CRF #154 label is "Exchange transfusion" */}
+        <YesNoToggle label="154. Exchange transfusion" name="dvet" value={formData.dvet} onChange={handleChange} onBlur={handleBlur} required />
         {errors.dvet && <div className="error-text">{errors.dvet}</div>}
       </div>
 
@@ -7045,7 +7116,7 @@ const peripheralStatus= getPeripheralStatus();
 
     {formData.dvet === "Yes" && (
       <div className="form-group">
-        <label>Number of DVET <span className="required">*</span></label>
+        <label><span className="field-num">155.</span> Number of exchange transfusion <span className="required">*</span></label>
         <input
           type="number"
           name="dvet_number"
@@ -7062,12 +7133,12 @@ const peripheralStatus= getPeripheralStatus();
     )}
 
     <div className="form-group">
-      <YesNoToggle label="IVIG" name="ivig" value={formData.ivig} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="156. IVIG" name="ivig" value={formData.ivig} onChange={handleChange} onBlur={handleBlur} required />
       {errors.ivig && <div className="error-text">{errors.ivig}</div>}
     </div>
 
     <div className="form-group">
-    <label>Etiology <span className="required">*</span></label>
+    <label><span className="field-num">157.</span> Etiology <span className="required">*</span></label>
 
     <select
       name="jaundice_etiology"
@@ -7107,7 +7178,7 @@ const peripheralStatus= getPeripheralStatus();
 {/* ---------------- CONJUGATED ---------------- */}
 {formData.jaundice_type === "Conjugated" && (
   <div className="form-group">
-    <label>Etiology <span className="required">*</span></label>
+    <label><span className="field-num">158.</span> If conjugated, Etiology <span className="required">*</span></label>
 
     <select
       name="jaundice_etiology"
@@ -7143,16 +7214,18 @@ const peripheralStatus= getPeripheralStatus();
     )}
   </div>
 )}
+</>
+)}
 </div>
   )}
 </div>
-{/* ---------------- ANEMIA ---------------- */}
+{/* ---------------- ANEMIA (continues H6.1 numbering, #159-163) ---------------- */}
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "anemia" ? null : "anemia")}
   >
-    <span>Anemia</span>
+    <span>Anemia <span style={{fontSize:11, fontWeight:400, color:"#9ca3af"}}>(H6.1 continued)</span></span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.anemia)}`}>
@@ -7169,7 +7242,7 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "anemia" && (
     <div className="card-body">
 <div className="form-group">
-  <YesNoToggle label="Anemia" name="anemia" value={formData.anemia} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="159. Anemia" name="anemia" value={formData.anemia} onChange={handleChange} onBlur={handleBlur} required />
   {errors.anemia && <div className="error-text">{errors.anemia}</div>}
 </div>
 
@@ -7178,7 +7251,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label>Age at onset (days) <span className="required">*</span></label>
+        <label><span className="field-num">160.</span> Age at onset (days) <span className="required">*</span></label>
         <input
           type="number"
           name="anemia_onset"
@@ -7194,7 +7267,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">88.</span> Lowest Hb / Hct <span className="required">*</span></label>
+        <label><span className="field-num">161.</span> Lowest Hb / Hct <span className="required">*</span></label>
         <input
           type="number"
           name="lowest_hb"
@@ -7212,24 +7285,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-      <label>Symptoms <span className="required">*</span></label>
-      <select
-        name="anemia_chf"
-        value={formData.anemia_chf || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="Yes">Asymptomatic</option>
-        <option value="No">Congestive Heart Failure</option>
-      </select>
-      {errors.anemia_chf && (
-        <div className="error-text">{errors.anemia_chf}</div>
-      )}
-    </div>
-
-    <div className="form-group">
-      <label>Etiology <span className="required">*</span></label>
+      <label><span className="field-num">162.</span> Etiology <span className="required">*</span></label>
       <select
         name="anemia_etiology"
         value={formData.anemia_etiology || ""}
@@ -7265,12 +7321,42 @@ const peripheralStatus= getPeripheralStatus();
         )}
       </div>
     )}
+
+    <div className="form-group">
+      <label><span className="field-num">163.</span> Symptoms <span className="required">*</span></label>
+      <select
+        name="anemia_symptoms"
+        value={formData.anemia_symptoms || ""}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      >
+        <option value="">-- Select --</option>
+        <option value="CHF">CHF</option>
+        <option value="Asymptomatic">Asymptomatic</option>
+        <option value="Others">Others</option>
+      </select>
+      {errors.anemia_symptoms && (
+        <div className="error-text">{errors.anemia_symptoms}</div>
+      )}
+      {formData.anemia_symptoms === "Others" && (
+        <div style={{ marginTop: "10px" }}>
+          <label>Specify Other <span className="required">*</span></label>
+          <input
+            name="anemia_symptoms_other"
+            value={formData.anemia_symptoms_other || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          />
+        </div>
+      )}
+    </div>
   </>
 )}
 
     </div>
   )}
 </div>
+
     {/* Transfusions */}
     <div className="card">
   <div
@@ -7298,7 +7384,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- PRBC ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="PRBC" name="prbc" value={formData.prbc} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="164. PRBC" name="prbc" value={formData.prbc} onChange={handleChange} onBlur={handleBlur} required />
   {errors.prbc && <div className="error-text">{errors.prbc}</div>}
 </div>
 
@@ -7307,7 +7393,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <label><span className="field-num">97.</span> Number of Transfusions <span className="required">*</span></label>
+        <label><span className="field-num">165.</span> Number of Transfusions <span className="required">*</span></label>
         <input
           type="number"
           name="prbc_number"
@@ -7323,7 +7409,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">93.</span> Cumulative volume (ml/kg) <span className="required">*</span></label>
+        <label><span className="field-num">166.</span> If PRBC, Cumulative volume (ml/kg) <span className="required">*</span></label>
         <input
           type="number"
           name="prbc_volume"
@@ -7343,16 +7429,9 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="98. CMV screened" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="CMV screened" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} required />
         {errors.cmv_screened && (
           <div className="error-text">{errors.cmv_screened}</div>
-        )}
-      </div>
-
-      <div className="form-group">
-        <YesNoToggle label="Irradiated" name="irradiated" value={formData.irradiated} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.irradiated && (
-          <div className="error-text">{errors.irradiated}</div>
         )}
       </div>
 
@@ -7362,7 +7441,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- PLATELETS ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="Platelets" name="platelets" value={formData.platelets} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="167. Platelets" name="platelets" value={formData.platelets} onChange={handleChange} onBlur={handleBlur} required />
   {errors.platelets && (
     <div className="error-text">{errors.platelets}</div>
   )}
@@ -7370,7 +7449,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.platelets === "Yes" && (
   <div className="form-group">
-    <label>Number <span className="required">*</span></label>
+    <label><span className="field-num">168.</span> Number of transfusions <span className="required">*</span></label>
     <input
       type="number"
       name="platelet_number"
@@ -7388,7 +7467,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* ---------------- FFP / CRYO ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="96. FFP / Cryo" name="ffp_cryo" value={formData.ffp_cryo} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="169. FFP / Cryo" name="ffp_cryo" value={formData.ffp_cryo} onChange={handleChange} onBlur={handleBlur} required />
   {errors.ffp_cryo && (
     <div className="error-text">{errors.ffp_cryo}</div>
   )}
@@ -7396,7 +7475,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.ffp_cryo === "Yes" && (
   <div className="form-group">
-    <label>Number <span className="required">*</span></label>
+    <label><span className="field-num">170.</span> Number of transfusions <span className="required">*</span></label>
     <input
       type="number"
       name="ffp_number"
@@ -7411,6 +7490,25 @@ const peripheralStatus= getPeripheralStatus();
     )}
   </div>
 )}
+
+{/* ---------------- LEUKOREDUCED / IRRADIATED ---------------- */}
+<div className="form-row">
+
+  <div className="form-group">
+    <YesNoToggle label="171. Leukoreduced" name="leukoreduced" value={formData.leukoreduced} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.leukoreduced && (
+      <div className="error-text">{errors.leukoreduced}</div>
+    )}
+  </div>
+
+  <div className="form-group">
+    <YesNoToggle label="172. Irradiated" name="irradiated" value={formData.irradiated} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.irradiated && (
+      <div className="error-text">{errors.irradiated}</div>
+    )}
+  </div>
+
+</div>
   </div>
 
 
@@ -7418,17 +7516,171 @@ const peripheralStatus= getPeripheralStatus();
 </div></div>
 
 
+{/* ================= RENAL ================= */}
+<div className="form-section soft-blue">
+
+<h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H7</span> RENAL</h3>
+<div className="card">
+  <div
+    className="card-header-row"
+    onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
+  >
+    <span><span className="sec-num sub">H7.1</span> Acute Kidney Injury (AKI)</span>
+
+    <div className="right-section">
+      <span className={`summary ${getStatusClass(formData.aki)}`}>
+        <span className="icon">{getStatusIcon(formData.aki)}</span>
+        {getAKISummary()}
+      </span>
+</div>
+      <span className="arrow">
+        {openSection === "aki" ? "▲" : "▼"}
+      </span>
+    
+  </div>
+
+  {openSection === "aki" && (
+    <div className="card-body">
+<h4>Acute Kidney Injury (AKI)</h4>
+
+{/* ---------------- AKI ---------------- */}
+<div className="form-row">
+
+  <div className="form-group">
+    <YesNoToggle label="173. AKI" name="aki" value={formData.aki} onChange={handleChange} onBlur={handleBlur} required />
+    {errors.aki && <div className="error-text">{errors.aki}</div>}
+  </div>
+
+  {formData.aki === "Yes" && (
+    <div className="form-group">
+      <label><span className="field-num">174.</span> Date <span className="required">*</span></label>
+      <input
+        type="date"
+        name="aki_date"
+        value={formData.aki_date || ""}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      />
+      {errors.aki_date && (
+        <div className="error-text">{errors.aki_date}</div>
+      )}
+    </div>
+  )}
+
+</div>
+
+{formData.aki === "Yes" && (
+  <>
+
+    {/* ---------------- KDIGO STAGE ---------------- */}
+    <div className="pn-adverse-card">
+
+      <div className="adverse-title">
+        175. Stage (KDIGO) <span className="required">*</span>
+      </div>
+
+      <div className="pn-checkbox-grid">
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage1"
+            checked={formData.aki_stage1 || false}
+            onChange={handleChange}
+          />
+          Stage 1
+        </label>
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage2"
+            checked={formData.aki_stage2 || false}
+            onChange={handleChange}
+          />
+          Stage 2
+        </label>
+
+        <label className="checkbox-item">
+          <input
+            type="checkbox"
+            name="aki_stage3"
+            checked={formData.aki_stage3 || false}
+            onChange={handleChange}
+          />
+          Stage 3
+        </label>
+
+      </div>
+
+      {/* GROUP ERROR */}
+      {errors.aki_stage_group && (
+        <div className="error-text">{errors.aki_stage_group}</div>
+      )}
+
+    </div>
+
+    {/* ---------------- CREATININE + OLIGURIA ---------------- */}
+    <div style={{ marginTop: "20px" }}>
+      <div className="form-row">
+
+        <div className="form-group">
+          <label><span className="field-num">176.</span> Peak Creatinine (mg/dL) <span className="required">*</span></label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="20"
+            name="aki_peak_creatinine"
+            value={formData.aki_peak_creatinine || ""}
+            onChange={handleChange}
+            onBlur={handleBlur}
+          />
+          {errors.aki_peak_creatinine && (
+            <div className="error-text">{errors.aki_peak_creatinine}</div>
+          )}
+        </div>
+
+        <div className="form-group">
+          <YesNoToggle label="177. Oliguria" name="aki_oliguria" value={formData.aki_oliguria} onChange={handleChange} onBlur={handleBlur} required />
+          {errors.aki_oliguria && (
+            <div className="error-text">{errors.aki_oliguria}</div>
+          )}
+        </div>
+
+      </div>
+    </div>
+
+    {/* ---------------- DIALYSIS ---------------- */}
+    <div className="form-row">
+
+      <div className="form-group">
+        <YesNoToggle label="178. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleChange} onBlur={handleBlur} required />
+        {errors.aki_dialysis && (
+          <div className="error-text">{errors.aki_dialysis}</div>
+        )}
+      </div>
+
+    </div>
+
+  </>
+)}
+
+</div>
+ 
+  )}
+</div></div>
 {/* ================= OPHTHALMOLOGY ================= */}
 <div className="form-section soft-blue">
 
-<h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H7</span> OPHTHALMOLOGY</h3>
+<h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H8</span> OPHTHALMOLOGY</h3>
 
 <div className="card">
   <div
     className="card-header-row"
     onClick={() => setOpenSection(openSection === "rop" ? null : "rop")}
   >
-    <span><span className="sec-num sub">H7.1</span> Retinopathy of Prematurity (ROP)</span>
+    <span><span className="sec-num sub">H8.1</span> Retinopathy of Prematurity (ROP)</span>
 
     <div className="right-section">
       <span className={`summary ${getStatusClass(formData.rop || formData.rop_screened)}`}>
@@ -7673,160 +7925,6 @@ const peripheralStatus= getPeripheralStatus();
 </div> 
   )}
 </div></div>
-{/* ================= RENAL ================= */}
-<div className="form-section soft-blue">
-
-<h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H8</span> RENAL</h3>
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
-  >
-    <span><span className="sec-num sub">H8.1</span> Acute Kidney Injury (AKI)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.aki)}`}>
-        <span className="icon">{getStatusIcon(formData.aki)}</span>
-        {getAKISummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "aki" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "aki" && (
-    <div className="card-body">
-<h4>Acute Kidney Injury (AKI)</h4>
-
-{/* ---------------- AKI ---------------- */}
-<div className="form-row">
-
-  <div className="form-group">
-    <YesNoToggle label="AKI" name="aki" value={formData.aki} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.aki && <div className="error-text">{errors.aki}</div>}
-  </div>
-
-  {formData.aki === "Yes" && (
-    <div className="form-group">
-      <label>Date <span className="required">*</span></label>
-      <input
-        type="date"
-        name="aki_date"
-        value={formData.aki_date || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.aki_date && (
-        <div className="error-text">{errors.aki_date}</div>
-      )}
-    </div>
-  )}
-
-</div>
-
-{formData.aki === "Yes" && (
-  <>
-
-    {/* ---------------- KDIGO STAGE ---------------- */}
-    <div className="pn-adverse-card">
-
-      <div className="adverse-title">
-        Stage (KDIGO) <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage1"
-            checked={formData.aki_stage1 || false}
-            onChange={handleChange}
-          />
-          Stage 1
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage2"
-            checked={formData.aki_stage2 || false}
-            onChange={handleChange}
-          />
-          Stage 2
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage3"
-            checked={formData.aki_stage3 || false}
-            onChange={handleChange}
-          />
-          Stage 3
-        </label>
-
-      </div>
-
-      {/* GROUP ERROR */}
-      {errors.aki_stage_group && (
-        <div className="error-text">{errors.aki_stage_group}</div>
-      )}
-
-    </div>
-
-    {/* ---------------- CREATININE + OLIGURIA ---------------- */}
-    <div style={{ marginTop: "20px" }}>
-      <div className="form-row">
-
-        <div className="form-group">
-          <label><span className="field-num">103.</span> Peak Creatinine (mg/dL) <span className="required">*</span></label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="20"
-            name="aki_peak_creatinine"
-            value={formData.aki_peak_creatinine || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-          />
-          {errors.aki_peak_creatinine && (
-            <div className="error-text">{errors.aki_peak_creatinine}</div>
-          )}
-        </div>
-
-        <div className="form-group">
-          <YesNoToggle label="Oliguria" name="aki_oliguria" value={formData.aki_oliguria} onChange={handleChange} onBlur={handleBlur} required />
-          {errors.aki_oliguria && (
-            <div className="error-text">{errors.aki_oliguria}</div>
-          )}
-        </div>
-
-      </div>
-    </div>
-
-    {/* ---------------- DIALYSIS ---------------- */}
-    <div className="form-row">
-
-      <div className="form-group">
-        <YesNoToggle label="105. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleChange} onBlur={handleBlur} required />
-        {errors.aki_dialysis && (
-          <div className="error-text">{errors.aki_dialysis}</div>
-        )}
-      </div>
-
-    </div>
-
-  </>
-)}
-
-</div>
- 
-  )}
-</div></div>
 {/* ================= THERMOREGULATION ================= */}
 <div className="form-section soft-blue">
 
@@ -7835,237 +7933,158 @@ const peripheralStatus= getPeripheralStatus();
 <div className="card">
   <div
     className="card-header-row"
-    onClick={() => setOpenSection(openSection === "hypo" ? null : "hypo")}
+    onClick={() => setOpenSection(openSection === "thermo" ? null : "thermo")}
   >
-    <span>Hypothermia</span>
+    <span><span className="sec-num sub">H9.1</span> Thermoregulation</span>
 
     <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.hypothermia)}`}>
-        <span className="icon">{getStatusIcon(formData.hypothermia)}</span>
-        {getHypoSummary()}
+      <span className={`summary ${getStatusClass(
+        (formData.hypothermia === "Yes" || formData.hyperthermia === "Yes")
+          ? "Yes"
+          : (formData.hypothermia || formData.hyperthermia) ? "No" : ""
+      )}`}>
+        <span className="icon">{getThermoSummary() === "Not filled" ? "—" : (getThermoSummary() === "No" ? "✖" : "✔")}</span>
+        {getThermoSummary()}
       </span>
-</div>
-      <span className="arrow">
-        {openSection === "hypo" ? "▲" : "▼"}
-      </span>
-    
+    </div>
+    <span className="arrow">{openSection === "thermo" ? "▲" : "▼"}</span>
   </div>
 
-  {openSection === "hypo" && (
+  {openSection === "thermo" && (
     <div className="card-body">
 
-{/* ================= Hypothermia ================= */}
-<h4>Hypothermia (&lt;36°C)</h4>
-
-<div className="form-row">
-  <div className="form-group">
-    <YesNoToggle label="Hypothermia" name="hypothermia" value={formData.hypothermia} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.hypothermia && <div className="error-text">{errors.hypothermia}</div>}
-  </div>
-</div>
-
-{formData.hypothermia === "Yes" && (
-  <>
-    {/* -------- Severity -------- */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Severity <span className="required">*</span>
+      {/* ---------------- HYPOTHERMIA (197-201) ---------------- */}
+      <div className="form-group">
+        <YesNoToggle label="197. Hypothermia (&lt;36.5°C)" name="hypothermia" value={formData.hypothermia} onChange={handleChange} onBlur={handleBlur} required />
+        {touched.hypothermia && errors.hypothermia && <div className="error-text">{errors.hypothermia}</div>}
       </div>
 
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="hypothermia_mild" checked={formData.hypothermia_mild || false} onChange={handleChange}/> Mild</label>
-        <label><input type="checkbox" name="hypothermia_moderate" checked={formData.hypothermia_moderate || false} onChange={handleChange}/> Moderate</label>
-        <label><input type="checkbox" name="hypothermia_severe" checked={formData.hypothermia_severe || false} onChange={handleChange}/> Severe</label>
+      {formData.hypothermia === "Yes" && (
+        <>
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">198.</span> Lowest Temp (°C)<span className="required">*</span></label>
+              <input
+                type="number" step="0.1" min="20" max="40"
+                name="hypothermia_lowest_temp"
+                value={formData.hypothermia_lowest_temp || ""}
+                onChange={handleChange} onBlur={handleBlur}
+                placeholder="20–40"
+              />
+              {touched.hypothermia_lowest_temp && errors.hypothermia_lowest_temp && <div className="error-text">{errors.hypothermia_lowest_temp}</div>}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <div className="adverse-title"><span className="field-num">199.</span> Severity<span className="required">*</span></div>
+            <div className="pn-checkbox-grid">
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_mild" checked={formData.hypothermia_mild || false} onChange={handleChange}/> Mild</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_moderate" checked={formData.hypothermia_moderate || false} onChange={handleChange}/> Moderate</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_severe" checked={formData.hypothermia_severe || false} onChange={handleChange}/> Severe</label>
+            </div>
+            {errors.hypothermia_severity_group && <div className="error-text">{errors.hypothermia_severity_group}</div>}
+          </div>
+
+          <div className="form-group">
+            <div className="adverse-title"><span className="field-num">200.</span> Location<span className="required">*</span></div>
+            <div className="pn-checkbox-grid">
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_dr" checked={formData.hypothermia_location_dr || false} onChange={handleChange}/> DR</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_transport" checked={formData.hypothermia_location_transport || false} onChange={handleChange}/> Transport</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_nicu" checked={formData.hypothermia_location_nicu || false} onChange={handleChange}/> NICU</label>
+            </div>
+            {errors.hypothermia_location_group && <div className="error-text">{errors.hypothermia_location_group}</div>}
+          </div>
+
+          <div className="form-group">
+            <div className="adverse-title"><span className="field-num">201.</span> Etiology<span className="required">*</span> <span style={{fontSize:11,fontWeight:500,color:"#94a3b8"}}>(select all that apply)</span></div>
+            <div className="pn-checkbox-grid">
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_sepsis" checked={formData.hypothermia_sepsis || false} onChange={handleChange}/> Sepsis</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_environment" checked={formData.hypothermia_environment || false} onChange={handleChange}/> Environment</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_immaturity" checked={formData.hypothermia_immaturity || false} onChange={handleChange}/> Immaturity</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_ivh" checked={formData.hypothermia_ivh || false} onChange={handleChange}/> IVH</label>
+              <label className="checkbox-item"><input type="checkbox" name="hypothermia_other" checked={formData.hypothermia_other || false} onChange={handleChange}/> Other</label>
+            </div>
+            {errors.hypothermia_etiology_group && <div className="error-text">{errors.hypothermia_etiology_group}</div>}
+
+            {formData.hypothermia_other && (
+              <div className="form-group" style={{marginTop: 12}}>
+                <label>Specify Other<span className="required">*</span></label>
+                <input
+                  name="hypothermia_other_text"
+                  value={formData.hypothermia_other_text || ""}
+                  onChange={handleChange} onBlur={handleBlur}
+                />
+                {touched.hypothermia_other_text && errors.hypothermia_other_text && <div className="error-text">{errors.hypothermia_other_text}</div>}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ---------------- HYPERTHERMIA (202-205) ---------------- */}
+      <div className="form-group">
+        <YesNoToggle label="202. Hyperthermia (&gt;37.5°C)" name="hyperthermia" value={formData.hyperthermia} onChange={handleChange} onBlur={handleBlur} required />
+        {touched.hyperthermia && errors.hyperthermia && <div className="error-text">{errors.hyperthermia}</div>}
       </div>
 
-      {errors.hypothermia_severity_group && (
-        <div className="error-text">{errors.hypothermia_severity_group}</div>
-      )}
-    </div>
+      {formData.hyperthermia === "Yes" && (
+        <>
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">203.</span> Highest Temp (°C)<span className="required">*</span></label>
+              <input
+                type="number" step="0.1" min="35" max="42"
+                name="hyperthermia_temp"
+                value={formData.hyperthermia_temp || ""}
+                onChange={handleChange} onBlur={handleBlur}
+                placeholder="35–42"
+              />
+              {touched.hyperthermia_temp && errors.hyperthermia_temp && <div className="error-text">{errors.hyperthermia_temp}</div>}
+            </div>
+          </div>
 
-    {/* -------- Lowest Temp -------- */}
-    <div className="form-group" style={{ marginTop: "20px" }}>
-      <label>Lowest Temperature (°C) <span className="required">*</span></label>
-      <input
-        type="number"
-        step="0.1"
-        min="20"
-        max="40"
-        name="hypothermia_lowest_temp"
-        value={formData.hypothermia_lowest_temp || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.hypothermia_lowest_temp && (
-        <div className="error-text">{errors.hypothermia_lowest_temp}</div>
-      )}
-    </div>
+          <div className="form-group">
+            <div className="adverse-title"><span className="field-num">204.</span> Location<span className="required">*</span></div>
+            <div className="pn-checkbox-grid">
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_dr" checked={formData.hyperthermia_location_dr || false} onChange={handleChange}/> DR</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_transport" checked={formData.hyperthermia_location_transport || false} onChange={handleChange}/> Transport</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_nicu" checked={formData.hyperthermia_location_nicu || false} onChange={handleChange}/> NICU</label>
+            </div>
+            {errors.hyperthermia_location_group && <div className="error-text">{errors.hyperthermia_location_group}</div>}
+          </div>
 
-    {/* -------- Location -------- */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Location <span className="required">*</span>
-      </div>
+          <div className="form-group">
+            <div className="adverse-title"><span className="field-num">205.</span> Etiology<span className="required">*</span> <span style={{fontSize:11,fontWeight:500,color:"#94a3b8"}}>(select all that apply)</span></div>
+            <div className="pn-checkbox-grid">
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_clothing" checked={formData.hyperthermia_clothing || false} onChange={handleChange}/> Excessive clothing</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_wrap" checked={formData.hyperthermia_wrap || false} onChange={handleChange}/> Plastic wrap</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_equipment" checked={formData.hyperthermia_equipment || false} onChange={handleChange}/> Equipment malfunction</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_probe" checked={formData.hyperthermia_probe || false} onChange={handleChange}/> Probe misplacement</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_environment" checked={formData.hyperthermia_environment || false} onChange={handleChange}/> Environment</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_sepsis" checked={formData.hyperthermia_sepsis || false} onChange={handleChange}/> Sepsis</label>
+              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_other" checked={formData.hyperthermia_other || false} onChange={handleChange}/> Other</label>
+            </div>
+            {errors.hyperthermia_etiology_group && <div className="error-text">{errors.hyperthermia_etiology_group}</div>}
 
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="hypothermia_location_dr" checked={formData.hypothermia_location_dr || false} onChange={handleChange}/> Delivery Room</label>
-        <label><input type="checkbox" name="hypothermia_location_transport" checked={formData.hypothermia_location_transport || false} onChange={handleChange}/> Transport</label>
-        <label><input type="checkbox" name="hypothermia_location_nicu" checked={formData.hypothermia_location_nicu || false} onChange={handleChange}/> NICU</label>
-      </div>
-
-      {errors.hypothermia_location_group && (
-        <div className="error-text">{errors.hypothermia_location_group}</div>
-      )}
-    </div>
-
-    {/* -------- Etiology -------- */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Etiology <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="hypothermia_sepsis" checked={formData.hypothermia_sepsis || false} onChange={handleChange}/> Sepsis</label>
-        <label><input type="checkbox" name="hypothermia_environment" checked={formData.hypothermia_environment || false} onChange={handleChange}/> Environment</label>
-        <label><input type="checkbox" name="hypothermia_immaturity" checked={formData.hypothermia_immaturity || false} onChange={handleChange}/> Immaturity</label>
-        <label><input type="checkbox" name="hypothermia_ivh" checked={formData.hypothermia_ivh || false} onChange={handleChange}/> IVH</label>
-        <label><input type="checkbox" name="hypothermia_other" checked={formData.hypothermia_other || false} onChange={handleChange}/> Other</label>
-      </div>
-
-      {errors.hypothermia_etiology_group && (
-        <div className="error-text">{errors.hypothermia_etiology_group}</div>
+            {formData.hyperthermia_other && (
+              <div className="form-group" style={{marginTop: 12}}>
+                <label>Specify Other<span className="required">*</span></label>
+                <input
+                  name="hyperthermia_other_text"
+                  value={formData.hyperthermia_other_text || ""}
+                  onChange={handleChange} onBlur={handleBlur}
+                />
+                {touched.hyperthermia_other_text && errors.hyperthermia_other_text && <div className="error-text">{errors.hyperthermia_other_text}</div>}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      {formData.hypothermia_other && (
-        <div className="form-group">
-          <label>Specify Other <span className="required">*</span></label>
-          <input
-            name="hypothermia_other_text"
-            value={formData.hypothermia_other_text || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-          />
-          {errors.hypothermia_other_text && (
-            <div className="error-text">{errors.hypothermia_other_text}</div>
-          )}
-        </div>
-      )}
-    </div>
-  </>
-)}
-</div>
-  )}
-</div>
-{/* ================= HYPERTHERMIA ================= */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "hyper" ? null : "hyper")}
-  >
-    <span>Hyperthermia</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.hyperthermia)}`}>
-        <span className="icon">{getStatusIcon(formData.hyperthermia)}</span>
-        {getHyperSummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "hyper" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "hyper" && (
-    <div className="card-body">
-<h4 style={{ marginTop: "25px" }}>Hyperthermia (&gt;37.5°C)</h4>
-
-<div className="form-row">
-  <div className="form-group">
-    <YesNoToggle label="Hyperthermia" name="hyperthermia" value={formData.hyperthermia} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.hyperthermia && (
-      <div className="error-text">{errors.hyperthermia}</div>
-    )}
-  </div>
-
-  {formData.hyperthermia === "Yes" && (
-    <div className="form-group">
-      <label>Temperature (°C) <span className="required">*</span></label>
-      <input
-        type="number"
-        step="0.1"
-        min="35"
-        max="42"
-        name="hyperthermia_temp"
-        value={formData.hyperthermia_temp || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.hyperthermia_temp && (
-        <div className="error-text">{errors.hyperthermia_temp}</div>
-      )}
     </div>
   )}
 </div>
-
-{formData.hyperthermia === "Yes" && (
-  <>
-    {/* Location */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Location <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="hyperthermia_location_dr" checked={formData.hyperthermia_location_dr || false} onChange={handleChange}/> Delivery Room</label>
-        <label><input type="checkbox" name="hyperthermia_location_transport" checked={formData.hyperthermia_location_transport || false} onChange={handleChange}/> Transport</label>
-        <label><input type="checkbox" name="hyperthermia_location_nicu" checked={formData.hyperthermia_location_nicu || false} onChange={handleChange}/> NICU</label>
-      </div>
-
-      {errors.hyperthermia_location_group && (
-        <div className="error-text">{errors.hyperthermia_location_group}</div>
-      )}
-    </div>
-
-    {/* Etiology */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Etiology <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="hyperthermia_clothing" checked={formData.hyperthermia_clothing || false} onChange={handleChange}/> Clothing</label>
-        <label><input type="checkbox" name="hyperthermia_wrap" checked={formData.hyperthermia_wrap || false} onChange={handleChange}/> Wrap</label>
-        <label><input type="checkbox" name="hyperthermia_equipment" checked={formData.hyperthermia_equipment || false} onChange={handleChange}/> Equipment malfunction</label>
-        <label><input type="checkbox" name="hyperthermia_probe" checked={formData.hyperthermia_probe || false} onChange={handleChange}/> Probe accident</label>
-        <label><input type="checkbox" name="hyperthermia_other" checked={formData.hyperthermia_other || false} onChange={handleChange}/> Other</label>
-      </div>
-
-      {errors.hyperthermia_etiology_group && (
-        <div className="error-text">{errors.hyperthermia_etiology_group}</div>
-      )}
-
-      {formData.hyperthermia_other && (
-        <div className="form-group">
-          <label>Specify Other <span className="required">*</span></label>
-          <input
-            name="hyperthermia_other_text"
-            value={formData.hyperthermia_other_text || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-          />
-          {errors.hyperthermia_other_text && (
-            <div className="error-text">{errors.hyperthermia_other_text}</div>
-          )}
-        </div>
-      )}
-    </div>
-  </>
-)}
-
-</div> 
-  )}
-</div></div>
+</div>
 
 {/* ================= VASCULAR ACCESS ================= */}
 <div className="form-section soft-blue">
