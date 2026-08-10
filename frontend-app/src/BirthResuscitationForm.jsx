@@ -9,6 +9,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
@@ -507,6 +508,42 @@ export default function BirthResuscitationForm() {
     const randD = randomisationGA % 7;
     set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
   }, [formData.date_of_birth, formData.screening_datetime, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
+
+  /* ── Intrauterine growth centile (auto, INTERGROWTH-21st Very Preterm) ──
+     Uses GA at randomization (= GA at birth) + birth weight + gender against
+     the official INTERGROWTH-21st Very Preterm birthweight reference
+     (Villar et al. Lancet 2016) to auto-fill field 14. Only covers 24+0-32+6
+     weeks and Male/Female — outside that (later GA, or DSD) the field is
+     left for manual entry, since this specific chart doesn't apply.
+     Tracks the last value it auto-set so a nurse's own manual override is
+     never silently clobbered on a later re-render. */
+  const lastAutoCentileRef = useRef(null);
+  useEffect(() => {
+    const weeks = Number(formData.gestation_rand_weeks);
+    const days  = Number(formData.gestation_rand_days);
+    const weightKg = Number(formData.birth_weight) / 1000;
+    const result = classifyVeryPretermCentile(weightKg, weeks, days, formData.gender);
+    const current = formData.intrauterine_centile;
+    const wasUntouchedOrAuto = current === "" || current === lastAutoCentileRef.current;
+
+    if (!result) {
+      // FIX: out of chart range (or missing inputs) — previously this just
+      // returned and left whatever number was auto-filled earlier sitting
+      // in the field, which looks like a valid answer even though the GA
+      // has since moved outside 24+0-32+6 weeks (e.g. after correcting
+      // Date of Birth). Clear it, but only if it's a value WE auto-set —
+      // never touch something the nurse typed in manually.
+      if (wasUntouchedOrAuto && current !== "") set({ intrauterine_centile: "" });
+      lastAutoCentileRef.current = null;
+      return;
+    }
+
+    const autoValue = String(result.lowerPoint);
+    if (wasUntouchedOrAuto && current !== autoValue) {
+      set({ intrauterine_centile: autoValue });
+    }
+    lastAutoCentileRef.current = autoValue;
+  }, [formData.gestation_rand_weeks, formData.gestation_rand_days, formData.birth_weight, formData.gender]); // eslint-disable-line
 
   /* ── Strata — auto-derived from Gestation at Randomization ──
      Strata buckets exist purely to split the two eligible GA bands (24–27+6
@@ -1312,12 +1349,37 @@ export default function BirthResuscitationForm() {
 
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>14. Intrauterine Growth Status (centile)</label>
+                    <label>14. Intrauterine Growth Status (centile, auto)</label>
                     <input type="text" name="intrauterine_centile"
                       value={formData.intrauterine_centile||""}
                       inputMode="decimal" placeholder="0–100"
                       onChange={e=>{const v=e.target.value;if(/^\d{0,3}(\.\d{0,2})?$/.test(v)&&(v===""||Number(v)<=100))set({intrauterine_centile:v});}}
                       readOnly={!isFieldEditable}/>
+                    <div className="ig-centile-hint">
+                      {(() => {
+                        const weeks = Number(formData.gestation_rand_weeks);
+                        const days  = Number(formData.gestation_rand_days);
+                        const weightKg = Number(formData.birth_weight) / 1000;
+                        const r = classifyVeryPretermCentile(weightKg, weeks, days, formData.gender);
+                        if (r) {
+                          const cols = ["3rd","5th","10th","50th","90th","95th","97th"];
+                          return (
+                            <>
+                              <div>Auto (INTERGROWTH-21st Very Preterm) — {r.label}</div>
+                              <div className="ig-centile-ref-row">
+                                {cols.map((c, i) => (
+                                  <span key={c} className="ig-centile-ref-cell">
+                                    <span className="ig-centile-ref-label">{c}</span>
+                                    <span className="ig-centile-ref-value">{r.row[i].toFixed(2)}kg</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        }
+                        return "Auto-fills once GA at randomization, birth weight and gender (Male/Female) are entered — covers 24+0–32+6 weeks only";
+                      })()}
+                    </div>
                   </div>
                   <div className="form-group">
                     <label>15. Delivery Mode{requiredMark}</label>

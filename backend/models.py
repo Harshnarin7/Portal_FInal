@@ -804,10 +804,19 @@ class NeonatalMorbidities(Base):
     pda_bounding_pulse = Column(Boolean)
     pda_clinical = Column(Boolean)
     pda_courses = Column(Integer)
+    # New (item 130): cumulative dose (mg/kg) for the medical Rx agent —
+    # no field for this existed.
+    pda_cumulative_dose = Column(Float)
     pda_echo = Column(Boolean)
     pda_hyperactive_precordium = Column(Boolean)
     pda_ibu = Column(Boolean)
     pda_indo = Column(Boolean)
+    # New (item 131): "Intervention Rx" as a single Ligation/Device
+    # closure/None choice — replaces the old pda_ligation boolean, which
+    # is left in place untouched (not deleted) to avoid any data loss.
+    pda_intervention_rx = Column(String)
+    # New (item 133): age at device closure, if that was the intervention.
+    pda_device_closure_age = Column(Integer)
     pda_la_ao = Column(Float)
     pda_ligation_age = Column(Integer)
     pda_lpa_velocity = Column(Float)

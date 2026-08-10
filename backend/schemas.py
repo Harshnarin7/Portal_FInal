@@ -1224,10 +1224,13 @@ class NeonatalMorbiditiesCreate(BaseModel):
     pda_bounding_pulse: Optional[bool] = None
     pda_clinical: Optional[bool] = None
     pda_courses: Optional[int] = None
+    pda_cumulative_dose: Optional[float] = None
     pda_echo: Optional[bool] = None
     pda_hyperactive_precordium: Optional[bool] = None
     pda_ibu: Optional[bool] = None
     pda_indo: Optional[bool] = None
+    pda_intervention_rx: Optional[str] = None
+    pda_device_closure_age: Optional[int] = None
     pda_la_ao: Optional[float] = None
     pda_ligation_age: Optional[int] = None
     pda_lpa_velocity: Optional[float] = None

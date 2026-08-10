@@ -2193,9 +2193,16 @@ const validatePDA = (name, value, updatedForm = formData) => {
       }
       break;
 
-    // ---------------- LIGATION ----------------
+    // ---------------- INTERVENTION RX ----------------
     case "pda_ligation_age":
-      if (updatedForm.pda_ligation === "Yes") {
+      if (updatedForm.pda_intervention_rx === "Ligation") {
+        if (!value) error = "Required";
+        else if (!isNumber(value) || value > 120) error = "0–120 days";
+      }
+      break;
+
+    case "pda_device_closure_age":
+      if (updatedForm.pda_intervention_rx === "Device closure") {
         if (!value) error = "Required";
         else if (!isNumber(value) || value > 120) error = "0–120 days";
       }
@@ -3431,7 +3438,8 @@ const getPDASummary = () => {
 
   // treatment
   if (formData.pda_medical_rx === "Yes") summary += " • Medical";
-  if (formData.pda_ligation === "Yes") summary += " • Ligation";
+  if (formData.pda_intervention_rx === "Ligation") summary += " • Ligation";
+  if (formData.pda_intervention_rx === "Device closure") summary += " • Device closure";
 
   return summary;
 };
@@ -6362,7 +6370,7 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.structural_heart_disease === "Yes" && (
           <div className="form-group">
-            <label>Specify <span className="required">*</span></label>
+            <label><span className="field-num">116.</span> If yes, specify <span className="required">*</span></label>
             <input
               name="structural_heart_disease_detail"
               value={formData.structural_heart_disease_detail || ""}
@@ -6403,7 +6411,7 @@ const peripheralStatus= getPeripheralStatus();
 
   {/* HS-PDA */}
   <div className="form-group">
-    <YesNoToggle label="HS-PDA" name="hs_pda" value={formData.hs_pda} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="117. HS-PDA" name="hs_pda" value={formData.hs_pda} onChange={handleChange} onBlur={handleBlur} required />
 
     {errors.hs_pda && (
       <div className="error-text">{errors.hs_pda}</div>
@@ -6415,7 +6423,7 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- DIAGNOSIS ---------------- */}
       <div className="adverse-title">
-        Diagnosed by <span className="required">*</span>
+        118. If 'Yes', diagnosed by <span className="required">*</span>
       </div>
 
       <div className="pn-checkbox-grid">
@@ -6452,7 +6460,6 @@ const peripheralStatus= getPeripheralStatus();
 
       </div>
 
-      {/* ✅ GROUP ERROR */}
       {errors.pda_diagnosis_group && (
         <div className="error-text">{errors.pda_diagnosis_group}</div>
       )}
@@ -6460,7 +6467,7 @@ const peripheralStatus= getPeripheralStatus();
       {/* ---------------- CLINICAL FEATURES ---------------- */}
       {formData.pda_clinical && (
         <>
-          <div className="adverse-title">Clinical Features</div>
+          <div className="adverse-title">119. If 'Clinical', features</div>
 
           <div className="pn-checkbox-grid">
 
@@ -6486,14 +6493,14 @@ const peripheralStatus= getPeripheralStatus();
 
             <label className="checkbox-item">
               <input type="checkbox" name="pda_other_feature" checked={formData.pda_other_feature || false} onChange={handleChange}/>
-              Other
+              Others
             </label>
 
           </div>
 
           {formData.pda_other_feature && (
             <div className="form-group">
-              <label>Specify Other <span className="required">*</span></label>
+              <label>Specify Others <span className="required">*</span></label>
 
               <input
                 name="pda_other_feature_text"
@@ -6513,12 +6520,12 @@ const peripheralStatus= getPeripheralStatus();
       {/* ---------------- ECHO ---------------- */}
       {formData.pda_echo && (
         <>
-          <div className="adverse-title">Echo Details</div>
+          <div className="adverse-title">120. If 'Echo'</div>
 
           <div className="form-row">
 
             <div className="form-group">
-              <label>TDD</label>
+              <label>TDD (mm)</label>
               <input
                 type="number"
                 name="pda_tdd"
@@ -6532,7 +6539,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
 
             <div className="form-group">
-              <label><span className="field-num">192.</span> Ductal peak velocity</label>
+              <label><span className="field-num">121.</span> Ductal peak velocity (m/sec)</label>
               <input
                 type="number"
                 step="0.1"
@@ -6550,14 +6557,14 @@ const peripheralStatus= getPeripheralStatus();
 
           {/* Pattern */}
           <div className="adverse-title">
-            Pattern <span className="required">*</span>
+            122. Pattern <span className="required">*</span>
           </div>
 
           <div className="pn-checkbox-grid">
 
             <label><input type="checkbox" name="pda_pattern_growing" checked={formData.pda_pattern_growing || false} onChange={handleChange}/> Growing</label>
             <label><input type="checkbox" name="pda_pattern_pulsatile" checked={formData.pda_pattern_pulsatile || false} onChange={handleChange}/> Pulsatile</label>
-            <label><input type="checkbox" name="pda_pattern_none" checked={formData.pda_pattern_none || false} onChange={handleChange}/> None</label>
+            <label><input type="checkbox" name="pda_pattern_none" checked={formData.pda_pattern_none || false} onChange={handleChange}/> Closing</label>
 
           </div>
 
@@ -6568,7 +6575,7 @@ const peripheralStatus= getPeripheralStatus();
           <div className="form-row">
 
             <div className="form-group">
-              <label><span className="field-num">194.</span> Shunt across PDA <span className="required">*</span></label>
+              <label><span className="field-num">123.</span> Shunt across PDA <span className="required">*</span></label>
               <select
                 name="pda_shunt"
                 value={formData.pda_shunt || ""}
@@ -6587,7 +6594,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
 
             <div className="form-group">
-              <label>LA : Ao</label>
+              <label><span className="field-num">124.</span> LA : Ao</label>
               <input
                 type="number"
                 step="0.1"
@@ -6606,11 +6613,11 @@ const peripheralStatus= getPeripheralStatus();
           <div className="form-row">
 
             <div className="form-group">
-              <YesNoToggle label="196. Systemic steal" name="pda_systemic_steal" value={formData.pda_systemic_steal} onChange={handleChange} />
+              <YesNoToggle label="125. Systemic steal" name="pda_systemic_steal" value={formData.pda_systemic_steal} onChange={handleChange} />
             </div>
 
             <div className="form-group">
-              <label><span className="field-num">197.</span> LPA velocity</label>
+              <label><span className="field-num">126.</span> LPA doppler velocity (cm/s) <span className="field-hint">end-diastolic velocity</span></label>
               <input
                 type="number"
                 name="pda_lpa_velocity"
@@ -6629,13 +6636,13 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- MEDICAL ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="Medical Rx" name="pda_medical_rx" value={formData.pda_medical_rx} onChange={handleChange} />
+        <YesNoToggle label="127. Medical Rx" name="pda_medical_rx" value={formData.pda_medical_rx} onChange={handleChange} />
       </div>
 
       {formData.pda_medical_rx === "Yes" && (
         <>
           <div className="adverse-title">
-            Agent <span className="required">*</span>
+            128. Agent <span className="required">*</span>
           </div>
 
           <div className="pn-checkbox-grid">
@@ -6648,33 +6655,67 @@ const peripheralStatus= getPeripheralStatus();
             <div className="error-text">{errors.pda_medical_group}</div>
           )}
 
-          <div className="form-group">
-            <label>Courses</label>
-            <input
-              type="number"
-              name="pda_courses"
-              value={formData.pda_courses || ""}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              min="0"
-              max="10"
-            />
-            {errors.pda_courses && <div className="error-text">{errors.pda_courses}</div>}
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">129.</span> Courses</label>
+              <select
+                name="pda_courses"
+                value={formData.pda_courses || ""}
+                onChange={handleChange}
+                onBlur={handleBlur}
+              >
+                <option value="">-- Select --</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+              {errors.pda_courses && <div className="error-text">{errors.pda_courses}</div>}
+            </div>
+
+            <div className="form-group">
+              <label><span className="field-num">130.</span> Cumulative Dose (mg/kg)</label>
+              <input
+                type="number"
+                step="0.1"
+                name="pda_cumulative_dose"
+                value={formData.pda_cumulative_dose || ""}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                min="0"
+                max="100"
+              />
+              {errors.pda_cumulative_dose && <div className="error-text">{errors.pda_cumulative_dose}</div>}
+            </div>
           </div>
         </>
       )}
 
-      {/* ---------------- LIGATION ---------------- */}
+      {/* ---------------- INTERVENTION RX ---------------- */}
+      <div className="form-group">
+        <label><span className="field-num">131.</span> Intervention Rx</label>
+        <select
+          name="pda_intervention_rx"
+          value={formData.pda_intervention_rx || ""}
+          onChange={handleChange}
+          onBlur={handleBlur}
+        >
+          <option value="">-- Select --</option>
+          <option value="Ligation">Ligation</option>
+          <option value="Device closure">Device closure</option>
+          <option value="None">None</option>
+        </select>
+        {errors.pda_intervention_rx && (
+          <div className="error-text">{errors.pda_intervention_rx}</div>
+        )}
+      </div>
+
       <div className="form-row">
 
-        <div className="form-group">
-          <YesNoToggle label="Ligation" name="pda_ligation" value={formData.pda_ligation} onChange={handleChange} />
-        </div>
-
-        {formData.pda_ligation === "Yes" && (
+        {formData.pda_intervention_rx === "Ligation" && (
           <div className="form-group">
             <label>
-              Age (days) <span className="required">*</span>
+              <span className="field-num">132.</span> If Ligation, Age (days) <span className="required">*</span>
             </label>
 
             <input
@@ -6689,6 +6730,28 @@ const peripheralStatus= getPeripheralStatus();
 
             {errors.pda_ligation_age && (
               <div className="error-text">{errors.pda_ligation_age}</div>
+            )}
+          </div>
+        )}
+
+        {formData.pda_intervention_rx === "Device closure" && (
+          <div className="form-group">
+            <label>
+              <span className="field-num">133.</span> If Device closure, Age (days) <span className="required">*</span>
+            </label>
+
+            <input
+              type="number"
+              name="pda_device_closure_age"
+              value={formData.pda_device_closure_age || ""}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              min="0"
+              max="120"
+            />
+
+            {errors.pda_device_closure_age && (
+              <div className="error-text">{errors.pda_device_closure_age}</div>
             )}
           </div>
         )}
@@ -6730,13 +6793,13 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* Shock */}
     <div className="form-group">
-      <YesNoToggle label="Shock" name="shock" value={formData.shock} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="134. Shock" name="shock" value={formData.shock} onChange={handleChange} onBlur={handleBlur} required />
       {errors.shock && <div className="error-text">{errors.shock}</div>}
     </div>
 
     {/* Hypotension */}
     <div className="form-group">
-      <YesNoToggle label="Hypotension" name="hypotension" value={formData.hypotension} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="135. Hypotension" name="hypotension" value={formData.hypotension} onChange={handleChange} onBlur={handleBlur} required />
       {errors.hypotension && (
         <div className="error-text">{errors.hypotension}</div>
       )}
@@ -6748,7 +6811,7 @@ const peripheralStatus= getPeripheralStatus();
   {formData.hypotension === "Yes" && (
     <>
       <div className="adverse-title">
-        Hypotension Type <span className="required">*</span>
+        If 'Hypotension', type <span className="required">*</span>
       </div>
 
       <div className="pn-checkbox-grid">
@@ -6785,7 +6848,6 @@ const peripheralStatus= getPeripheralStatus();
 
       </div>
 
-      {/* ✅ GROUP ERROR */}
       {errors.hypotension_group && (
         <div className="error-text">{errors.hypotension_group}</div>
       )}
@@ -6795,13 +6857,13 @@ const peripheralStatus= getPeripheralStatus();
   {/* BP Values */}
   <div style={{ marginTop: "20px" }}>
     <div className="adverse-title">
-      Record the lowest BP during hospital course
+      Record the lowest BP throughout the hospital stay
     </div>
 
     <div className="form-row">
 
       <div className="form-group">
-        <label><span className="field-num">207.</span> SBP (mmHg)</label>
+        <label><span className="field-num">136.</span> SBP (mmHg)</label>
         <input
           type="number"
           name="sbp"
@@ -6815,7 +6877,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">208.</span> DBP (mmHg)</label>
+        <label><span className="field-num">137.</span> DBP (mmHg)</label>
         <input
           type="number"
           name="dbp"
@@ -6829,7 +6891,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">209.</span> MAP (mmHg)</label>
+        <label><span className="field-num">138.</span> MAP (mmHg)</label>
         <input
           type="number"
           name="map"
@@ -6849,7 +6911,7 @@ const peripheralStatus= getPeripheralStatus();
   <div className="form-row">
 
     <div className="form-group">
-      <YesNoToggle label="210. Required Fluid Bolus" name="fluid_bolus" value={formData.fluid_bolus} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="139. Required fluid bolus" name="fluid_bolus" value={formData.fluid_bolus} onChange={handleChange} onBlur={handleBlur} required />
       {errors.fluid_bolus && (
         <div className="error-text">{errors.fluid_bolus}</div>
       )}
@@ -6857,7 +6919,7 @@ const peripheralStatus= getPeripheralStatus();
 
     {formData.fluid_bolus === "Yes" && (
       <div className="form-group">
-        <label>No. of Boluses <span className="required">*</span></label>
+        <label><span className="field-num">140.</span> No. of courses <span className="required">*</span></label>
         <input
           type="number"
           name="fluid_bolus_number"
@@ -6875,9 +6937,9 @@ const peripheralStatus= getPeripheralStatus();
 
   </div>
 
-  {/* Inotropes */}
+  {/* Vasoactives */}
   <div className="form-group">
-    <YesNoToggle label="Inotropes Required" name="inotropes" value={formData.inotropes} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="141. Vasoactives required" name="inotropes" value={formData.inotropes} onChange={handleChange} onBlur={handleBlur} required />
     {errors.inotropes && (
       <div className="error-text">{errors.inotropes}</div>
     )}
@@ -6886,7 +6948,7 @@ const peripheralStatus= getPeripheralStatus();
   {formData.inotropes === "Yes" && (
     <>
       <div className="adverse-title">
-        Inotrope Agents <span className="required">*</span>
+        142. If yes (select all that apply) <span className="required">*</span>
       </div>
 
       <div className="pn-checkbox-grid">
@@ -6900,7 +6962,6 @@ const peripheralStatus= getPeripheralStatus();
 
       </div>
 
-      {/* ✅ GROUP ERROR */}
       {errors.inotrope_group && (
         <div className="error-text">{errors.inotrope_group}</div>
       )}
@@ -6909,7 +6970,7 @@ const peripheralStatus= getPeripheralStatus();
         <div className="form-row">
 
           <div className="form-group">
-            <label>Duration (days) <span className="required">*</span></label>
+            <label><span className="field-num">143.</span> Duration (days) <span className="required">*</span></label>
             <input
               type="number"
               name="inotrope_duration"
@@ -6925,7 +6986,7 @@ const peripheralStatus= getPeripheralStatus();
           </div>
 
           <div className="form-group">
-            <label><span className="field-num">71.</span> VIS Score <span className="required">*</span></label>
+            <label><span className="field-num">144.</span> VIS score <span className="required">*</span></label>
             <input
               type="number"
               name="vis_score"
@@ -6947,7 +7008,7 @@ const peripheralStatus= getPeripheralStatus();
 
   {/* Hydrocortisone */}
   <div className="form-group">
-    <YesNoToggle label="Hydrocortisone for BP" name="hydrocortisone_bp" value={formData.hydrocortisone_bp} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="145. Hydrocortisone for BP" name="hydrocortisone_bp" value={formData.hydrocortisone_bp} onChange={handleChange} onBlur={handleBlur} required />
     {errors.hydrocortisone_bp && (
       <div className="error-text">{errors.hydrocortisone_bp}</div>
     )}
@@ -6956,18 +7017,17 @@ const peripheralStatus= getPeripheralStatus();
   {formData.hydrocortisone_bp === "Yes" && (
     <>
       <div className="adverse-title">
-        Timing <span className="required">*</span>
+        146. If 'Yes', timing <span className="required">*</span>
       </div>
 
       <div className="pn-checkbox-grid">
 
-        <label><input type="checkbox" name="hc_first_drug" checked={formData.hc_first_drug || false} onChange={handleChange}/> First drug</label>
-        <label><input type="checkbox" name="hc_after_first" checked={formData.hc_after_first || false} onChange={handleChange}/> After first</label>
-        <label><input type="checkbox" name="hc_after_second" checked={formData.hc_after_second || false} onChange={handleChange}/> After second</label>
+        <label><input type="checkbox" name="hc_first_drug" checked={formData.hc_first_drug || false} onChange={handleChange}/> Started as first drug</label>
+        <label><input type="checkbox" name="hc_after_first" checked={formData.hc_after_first || false} onChange={handleChange}/> After first vasoactive</label>
+        <label><input type="checkbox" name="hc_after_second" checked={formData.hc_after_second || false} onChange={handleChange}/> After second vasoactive</label>
 
       </div>
 
-      {/* ✅ GROUP ERROR */}
       {errors.hc_group && (
         <div className="error-text">{errors.hc_group}</div>
       )}
@@ -6978,7 +7038,8 @@ const peripheralStatus= getPeripheralStatus();
 
 </div>
   )}
-</div></div>
+</div>
+</div>
 
 {/* ================= HEMATOLOGY ================= */}
 <div className="form-section soft-blue">
