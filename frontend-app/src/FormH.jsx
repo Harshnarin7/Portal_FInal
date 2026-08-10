@@ -192,6 +192,14 @@ hypercalcemia: false,
 hypercalcemia_status: "",
 hypercalcemia_symptoms: "",
 
+// ---------------- OPHTHALMOLOGY / ROP (H8.1) — added fields ----------------
+rop_method: "",
+rop_side: "",
+rop_stage_right: "", rop_plus_right: "", rop_zone_right: "", rop_arop_right: "", rop_treatment_right: "",
+rop_laser_right: false, rop_anti_vegf_right: false, rop_vitrectomy_right: false, rop_other_right: false, rop_other_text_right: "",
+rop_stage_left: "", rop_plus_left: "", rop_zone_left: "", rop_arop_left: "", rop_treatment_left: "",
+rop_laser_left: false, rop_anti_vegf_left: false, rop_vitrectomy_left: false, rop_other_left: false, rop_other_text_left: "",
+
   });
 
   
@@ -262,21 +270,11 @@ if (name === "aki_peak_creatinine") {
   validateROP(name, val, updatedForm);
 
 // group validations
-if (name.startsWith("rop_method_")) {
-  validateROP("rop_method_group", val, updatedForm);
+if (name.startsWith("rop_") && (name.includes("laser") || name.includes("vegf") || name.includes("vitrectomy") || name.includes("other")) && name.endsWith("_right")) {
+  validateROP("rop_treatment_type_right_group", val, updatedForm);
 }
-
-if (name.startsWith("rop_stage")) {
-  validateROP("rop_stage_group", val, updatedForm);
-}
-
-if (name.startsWith("rop_zone")) {
-  validateROP("rop_zone_group", val, updatedForm);
-}
-
-if (name.startsWith("rop_") && 
-   (name.includes("laser") || name.includes("vegf") || name.includes("vitrectomy") || name.includes("other"))) {
-  validateROP("rop_treatment_group", val, updatedForm);
+if (name.startsWith("rop_") && (name.includes("laser") || name.includes("vegf") || name.includes("vitrectomy") || name.includes("other")) && name.endsWith("_left")) {
+  validateROP("rop_treatment_type_left_group", val, updatedForm);
 }
   validateNEC(name, val, updatedForm);
 
@@ -378,20 +376,11 @@ validateJaundice(name, val, updatedForm);
   }
 
   // ROP groups
-  if (name.startsWith("rop_method_")) {
-    validateROP("rop_method_group", val, updatedForm);
+  if (name.startsWith("rop_") && (name.includes("laser") || name.includes("vegf") || name.includes("vitrectomy") || name.includes("other")) && name.endsWith("_right")) {
+    validateROP("rop_treatment_type_right_group", val, updatedForm);
   }
-
-  if (name.startsWith("rop_stage")) {
-    validateROP("rop_stage_group", val, updatedForm);
-  }
-
-  if (name.startsWith("rop_zone")) {
-    validateROP("rop_zone_group", val, updatedForm);
-  }
-
-  if (name.startsWith("rop_") && name.includes("other")) {
-    validateROP("rop_treatment_group", val, updatedForm);
+  if (name.startsWith("rop_") && (name.includes("laser") || name.includes("vegf") || name.includes("vitrectomy") || name.includes("other")) && name.endsWith("_left")) {
+    validateROP("rop_treatment_type_left_group", val, updatedForm);
   }
 
   // Temp groups
@@ -530,11 +519,26 @@ useEffect(() => {
           const ivh_age_days_right = existing.ivh_age_days_right ?? (side === "Right" ? existing.ivh_age_days : null) ?? "";
           const ivh_age_days_left  = existing.ivh_age_days_left  ?? (side === "Left"  ? existing.ivh_age_days : null) ?? "";
 
+          // Backward-compat: Method (#180) used to be two checkboxes
+          // (IDO / RETCAM) rather than free text. Those old columns are
+          // preserved untouched in the DB; if a record has them set but no
+          // rop_method text yet, pre-fill the text field from them so the
+          // information is still visible under the new field instead of
+          // silently disappearing.
+          let rop_method = existing.rop_method || "";
+          if (!rop_method) {
+            const legacyMethods = [];
+            if (existing.rop_method_ido) legacyMethods.push("IDO");
+            if (existing.rop_method_retcam) legacyMethods.push("RETCAM");
+            if (legacyMethods.length) rop_method = legacyMethods.join(", ");
+          }
+
           return {
             ...prev,
             ...existing,
             ivh_side: side, ivh_grade_right, ivh_grade_left, ivh_date_right, ivh_date_left,
             ivh_age_days_right, ivh_age_days_left,
+            rop_method,
             // map backend booleans back to the Yes/No selects the UI uses
             ivh_present: existing.ivh === true ? "Yes" : existing.ivh === false ? "No" : prev.ivh_present,
             pvl_present: existing.pvl === true ? "Yes" : existing.pvl === false ? "No" : prev.pvl_present,
@@ -1888,94 +1892,144 @@ const validateROP = (name, value, updatedForm = formData) => {
       if (!value) error = "Required";
       break;
 
-    // ---------------- SCREENING ----------------
+    // ---------------- SCREENING (180-181) ----------------
+    case "rop_method":
+      if (updatedForm.rop_screened === "Yes" && !value) {
+        error = "Required";
+      }
+      break;
+
     case "rop_first_screen_date":
       if (updatedForm.rop_screened === "Yes" && !value) {
         error = "Required";
       }
       break;
 
-    case "rop_method_group":
-      if (updatedForm.rop_screened === "Yes") {
-        const any =
-          updatedForm.rop_method_ido ||
-          updatedForm.rop_method_retcam;
-
-        if (!any) error = "Select at least one method";
-      }
-      break;
-
-    // ---------------- DIAGNOSIS ----------------
+    // ---------------- DIAGNOSIS (183-184) ----------------
     case "rop_diagnosis_date":
       if (updatedForm.rop === "Yes" && !value) {
         error = "Required";
       }
       break;
 
-    case "rop_stage_group":
-      if (updatedForm.rop === "Yes") {
-        const any =
-          updatedForm.rop_stage1 ||
-          updatedForm.rop_stage2 ||
-          updatedForm.rop_stage3 ||
-          updatedForm.rop_stage4 ||
-          updatedForm.rop_stage5;
-
-        if (!any) error = "Select at least one stage";
-      }
-      break;
-
-    case "rop_plus":
+    case "rop_side":
       if (updatedForm.rop === "Yes" && !value) {
         error = "Required";
       }
       break;
 
-    case "rop_zone_group":
-      if (updatedForm.rop === "Yes") {
+    // ---------------- RIGHT EYE (185-190) ----------------
+    case "rop_stage_right":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Right" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_plus_right":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Right" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_zone_right":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Right" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_arop_right":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Right" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_treatment_right":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Right" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_treatment_type_right_group":
+      if (updatedForm.rop_treatment_right === "Yes") {
         const any =
-          updatedForm.rop_zone1 ||
-          updatedForm.rop_zone2 ||
-          updatedForm.rop_zone3;
-
-        if (!any) error = "Select at least one zone";
+          updatedForm.rop_laser_right ||
+          updatedForm.rop_anti_vegf_right ||
+          updatedForm.rop_vitrectomy_right ||
+          updatedForm.rop_other_right;
+        if (!any) error = "Select at least one treatment type";
       }
       break;
 
-    case "rop_treatment":
-      if (updatedForm.rop === "Yes" && !value) {
+    case "rop_other_text_right":
+      if (updatedForm.rop_other_right && !value) {
         error = "Required";
       }
       break;
 
-    // ---------------- TREATMENT ----------------
-    case "rop_treatment_group":
-      if (updatedForm.rop_treatment === "Yes") {
+    // ---------------- LEFT EYE (191-196) ----------------
+    case "rop_stage_left":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Left" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_plus_left":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Left" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_zone_left":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Left" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_arop_left":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Left" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_treatment_left":
+      if (updatedForm.rop === "Yes"
+        && (updatedForm.rop_side === "Left" || updatedForm.rop_side === "Bilateral")
+        && !value) {
+        error = "Required";
+      }
+      break;
+
+    case "rop_treatment_type_left_group":
+      if (updatedForm.rop_treatment_left === "Yes") {
         const any =
-          updatedForm.rop_laser ||
-          updatedForm.rop_anti_vegf ||
-          updatedForm.rop_vitrectomy ||
-          updatedForm.rop_other;
-
-        if (!any) error = "Select at least one treatment";
+          updatedForm.rop_laser_left ||
+          updatedForm.rop_anti_vegf_left ||
+          updatedForm.rop_vitrectomy_left ||
+          updatedForm.rop_other_left;
+        if (!any) error = "Select at least one treatment type";
       }
       break;
 
-    case "rop_other_text":
-      if (updatedForm.rop_other && !value) {
-        error = "Required";
-      }
-      break;
-
-    // ---------------- BILATERAL ----------------
-    case "rop_bilateral":
-      if (updatedForm.rop === "Yes" && !value) {
-        error = "Required";
-      }
-      break;
-
-    case "rop_comment":
-      if (updatedForm.rop_bilateral === "Yes" && !value) {
+    case "rop_other_text_left":
+      if (updatedForm.rop_other_left && !value) {
         error = "Required";
       }
       break;
@@ -1984,13 +2038,13 @@ const validateROP = (name, value, updatedForm = formData) => {
       break;
   }
 
+  // NOTE: this used to unconditionally overwrite every rop_*_group error
+  // with whatever field was JUST validated (the same bug fixed in
+  // validateMetabolic's dyselectro_group). Only touch the field actually
+  // being validated.
   setErrors(prev => ({
     ...prev,
     [name]: error,
-    rop_method_group: error,
-    rop_stage_group: error,
-    rop_zone_group: error,
-    rop_treatment_group: error
   }));
 };
 
@@ -2513,36 +2567,6 @@ useEffect(() => {
     }));
   }
 }, [formData.ffp_cryo]);
-useEffect(() => {
-  if (formData.rop_screened === "No") {
-    setFormData(prev => ({
-      ...prev,
-      rop_first_screen_date: "",
-      rop_method_ido: false,
-      rop_method_retcam: false
-    }));
-  }
-}, [formData.rop_screened]);
-
-useEffect(() => {
-  if (formData.rop === "No") {
-    setFormData(prev => ({
-      ...prev,
-      rop_diagnosis_date: "",
-      rop_stage1: false,
-      rop_stage2: false,
-      rop_stage3: false,
-      rop_stage4: false,
-      rop_stage5: false,
-      rop_zone1: false,
-      rop_zone2: false,
-      rop_zone3: false,
-      rop_treatment: "",
-      rop_bilateral: "",
-      rop_comment: ""
-    }));
-  }
-}, [formData.rop]);
 
 useEffect(() => {
   if (formData.nec === "No") {
@@ -2774,6 +2798,81 @@ useEffect(() => {
     setFormData(prev => ({ ...prev, hyperthermia_other_text: "" }));
   }
 }, [formData.hyperthermia_other]);
+
+// ---------------- OPHTHALMOLOGY / ROP (H8.1, fields 179-196) ----------------
+// Right/Left eye data is now captured independently (like IVH's H1.1
+// Right/Left split). Toggling the top-level answers to "No", or changing
+// Side away from a given eye, previously left that eye's stage/plus/zone/
+// treatment data sitting in formData and getting submitted regardless —
+// clear it the same way the other H-sections do.
+useEffect(() => {
+  if (formData.rop_screened === "No") {
+    setFormData(prev => ({ ...prev, rop_method: "", rop_first_screen_date: "" }));
+  }
+}, [formData.rop_screened]);
+
+useEffect(() => {
+  if (formData.rop === "No") {
+    setFormData(prev => ({
+      ...prev,
+      rop_diagnosis_date: "", rop_side: "",
+      rop_stage_right: "", rop_plus_right: "", rop_zone_right: "", rop_arop_right: "", rop_treatment_right: "",
+      rop_laser_right: false, rop_anti_vegf_right: false, rop_vitrectomy_right: false, rop_other_right: false, rop_other_text_right: "",
+      rop_stage_left: "", rop_plus_left: "", rop_zone_left: "", rop_arop_left: "", rop_treatment_left: "",
+      rop_laser_left: false, rop_anti_vegf_left: false, rop_vitrectomy_left: false, rop_other_left: false, rop_other_text_left: "",
+    }));
+  }
+}, [formData.rop]);
+
+useEffect(() => {
+  if (formData.rop_side !== "Right" && formData.rop_side !== "Bilateral") {
+    setFormData(prev => ({
+      ...prev,
+      rop_stage_right: "", rop_plus_right: "", rop_zone_right: "", rop_arop_right: "", rop_treatment_right: "",
+      rop_laser_right: false, rop_anti_vegf_right: false, rop_vitrectomy_right: false, rop_other_right: false, rop_other_text_right: "",
+    }));
+  }
+}, [formData.rop_side]);
+
+useEffect(() => {
+  if (formData.rop_side !== "Left" && formData.rop_side !== "Bilateral") {
+    setFormData(prev => ({
+      ...prev,
+      rop_stage_left: "", rop_plus_left: "", rop_zone_left: "", rop_arop_left: "", rop_treatment_left: "",
+      rop_laser_left: false, rop_anti_vegf_left: false, rop_vitrectomy_left: false, rop_other_left: false, rop_other_text_left: "",
+    }));
+  }
+}, [formData.rop_side]);
+
+useEffect(() => {
+  if (formData.rop_treatment_right === "No") {
+    setFormData(prev => ({
+      ...prev,
+      rop_laser_right: false, rop_anti_vegf_right: false, rop_vitrectomy_right: false, rop_other_right: false, rop_other_text_right: "",
+    }));
+  }
+}, [formData.rop_treatment_right]);
+
+useEffect(() => {
+  if (!formData.rop_other_right) {
+    setFormData(prev => ({ ...prev, rop_other_text_right: "" }));
+  }
+}, [formData.rop_other_right]);
+
+useEffect(() => {
+  if (formData.rop_treatment_left === "No") {
+    setFormData(prev => ({
+      ...prev,
+      rop_laser_left: false, rop_anti_vegf_left: false, rop_vitrectomy_left: false, rop_other_left: false, rop_other_text_left: "",
+    }));
+  }
+}, [formData.rop_treatment_left]);
+
+useEffect(() => {
+  if (!formData.rop_other_left) {
+    setFormData(prev => ({ ...prev, rop_other_text_left: "" }));
+  }
+}, [formData.rop_other_left]);
 
 useEffect(() => {
   if (formData.non_ivh_ich === "No") {
@@ -3809,32 +3908,30 @@ const getROPSummary = () => {
 
   if (formData.rop === "No") return "No ROP";
 
-  // ROP YES
-  let parts = ["ROP"];
+  // ROP YES — summarise whichever eye(s) apply
+  const eyeSummary = (side) => {
+    const stage = formData[`rop_stage_${side}`];
+    const plus = formData[`rop_plus_${side}`];
+    const zone = formData[`rop_zone_${side}`];
+    if (!stage && plus !== "Yes" && !zone) return null;
+    const bits = [];
+    if (stage) bits.push(`Stage ${stage}`);
+    if (plus === "Yes") bits.push("+");
+    if (zone) bits.push(`Zone ${zone}`);
+    return bits.join(" ");
+  };
 
-  // Stage
-  if (formData.rop_stage3) parts.push("Stage 3");
-  else if (formData.rop_stage2) parts.push("Stage 2");
-  else if (formData.rop_stage1) parts.push("Stage 1");
-  else if (formData.rop_stage4) parts.push("Stage 4");
-  else if (formData.rop_stage5) parts.push("Stage 5");
-
-  // Plus disease
-  if (formData.rop_plus === "Yes") parts.push("+");
-
-  // Zone
-  if (formData.rop_zone1) parts.push("Zone I");
-  else if (formData.rop_zone2) parts.push("Zone II");
-  else if (formData.rop_zone3) parts.push("Zone III");
-
-  // Treatment
-  if (formData.rop_treatment === "Yes") {
-    if (formData.rop_laser) parts.push("Laser");
-    if (formData.rop_anti_vegf) parts.push("Anti-VEGF");
-    if (formData.rop_vitrectomy) parts.push("Surgery");
+  const parts = ["ROP"];
+  if (formData.rop_side === "Right" || formData.rop_side === "Bilateral") {
+    const r = eyeSummary("right");
+    if (r) parts.push(`R: ${r}`);
+  }
+  if (formData.rop_side === "Left" || formData.rop_side === "Bilateral") {
+    const l = eyeSummary("left");
+    if (l) parts.push(`L: ${l}`);
   }
 
-  return parts.join(" • ");
+  return parts.length > 1 ? parts.join(" • ") : "ROP";
 };
 
 const getAKISummary = () => {
@@ -7751,241 +7848,236 @@ const peripheralStatus= getPeripheralStatus();
 
         {getROPSummary()}
       </span>
-</div>
-      <span className="arrow">
-        {openSection === "rop" ? "▲" : "▼"}
-      </span>
-    
+    </div>
+    <span className="arrow">
+      {openSection === "rop" ? "▲" : "▼"}
+    </span>
   </div>
 
   {openSection === "rop" && (
     <div className="card-body">
 
-<h4>Retinopathy of Prematurity (ROP)</h4>
-
-{/* ---------------- SCREENING ---------------- */}
-<div className="form-row">
-
-  <div className="form-group">
-    <YesNoToggle label="Screened" name="rop_screened" value={formData.rop_screened} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.rop_screened && (
-      <div className="error-text">{errors.rop_screened}</div>
-    )}
-  </div>
-
-  {formData.rop_screened === "Yes" && (
-    <div className="form-group">
-      <label><span className="field-num">109.</span> Date of First Screening <span className="required">*</span></label>
-      <input
-        type="date"
-        name="rop_first_screen_date"
-        value={formData.rop_first_screen_date || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.rop_first_screen_date && (
-        <div className="error-text">{errors.rop_first_screen_date}</div>
-      )}
-    </div>
-  )}
-
-</div>
-
-{/* ---------------- METHOD ---------------- */}
-{formData.rop_screened === "Yes" && (
-  <div className="pn-adverse-card">
-
-    <div className="adverse-title">
-      Method <span className="required">*</span>
-    </div>
-
-    <div className="pn-checkbox-grid">
-
-      <label>
-        <input
-          type="checkbox"
-          name="rop_method_ido"
-          checked={formData.rop_method_ido || false}
-          onChange={handleChange}
-        />
-        IDO
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          name="rop_method_retcam"
-          checked={formData.rop_method_retcam || false}
-          onChange={handleChange}
-        />
-        RETCAM
-      </label>
-
-    </div>
-
-    {errors.rop_method_group && (
-      <div className="error-text">{errors.rop_method_group}</div>
-    )}
-
-  </div>
-)}
-
-{/* ---------------- ROP DIAGNOSIS ---------------- */}
-<div className="form-row">
-
-  <div className="form-group">
-    <YesNoToggle label="110. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleChange} onBlur={handleBlur} required />
-    {errors.rop && (
-      <div className="error-text">{errors.rop}</div>
-    )}
-  </div>
-
-  {formData.rop === "Yes" && (
-    <div className="form-group">
-      <label><span className="field-num">111.</span> Date of Diagnosis <span className="required">*</span></label>
-      <input
-        type="date"
-        name="rop_diagnosis_date"
-        value={formData.rop_diagnosis_date || ""}
-        onChange={handleChange}
-        onBlur={handleBlur}
-      />
-      {errors.rop_diagnosis_date && (
-        <div className="error-text">{errors.rop_diagnosis_date}</div>
-      )}
-    </div>
-  )}
-
-</div>
-
-{/* ---------------- IF ROP YES ---------------- */}
-{formData.rop === "Yes" && (
-  <>
-
-    {/* STAGE */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Stage <span className="required">*</span>
+      {/* ---------------- SCREENING (179-181) ---------------- */}
+      <div className="form-group">
+        <YesNoToggle label="179. Screened" name="rop_screened" value={formData.rop_screened} onChange={handleChange} onBlur={handleBlur} required />
+        {touched.rop_screened && errors.rop_screened && <div className="error-text">{errors.rop_screened}</div>}
       </div>
 
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="rop_stage1" checked={formData.rop_stage1 || false} onChange={handleChange}/> Stage 1</label>
-        <label><input type="checkbox" name="rop_stage2" checked={formData.rop_stage2 || false} onChange={handleChange}/> Stage 2</label>
-        <label><input type="checkbox" name="rop_stage3" checked={formData.rop_stage3 || false} onChange={handleChange}/> Stage 3</label>
-        <label><input type="checkbox" name="rop_stage4" checked={formData.rop_stage4 || false} onChange={handleChange}/> Stage 4</label>
-        <label><input type="checkbox" name="rop_stage5" checked={formData.rop_stage5 || false} onChange={handleChange}/> Stage 5</label>
-      </div>
-
-      {errors.rop_stage_group && (
-        <div className="error-text">{errors.rop_stage_group}</div>
-      )}
-    </div>
-
-    {/* PLUS */}
-    <div className="form-group">
-      <YesNoToggle label="Plus Disease" name="rop_plus" value={formData.rop_plus} onChange={handleChange} onBlur={handleBlur} required />
-      {errors.rop_plus && (
-        <div className="error-text">{errors.rop_plus}</div>
-      )}
-    </div>
-
-    {/* A-ROP (AGGRESSIVE ROP) */}
-    <div className="form-group">
-      <YesNoToggle label="122. A-ROP (Aggressive ROP)" name="rop_arop" value={formData.rop_arop} onChange={handleChange} onBlur={handleBlur} required />
-      {errors.rop_arop && (
-        <div className="error-text">{errors.rop_arop}</div>
-      )}
-    </div>
-
-    {/* ZONE */}
-    <div className="pn-adverse-card">
-      <div className="adverse-title">
-        Zone <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-        <label><input type="checkbox" name="rop_zone1" checked={formData.rop_zone1 || false} onChange={handleChange}/> Zone I</label>
-        <label><input type="checkbox" name="rop_zone2" checked={formData.rop_zone2 || false} onChange={handleChange}/> Zone II</label>
-        <label><input type="checkbox" name="rop_zone3" checked={formData.rop_zone3 || false} onChange={handleChange}/> Zone III</label>
-      </div>
-
-      {errors.rop_zone_group && (
-        <div className="error-text">{errors.rop_zone_group}</div>
-      )}
-    </div>
-
-    {/* TREATMENT */}
-    <div className="form-group">
-      <YesNoToggle label="Treatment Required" name="rop_treatment" value={formData.rop_treatment} onChange={handleChange} onBlur={handleBlur} required />
-      {errors.rop_treatment && (
-        <div className="error-text">{errors.rop_treatment}</div>
-      )}
-    </div>
-
-    {formData.rop_treatment === "Yes" && (
-      <div className="pn-adverse-card">
-
-        <div className="adverse-title">
-          Treatment Type <span className="required">*</span>
-        </div>
-
-        <div className="pn-checkbox-grid">
-          <label><input type="checkbox" name="rop_laser" checked={formData.rop_laser || false} onChange={handleChange}/> Laser</label>
-          <label><input type="checkbox" name="rop_anti_vegf" checked={formData.rop_anti_vegf || false} onChange={handleChange}/> Anti-VEGF</label>
-          <label><input type="checkbox" name="rop_vitrectomy" checked={formData.rop_vitrectomy || false} onChange={handleChange}/> Vitrectomy</label>
-          <label><input type="checkbox" name="rop_other" checked={formData.rop_other || false} onChange={handleChange}/> Other</label>
-        </div>
-
-        {errors.rop_treatment_group && (
-          <div className="error-text">{errors.rop_treatment_group}</div>
-        )}
-
-        {formData.rop_other && (
+      {formData.rop_screened === "Yes" && (
+        <div className="form-row">
           <div className="form-group">
-            <label>Specify Other <span className="required">*</span></label>
+            <label><span className="field-num">180.</span> Method<span className="required">*</span></label>
             <input
-              name="rop_other_text"
-              value={formData.rop_other_text || ""}
+              name="rop_method"
+              value={formData.rop_method || ""}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              placeholder="e.g. Indirect ophthalmoscopy, RetCam"
+            />
+            {touched.rop_method && errors.rop_method && <div className="error-text">{errors.rop_method}</div>}
+          </div>
+
+          <div className="form-group">
+            <label><span className="field-num">181.</span> Date of First Screening<span className="required">*</span></label>
+            <input
+              type="date"
+              name="rop_first_screen_date"
+              value={formData.rop_first_screen_date || ""}
               onChange={handleChange}
               onBlur={handleBlur}
             />
-            {errors.rop_other_text && (
-              <div className="error-text">{errors.rop_other_text}</div>
-            )}
+            {touched.rop_first_screen_date && errors.rop_first_screen_date && <div className="error-text">{errors.rop_first_screen_date}</div>}
           </div>
-        )}
-      </div>
-    )}
-
-    {/* BILATERAL */}
-    <div className="form-group">
-      <YesNoToggle label="Bilateral Rx" name="rop_bilateral" value={formData.rop_bilateral} onChange={handleChange} onBlur={handleBlur} required />
-      {errors.rop_bilateral && (
-        <div className="error-text">{errors.rop_bilateral}</div>
+        </div>
       )}
-    </div>
 
-    {formData.rop_bilateral === "Yes" && (
+      {/* ---------------- DIAGNOSIS (182-184) ---------------- */}
       <div className="form-group">
-        <label>Comment <span className="required">*</span></label>
-        <input
-          name="rop_comment"
-          value={formData.rop_comment || ""}
-          onChange={handleChange}
-          onBlur={handleBlur}
-        />
-        {errors.rop_comment && (
-          <div className="error-text">{errors.rop_comment}</div>
-        )}
+        <YesNoToggle label="182. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleChange} onBlur={handleBlur} required />
+        {touched.rop && errors.rop && <div className="error-text">{errors.rop}</div>}
       </div>
-    )}
 
-  </>
-)}
+      {formData.rop === "Yes" && (
+        <>
+          <div className="form-row">
+            <div className="form-group">
+              <label><span className="field-num">183.</span> Date of Diagnosis<span className="required">*</span></label>
+              <input
+                type="date"
+                name="rop_diagnosis_date"
+                value={formData.rop_diagnosis_date || ""}
+                onChange={handleChange}
+                onBlur={handleBlur}
+              />
+              {touched.rop_diagnosis_date && errors.rop_diagnosis_date && <div className="error-text">{errors.rop_diagnosis_date}</div>}
+            </div>
 
-</div> 
+            <div className="form-group">
+              <label><span className="field-num">184.</span> Side<span className="required">*</span></label>
+              <select name="rop_side" value={formData.rop_side || ""} onChange={handleChange} onBlur={handleBlur}>
+                <option value="">-- Select --</option>
+                <option value="Right">Right</option>
+                <option value="Left">Left</option>
+                <option value="Bilateral">Bilateral</option>
+              </select>
+              {touched.rop_side && errors.rop_side && <div className="error-text">{errors.rop_side}</div>}
+            </div>
+          </div>
+
+          {/* ---------------- RIGHT EYE (185-190) ---------------- */}
+          {(formData.rop_side === "Right" || formData.rop_side === "Bilateral") && (
+            <div className="pn-adverse-card">
+              <div className="adverse-title">Right Eye</div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">185.</span> Max Stage<span className="required">*</span></label>
+                  <select name="rop_stage_right" value={formData.rop_stage_right || ""} onChange={handleChange} onBlur={handleBlur}>
+                    <option value="">-- Select --</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                  </select>
+                  {touched.rop_stage_right && errors.rop_stage_right && <div className="error-text">{errors.rop_stage_right}</div>}
+                </div>
+
+                <div className="form-group">
+                  <YesNoToggle label="186. Plus" name="rop_plus_right" value={formData.rop_plus_right} onChange={handleChange} onBlur={handleBlur} required />
+                  {touched.rop_plus_right && errors.rop_plus_right && <div className="error-text">{errors.rop_plus_right}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label><span className="field-num">187.</span> Zone<span className="required">*</span></label>
+                  <select name="rop_zone_right" value={formData.rop_zone_right || ""} onChange={handleChange} onBlur={handleBlur}>
+                    <option value="">-- Select --</option>
+                    <option value="I">I</option>
+                    <option value="II">II</option>
+                    <option value="III">III</option>
+                  </select>
+                  {touched.rop_zone_right && errors.rop_zone_right && <div className="error-text">{errors.rop_zone_right}</div>}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <YesNoToggle label="188. A-ROP (Aggressive ROP)" name="rop_arop_right" value={formData.rop_arop_right} onChange={handleChange} onBlur={handleBlur} required />
+                {touched.rop_arop_right && errors.rop_arop_right && <div className="error-text">{errors.rop_arop_right}</div>}
+              </div>
+
+              <div className="form-group">
+                <YesNoToggle label="189. Treatment" name="rop_treatment_right" value={formData.rop_treatment_right} onChange={handleChange} onBlur={handleBlur} required />
+                {touched.rop_treatment_right && errors.rop_treatment_right && <div className="error-text">{errors.rop_treatment_right}</div>}
+              </div>
+
+              {formData.rop_treatment_right === "Yes" && (
+                <div className="form-group">
+                  <div className="adverse-title"><span className="field-num">190.</span> Type<span className="required">*</span></div>
+                  <div className="pn-checkbox-grid">
+                    <label className="checkbox-item"><input type="checkbox" name="rop_laser_right" checked={formData.rop_laser_right || false} onChange={handleChange}/> Laser</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_anti_vegf_right" checked={formData.rop_anti_vegf_right || false} onChange={handleChange}/> Anti-VEGF</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_vitrectomy_right" checked={formData.rop_vitrectomy_right || false} onChange={handleChange}/> Vitrectomy</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_other_right" checked={formData.rop_other_right || false} onChange={handleChange}/> Other</label>
+                  </div>
+                  {errors.rop_treatment_type_right_group && <div className="error-text">{errors.rop_treatment_type_right_group}</div>}
+
+                  {formData.rop_other_right && (
+                    <div className="form-group" style={{marginTop: 12}}>
+                      <label>Specify Other<span className="required">*</span></label>
+                      <input
+                        name="rop_other_text_right"
+                        value={formData.rop_other_text_right || ""}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                      />
+                      {touched.rop_other_text_right && errors.rop_other_text_right && <div className="error-text">{errors.rop_other_text_right}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---------------- LEFT EYE (191-196) ---------------- */}
+          {(formData.rop_side === "Left" || formData.rop_side === "Bilateral") && (
+            <div className="pn-adverse-card">
+              <div className="adverse-title">Left Eye</div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label><span className="field-num">191.</span> Max Stage<span className="required">*</span></label>
+                  <select name="rop_stage_left" value={formData.rop_stage_left || ""} onChange={handleChange} onBlur={handleBlur}>
+                    <option value="">-- Select --</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                  </select>
+                  {touched.rop_stage_left && errors.rop_stage_left && <div className="error-text">{errors.rop_stage_left}</div>}
+                </div>
+
+                <div className="form-group">
+                  <YesNoToggle label="192. Plus" name="rop_plus_left" value={formData.rop_plus_left} onChange={handleChange} onBlur={handleBlur} required />
+                  {touched.rop_plus_left && errors.rop_plus_left && <div className="error-text">{errors.rop_plus_left}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label><span className="field-num">193.</span> Zone<span className="required">*</span></label>
+                  <select name="rop_zone_left" value={formData.rop_zone_left || ""} onChange={handleChange} onBlur={handleBlur}>
+                    <option value="">-- Select --</option>
+                    <option value="I">I</option>
+                    <option value="II">II</option>
+                    <option value="III">III</option>
+                  </select>
+                  {touched.rop_zone_left && errors.rop_zone_left && <div className="error-text">{errors.rop_zone_left}</div>}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <YesNoToggle label="194. A-ROP (Aggressive ROP)" name="rop_arop_left" value={formData.rop_arop_left} onChange={handleChange} onBlur={handleBlur} required />
+                {touched.rop_arop_left && errors.rop_arop_left && <div className="error-text">{errors.rop_arop_left}</div>}
+              </div>
+
+              <div className="form-group">
+                <YesNoToggle label="195. Treatment" name="rop_treatment_left" value={formData.rop_treatment_left} onChange={handleChange} onBlur={handleBlur} required />
+                {touched.rop_treatment_left && errors.rop_treatment_left && <div className="error-text">{errors.rop_treatment_left}</div>}
+              </div>
+
+              {formData.rop_treatment_left === "Yes" && (
+                <div className="form-group">
+                  <div className="adverse-title"><span className="field-num">196.</span> Type<span className="required">*</span></div>
+                  <div className="pn-checkbox-grid">
+                    <label className="checkbox-item"><input type="checkbox" name="rop_laser_left" checked={formData.rop_laser_left || false} onChange={handleChange}/> Laser</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_anti_vegf_left" checked={formData.rop_anti_vegf_left || false} onChange={handleChange}/> Anti-VEGF</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_vitrectomy_left" checked={formData.rop_vitrectomy_left || false} onChange={handleChange}/> Vitrectomy</label>
+                    <label className="checkbox-item"><input type="checkbox" name="rop_other_left" checked={formData.rop_other_left || false} onChange={handleChange}/> Other</label>
+                  </div>
+                  {errors.rop_treatment_type_left_group && <div className="error-text">{errors.rop_treatment_type_left_group}</div>}
+
+                  {formData.rop_other_left && (
+                    <div className="form-group" style={{marginTop: 12}}>
+                      <label>Specify Other<span className="required">*</span></label>
+                      <input
+                        name="rop_other_text_left"
+                        value={formData.rop_other_text_left || ""}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                      />
+                      {touched.rop_other_text_left && errors.rop_other_text_left && <div className="error-text">{errors.rop_other_text_left}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+    </div>
   )}
-</div></div>
+</div>
+</div>
 {/* ================= THERMOREGULATION ================= */}
 <div className="form-section soft-blue">
 

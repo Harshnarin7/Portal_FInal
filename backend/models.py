@@ -881,6 +881,12 @@ class NeonatalMorbidities(Base):
     aki_stage3 = Column(Boolean)
 
     # ---------------- OPHTHALMOLOGY / ROP (H8) — extended ----------------
+    # Legacy single-eye fields (rop_arop, rop_plus, rop_stage1-5, rop_zone1-3,
+    # rop_treatment, rop_laser/anti_vegf/vitrectomy/other, rop_bilateral,
+    # rop_comment, rop_method_ido/retcam) are kept as-is — never dropped —
+    # so no historical data is lost. The CRF actually records Right and Left
+    # eyes independently (like IVH's H1.1), which the *_right/*_left columns
+    # below now capture; the UI no longer writes to the legacy columns.
     rop = Column(String)
     rop_anti_vegf = Column(Boolean)
     rop_arop = Column(String)
@@ -889,12 +895,14 @@ class NeonatalMorbidities(Base):
     rop_diagnosis_date = Column(Date)
     rop_first_screen_date = Column(Date)
     rop_laser = Column(Boolean)
+    rop_method = Column(String)
     rop_method_ido = Column(Boolean)
     rop_method_retcam = Column(Boolean)
     rop_other = Column(Boolean)
     rop_other_text = Column(String)
     rop_plus = Column(String)
     rop_screened = Column(String)
+    rop_side = Column(String)
     rop_stage1 = Column(Boolean)
     rop_stage2 = Column(Boolean)
     rop_stage3 = Column(Boolean)
@@ -905,6 +913,28 @@ class NeonatalMorbidities(Base):
     rop_zone1 = Column(Boolean)
     rop_zone2 = Column(Boolean)
     rop_zone3 = Column(Boolean)
+    # H8.1 fields 185-190 (Right eye)
+    rop_stage_right = Column(String)
+    rop_plus_right = Column(String)
+    rop_zone_right = Column(String)
+    rop_arop_right = Column(String)
+    rop_treatment_right = Column(String)
+    rop_laser_right = Column(Boolean)
+    rop_anti_vegf_right = Column(Boolean)
+    rop_vitrectomy_right = Column(Boolean)
+    rop_other_right = Column(Boolean)
+    rop_other_text_right = Column(String)
+    # H8.1 fields 191-196 (Left eye)
+    rop_stage_left = Column(String)
+    rop_plus_left = Column(String)
+    rop_zone_left = Column(String)
+    rop_arop_left = Column(String)
+    rop_treatment_left = Column(String)
+    rop_laser_left = Column(Boolean)
+    rop_anti_vegf_left = Column(Boolean)
+    rop_vitrectomy_left = Column(Boolean)
+    rop_other_left = Column(Boolean)
+    rop_other_text_left = Column(String)
 
     # ---------------- THERMOREGULATION (H8) — extended ----------------
     hyperthermia = Column(String)

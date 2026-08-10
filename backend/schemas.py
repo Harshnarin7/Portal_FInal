@@ -1303,12 +1303,14 @@ class NeonatalMorbiditiesCreate(BaseModel):
     rop_diagnosis_date: Optional[date] = None
     rop_first_screen_date: Optional[date] = None
     rop_laser: Optional[bool] = None
+    rop_method: Optional[str] = None
     rop_method_ido: Optional[bool] = None
     rop_method_retcam: Optional[bool] = None
     rop_other: Optional[bool] = None
     rop_other_text: Optional[str] = None
     rop_plus: Optional[str] = None
     rop_screened: Optional[str] = None
+    rop_side: Optional[str] = None
     rop_stage1: Optional[bool] = None
     rop_stage2: Optional[bool] = None
     rop_stage3: Optional[bool] = None
@@ -1319,6 +1321,26 @@ class NeonatalMorbiditiesCreate(BaseModel):
     rop_zone1: Optional[bool] = None
     rop_zone2: Optional[bool] = None
     rop_zone3: Optional[bool] = None
+    rop_stage_right: Optional[str] = None
+    rop_plus_right: Optional[str] = None
+    rop_zone_right: Optional[str] = None
+    rop_arop_right: Optional[str] = None
+    rop_treatment_right: Optional[str] = None
+    rop_laser_right: Optional[bool] = None
+    rop_anti_vegf_right: Optional[bool] = None
+    rop_vitrectomy_right: Optional[bool] = None
+    rop_other_right: Optional[bool] = None
+    rop_other_text_right: Optional[str] = None
+    rop_stage_left: Optional[str] = None
+    rop_plus_left: Optional[str] = None
+    rop_zone_left: Optional[str] = None
+    rop_arop_left: Optional[str] = None
+    rop_treatment_left: Optional[str] = None
+    rop_laser_left: Optional[bool] = None
+    rop_anti_vegf_left: Optional[bool] = None
+    rop_vitrectomy_left: Optional[bool] = None
+    rop_other_left: Optional[bool] = None
+    rop_other_text_left: Optional[str] = None
 
     # ---------------- THERMOREGULATION (H8) — extended ----------------
     hyperthermia: Optional[str] = None
