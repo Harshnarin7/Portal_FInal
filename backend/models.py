@@ -298,6 +298,7 @@ class MaternalDetails(Base):
     booked = Column(String)
     anc_visits = Column(String)
     multiple = Column(String)
+    multiple_other = Column(String)
 
     lmp = Column(String)
     edd = Column(String)
@@ -308,6 +309,7 @@ class MaternalDetails(Base):
     antenatal_steroids = Column(String)
     steroid_drug = Column(String)
     steroid_doses = Column(String)
+    steroid_courses_status = Column(String)
     steroid_courses = Column(String)
     lddi_known = Column(String)
     lddi_hours = Column(String)
@@ -328,6 +330,8 @@ class MaternalDetails(Base):
     asthma = Column(Boolean, default=False)
     hiv = Column(Boolean, default=False)
     thyroid = Column(Boolean, default=False)
+    hypothyroidism = Column(Boolean, default=False)
+    hyperthyroidism = Column(Boolean, default=False)
     tb = Column(Boolean, default=False)
     malaria = Column(Boolean, default=False)
     severe_anemia = Column(Boolean, default=False)
@@ -434,6 +438,7 @@ class PostnatalDay1(Base):
     premedication_other = Column(String, nullable=True)
     lisa_catheter = Column(String, nullable=True)
     lisa_catheter_type = Column(String, nullable=True)
+    lisa_catheter_other = Column(String, nullable=True)
     device_assistance = Column(Boolean, nullable=True)
     device_type = Column(String, nullable=True)
     device_type_other = Column(String, nullable=True)
@@ -972,6 +977,7 @@ class NeonatalMorbidities(Base):
     line_comp_infection = Column(Boolean)
     line_comp_none = Column(Boolean)
     line_comp_thrombosis = Column(Boolean)
+    line_comp_phlebitis = Column(Boolean)
     peripheral_arterial = Column(String)
     peripheral_venous = Column(String)
     picc = Column(String)
@@ -1098,6 +1104,7 @@ class StudyOutcomes(Base):
     # ---------------- I.3 Assessment at 36 weeks PMA ----------------
     encounter36_method = Column(String)  # 22
     encounter36_other = Column(String)  # 23
+    encounter36_other_text = Column(String)  # 23 Others specify
     death36 = Column(Boolean)  # 24
     death36_cause = Column(Text)  # 25
     death36_date = Column(Date)  # 26
@@ -1124,6 +1131,7 @@ class StudyOutcomes(Base):
     # ---------------- I.4 Assessment at 40 weeks PMA ----------------
     encounter40_method = Column(String)  # 42
     encounter40_other = Column(String)  # 43
+    encounter40_other_text = Column(String)  # 43 Others specify
     death40 = Column(Boolean)  # 44
     death40_cause = Column(Text)  # 45
     death40_date = Column(Date)  # 46
@@ -1144,6 +1152,7 @@ class StudyOutcomes(Base):
     # ---------------- I.5 Assessment at 44 weeks PMA ----------------
     encounter44_method = Column(String)  # 59
     encounter44_other = Column(String)  # 60
+    encounter44_other_text = Column(String)  # 60 Others specify
     death44 = Column(Boolean)  # 61
     death44_cause = Column(Text)  # 62
     death44_date = Column(Date)  # 63
@@ -1171,6 +1180,9 @@ class StudyOutcomes(Base):
     mortality_after_discharge_date = Column(Date)  # 85
     mortality_after_discharge_time = Column(String)  # 86
     mortality_after_discharge_age_days = Column(Float)  # 87
+
+    # Free-text Additional information column notes keyed by CRF field number
+    crf_additional_notes = Column(JSON, nullable=True)
 
 
 class CranialUltrasound(Base):
@@ -1252,23 +1264,35 @@ class ROPScreening(Base):
     ]
     """
 
-    # Worst disease summary
+    # Worst disease summary — RIGHT EYE (CRF items 1-8)
     worst_stage = Column(String, nullable=True)
     worst_zone = Column(String, nullable=True)
     plus_disease = Column(Boolean, nullable=True)
     a_rop = Column(Boolean, nullable=True)
 
-    # Treatment
+    # Treatment — RIGHT EYE
     treatment_required = Column(Boolean, nullable=True)
-    treatment_type = Column(JSON)  # ["Laser", "Anti-VEGF"]
+    treatment_type = Column(JSON)  # ["Laser", "Anti-VEGF", "Vitrectomy", "Combination"]
     anti_vegf_agent = Column(String, nullable=True)
     treatment_re_date = Column(Date, nullable=True)
-    treatment_le_date = Column(Date, nullable=True)
-    bilateral_treatment = Column(Boolean, nullable=True)
-    pma_at_treatment = Column(String, nullable=True)
+    pma_at_treatment_re = Column(String, nullable=True)
 
-    # Outcome
+    # Worst disease summary — LEFT EYE (CRF items 9-16), independent of RIGHT
+    worst_stage_le = Column(String, nullable=True)
+    worst_zone_le = Column(String, nullable=True)
+    plus_disease_le = Column(Boolean, nullable=True)
+    a_rop_le = Column(Boolean, nullable=True)
+
+    # Treatment — LEFT EYE
+    treatment_required_le = Column(Boolean, nullable=True)
+    treatment_type_le = Column(JSON)  # ["Laser", "Anti-VEGF", "Vitrectomy", "Combination"]
+    anti_vegf_agent_le = Column(String, nullable=True)
+    treatment_le_date = Column(Date, nullable=True)
+    pma_at_treatment_le = Column(String, nullable=True)
+
+    # Outcome (CRF items 17-20)
     outcome = Column(String, nullable=True)
+    outcome_other_text = Column(String, nullable=True)
     final_screening_date = Column(Date, nullable=True)
     pma_discharge = Column(String, nullable=True)
     rop_treatment_composite = Column(Boolean, nullable=True)
@@ -1413,6 +1437,91 @@ class CompositeOutcome(Base):
 
     created_at = Column(DateTime, default=utcnow)
 
+
+# ==========================================================
+# FORM J — STUDY OUTCOMES ASSESSMENT (EXTERNAL HOSPITAL)
+# One row per enrollment × assessment week (36 / 40 / 44)
+# ==========================================================
+
+class ExternalHospitalAssessment(Base):
+    __tablename__ = "external_hospital_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "enrollment_id",
+            "assessment_weeks",
+            name="uq_external_hospital_enrollment_week",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    assessment_weeks = Column(Integer, nullable=False)  # free entry (e.g. 36 / 40 / 44)
+
+    mother_name = Column(String, nullable=True)
+    dob = Column(Date, nullable=True)
+
+    # 3. Death due to any cause by ____ weeks
+    death = Column(Boolean, nullable=True)
+    death_cause = Column(String, nullable=True)
+    death_date = Column(Date, nullable=True)
+    death_time = Column(String, nullable=True)  # HH:MM 24h
+    death_age_days = Column(Integer, nullable=True)
+
+    # 4. Respiratory support at 36 weeks PMA
+    resp_support = Column(Boolean, nullable=True)
+    resp_support_date = Column(Date, nullable=True)
+    resp_mode = Column(String, nullable=True)  # nasal_cannula | cpap_nippv | imv
+    flow_rate = Column(Float, nullable=True)
+    fio2 = Column(Float, nullable=True)
+    radiographic_lung = Column(Boolean, nullable=True)
+
+    # 5. NEC
+    nec = Column(Boolean, nullable=True)
+    nec_stage = Column(String, nullable=True)
+    nec_date = Column(Date, nullable=True)
+    nec_surgery = Column(Boolean, nullable=True)
+
+    # 6. Brain injury — RIGHT / LEFT
+    ivh_right = Column(String, nullable=True)
+    ivh_right_date = Column(Date, nullable=True)
+    ivh_left = Column(String, nullable=True)
+    ivh_left_date = Column(Date, nullable=True)
+    cpvl_right = Column(String, nullable=True)
+    cpvl_right_date = Column(Date, nullable=True)
+    cpvl_left = Column(String, nullable=True)
+    cpvl_left_date = Column(Date, nullable=True)
+
+    # 7. ROP — RIGHT / LEFT eye
+    rop_right = Column(String, nullable=True)
+    plus_right = Column(Boolean, nullable=True)
+    arop_right = Column(Boolean, nullable=True)
+    zone_right = Column(String, nullable=True)
+    treat_right = Column(Boolean, nullable=True)
+    treat_date_right = Column(Date, nullable=True)
+
+    rop_left = Column(String, nullable=True)
+    plus_left = Column(Boolean, nullable=True)
+    arop_left = Column(Boolean, nullable=True)
+    zone_left = Column(String, nullable=True)
+    treat_left = Column(Boolean, nullable=True)
+    treat_date_left = Column(Date, nullable=True)
+
+    # 8. Sepsis
+    sepsis = Column(Boolean, nullable=True)
+    sepsis_episodes = Column(Integer, nullable=True)
+
+    # 9. MRI
+    mri_done = Column(Boolean, nullable=True)
+
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    hospital = Column(String, nullable=True)
+    completion_date = Column(Date, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 # ==========================================================
 # HELPER FORM — FiO2 LOGGING (AUC CALCULATION)
 # ==========================================================
@@ -1515,33 +1624,33 @@ class SAEReport(Base):
     # I. Event Identification
     study_id = Column(String, nullable=True)
     enrollment_id = Column(String, index=True, nullable=False)
-    report_type = Column(String, nullable=False)  # Initial / Follow-up / Final
-    report_date = Column(String, nullable=False)
+    report_type = Column(String, nullable=True)  # Initial / Follow-up / Final
+    report_date = Column(String, nullable=True)
 
     # II. Event Description
-    diagnosis = Column(String, nullable=False)
-    onset_datetime = Column(String, nullable=False)
+    diagnosis = Column(String, nullable=True)
+    onset_datetime = Column(String, nullable=True)
     end_datetime = Column(String, nullable=True)
     ongoing = Column(Boolean, default=False)
 
     # III. Seriousness criteria (multiple)
-    seriousness = Column(JSON, nullable=False)  # list of criteria
+    seriousness = Column(JSON, nullable=True)  # list of criteria
 
     # IV–VII
-    severity = Column(String, nullable=False)
-    causality = Column(String, nullable=False)
-    action_taken = Column(String, nullable=False)
-    outcome = Column(String, nullable=False)
+    severity = Column(String, nullable=True)
+    causality = Column(String, nullable=True)
+    action_taken = Column(String, nullable=True)
+    outcome = Column(String, nullable=True)
     date_of_death = Column(String, nullable=True)
 
     # VIII. Narrative
-    narrative = Column(String, nullable=False)
+    narrative = Column(String, nullable=True)
 
     # IX. Reporter
-    reporter_name = Column(String, nullable=False)
-    reporter_designation = Column(String, nullable=False)
+    reporter_name = Column(String, nullable=True)
+    reporter_designation = Column(String, nullable=True)
     reporter_contact = Column(String, nullable=True)
-    reporter_date = Column(String, nullable=False)
+    reporter_date = Column(String, nullable=True)
     reporter_signature = Column(String, nullable=True)
 
     # X. Investigator verification
@@ -1550,7 +1659,8 @@ class SAEReport(Base):
     investigator_date = Column(String, nullable=True)
     site = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow) 
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow) 
 
 class AdverseEvents(Base):
     __tablename__ = "adverse_events"
@@ -1562,7 +1672,7 @@ class AdverseEvents(Base):
     baby_uid = Column(String, nullable=True)
     maternal_uid = Column(String, nullable=True)
 
-    has_adverse_event = Column(Boolean, nullable=False)
+    has_adverse_event = Column(Boolean, nullable=True)
 
     events = Column(JSON, nullable=True)  # list of AE rows
 
@@ -1570,7 +1680,8 @@ class AdverseEvents(Base):
     designation = Column(String, nullable=True)
     completion_date = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow)  
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)  
 
 class SAEList(Base):
     __tablename__ = "sae_list"
@@ -1578,13 +1689,14 @@ class SAEList(Base):
     id = Column(Integer, primary_key=True, index=True)
     enrollment_id = Column(String, index=True, nullable=False)
 
-    rows = Column(JSON, nullable=False)
+    rows = Column(JSON, nullable=True)
 
-    completed_by = Column(String)
-    designation = Column(String)
-    completion_date = Column(String)
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    completion_date = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow)         
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)         
 
 class RespiratoryLog(Base):
     __tablename__ = "respiratory_logs"
@@ -1978,6 +2090,11 @@ class CranialUSGRecord(Base):
     saved_by          = Column(String,   nullable=True)
     submitted_at      = Column(String,   nullable=True)
     submitted_by      = Column(String,   nullable=True)
+
+    # ── Completion footer ─────────────────────────────────────
+    completed_by      = Column(String,   nullable=True)
+    designation       = Column(String,   nullable=True)
+    completion_date   = Column(String,   nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

@@ -96,26 +96,38 @@ fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
   background: var(--primary-light, #e0f2fe);
 }
 
-/* Screening ID badge */
+/* Screening / Enrollment ID badge */
 .screening-id-badge {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 3px;
+  width: max-content;
+  max-width: 100%;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
+  border: 1px solid #bae6fd;
+  border-left: 3px solid var(--primary, #0284c7);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 .id-label {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
-  color: var(--text-light, #94a3b8);
-  letter-spacing: 1px;
+  color: #64748b;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
 }
 .id-val {
-  font-size: 24px;
-  font-weight: 900;
-  color: var(--primary, #0284c7);
-  letter-spacing: -0.5px;
-  line-height: 1;
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ════════════════════════════════
@@ -689,6 +701,11 @@ fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.12);
   padding: 8px;
+}
+/* Portaled variant (Form I death times) — position set inline as fixed */
+.mt-popover-portal {
+  position: fixed;
+  top: auto;
 }
 .mt-popover-col {
   display: flex;

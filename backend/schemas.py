@@ -636,6 +636,7 @@ class MaternalDetailsCreate(BaseModel):
     booked: Optional[str] = None  # "Booked"/"Unbooked"/"Not known" — stored as String
     anc_visits: Optional[int] = None
     multiple: Optional[str] = None
+    multiple_other: Optional[str] = None
 
     lmp: Optional[str] = None
     edd: Optional[str] = None
@@ -648,6 +649,7 @@ class MaternalDetailsCreate(BaseModel):
     steroid_date: Optional[date] = None
     steroid_drug: Optional[str] = None
     steroid_doses: Optional[str] = None
+    steroid_courses_status: Optional[str] = None
     steroid_courses: Optional[str] = None
     lddi_known: Optional[str] = None
     lddi_hours: Optional[str] = None
@@ -666,6 +668,8 @@ class MaternalDetailsCreate(BaseModel):
     asthma: Optional[bool] = None
     hiv: Optional[bool] = None
     thyroid: Optional[bool] = None
+    hypothyroidism: Optional[bool] = None
+    hyperthyroidism: Optional[bool] = None
     tb: Optional[bool] = None
     malaria: Optional[bool] = None
     severe_anemia: Optional[bool] = None
@@ -793,6 +797,7 @@ class PostnatalDay1Create(BaseModel):
 
     surfactant_brand_other: str | None = None
     lisa_catheter_type: str | None = None
+    lisa_catheter_other: str | None = None
     adverse_type_other: str | None = None
     device_type_other: str | None = None
     caffeine_loading: bool | None = None
@@ -895,6 +900,8 @@ class InfectionEpisode(BaseModel):
         return _blank_strings_to_none(data)
 
     sepsis: Optional[str] = None
+    sepsis_episode_number: Optional[int] = None
+    vap_episode_number: Optional[int] = None
     sepsis_clinical: Optional[bool] = None
     sepsis_screen: Optional[bool] = None
     sepsis_culture: Optional[bool] = None
@@ -944,6 +951,11 @@ class InfectionEpisode(BaseModel):
 
     clabsi: Optional[str] = None
     vap: Optional[str] = None
+
+    # CRF #233–234 (Infection 1) / #251–252 (Infection 2) — totals sit inside
+    # each printed infection block, so they are stored per episode as well.
+    total_sepsis_episodes: Optional[int] = None
+    total_vap_episodes: Optional[int] = None
 
 
 class NeonatalMorbiditiesCreate(BaseModel):
@@ -1378,6 +1390,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     line_comp_infection: Optional[bool] = None
     line_comp_none: Optional[bool] = None
     line_comp_thrombosis: Optional[bool] = None
+    line_comp_phlebitis: Optional[bool] = None
     peripheral_arterial: Optional[str] = None
     peripheral_venous: Optional[str] = None
     picc: Optional[str] = None
@@ -1490,6 +1503,7 @@ class StudyOutcomesCreate(BaseModel):
 
     encounter36_method: Optional[str] = None
     encounter36_other: Optional[str] = None
+    encounter36_other_text: Optional[str] = None
     death36: Optional[bool] = None
     death36_cause: Optional[str] = None
     death36_date: Optional[date] = None
@@ -1515,6 +1529,7 @@ class StudyOutcomesCreate(BaseModel):
 
     encounter40_method: Optional[str] = None
     encounter40_other: Optional[str] = None
+    encounter40_other_text: Optional[str] = None
     death40: Optional[bool] = None
     death40_cause: Optional[str] = None
     death40_date: Optional[date] = None
@@ -1534,6 +1549,7 @@ class StudyOutcomesCreate(BaseModel):
 
     encounter44_method: Optional[str] = None
     encounter44_other: Optional[str] = None
+    encounter44_other_text: Optional[str] = None
     death44: Optional[bool] = None
     death44_cause: Optional[str] = None
     death44_date: Optional[date] = None
@@ -1560,6 +1576,9 @@ class StudyOutcomesCreate(BaseModel):
     mortality_after_discharge_date: Optional[date] = None
     mortality_after_discharge_time: Optional[str] = None
     mortality_after_discharge_age_days: Optional[float] = None
+
+    # Free-text Additional information per CRF row number, e.g. {"1": "note", "7": "..."}
+    crf_additional_notes: Optional[dict] = None
 
 
 class StudyOutcomesOut(StudyOutcomesCreate):
@@ -1629,35 +1648,48 @@ class CranialUltrasoundOut(CranialUltrasoundCreate):
 class ROPScreeningCreate(BaseModel):
     enrollment_id: str
 
-    gestation_weeks: Optional[int]
-    birth_weight: Optional[float]
-    dob: Optional[date]
+    gestation_weeks: Optional[int] = None
+    birth_weight: Optional[float] = None
+    dob: Optional[date] = None
 
-    risk_factors: Optional[list]
-    screenings: Optional[list]
+    risk_factors: Optional[list] = None
+    screenings: Optional[list] = None
 
-    worst_stage: Optional[str]
-    worst_zone: Optional[str]
-    plus_disease: Optional[bool]
-    a_rop: Optional[bool]
+    # RIGHT EYE (CRF items 1-8)
+    worst_stage: Optional[str] = None
+    worst_zone: Optional[str] = None
+    plus_disease: Optional[bool] = None
+    a_rop: Optional[bool] = None
 
-    treatment_required: Optional[bool]
-    treatment_type: Optional[list]
-    anti_vegf_agent: Optional[str]
-    treatment_re_date: Optional[date]
-    treatment_le_date: Optional[date]
-    bilateral_treatment: Optional[bool]
-    pma_at_treatment: Optional[str]
+    treatment_required: Optional[bool] = None
+    treatment_type: Optional[list] = None
+    anti_vegf_agent: Optional[str] = None
+    treatment_re_date: Optional[date] = None
+    pma_at_treatment_re: Optional[str] = None
 
-    outcome: Optional[str]
-    final_screening_date: Optional[date]
-    pma_discharge: Optional[str]
-    rop_treatment_composite: Optional[bool]
+    # LEFT EYE (CRF items 9-16) — independent of RIGHT
+    worst_stage_le: Optional[str] = None
+    worst_zone_le: Optional[str] = None
+    plus_disease_le: Optional[bool] = None
+    a_rop_le: Optional[bool] = None
 
-    completed_by: Optional[str]
-    designation: Optional[str]
-    signature: Optional[str]
-    completion_date: Optional[date]
+    treatment_required_le: Optional[bool] = None
+    treatment_type_le: Optional[list] = None
+    anti_vegf_agent_le: Optional[str] = None
+    treatment_le_date: Optional[date] = None
+    pma_at_treatment_le: Optional[str] = None
+
+    # Outcome (CRF items 17-20)
+    outcome: Optional[str] = None
+    outcome_other_text: Optional[str] = None
+    final_screening_date: Optional[date] = None
+    pma_discharge: Optional[str] = None
+    rop_treatment_composite: Optional[bool] = None
+
+    completed_by: Optional[str] = None
+    designation: Optional[str] = None
+    signature: Optional[str] = None
+    completion_date: Optional[date] = None
 
 
 class ROPScreeningOut(ROPScreeningCreate):
@@ -1789,6 +1821,75 @@ class CompositeOutcomeOut(CompositeOutcomeCreate):
         from_attributes = True
 
 
+# ── Form J: External Hospital Assessment (per 36/40/44 week visit) ──
+class ExternalHospitalAssessmentCreate(BaseModel):
+    enrollment_id: str
+    assessment_weeks: int  # 36, 40, or 44
+
+    mother_name: Optional[str] = None
+    dob: Optional[date] = None
+
+    death: Optional[bool] = None
+    death_cause: Optional[str] = None
+    death_date: Optional[date] = None
+    death_time: Optional[str] = None
+    death_age_days: Optional[int] = None
+
+    resp_support: Optional[bool] = None
+    resp_support_date: Optional[date] = None
+    resp_mode: Optional[str] = None
+    flow_rate: Optional[float] = None
+    fio2: Optional[float] = None
+    radiographic_lung: Optional[bool] = None
+
+    nec: Optional[bool] = None
+    nec_stage: Optional[str] = None
+    nec_date: Optional[date] = None
+    nec_surgery: Optional[bool] = None
+
+    ivh_right: Optional[str] = None
+    ivh_right_date: Optional[date] = None
+    ivh_left: Optional[str] = None
+    ivh_left_date: Optional[date] = None
+    cpvl_right: Optional[str] = None
+    cpvl_right_date: Optional[date] = None
+    cpvl_left: Optional[str] = None
+    cpvl_left_date: Optional[date] = None
+
+    rop_right: Optional[str] = None
+    plus_right: Optional[bool] = None
+    arop_right: Optional[bool] = None
+    zone_right: Optional[str] = None
+    treat_right: Optional[bool] = None
+    treat_date_right: Optional[date] = None
+
+    rop_left: Optional[str] = None
+    plus_left: Optional[bool] = None
+    arop_left: Optional[bool] = None
+    zone_left: Optional[str] = None
+    treat_left: Optional[bool] = None
+    treat_date_left: Optional[date] = None
+
+    sepsis: Optional[bool] = None
+    sepsis_episodes: Optional[int] = None
+
+    mri_done: Optional[bool] = None
+
+    completed_by: Optional[str] = None
+    designation: Optional[str] = None
+    hospital: Optional[str] = None
+    completion_date: Optional[date] = None
+
+    model_config = {"extra": "allow"}
+
+
+class ExternalHospitalAssessmentOut(ExternalHospitalAssessmentCreate):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
 class FiO2AUCLogCreate(BaseModel):
     enrollment_id: str
 
@@ -1814,7 +1915,6 @@ class FiO2AUCLogOut(FiO2AUCLogCreate):
 
     class Config:
         from_attributes = True
-
 class RespCVNeuroLogCreate(BaseModel):
     enrollment_id: str
 
@@ -1869,30 +1969,41 @@ class MetabRenalVascEyeLogOut(MetabRenalVascEyeLogCreate):
 
 
 class SAEReportCreate(BaseModel):
+    """
+    Form Y — SAE Reporting. Fields are optional so drafts can be saved without
+    422s; empty strings from the UI are treated as None. Required clinical
+    completeness is enforced in the form workflow, not as hard API rejects.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_to_none(cls, data):
+        return _blank_strings_to_none(data)
+
     study_id: Optional[str] = None
     enrollment_id: str
-    report_type: str
-    report_date: str
+    report_type: Optional[str] = None
+    report_date: Optional[str] = None
 
-    diagnosis: str
-    onset_datetime: str
+    diagnosis: Optional[str] = None
+    onset_datetime: Optional[str] = None
     end_datetime: Optional[str] = None
-    ongoing: bool = False
+    ongoing: Optional[bool] = False
 
-    seriousness: List[str]
+    seriousness: Optional[List[str]] = None
 
-    severity: str
-    causality: str
-    action_taken: str
-    outcome: str
+    severity: Optional[str] = None
+    causality: Optional[str] = None
+    action_taken: Optional[str] = None
+    outcome: Optional[str] = None
     date_of_death: Optional[str] = None
 
-    narrative: str
+    narrative: Optional[str] = None
 
-    reporter_name: str
-    reporter_designation: str
+    reporter_name: Optional[str] = None
+    reporter_designation: Optional[str] = None
     reporter_contact: Optional[str] = None
-    reporter_date: str
+    reporter_date: Optional[str] = None
     reporter_signature: Optional[str] = None
 
     investigator_name: Optional[str] = None
@@ -1900,15 +2011,24 @@ class SAEReportCreate(BaseModel):
     investigator_date: Optional[str] = None
     site: Optional[str] = None
 
+    class Config:
+        extra = "ignore"
+
 
 class SAEReportOut(SAEReportCreate):
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
-        from_attributes = True  
+        from_attributes = True
+        extra = "ignore"  
 
 class AdverseEventRow(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_to_none(cls, data):
+        return _blank_strings_to_none(data)
+
     description: Optional[str] = None
     definition_no: Optional[str] = None
     start_date: Optional[str] = None
@@ -1917,43 +2037,87 @@ class AdverseEventRow(BaseModel):
     grade: Optional[str] = None
     converted_to_sae: Optional[str] = None
 
+    class Config:
+        extra = "ignore"
+
 
 class AdverseEventsCreate(BaseModel):
+    """Helper Form — Adverse Events (INC AE Scale v1.0)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_to_none(cls, data):
+        return _blank_strings_to_none(data)
+
     enrollment_id: str
     mother_name: Optional[str] = None
     baby_uid: Optional[str] = None
     maternal_uid: Optional[str] = None
 
-    has_adverse_event: bool
+    has_adverse_event: Optional[bool] = None
 
-    events: Optional[List[AdverseEventRow]] = []
+    events: Optional[List[AdverseEventRow]] = None
 
     completed_by: Optional[str] = None
     designation: Optional[str] = None
     completion_date: Optional[str] = None
 
+    class Config:
+        extra = "ignore"
+
 
 class AdverseEventsOut(AdverseEventsCreate):
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
-        from_attributes = True              
+        from_attributes = True
+        extra = "ignore" 
+
+class SAEListRow(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_to_none(cls, data):
+        return _blank_strings_to_none(data)
+
+    sae: Optional[str] = None
+    definition_no: Optional[str] = None
+    start_date: Optional[str] = None
+    notification_24h: Optional[str] = None
+    end_date: Optional[str] = None
+    notify_initial: Optional[str] = None
+    notify_10d: Optional[str] = None
+    notify_resolution: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
+
 
 class SAEListCreate(BaseModel):
+    """Helper Form — Serious Adverse Events Listing."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_to_none(cls, data):
+        return _blank_strings_to_none(data)
+
     enrollment_id: str
-    rows: list
-    completed_by: str | None = None
-    designation: str | None = None
-    completion_date: str | None = None
+    rows: Optional[List[SAEListRow]] = None
+    completed_by: Optional[str] = None
+    designation: Optional[str] = None
+    completion_date: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
 
 
 class SAEListOut(SAEListCreate):
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+        extra = "ignore"
 class RespCVNeuroDayCreate(BaseModel):
     enrollment_id: str
     nicu_day:      int
@@ -2365,6 +2529,9 @@ class CranialUSGCreate(BaseModel):
     submission_status:       Optional[str]        = "draft"
     saved_at:                Optional[str]        = None
     saved_by:                Optional[str]        = None
+    completed_by:            Optional[str]        = None
+    designation:             Optional[str]        = None
+    completion_date:         Optional[str]        = None
 
 
 class CranialUSGSubmit(CranialUSGCreate):
@@ -2402,7 +2569,7 @@ class MRIBrainCreate(BaseModel):
     scanner:          Optional[str]  = None
     sedation:         Optional[bool] = None
     sedation_agent:   Optional[str]  = None
-    sequences:        Optional[List[str]] = []
+    sequences:        Optional[List[str]] = None
 
     # K.3 Findings
     myelination:      Optional[str]  = None
@@ -2429,6 +2596,8 @@ class MRIBrainCreate(BaseModel):
     submission_status: Optional[str] = "draft"
     saved_at:          Optional[str] = None
     saved_by:          Optional[str] = None
+
+    model_config = {"extra": "ignore"}
 
 
 class MRIBrainSubmit(MRIBrainCreate):
@@ -2467,7 +2636,7 @@ class BlenderSummaryCreate(BaseModel):
     initial_fio2:        Optional[float]      = None
     exit_fio2:           Optional[float]      = None
     max_fio2_first_hour: Optional[float]      = None
-    fio2_per_minute:     Optional[List]       = []  # 11-element list [min_0 … min_10]
+    fio2_per_minute:     Optional[List]       = None  # 11-element list [min_0 … min_10]
 
     # L.3 Composite Outcomes  ("yes" | "no" | "na" | None)
     composite_outcome_1: Optional[str] = None
@@ -2483,6 +2652,8 @@ class BlenderSummaryCreate(BaseModel):
     submission_status: Optional[str] = "draft"
     saved_at:          Optional[str] = None
     saved_by:          Optional[str] = None
+
+    model_config = {"extra": "ignore"}
 
 
 class BlenderSummarySubmit(BlenderSummaryCreate):

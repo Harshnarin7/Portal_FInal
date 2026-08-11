@@ -138,6 +138,7 @@ function AppContent() {
     localStorage.removeItem("current_screening_id");
     localStorage.removeItem("current_enrollment_id");
     localStorage.removeItem("enrollment_locked");
+    localStorage.removeItem("enrollment_lock_reason");
     window.dispatchEvent(new Event("storage"));
     window.location.href = "/form-a";
   }}

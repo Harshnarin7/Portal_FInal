@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -17,13 +17,13 @@ import models
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
-    CranialUltrasound, ROPScreening, CompositeOutcome,
+    CranialUltrasound, ROPScreening, CompositeOutcome, ExternalHospitalAssessment,
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
     MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, MinimalMonitoringDayLog,
     CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDaySubmit, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDaySubmit, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -277,16 +277,20 @@ def generate_screening_id(site_id: str, db: Session):
 def compute_screening_status(data):
     if data.gestation_weeks is None:
         return "Screen Failure"
-    
-    if data.gestation_weeks >= 32:
+
+    weeks = int(data.gestation_weeks)
+    days = int(getattr(data, "gestation_days", None) or 0)
+    total_days = weeks * 7 + days
+    # Eligible window: 25w0d – 31w6d inclusive
+    if total_days < 25 * 7 or total_days > 31 * 7 + 6:
         return "Screen Failure"
-    
+
     if data.exclusion_present:
         return "Screen Failure"
-    
+
     if data.consent_given == "Yes":
         return "Eligible"
-    
+
     return "Not Eligible"
 
 def get_accessible_screening_query(db: Session, user: User):
@@ -1477,19 +1481,12 @@ def create_neonatal_morbidities(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
-    # FIX: this always inserted a new row, with no PUT endpoint to update an
-    # existing one — but FormH.jsx's own load effect explicitly loads
-    # existing data on mount ("prevents data loss on revisit") and its save
-    # handler only ever calls POST. Since Form H is one comprehensive
-    # discharge-summary record per enrollment (filled incrementally across
-    # sessions, not a repeatable-events list like SAE/Adverse Events), every
-    # "Save" after the first created a brand new duplicate row instead of
-    # updating. This existing-record check makes POST safe as a fallback;
-    # the new PUT endpoint below is the primary path once a record exists.
+    # Upsert against the newest row for this enrollment so revisit+save never
+    # writes an older duplicate while the UI loads the latest.
     existing = (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == data.enrollment_id)
-        .order_by(NeonatalMorbidities.id.asc())
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
     if existing:
@@ -1517,7 +1514,7 @@ def update_neonatal_morbidities(
     record = (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
-        .order_by(NeonatalMorbidities.id.asc())
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
     if not record:
@@ -1541,13 +1538,6 @@ def get_neonatal_morbidities(
     return (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
-        # FIX: no ORDER BY at all before — Postgres doesn't guarantee row
-        # order without one, so FormH.jsx's "take rows[rows.length - 1] as
-        # the most recent" logic wasn't actually reliable. Ordering by id
-        # ascending makes that assumption true going forward. (Response
-        # shape kept as a list, not changed to a single object, so any
-        # duplicate rows already created by the POST-only bug above don't
-        # break existing clients — this just makes "last" mean something.)
         .order_by(NeonatalMorbidities.id.asc())
         .all()
     )
@@ -1570,7 +1560,7 @@ def create_study_outcomes(
     existing = (
         db.query(StudyOutcomes)
         .filter(StudyOutcomes.enrollment_id == data.enrollment_id)
-        .order_by(StudyOutcomes.id.asc())
+        .order_by(StudyOutcomes.id.desc())
         .first()
     )
     if existing:
@@ -1621,10 +1611,42 @@ def create_rop_screening(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = ROPScreening(**data.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
+    return record
+
+
+@app.get("/rop-screening/{enrollment_id}", response_model=ROPScreeningOut)
+def get_rop_screening(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="ROP screening record not found")
     return record
 
 # ============================================================================
@@ -1663,6 +1685,70 @@ def get_composite_outcome(
         db.query(CompositeOutcome)
         .filter(CompositeOutcome.enrollment_id == enrollment_id)
         .order_by(CompositeOutcome.created_at.desc())
+        .all()
+    )
+
+# ============================================================================
+# FORM J — EXTERNAL HOSPITAL ASSESSMENT (36 / 40 / 44 weeks)
+# ============================================================================
+
+@app.post("/external-hospital-assessment/", response_model=ExternalHospitalAssessmentOut)
+def upsert_external_hospital_assessment(
+    data: ExternalHospitalAssessmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+    if data.assessment_weeks is None or int(data.assessment_weeks) < 1:
+        raise HTTPException(status_code=400, detail="assessment_weeks must be a positive number")
+    weeks = int(data.assessment_weeks)
+
+    allowed = set(ExternalHospitalAssessment.__table__.columns.keys()) - {"id", "created_at", "updated_at"}
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    payload["assessment_weeks"] = weeks
+
+    existing = (
+        db.query(ExternalHospitalAssessment)
+        .filter(
+            ExternalHospitalAssessment.enrollment_id == data.enrollment_id,
+            ExternalHospitalAssessment.assessment_weeks == weeks,
+        )
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key in ("enrollment_id", "assessment_weeks"):
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = ExternalHospitalAssessment(**payload)
+    db.add(record)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(record)
+    return record
+
+
+@app.get(
+    "/external-hospital-assessment/{enrollment_id}",
+    response_model=list[ExternalHospitalAssessmentOut],
+)
+def get_external_hospital_assessments(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    return (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+        .order_by(ExternalHospitalAssessment.assessment_weeks.asc())
         .all()
     )
 
@@ -1846,18 +1932,88 @@ def create_metab_renal_vasc_eye_log(
 # SERIOUS ADVERSE EVENT ENDPOINTS
 # ============================================================================
 
+def _sae_payload(data: SAEReportCreate) -> dict:
+    """Full dump filtered to model columns; normalize list/bool defaults."""
+    allowed = set(SAEReport.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("seriousness") is None:
+        payload["seriousness"] = []
+    if payload.get("ongoing") is None:
+        payload["ongoing"] = False
+    return payload
+
+
 @app.post("/sae-report/", response_model=SAEReportOut)
 def create_sae_report(
     data: SAEReportCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Create a new SAE report (multiple reports allowed per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
-    record = SAEReport(**data.model_dump())
+    payload = _sae_payload(data)
+    record = SAEReport(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
+
+
+@app.get("/sae-report/id/{report_id}", response_model=SAEReportOut)
+def get_sae_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE report not found")
+    require_enrollment_access(record.enrollment_id, db, current_user)
+    return record
+
+
+@app.put("/sae-report/{report_id}", response_model=SAEReportOut)
+def update_sae_report(
+    report_id: int,
+    data: SAEReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Full-field update so cleared values persist (no data loss / stale fields)."""
+    record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE report not found")
+    require_enrollment_access(record.enrollment_id, db, current_user)
+    if data.enrollment_id and data.enrollment_id != record.enrollment_id:
+        require_enrollment_access(data.enrollment_id, db, current_user)
+
+    payload = _sae_payload(data)
+    for key, value in payload.items():
+        if key == "enrollment_id":
+            continue
+        setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/sae-report/{enrollment_id}", response_model=List[SAEReportOut])
+def list_sae_reports(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all SAE reports for an enrollment (newest first)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    return (
+        db.query(SAEReport)
+        .filter(SAEReport.enrollment_id == enrollment_id)
+        .order_by(SAEReport.id.desc())
+        .all()
+    )
 
 @app.post("/adverse-events/", response_model=AdverseEventsOut)
 def create_adverse_events(
@@ -1865,19 +2021,126 @@ def create_adverse_events(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upsert AE form by enrollment_id (one record per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
+
+    allowed = set(AdverseEvents.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    raw = {k: v for k, v in data.model_dump().items() if k in allowed or k in AE_PII_FIELDS}
+    if raw.get("events") is None:
+        raw["events"] = []
+
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        raw,
         AE_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
+    payload = {k: v for k, v in payload.items() if k in allowed}
+
+    existing = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return _ae_out_with_pii(db, existing, current_user)
+
     record = AdverseEvents(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
-    return record
+    return _ae_out_with_pii(db, record, current_user)
+
+
+@app.get("/adverse-events/{enrollment_id}", response_model=Optional[AdverseEventsOut])
+def get_adverse_events(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return saved AE form, or null if not filled yet (not an error)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        return None
+    return _ae_out_with_pii(db, record, current_user)
+
+
+@app.put("/adverse-events/{enrollment_id}", response_model=AdverseEventsOut)
+def update_adverse_events(
+    enrollment_id: str,
+    data: AdverseEventsCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Adverse Events form not found — use POST to create")
+
+    allowed = set(AdverseEvents.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "enrollment_id",
+    }
+    raw = {k: v for k, v in data.model_dump().items() if k in allowed or k in AE_PII_FIELDS}
+    if raw.get("events") is None:
+        raw["events"] = []
+    raw["enrollment_id"] = enrollment_id
+
+    payload = split_and_store_pii(
+        db,
+        raw,
+        AE_PII_FIELDS,
+        enrollment_id=enrollment_id,
+        site_name=site_for_enrollment(db, enrollment_id),
+    )
+    payload = {k: v for k, v in payload.items() if k in allowed}
+    for key, value in payload.items():
+        setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return _ae_out_with_pii(db, record, current_user)
+
+
+def _ae_out_with_pii(db: Session, record: AdverseEvents, current_user: User) -> dict:
+    """Reattach mother_name / maternal_uid from PII store for UI reload."""
+    data = AdverseEventsOut.model_validate(record).model_dump()
+    try:
+        from pii_service import can_view_pii_for_site
+        site = site_for_enrollment(db, record.enrollment_id)
+        if can_view_pii_for_site(current_user, site):
+            pii = (
+                db.query(ParticipantPII)
+                .filter(ParticipantPII.enrollment_id == record.enrollment_id)
+                .first()
+            )
+            if pii:
+                if not data.get("mother_name"):
+                    name = f"{pii.mother_first_name or ''} {pii.mother_surname or ''}".strip()
+                    if name:
+                        data["mother_name"] = name
+                if not data.get("maternal_uid") and pii.maternal_uid:
+                    data["maternal_uid"] = pii.maternal_uid
+    except Exception:
+        pass
+    return data
 
 @app.post("/sae-list/", response_model=SAEListOut)
 def create_sae_list(
@@ -1885,9 +2148,80 @@ def create_sae_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upsert SAE listing by enrollment_id (one record per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
-    record = SAEList(**data.model_dump())
+
+    allowed = set(SAEList.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("rows") is None:
+        payload["rows"] = []
+
+    existing = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = SAEList(**payload)
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/sae-list/{enrollment_id}", response_model=Optional[SAEListOut])
+def get_sae_list(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return saved SAE list, or null if not filled yet."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        return None
+    return record
+
+
+@app.put("/sae-list/{enrollment_id}", response_model=SAEListOut)
+def update_sae_list(
+    enrollment_id: str,
+    data: SAEListCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE list not found — use POST to create")
+
+    allowed = set(SAEList.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("rows") is None:
+        payload["rows"] = []
+    for key, value in payload.items():
+        setattr(record, key, value)
+
     db.commit()
     db.refresh(record)
     return record
@@ -3262,20 +3596,27 @@ def create_form_k(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
+    allowed = set(MRIBrainAssessment.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by",
+    }
+    # Full dump (not exclude_unset) so empty/cleared fields overwrite stale DB values
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+
     existing = (
         db.query(MRIBrainAssessment)
         .filter(MRIBrainAssessment.enrollment_id == data.enrollment_id)
         .first()
     )
     if existing:
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
         db.commit()
         db.refresh(existing)
         return existing
 
-    record = MRIBrainAssessment(**data.model_dump())
+    record = MRIBrainAssessment(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -3313,11 +3654,14 @@ def update_form_k(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form K not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Form K not found — use POST to create")
 
-    for key, value in data.model_dump(exclude_unset=True).items():
-        if hasattr(record, key) and key != "enrollment_id":
-            setattr(record, key, value)
+    allowed = set(MRIBrainAssessment.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    for key, value in payload.items():
+        setattr(record, key, value)
 
     db.commit()
     db.refresh(record)
@@ -3362,20 +3706,33 @@ def create_form_l(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
+    allowed = set(BlenderStudySummary.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    # Normalize minute list length to 11 slots
+    mins = payload.get("fio2_per_minute")
+    if mins is None:
+        payload["fio2_per_minute"] = [None] * 11
+    elif isinstance(mins, list):
+        padded = list(mins[:11]) + [None] * max(0, 11 - len(mins))
+        payload["fio2_per_minute"] = padded
+
     existing = (
         db.query(BlenderStudySummary)
         .filter(BlenderStudySummary.enrollment_id == data.enrollment_id)
         .first()
     )
     if existing:
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
         db.commit()
         db.refresh(existing)
         return existing
 
-    record = BlenderStudySummary(**data.model_dump())
+    record = BlenderStudySummary(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -3413,11 +3770,20 @@ def update_form_l(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form L not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Form L not found — use POST to create")
 
-    for key, value in data.model_dump(exclude_unset=True).items():
-        if hasattr(record, key) and key != "enrollment_id":
-            setattr(record, key, value)
+    allowed = set(BlenderStudySummary.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    mins = payload.get("fio2_per_minute")
+    if mins is None:
+        payload["fio2_per_minute"] = [None] * 11
+    elif isinstance(mins, list):
+        payload["fio2_per_minute"] = list(mins[:11]) + [None] * max(0, 11 - len(mins))
+
+    for key, value in payload.items():
+        setattr(record, key, value)
 
     db.commit()
     db.refresh(record)

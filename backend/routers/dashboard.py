@@ -7,8 +7,9 @@ main.py maps every excluded record (anomaly / hydrops / GA-out-of-range) to
 'Screen Failure', not 'Not Eligible' — so a literal `screening_status =
 'Not Eligible'` filter would silently return zero rows for those boxes.
 Instead we derive ineligibility directly from `exclusion_present` and
-`gestation_weeks`, which is what `compute_screening_status()` itself is
-built from. See Harsh's decision on this (July 2026) before changing it.
+`gestation_weeks`/`gestation_days` (25w0d–31w6d window), which is what
+`compute_screening_status()` itself is built from. See Harsh's decision on
+this (July 2026) before changing it.
 
 Depends on Issue #1 fixes (reason_for_consent_refusal, enrollment_id
 writeback, ltfu_reason_36/40/44) — all three are implemented alongside this
@@ -41,6 +42,17 @@ _BARRIER_SQL = (
     "OR COALESCE(s.exclusion_reasons, '') LIKE '%IUFD%')"
 )
 
+# Eligible GA window: 25w0d – 31w6d inclusive (matches Form A / compute_screening_status).
+_GA_DAYS_SQL = "(COALESCE(s.gestation_weeks, 0) * 7 + COALESCE(s.gestation_days, 0))"
+_GA_IN_WINDOW_SQL = (
+    f"(s.gestation_weeks IS NOT NULL AND {_GA_DAYS_SQL} >= 25 * 7 "
+    f"AND {_GA_DAYS_SQL} <= 31 * 7 + 6)"
+)
+_GA_OUT_OR_UNKNOWN_SQL = (
+    f"(s.gestation_weeks IS NULL OR {_GA_DAYS_SQL} < 25 * 7 "
+    f"OR {_GA_DAYS_SQL} > 31 * 7 + 6)"
+)
+
 SCREENING_QUERY = text(f"""
     SELECT
         s.site_name AS site_name,
@@ -53,10 +65,10 @@ SCREENING_QUERY = text(f"""
         SUM(CASE WHEN s.exclusion_reasons LIKE '%IUFD%' THEN 1 ELSE 0 END) AS box2c,
 
         -- Box 4a: screened, not a barrier case, no exclusion flag, but GA
-        -- unknown or outside the <32-week inclusion window.
+        -- unknown or outside the 25w0d–31w6d inclusion window.
         SUM(CASE WHEN NOT {_BARRIER_SQL}
                  AND COALESCE(s.exclusion_present, FALSE) = FALSE
-                 AND (s.gestation_weeks IS NULL OR s.gestation_weeks >= 32)
+                 AND {_GA_OUT_OR_UNKNOWN_SQL}
             THEN 1 ELSE 0 END) AS box4a,
 
         -- Box 4b: screened, not a barrier case, exclusion flag present
@@ -79,14 +91,14 @@ SCREENING_QUERY = text(f"""
         -- and within the inclusion window.
         SUM(CASE WHEN NOT {_BARRIER_SQL}
                  AND COALESCE(s.exclusion_present, FALSE) = FALSE
-                 AND s.gestation_weeks IS NOT NULL AND s.gestation_weeks < 32
+                 AND {_GA_IN_WINDOW_SQL}
             THEN 1 ELSE 0 END) AS box5,
 
         -- Box 6: eligible (= Box 5 condition), consent not given/refused,
         -- and no Form B record exists at all.
         SUM(CASE WHEN NOT {_BARRIER_SQL}
                  AND COALESCE(s.exclusion_present, FALSE) = FALSE
-                 AND s.gestation_weeks IS NOT NULL AND s.gestation_weeks < 32
+                 AND {_GA_IN_WINDOW_SQL}
                  AND (s.consent_given IS NULL OR s.consent_given != 'Yes')
                  AND br.enrollment_id IS NULL
             THEN 1 ELSE 0 END) AS box6,
@@ -217,7 +229,7 @@ def _compute_screening_boxes(db: Session):
           AND s.site_name IS NOT NULL AND s.site_name != ''
           AND NOT {_BARRIER_SQL}
           AND COALESCE(s.exclusion_present, FALSE) = FALSE
-          AND s.gestation_weeks IS NOT NULL AND s.gestation_weeks < 32
+          AND {_GA_IN_WINDOW_SQL}
           AND (s.consent_given IS NULL OR s.consent_given != 'Yes')
           AND br.enrollment_id IS NULL
           AND s.reason_for_consent_refusal IS NOT NULL
@@ -430,7 +442,7 @@ FORM_KEYS = [
     ("form_e",    "Form E — NICU Admission"),
     ("form_f",    "Form F — Cranial USG"),
     ("form_h",    "Form H — Neonatal Morbidities"),
-    ("form_j",    "Form J — Composite Outcomes"),
+    ("form_j",    "Form J — External Hospital Outcomes"),
     ("fio2_auc",  "FiO₂ AUC Logs"),
     ("resp_cv",   "Resp/CV/Neuro Logs"),
     ("infect_gi", "Infect/GI/Hema Logs"),
@@ -446,7 +458,7 @@ COMPLETION_QUERY = text("""
         CASE WHEN na.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_e,
         CASE WHEN cu.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_f,
         CASE WHEN nm.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_h,
-        CASE WHEN co.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS form_j,
+        CASE WHEN eha.enrollment_id IS NOT NULL THEN 1 ELSE 0 END AS form_j,
         CASE WHEN fa.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS fio2_auc,
         CASE WHEN rc.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS resp_cv,
         CASE WHEN ig.enrollment_id  IS NOT NULL THEN 1 ELSE 0 END AS infect_gi,
@@ -458,7 +470,7 @@ COMPLETION_QUERY = text("""
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM nicu_admission)                na ON na.enrollment_id = br.enrollment_id
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM cranial_usg_records)           cu ON cu.enrollment_id = br.enrollment_id
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM neonatal_morbidities)          nm ON nm.enrollment_id = br.enrollment_id
-    LEFT JOIN (SELECT DISTINCT enrollment_id FROM composite_outcomes)            co ON co.enrollment_id = br.enrollment_id
+    LEFT JOIN (SELECT DISTINCT enrollment_id FROM external_hospital_assessments) eha ON eha.enrollment_id = br.enrollment_id
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM fio2_auc_logs)                 fa ON fa.enrollment_id = br.enrollment_id
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM resp_cv_neuro_day_logs)        rc ON rc.enrollment_id = br.enrollment_id
     LEFT JOIN (SELECT DISTINCT enrollment_id FROM infect_gi_hema_day_logs)       ig ON ig.enrollment_id = br.enrollment_id

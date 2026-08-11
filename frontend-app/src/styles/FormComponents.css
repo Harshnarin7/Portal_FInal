@@ -257,23 +257,52 @@
   accent-color: var(--portal-blue, #0284c7);
 }
 
-/* ===== DYNAMIC INFECTION (H10) LIST ===== */
+/* ===== DYNAMIC INFECTION (H11) LIST ===== */
+.infection-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: -24px -24px 16px !important;
+  padding: 12px 16px 12px 24px !important;
+  background: #f8fafc !important;
+  border-bottom: 1px solid var(--portal-border, #e2e8f0) !important;
+  border-radius: 16px 16px 0 0;
+}
+.form-section.soft-blue > .infection-sec-head > h3 {
+  margin: 0 !important;
+  padding: 4px 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
 .infection-section-summary {
   font-size: 13px;
   font-weight: 600;
   color: #475569;
-  margin: -6px 0 14px;
+  margin: 0 0 6px;
+}
+.infection-section-hint {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: #64748b;
 }
 .infection-empty-state {
   background: #f8fafc;
   border: 1px dashed #cbd5e1;
   border-radius: 12px;
-  padding: 18px;
+  padding: 22px 18px;
   text-align: center;
   color: #64748b;
   font-size: 14px;
   margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
+.infection-empty-state p { margin: 0; }
 .infection-entry-card { border: 1px solid var(--portal-border, #e2e8f0); border-radius: 16px; }
 .infection-remove-btn {
   display: inline-flex;
@@ -292,6 +321,7 @@
 .infection-add-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 10px 18px;
   border-radius: 10px;
@@ -302,9 +332,24 @@
   font-size: 14px;
   cursor: pointer;
   margin-bottom: 20px;
-  transition: background .15s, border-color .15s;
+  transition: background .15s, border-color .15s, transform .12s;
 }
 .infection-add-btn:hover { background: #e0f2fe; }
+.infection-add-btn--header {
+  margin: 0;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-style: solid;
+  background: #0284c7;
+  color: #fff;
+  border-color: #0284c7;
+  font-weight: 700;
+}
+.infection-add-btn--header:hover {
+  background: #0369a1;
+  border-color: #0369a1;
+  color: #fff;
+}
 
 @media (max-width: 600px) {
   .pn-checkbox-grid { grid-template-columns: 1fr; }

@@ -75,8 +75,8 @@ function PrintReport({ formData = {} }) {
 
   const methodLabels = {
     LMP: "LMP (Last Menstrual Period)",
-    "Early USG": "Early USG (<24 weeks)",
-    "Fundal Height": "Fundal Height",
+    "Early USG": "Early USG (<24w)",
+    "Fundal Height": "Fundal height",
     Unknown: "Method not known",
   };
 

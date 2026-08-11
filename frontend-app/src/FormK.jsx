@@ -1,623 +1,661 @@
 import React, { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
+import "./styles/FormK.css";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import {
-  Home, Brain, Save, ArrowLeft, ArrowRight,
-  CheckCircle, AlertCircle, FlaskConical,
+  Home, Brain, FlaskConical, CheckCircle, Building2, Scan,
 } from "lucide-react";
 
-/* ─── helpers ─────────────────────────────────── */
-const YN = ({ value, onChange, disabled }) => (
-  <div className="emr-toggle-group" style={{ display: "flex", gap: 8 }}>
-    {["Yes", "No"].map((opt) => (
-      <button
-        key={opt}
-        type="button"
-        disabled={disabled}
-        onClick={() => !disabled && onChange(opt === "Yes" ? true : false)}
-        className={`emr-toggle-btn${value === (opt === "Yes" ? true : false) ? " active" : ""}`}
-        style={{
-          padding: "6px 18px", borderRadius: 7, border: "1.5px solid",
-          borderColor: value === (opt === "Yes" ? true : false) ? (opt === "Yes" ? "#0284c7" : "#64748b") : "#e2e8f0",
-          background: value === (opt === "Yes" ? true : false) ? (opt === "Yes" ? "#e0f2fe" : "#f1f5f9") : "#fff",
-          fontWeight: 600, fontSize: 13, cursor: disabled ? "default" : "pointer",
-          color: value === (opt === "Yes" ? true : false) ? (opt === "Yes" ? "#0284c7" : "#334155") : "#64748b",
-        }}
-      >{opt}</button>
-    ))}
-  </div>
-);
+const SEQ_OPTIONS = ["DWI", "3D T1", "T2", "SWI", "DTI"];
+const SCANNER_OPTIONS = ["3T Philips", "Equivalent 3T"];
 
-const Field = ({ label, children, hint }) => (
-  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-    <label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
-      {label}
-      {hint && <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 6 }}>{hint}</span>}
-    </label>
-    {children}
-  </div>
-);
+const emptyFinding = () => ({ present: null, type: [], site: [], location: [], details: "" });
 
-const TextInput = ({ value, onChange, placeholder, disabled, type = "text" }) => (
-  <input
-    type={type}
-    value={value}
-    onChange={e => onChange(e.target.value)}
-    placeholder={placeholder}
-    disabled={disabled}
-    className="emr-input"
-    style={{
-      padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8,
-      fontSize: 14, background: disabled ? "#f8fafc" : "#fff",
-      color: "#0f172a", outline: "none", width: "100%",
-    }}
-  />
-);
+const BLANK = () => ({
+  enrollment_id: "",
+  dob: "",
+  gestation_weeks: "",
+  gestation_days: "",
+  mri_date: "",
+  pma_weeks: "",
+  pma_days: "",
+  selected_for_mri: null,
+  scanner: "",
+  sedation: null,
+  sedation_agent: "",
+  sequences: [],
+  myelination: "",
+  bg_thalamus: emptyFinding(),
+  plic: emptyFinding(),
+  white_matter: emptyFinding(),
+  corpus_callosum: emptyFinding(),
+  cerebellum: emptyFinding(),
+  atrophy: emptyFinding(),
+  hemorrhage_swi: { present: null, location: "", details: "" },
+  overall_mri: "",
+  mri_summary: "",
+  radiologist_name: "",
+  radiologist_date: "",
+  completed_by: "",
+  designation: "",
+  completion_date: "",
+});
 
-const SelectInput = ({ value, onChange, options, disabled }) => (
-  <select
-    value={value}
-    onChange={e => onChange(e.target.value)}
-    disabled={disabled}
-    style={{
-      padding: "9px 12px", border: "1.5px solid #e2e8f0", borderRadius: 8,
-      fontSize: 14, background: disabled ? "#f8fafc" : "#fff",
-      color: "#0f172a", width: "100%",
-    }}
-  >
-    <option value="">— Select —</option>
-    {options.map(o => <option key={o} value={o}>{o}</option>)}
-  </select>
-);
+function emptyToNull(v) {
+  if (v === "" || v === undefined || v === null) return null;
+  return v;
+}
+function numOrNull(v) {
+  if (v === "" || v === undefined || v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function dateOnly(v) {
+  if (!v) return "";
+  const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : String(v);
+}
+function normalizeFinding(v) {
+  if (!v || typeof v !== "object") return emptyFinding();
+  return {
+    present: typeof v.present === "boolean" ? v.present : null,
+    type: Array.isArray(v.type) ? v.type : [],
+    site: Array.isArray(v.site) ? v.site : [],
+    location: Array.isArray(v.location) ? v.location : [],
+    details: v.details || "",
+  };
+}
 
-const SectionHeader = ({ icon: Icon, title, color = "#0284c7" }) => (
-  <div className="form-section-header" style={{
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "12px 18px", background: "#f8fafc",
-    borderLeft: `4px solid ${color}`,
-    borderRadius: "8px 8px 0 0", marginBottom: 0,
-    borderBottom: "1px solid #e2e8f0",
-  }}>
-    {Icon && <Icon size={18} style={{ color }} />}
-    <span style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>{title}</span>
-  </div>
-);
-
-const Card = ({ children, style }) => (
-  <div className="portal-card" style={{ marginBottom: 24, overflow: "hidden", ...style }}>
-    {children}
-  </div>
-);
-
-const CardBody = ({ children }) => (
-  <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
-    {children}
-  </div>
-);
-
-/* ─── Checkbox pill group ─────────────────────── */
-const PillGroup = ({ options, selected, onChange, disabled }) => (
-  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-    {options.map(o => {
-      const active = selected.includes(o);
-      return (
-        <button key={o} type="button" disabled={disabled}
-          onClick={() => {
-            if (disabled) return;
-            onChange(active ? selected.filter(x => x !== o) : [...selected, o]);
-          }}
-          style={{
-            padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
-            borderColor: active ? "#0284c7" : "#e2e8f0",
-            background: active ? "#e0f2fe" : "#fff",
-            color: active ? "#0284c7" : "#64748b",
-            fontWeight: 600, fontSize: 13, cursor: disabled ? "default" : "pointer",
-          }}
-        >{o}</button>
-      );
-    })}
-  </div>
-);
-
-/* ─── Finding row ─────────────────────────────── */
-const FindingRow = ({ label, value, onChange, disabled }) => {
-  const v = value || { present: null, details: "" };
+function YesNo({ value, onChange, disabled = false }) {
   return (
-    <div style={{
-      display: "grid", gridTemplateColumns: "1fr auto 1fr",
-      gap: 12, alignItems: "center",
-      padding: "12px 16px", borderBottom: "1px solid #f1f5f9",
-    }}>
-      <span style={{ fontSize: 14, fontWeight: 500, color: "#374151" }}>{label}</span>
-      <YN value={v.present} onChange={val => onChange({ ...v, present: val })} disabled={disabled} />
-      {v.present === true
-        ? <TextInput value={v.details} onChange={val => onChange({ ...v, details: val })}
-            placeholder="Specify type / location…" disabled={disabled} />
-        : <span style={{ fontSize: 13, color: "#cbd5e1" }}>—</span>
-      }
+    <div className="fk-yn">
+      <button type="button" className={`yes${value === true ? " active" : ""}`} disabled={disabled} onClick={() => !disabled && onChange(true)}>YES</button>
+      <button type="button" className={`no${value === false ? " active" : ""}`} disabled={disabled} onClick={() => !disabled && onChange(false)}>NO</button>
     </div>
   );
-};
+}
 
-/* ════════════════════════════════════════════════
-   FORM K
-════════════════════════════════════════════════ */
+function Chips({ options, value, onChange, disabled = false, multi = false }) {
+  const selected = multi ? (Array.isArray(value) ? value : []) : value;
+  return (
+    <div className="fk-chips">
+      {options.map((o) => {
+        const active = multi ? selected.includes(o) : selected === o;
+        return (
+          <button
+            key={o}
+            type="button"
+            disabled={disabled}
+            className={`fk-chip${active ? " active" : ""}`}
+            onClick={() => {
+              if (disabled) return;
+              if (multi) {
+                onChange(active ? selected.filter((x) => x !== o) : [...selected, o]);
+              } else {
+                onChange(active ? "" : o);
+              }
+            }}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function DateField({ value, onChange, disabled = false }) {
+  return (
+    <DatePicker
+      selected={value ? parseDateOnly(value) : null}
+      onChange={(date) => onChange(date ? toDateOnlyValue(date) : "")}
+      dateFormat="dd/MM/yyyy"
+      placeholderText="dd/mm/yyyy"
+      className="fk-input"
+      disabled={disabled}
+    />
+  );
+}
+
+function SectionCard({ icon: Icon, num, title, children }) {
+  return (
+    <section className="fk-card">
+      <div className="fk-card-header">
+        {Icon && <Icon size={18} className="fk-sec-icon" />}
+        {num != null && <span className="fk-sec-num">{num}</span>}
+        <h3>{title}</h3>
+      </div>
+      <div className="fk-card-body">{children}</div>
+    </section>
+  );
+}
+
+function FindingBlock({
+  title, value, onChange, disabled,
+  typeOpts, siteOpts, locationOpts, singleType = false,
+}) {
+  const v = value || emptyFinding();
+  return (
+    <div className="fk-finding">
+      <div className="fk-finding-top">
+        <span className="fk-finding-title">{title}</span>
+        <div className="fk-finding-yn">
+          <span className="fk-mini-label">Abnormality</span>
+          <YesNo value={v.present} onChange={(val) => onChange({ ...v, present: val })} disabled={disabled} />
+        </div>
+      </div>
+      {v.present === true && (
+        <div className="fk-finding-detail">
+          {typeOpts && (
+            <div className="fk-block">
+              <div className="fk-field-label">{singleType ? "If yes" : "Type"}</div>
+              <Chips
+                options={typeOpts}
+                value={singleType ? (v.type?.[0] || "") : (v.type || [])}
+                multi={!singleType}
+                onChange={(val) => onChange({
+                  ...v,
+                  type: singleType ? (val ? [val] : []) : val,
+                })}
+                disabled={disabled}
+              />
+            </div>
+          )}
+          {siteOpts && (
+            <div className="fk-block">
+              <div className="fk-field-label">Site</div>
+              <Chips options={siteOpts} value={v.site || []} multi onChange={(val) => onChange({ ...v, site: val })} disabled={disabled} />
+            </div>
+          )}
+          {locationOpts && (
+            <div className="fk-block">
+              <div className="fk-field-label">Location</div>
+              <Chips options={locationOpts} value={v.location || []} multi onChange={(val) => onChange({ ...v, location: val })} disabled={disabled} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function mapApiToForm(row) {
+  return {
+    ...BLANK(),
+    enrollment_id: row.enrollment_id || "",
+    dob: dateOnly(row.dob),
+    gestation_weeks: row.gestation_weeks ?? "",
+    gestation_days: row.gestation_days ?? "",
+    mri_date: dateOnly(row.mri_date),
+    pma_weeks: row.pma_weeks ?? "",
+    pma_days: row.pma_days ?? "",
+    selected_for_mri: typeof row.selected_for_mri === "boolean" ? row.selected_for_mri : null,
+    scanner: row.scanner || "",
+    sedation: typeof row.sedation === "boolean" ? row.sedation : null,
+    sedation_agent: row.sedation_agent || "",
+    sequences: Array.isArray(row.sequences) ? row.sequences : [],
+    myelination: row.myelination || "",
+    bg_thalamus: normalizeFinding(row.bg_thalamus),
+    plic: normalizeFinding(row.plic),
+    white_matter: normalizeFinding(row.white_matter),
+    corpus_callosum: normalizeFinding(row.corpus_callosum),
+    cerebellum: normalizeFinding(row.cerebellum),
+    atrophy: normalizeFinding(row.atrophy),
+    hemorrhage_swi: {
+      present: typeof row.hemorrhage_swi?.present === "boolean" ? row.hemorrhage_swi.present : null,
+      location: row.hemorrhage_swi?.location || "",
+      details: row.hemorrhage_swi?.details || "",
+    },
+    overall_mri: row.overall_mri || "",
+    mri_summary: row.mri_summary || "",
+    radiologist_name: row.radiologist_name || "",
+    radiologist_date: dateOnly(row.radiologist_date),
+    completed_by: row.completed_by || "",
+    designation: row.designation || "",
+    completion_date: dateOnly(row.completion_date),
+  };
+}
+
+function buildPayload(data) {
+  return {
+    enrollment_id: data.enrollment_id,
+    dob: emptyToNull(data.dob),
+    gestation_weeks: numOrNull(data.gestation_weeks),
+    gestation_days: numOrNull(data.gestation_days),
+    mri_date: emptyToNull(data.mri_date),
+    pma_weeks: numOrNull(data.pma_weeks),
+    pma_days: numOrNull(data.pma_days),
+    selected_for_mri: data.selected_for_mri,
+    scanner: emptyToNull(data.scanner),
+    sedation: data.sedation,
+    sedation_agent: emptyToNull(data.sedation_agent),
+    sequences: Array.isArray(data.sequences) ? data.sequences : [],
+    myelination: emptyToNull(data.myelination),
+    bg_thalamus: data.bg_thalamus || emptyFinding(),
+    plic: data.plic || emptyFinding(),
+    white_matter: data.white_matter || emptyFinding(),
+    corpus_callosum: data.corpus_callosum || emptyFinding(),
+    cerebellum: data.cerebellum || emptyFinding(),
+    atrophy: data.atrophy || emptyFinding(),
+    hemorrhage_swi: data.hemorrhage_swi || { present: null, location: "", details: "" },
+    overall_mri: emptyToNull(data.overall_mri),
+    mri_summary: emptyToNull(data.mri_summary),
+    radiologist_name: emptyToNull(data.radiologist_name),
+    radiologist_date: emptyToNull(data.radiologist_date),
+    completed_by: emptyToNull(data.completed_by),
+    designation: emptyToNull(data.designation),
+    completion_date: emptyToNull(data.completion_date),
+    submission_status: "draft",
+  };
+}
+
+function calcPma(dob, mriDate, gestWeeks, gestDays) {
+  if (!dob || !mriDate) return { weeks: "", days: "" };
+  const birth = parseDateOnly(dob);
+  const mri = parseDateOnly(mriDate);
+  if (!birth || !mri) return { weeks: "", days: "" };
+  const postnatal = Math.floor((mri.getTime() - birth.getTime()) / 86400000);
+  if (postnatal < 0) return { weeks: "", days: "" };
+  const ga = (Number(gestWeeks) || 0) * 7 + (Number(gestDays) || 0);
+  const total = ga + postnatal;
+  return { weeks: Math.floor(total / 7), days: total % 7 };
+}
+
+function getDesignation(name) {
+  if (!name) return "";
+  const n = name.replace(/^Dr\.\s*/i, "").trim();
+  if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
+  if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
+  if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
+  return "Project Nurse III";
+}
+
 export default function FormK() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-
-  const BLANK = {
-    enrollment_id: "",
-    dob: "",
-    gestation_weeks: "",
-    gestation_days: "",
-    mri_date: "",
-    pma_weeks: "",
-    pma_days: "",
-    /* K.1 */
-    selected_for_mri: null,
-    scanner: "",
-    sedation: null,
-    sedation_agent: "",
-    sequences: [],
-    /* K.3 findings */
-    myelination: "",
-    bg_thalamus: { present: null, type: [], site: [], details: "" },
-    plic: { present: null, type: [], details: "" },
-    white_matter: { present: null, location: [], type: [], details: "" },
-    corpus_callosum: { present: null, type: [], details: "" },
-    cerebellum: { present: null, type: [], details: "" },
-    atrophy: { present: null, type: [], details: "" },
-    hemorrhage_swi: { present: null, location: "", details: "" },
-    /* K.4 */
-    overall_mri: "",
-    mri_summary: "",
-    radiologist_name: "",
-    radiologist_date: "",
-    /* footer */
-    completed_by: "",
-    designation: "",
-    completion_date: "",
-  };
+  const { markFormCompleted } = useFormProgress();
 
   const [formData, setFormData] = useState(BLANK);
   const [isSaved, setIsSaved] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [assessors, setAssessors] = useState([]);
+  const [siteName, setSiteName] = useState("");
 
-  const editable = !isSaved || isEditing;
+  const set = (field, value) => {
+    setIsSaved(false);
+    setFormData((p) => ({ ...p, [field]: value }));
+  };
 
-  /* load patient context */
   useEffect(() => {
     const id =
+      routeId ||
       patientData?.enrollment_id ||
       location.state?.enrollmentId ||
       localStorage.getItem("current_enrollment_id") ||
-      localStorage.getItem("enrollment_id") || "";
-    setFormData(p => ({
-      ...p,
-      enrollment_id: id,
-      dob: patientData?.dob || "",
-      gestation_weeks: patientData?.gestation_weeks || "",
-      gestation_days: patientData?.gestation_days || "",
-    }));
-    if (id && (!patientData?.gestation_weeks || !patientData?.gestation_days)) {
-      api.get(`/birth-resuscitation/${id}`).then(res => {
-        const b = res.data || {};
-        setFormData(p => ({
+      "";
+    if (!id) return;
+
+    setFormData((p) => ({ ...p, enrollment_id: id }));
+
+    // Prefill from Form B
+    api.get(`/birth-resuscitation/${id}`)
+      .then(async (res) => {
+        const b = Array.isArray(res.data) ? res.data[0] : res.data;
+        if (!b) return;
+        let resolvedSite = b.site_name || patientData?.site_name || patientData?.site || "";
+        if (b.screening_id) {
+          try {
+            const screening = (await api.get(`/screenings/by-screening-id/${b.screening_id}`)).data;
+            if (screening?.site_name) resolvedSite = screening.site_name;
+          } catch { /* optional */ }
+        }
+        if (resolvedSite) setSiteName(resolvedSite);
+        setFormData((p) => ({
           ...p,
-          dob: b.date_of_birth || p.dob,
-          gestation_weeks: b.gestation_weeks ?? p.gestation_weeks,
-          gestation_days: b.gestation_days ?? p.gestation_days,
+          enrollment_id: id,
+          dob: p.dob || b.date_of_birth || "",
+          gestation_weeks: p.gestation_weeks !== "" && p.gestation_weeks != null ? p.gestation_weeks : (b.gestation_weeks ?? ""),
+          gestation_days: p.gestation_days !== "" && p.gestation_days != null ? p.gestation_days : (b.gestation_days ?? ""),
         }));
-      }).catch(() => {});
-    }
-  }, [patientData, location.state]);
+      })
+      .catch(() => {});
 
-  const set = (field, value) =>
-    setFormData(p => ({ ...p, [field]: value }));
+    // Load existing Form K (critical — was missing before = data loss on reload)
+    api.get(`/form-k/${id}`)
+      .then((res) => {
+        if (!res.data) return;
+        const mapped = mapApiToForm(res.data);
+        setFormData((p) => ({
+          ...mapped,
+          enrollment_id: id,
+          // Keep prefilled identity if saved record left them blank
+          dob: mapped.dob || p.dob,
+          gestation_weeks:
+            mapped.gestation_weeks !== "" && mapped.gestation_weeks != null
+              ? mapped.gestation_weeks
+              : p.gestation_weeks,
+          gestation_days:
+            mapped.gestation_days !== "" && mapped.gestation_days != null
+              ? mapped.gestation_days
+              : p.gestation_days,
+        }));
+        setIsSaved(true);
+      })
+      .catch((err) => {
+        if (err?.response?.status !== 404) console.error("Failed to load Form K", err);
+      });
+  }, [routeId, patientData, location.state]);
 
-  const handleSave = async () => {
-    if (!formData.enrollment_id) {
-      setMessage("❌ Enrollment ID is required.");
+  useEffect(() => {
+    const site = siteName || patientData?.site_name || patientData?.site || "";
+    if (!site) {
+      setAssessors([]);
       return;
     }
-    setSaving(true);
+    api.get(`/sites/${encodeURIComponent(site)}/screeners`)
+      .then((r) => setAssessors(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAssessors([]));
+  }, [siteName, patientData?.site_name, patientData?.site]);
+
+  // Auto PMA from DOB + MRI date + GA
+  useEffect(() => {
+    if (!formData.dob || !formData.mri_date) return;
+    const { weeks, days } = calcPma(
+      formData.dob,
+      formData.mri_date,
+      formData.gestation_weeks,
+      formData.gestation_days,
+    );
+    if (weeks === "" && days === "") return;
+    if (String(formData.pma_weeks) === String(weeks) && String(formData.pma_days) === String(days)) return;
+    setFormData((p) => ({ ...p, pma_weeks: weeks, pma_days: days }));
+  }, [formData.dob, formData.mri_date, formData.gestation_weeks, formData.gestation_days]);
+
+  const saveForm = async () => {
+    if (!formData.enrollment_id) {
+      setSaveMessage("❌ Enrollment ID is required");
+      return false;
+    }
     try {
-      await api.post("/form-k", formData);
-      setIsSaved(true);
-      setIsEditing(false);
-      setMessage("✅ Form K saved successfully.");
+      const res = await api.post("/form-k", buildPayload(formData));
+      setFormData(mapApiToForm(res.data));
       markFormCompleted("form_k");
+      setIsSaved(true);
+      setSaveMessage("✅ Form K saved");
+      setTimeout(() => setSaveMessage(""), 3000);
+      return true;
     } catch (err) {
-      setMessage("❌ Save failed: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setSaving(false);
+      console.error(err?.response?.data || err);
+      const detail = err?.response?.data?.detail;
+      setSaveMessage(`❌ Save failed${detail ? `: ${typeof detail === "string" ? detail : JSON.stringify(detail)}` : ""}`);
+      setTimeout(() => setSaveMessage(""), 4000);
+      return false;
     }
   };
 
-  const SEQ_OPTIONS = ["DWI", "3D T1", "T2", "SWI", "DTI"];
-  const SCANNER_OPTIONS = ["3T Philips", "Equivalent 3T"];
+  const skipRest = formData.selected_for_mri === false;
 
   return (
-    <div className="form-wrapper">
-      {/* ── header ── */}
+    <form
+      className="screening-form form-k-page"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const ok = await saveForm();
+        if (ok) navigate(`/form-l/${formData.enrollment_id}`);
+      }}
+    >
       <div className="form-header-action-row">
         <div className="form-header-title-area">
-          <div className="form-breadcrumb">
-            <Home size={12} /> FORM K
-          </div>
+          <div className="form-breadcrumb"><Home size={12} /> FORM K</div>
           <h2 className="form-main-title">MRI Brain Assessment</h2>
-          <p className="form-main-subtitle">
-            MRI Brain at 40 ± 2 weeks PMA — 25% Subset
-          </p>
+          <p className="form-main-subtitle">MRI Brain at 40 ± 2 weeks PMA (25% Subset)</p>
         </div>
         <div className="form-header-meta-area">
-          {isSaved && !isEditing && (
-            <button className="btn-edit-form-header" onClick={() => setIsEditing(true)}>
-              Edit Form
-            </button>
-          )}
-          {formData.enrollment_id && (
-            <span className="screening-id-badge">{formData.enrollment_id}</span>
-          )}
+          <div className="screening-id-badge">
+            <span className="id-label">Enrollment ID</span>
+            <span className="id-val">{formData.enrollment_id || "—"}</span>
+          </div>
         </div>
       </div>
 
-      {/* ── editing banner ── */}
-      {isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot" />
-          Editing Mode — unsaved changes will be lost if you navigate away
+      <SectionCard icon={Scan} num="1" title="Selected for MRI subset">
+        <div className="fk-qa">
+          <span className="fk-q">Selected for MRI subset</span>
+          <YesNo value={formData.selected_for_mri} onChange={(v) => set("selected_for_mri", v)} />
         </div>
-      )}
-
-      {/* ── message ── */}
-      {message && (
-        <div style={{
-          padding: "10px 16px", borderRadius: 8, marginBottom: 16,
-          background: message.startsWith("✅") ? "#dcfce7" : "#fee2e2",
-          color: message.startsWith("✅") ? "#166534" : "#991b1b",
-          fontWeight: 500, fontSize: 14,
-        }}>
-          {message}
-        </div>
-      )}
-
-      {/* ══ K.1 Subset Selection & Identification ══ */}
-      <Card>
-        <SectionHeader icon={Brain} title="K.1  Identification & MRI Subset" />
-        <CardBody>
-          <Field label="Selected for MRI Subset">
-            <YN value={formData.selected_for_mri}
-              onChange={v => set("selected_for_mri", v)} disabled={!editable} />
-          </Field>
-
-          {formData.selected_for_mri === false && (
-            <div style={{
-              padding: "12px 16px", background: "#fef3c7", borderRadius: 8,
-              color: "#92400e", fontWeight: 500, fontSize: 14,
-              border: "1px solid #fde68a",
-            }}>
-              ℹ️ Patient not selected for MRI subset — Form K not applicable.
-            </div>
-          )}
-
-          {formData.selected_for_mri !== false && (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-                <Field label="Enrollment ID">
-                  <TextInput value={formData.enrollment_id}
-                    onChange={v => set("enrollment_id", v)} disabled />
-                </Field>
-                <Field label="Date of Birth">
-                  <TextInput value={formData.dob}
-                    onChange={v => set("dob", v)} disabled placeholder="DD/MM/YY" />
-                </Field>
-                <Field label="Gestation at Birth">
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <TextInput value={formData.gestation_weeks}
-                      onChange={v => set("gestation_weeks", v)} disabled placeholder="wks" />
-                    <span style={{ color: "#94a3b8" }}>wks</span>
-                    <TextInput value={formData.gestation_days}
-                      onChange={v => set("gestation_days", v)} disabled placeholder="days" />
-                    <span style={{ color: "#94a3b8" }}>days</span>
-                  </div>
-                </Field>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-                <Field label="Date of MRI" hint="(DD/MM/YY)">
-                  <TextInput value={formData.mri_date}
-                    onChange={v => set("mri_date", v)}
-                    disabled={!editable} placeholder="DD/MM/YY" />
-                </Field>
-                <Field label="PMA at MRI">
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <TextInput value={formData.pma_weeks}
-                      onChange={v => set("pma_weeks", v)}
-                      disabled={!editable} placeholder="wks" />
-                    <span style={{ color: "#94a3b8" }}>wks</span>
-                    <TextInput value={formData.pma_days}
-                      onChange={v => set("pma_days", v)}
-                      disabled={!editable} placeholder="days" />
-                    <span style={{ color: "#94a3b8" }}>days</span>
-                  </div>
-                </Field>
-              </div>
-            </>
-          )}
-        </CardBody>
-      </Card>
-
-      {/* ══ K.2 MRI Details ══ */}
-      {formData.selected_for_mri !== false && (
-        <Card>
-          <SectionHeader icon={FlaskConical} title="K.2  MRI Details" color="#7c3aed" />
-          <CardBody>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              <Field label="Scanner">
-                <SelectInput value={formData.scanner}
-                  onChange={v => set("scanner", v)}
-                  options={SCANNER_OPTIONS} disabled={!editable} />
-              </Field>
-              <Field label="Sedation">
-                <YN value={formData.sedation}
-                  onChange={v => set("sedation", v)} disabled={!editable} />
-              </Field>
-            </div>
-
-            {formData.sedation === true && (
-              <Field label="Sedation Agent">
-                <TextInput value={formData.sedation_agent}
-                  onChange={v => set("sedation_agent", v)}
-                  disabled={!editable} placeholder="Agent name…" />
-              </Field>
-            )}
-
-            <Field label="Sequences Performed">
-              <PillGroup options={SEQ_OPTIONS}
-                selected={formData.sequences}
-                onChange={v => set("sequences", v)}
-                disabled={!editable} />
-            </Field>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ══ K.3 MRI Findings ══ */}
-      {formData.selected_for_mri !== false && (
-        <Card>
-          <SectionHeader icon={Brain} title="K.3  MRI Findings" color="#0891b2" />
-
-          {/* Myelination */}
-          <div style={{ padding: "14px 24px", borderBottom: "1px solid #f1f5f9" }}>
-            <Field label="Myelination">
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {["Appropriate for age", "Delayed"].map(opt => (
-                  <button key={opt} type="button" disabled={!editable}
-                    onClick={() => editable && set("myelination", opt)}
-                    style={{
-                      padding: "6px 18px", borderRadius: 7, border: "1.5px solid",
-                      borderColor: formData.myelination === opt ? "#0891b2" : "#e2e8f0",
-                      background: formData.myelination === opt ? "#ecfeff" : "#fff",
-                      color: formData.myelination === opt ? "#0891b2" : "#64748b",
-                      fontWeight: 600, fontSize: 13, cursor: !editable ? "default" : "pointer",
-                    }}
-                  >{opt}</button>
-                ))}
-              </div>
-            </Field>
+        {skipRest && (
+          <div className="fk-skip-note">
+            If No, skip the rest of this form. You can still Save to record the subset answer.
           </div>
+        )}
+      </SectionCard>
 
-          {/* Finding rows */}
-          {[
-            {
-              key: "bg_thalamus", label: "Basal Ganglia & Thalamus",
-              typeOpts: ["T1 hyper", "T2 hyper", "DWI restriction"],
-              siteOpts: ["Caudate", "Putamen", "GP", "Thalamus"],
-            },
-            {
-              key: "plic", label: "PLIC (Post Limb Internal Capsule)",
-              typeOpts: ["T2 hyperintensity", "Signal reversal"],
-            },
-            {
-              key: "white_matter", label: "White Matter",
-              locationOpts: ["Periventricular", "Deep WM"],
-              typeOpts: ["Hyperintensity", "Volume loss"],
-            },
-            {
-              key: "corpus_callosum", label: "Corpus Callosum",
-              typeOpts: ["Thinning", "Signal abnormality"],
-            },
-            {
-              key: "cerebellum", label: "Cerebellum",
-              typeOpts: ["Signal changes", "Atrophy"],
-            },
-            {
-              key: "atrophy", label: "Atrophy",
-              typeOpts: ["Cortical", "Sulcal widening", "Ventriculomegaly"],
-            },
-          ].map(({ key, label, typeOpts, siteOpts, locationOpts }) => {
-            const v = formData[key] || { present: null, type: [], site: [], location: [], details: "" };
-            return (
-              <div key={key} style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>{label}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 12, color: "#94a3b8" }}>Abnormality:</span>
-                    <YN value={v.present}
-                      onChange={val => set(key, { ...v, present: val })}
-                      disabled={!editable} />
-                  </div>
+      {!skipRest && (
+        <>
+          <SectionCard icon={Building2} num="K.1" title="Identification">
+            <div className="fk-grid-3">
+              <div className="form-group">
+                <label>2. Enrollment ID</label>
+                <input className="fk-input" value={formData.enrollment_id} readOnly />
+              </div>
+              <div className="form-group">
+                <label>3. DOB</label>
+                <DateField value={formData.dob} onChange={(v) => set("dob", v)} />
+              </div>
+              <div className="form-group">
+                <label>4. Gestation at birth</label>
+                <div className="fk-inline">
+                  <input className="fk-input fk-num" type="number" min="0" value={formData.gestation_weeks} onChange={(e) => set("gestation_weeks", e.target.value)} />
+                  <span>wks</span>
+                  <input className="fk-input fk-num" type="number" min="0" max="6" value={formData.gestation_days} onChange={(e) => set("gestation_days", e.target.value)} />
+                  <span>days</span>
                 </div>
-                {v.present === true && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingLeft: 12 }}>
-                    {typeOpts && (
-                      <Field label="Type">
-                        <PillGroup options={typeOpts}
-                          selected={v.type || []}
-                          onChange={val => set(key, { ...v, type: val })}
-                          disabled={!editable} />
-                      </Field>
-                    )}
-                    {siteOpts && (
-                      <Field label="Site">
-                        <PillGroup options={siteOpts}
-                          selected={v.site || []}
-                          onChange={val => set(key, { ...v, site: val })}
-                          disabled={!editable} />
-                      </Field>
-                    )}
-                    {locationOpts && (
-                      <Field label="Location">
-                        <PillGroup options={locationOpts}
-                          selected={v.location || []}
-                          onChange={val => set(key, { ...v, location: val })}
-                          disabled={!editable} />
-                      </Field>
-                    )}
-                    <Field label="Additional details">
-                      <TextInput value={v.details}
-                        onChange={val => set(key, { ...v, details: val })}
-                        disabled={!editable} placeholder="Describe…" />
-                    </Field>
-                  </div>
-                )}
               </div>
-            );
-          })}
-
-          {/* Hemorrhage SWI */}
-          <div style={{ padding: "16px 24px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>Hemorrhage (SWI)</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "#94a3b8" }}>Hemorrhagic changes:</span>
-                <YN value={formData.hemorrhage_swi?.present}
-                  onChange={val => set("hemorrhage_swi", { ...formData.hemorrhage_swi, present: val })}
-                  disabled={!editable} />
+              <div className="form-group">
+                <label>5. Date of MRI</label>
+                <DateField value={formData.mri_date} onChange={(v) => set("mri_date", v)} />
+              </div>
+              <div className="form-group">
+                <label>6. PMA</label>
+                <div className="fk-inline">
+                  <input className="fk-input fk-num" type="number" min="0" value={formData.pma_weeks} onChange={(e) => set("pma_weeks", e.target.value)} />
+                  <span>wks</span>
+                  <input className="fk-input fk-num" type="number" min="0" max="6" value={formData.pma_days} onChange={(e) => set("pma_days", e.target.value)} />
+                  <span>days</span>
+                </div>
               </div>
             </div>
-            {formData.hemorrhage_swi?.present === true && (
-              <Field label="Location">
-                <TextInput value={formData.hemorrhage_swi?.location || ""}
-                  onChange={val => set("hemorrhage_swi", { ...formData.hemorrhage_swi, location: val })}
-                  disabled={!editable} placeholder="Describe location…" />
-              </Field>
+          </SectionCard>
+
+          <SectionCard icon={FlaskConical} num="K.2" title="MRI details">
+            <div className="fk-block">
+              <div className="fk-field-label">7. Scanner</div>
+              <Chips options={SCANNER_OPTIONS} value={formData.scanner} onChange={(v) => set("scanner", v)} />
+            </div>
+            <div className="fk-qa">
+              <span className="fk-q">8. Sedation</span>
+              <YesNo value={formData.sedation} onChange={(v) => set("sedation", v)} />
+            </div>
+            {formData.sedation === true && (
+              <div className="form-group" style={{ maxWidth: 360 }}>
+                <label>9. If yes, Agent</label>
+                <input className="fk-input" value={formData.sedation_agent} onChange={(e) => set("sedation_agent", e.target.value)} placeholder="Agent name" />
+              </div>
             )}
-          </div>
-        </Card>
-      )}
-
-      {/* ══ K.4 Overall MRI ══ */}
-      {formData.selected_for_mri !== false && (
-        <Card>
-          <SectionHeader icon={CheckCircle} title="K.4  Overall MRI Result" color="#16a34a" />
-          <CardBody>
-            <Field label="Overall MRI">
-              <div style={{ display: "flex", gap: 10 }}>
-                {["Normal", "Abnormal"].map(opt => (
-                  <button key={opt} type="button" disabled={!editable}
-                    onClick={() => editable && set("overall_mri", opt)}
-                    style={{
-                      padding: "8px 28px", borderRadius: 8, border: "2px solid",
-                      borderColor: formData.overall_mri === opt
-                        ? (opt === "Normal" ? "#16a34a" : "#dc2626")
-                        : "#e2e8f0",
-                      background: formData.overall_mri === opt
-                        ? (opt === "Normal" ? "#dcfce7" : "#fee2e2")
-                        : "#fff",
-                      color: formData.overall_mri === opt
-                        ? (opt === "Normal" ? "#15803d" : "#991b1b")
-                        : "#64748b",
-                      fontWeight: 700, fontSize: 14, cursor: !editable ? "default" : "pointer",
-                    }}
-                  >{opt}</button>
-                ))}
-              </div>
-            </Field>
-
-            <Field label="Summary">
-              <textarea
-                value={formData.mri_summary}
-                onChange={e => set("mri_summary", e.target.value)}
-                disabled={!editable}
-                rows={3}
-                placeholder="Brief summary of MRI findings…"
-                style={{
-                  width: "100%", padding: "10px 12px",
-                  border: "1.5px solid #e2e8f0", borderRadius: 8,
-                  fontSize: 14, resize: "vertical", fontFamily: "inherit",
-                  background: !editable ? "#f8fafc" : "#fff",
-                }}
-              />
-            </Field>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-              <Field label="Site Radiologist">
-                <TextInput value={formData.radiologist_name}
-                  onChange={v => set("radiologist_name", v)}
-                  disabled={!editable} placeholder="Full name" />
-              </Field>
-              <Field label="Date" hint="(DD/MM/YY)">
-                <TextInput value={formData.radiologist_date}
-                  onChange={v => set("radiologist_date", v)}
-                  disabled={!editable} placeholder="DD/MM/YY" />
-              </Field>
+            <div className="fk-block">
+              <div className="fk-field-label">10. Sequences</div>
+              <Chips options={SEQ_OPTIONS} value={formData.sequences} multi onChange={(v) => set("sequences", v)} />
             </div>
-          </CardBody>
-        </Card>
+          </SectionCard>
+
+          <SectionCard icon={Brain} num="K.3" title="MRI findings">
+            <div className="fk-block" style={{ marginBottom: 16 }}>
+              <div className="fk-field-label">11. Myelination</div>
+              <Chips
+                options={["Appropriate for age", "Delayed"]}
+                value={formData.myelination}
+                onChange={(v) => set("myelination", v)}
+              />
+            </div>
+
+            <FindingBlock
+              title="Basal ganglia & thalamus"
+              value={formData.bg_thalamus}
+              onChange={(v) => set("bg_thalamus", v)}
+              typeOpts={["T1 hyper", "T2 hyper", "DWI restriction"]}
+              siteOpts={["Caudate", "Putamen", "GP", "Thalamus"]}
+            />
+            <FindingBlock
+              title="PLIC (post limb internal capsule)"
+              value={formData.plic}
+              onChange={(v) => set("plic", v)}
+              typeOpts={["T2 hyperintensity", "Signal reversal"]}
+              singleType
+            />
+            <FindingBlock
+              title="White matter"
+              value={formData.white_matter}
+              onChange={(v) => set("white_matter", v)}
+              locationOpts={["Periventricular", "Deep WM"]}
+              typeOpts={["Hyperintensity", "Volume loss"]}
+            />
+            <FindingBlock
+              title="Corpus callosum"
+              value={formData.corpus_callosum}
+              onChange={(v) => set("corpus_callosum", v)}
+              typeOpts={["Thinning", "Signal abnormality"]}
+              singleType
+            />
+            <FindingBlock
+              title="Cerebellum"
+              value={formData.cerebellum}
+              onChange={(v) => set("cerebellum", v)}
+              typeOpts={["Signal changes", "Atrophy"]}
+              singleType
+            />
+            <FindingBlock
+              title="Atrophy"
+              value={formData.atrophy}
+              onChange={(v) => set("atrophy", v)}
+              typeOpts={["Cortical", "Sulcal widening", "Ventriculomegaly"]}
+            />
+
+            <div className="fk-finding">
+              <div className="fk-finding-top">
+                <span className="fk-finding-title">Hemorrhage (SWI)</span>
+                <div className="fk-finding-yn">
+                  <span className="fk-mini-label">26. Hemorrhagic changes</span>
+                  <YesNo
+                    value={formData.hemorrhage_swi?.present}
+                    onChange={(val) => set("hemorrhage_swi", { ...formData.hemorrhage_swi, present: val })}
+                  />
+                </div>
+              </div>
+              {formData.hemorrhage_swi?.present === true && (
+                <div className="form-group" style={{ marginTop: 10 }}>
+                  <label>27. Location</label>
+                  <input
+                    className="fk-input"
+                    value={formData.hemorrhage_swi?.location || ""}
+                    onChange={(e) => set("hemorrhage_swi", { ...formData.hemorrhage_swi, location: e.target.value })}
+                    placeholder="Describe location"
+                  />
+                </div>
+              )}
+            </div>
+          </SectionCard>
+
+          <SectionCard icon={CheckCircle} num="K.4" title="Overall MRI">
+            <div className="fk-block">
+              <div className="fk-field-label">Overall MRI</div>
+              <Chips options={["Normal", "Abnormal"]} value={formData.overall_mri} onChange={(v) => set("overall_mri", v)} />
+            </div>
+            <div className="form-group">
+              <label>Summary</label>
+              <textarea
+                className="fk-textarea"
+                rows={3}
+                value={formData.mri_summary}
+                onChange={(e) => set("mri_summary", e.target.value)}
+                placeholder="Brief summary of MRI findings"
+              />
+            </div>
+            <div className="fk-grid-2">
+              <div className="form-group">
+                <label>Site radiologist</label>
+                <input className="fk-input" value={formData.radiologist_name} onChange={(e) => set("radiologist_name", e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Date</label>
+                <DateField value={formData.radiologist_date} onChange={(v) => set("radiologist_date", v)} />
+              </div>
+            </div>
+          </SectionCard>
+        </>
       )}
 
-      {/* ══ Footer ══ */}
-      <Card>
-        <SectionHeader icon={AlertCircle} title="Form Completion" color="#64748b" />
-        <CardBody>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Completed By">
-              <TextInput value={formData.completed_by}
-                onChange={v => set("completed_by", v)}
-                disabled={!editable} placeholder="First name" />
-            </Field>
-            <Field label="Designation">
-              <TextInput value={formData.designation}
-                onChange={v => set("designation", v)}
-                disabled={!editable} placeholder="Designation" />
-            </Field>
-            <Field label="Date" hint="(DD/MM/YY)">
-              <TextInput value={formData.completion_date}
-                onChange={v => set("completion_date", v)}
-                disabled={!editable} placeholder="DD/MM/YY" />
-            </Field>
+      <SectionCard title="Form completed by">
+        <div className="fk-grid-3">
+          <div className="form-group">
+            <label>Completed by</label>
+            <select
+              className="fk-input"
+              value={formData.completed_by || ""}
+              onChange={(e) => {
+                const name = e.target.value;
+                setIsSaved(false);
+                setFormData((p) => ({
+                  ...p,
+                  completed_by: name,
+                  designation: getDesignation(name),
+                }));
+              }}
+            >
+              <option value="">-- Select --</option>
+              {assessors.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+              {formData.completed_by && !assessors.includes(formData.completed_by) && (
+                <option value={formData.completed_by}>{formData.completed_by}</option>
+              )}
+            </select>
           </div>
-        </CardBody>
-      </Card>
-
-      {/* ── action buttons ── */}
-      <div className="form-action-bar">
-        <button className="btn-secondary" onClick={() => navigate(`/form-j/${formData.enrollment_id}`)}>
-          <ArrowLeft size={16} /> Back
-        </button>
-
-        <div style={{ display: "flex", gap: 12 }}>
-          {(!isSaved || isEditing) && (
-            <button className="btn-primary" onClick={handleSave} disabled={saving}>
-              <Save size={16} /> {saving ? "Saving…" : "Save Form K"}
-            </button>
-          )}
-          <button className="btn-secondary" onClick={() => navigate("/dashboard")}>
-            <ArrowRight size={16} /> Next Form
-          </button>
+          <div className="form-group">
+            <label>Designation</label>
+            <input className="fk-input" value={formData.designation || ""} readOnly placeholder="Auto-filled" />
+          </div>
+          <div className="form-group">
+            <label>Date</label>
+            <DateField value={formData.completion_date} onChange={(v) => set("completion_date", v)} />
+          </div>
         </div>
-      </div>
-    </div>
+      </SectionCard>
+
+      {saveMessage && <p className="fk-save-msg">{saveMessage}</p>}
+
+      <FormNavBar
+        onBack={() => navigate(`/form-j/${formData.enrollment_id}`, { state: { enrollmentId: formData.enrollment_id } })}
+        onSave={saveForm}
+        onNext={async () => {
+          const ok = await saveForm();
+          if (ok) navigate(`/form-l/${formData.enrollment_id}`, { state: { enrollmentId: formData.enrollment_id } });
+        }}
+        backLabel="Form J"
+        nextLabel="Form L"
+        step={11}
+        totalSteps={12}
+        isSaved={isSaved}
+      />
+    </form>
   );
 }

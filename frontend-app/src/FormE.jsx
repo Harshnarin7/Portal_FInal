@@ -65,6 +65,45 @@ const FieldErr = ({ msg }) => msg
     </div>
   : null;
 
+const KNOWN_HEATING_TYPES = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
+const KNOWN_ADVERSE_TYPES = ["Apnea", "Bradycardia", "Tube accident", "Other"];
+const KNOWN_TRANSPORT_MODES = ["Room air", "CPAP", "SIB", "NIPPV", "IMV", "SIMV", "HFOV", "Other"];
+const KNOWN_NICU_MODES = ["Room air", "CPAP", "NIPPV", "IMV", "SIMV", "HFOV", "Other"];
+
+/** Encode multi-select + optional Other free-text into a single DB string. */
+function encodeMultiChoice(selected, otherText) {
+  const list = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+  const parts = list.filter(t => t && t !== "Other");
+  if (list.includes("Other")) {
+    const custom = (otherText || "").trim();
+    parts.push(custom || "Other");
+  }
+  return parts.join(", ") || null;
+}
+
+/** Decode a stored string into selected known options + Other free-text. */
+function decodeMultiChoice(raw, knownOptions) {
+  const parts = String(raw || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return { selected: [], other: "" };
+  const selected = [];
+  const unknown = [];
+  for (const p of parts) {
+    if (knownOptions.includes(p) && p !== "Other") selected.push(p);
+    else if (p === "Other") selected.push("Other");
+    else unknown.push(p);
+  }
+  if (unknown.length) {
+    if (!selected.includes("Other")) selected.push("Other");
+    return { selected, other: unknown.join(", ") };
+  }
+  return { selected, other: "" };
+}
+
+function toggleMultiValue(list, value) {
+  const arr = Array.isArray(list) ? list : [];
+  return arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value];
+}
+
 /* ── Respiratory parameter grid — defined OUTSIDE FormE to prevent remount on state change ── */
 function RespParamGrid({ prefix, serial, formData, errors, isFieldEditable, handleChange }) {
   return (
@@ -248,8 +287,8 @@ export default function FormE() {
     temp_skin: "", temp_axillary: "",
     transport_incubator: "", transport_mode: "",
     transport_mode_other: "", nicu_mode_other: "",
-    additional_heating: "", heating_type_other: "", heating_type: "",
-    transport_adverse_event: "", adverse_event_type: "", tube_accident_type: "",
+    additional_heating: "", heating_type_other: "", heating_type: [],
+    transport_adverse_event: "", adverse_event_type: [], tube_accident_type: "",
     transport_mode_resp: "", adverse_event_other: "",
     transport_cpap: "", transport_pip: "", transport_peep: "",
     transport_map: "", transport_fio2: "",
@@ -273,10 +312,11 @@ export default function FormE() {
     transport_incubator: yesNoToBool(formData.transport_incubator),
     transport_mode: formData.transport_mode,
     additional_heating: yesNoToBool(formData.additional_heating),
-    heating_type: formData.heating_type === "Other" ? formData.heating_type_other : formData.heating_type,
+    heating_type: encodeMultiChoice(formData.heating_type, formData.heating_type_other),
     transport_adverse_event: yesNoToBool(formData.transport_adverse_event),
-    adverse_event_type: formData.adverse_event_type === "Other" ? formData.adverse_event_other : formData.adverse_event_type,
-    tube_accident_type: formData.tube_accident_type,
+    adverse_event_type: encodeMultiChoice(formData.adverse_event_type, formData.adverse_event_other),
+    tube_accident_type: formData.adverse_event_type?.includes("Tube accident")
+      ? (formData.tube_accident_type || null) : null,
     transport_mode_resp: formData.transport_mode_resp === "Other" ? formData.transport_mode_other : formData.transport_mode_resp,
     transport_cpap: num(formData.transport_cpap),
     transport_pip: num(formData.transport_pip),
@@ -393,21 +433,16 @@ export default function FormE() {
        /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
 
-       // Detect if heating_type or adverse_event_type are custom "Other" values
-       const knownHeatingTypes = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
-       const knownAdverseTypes = ["Apnea", "Bradycardia", "Tube accident", "Other"];
+      // Detect if heating_type or adverse_event_type are custom "Other" values
+      const heatingDecoded = decodeMultiChoice(e.heating_type, KNOWN_HEATING_TYPES);
+      const adverseDecoded = decodeMultiChoice(e.adverse_event_type, KNOWN_ADVERSE_TYPES);
 
-       const heatingType = e.heating_type || "";
-       const heatingIsOther = heatingType && !knownHeatingTypes.includes(heatingType);
-       const heatingTypeToSet = heatingIsOther ? "Other" : heatingType;
-       const heatingTypeOtherToSet = heatingIsOther ? heatingType : "";
+      const transportModeRaw = e.transport_mode_resp || "";
+      const transportModeIsOther = transportModeRaw && !KNOWN_TRANSPORT_MODES.includes(transportModeRaw);
+      const nicuModeRaw = e.nicu_mode_resp || "";
+      const nicuModeIsOther = nicuModeRaw && !KNOWN_NICU_MODES.includes(nicuModeRaw);
 
-       const adverseType = e.adverse_event_type || "";
-       const adverseIsOther = adverseType && !knownAdverseTypes.includes(adverseType);
-       const adverseTypeToSet = adverseIsOther ? "Other" : adverseType;
-       const adverseTypeOtherToSet = adverseIsOther ? adverseType : "";
-
-       setFormData(prev => ({
+      setFormData(prev => ({
          ...prev,
           // Identification
           annual_number:   e.annual_number || prev.annual_number,
@@ -426,8 +461,8 @@ export default function FormE() {
 
           // Additional heating — bool → "Yes"/"No"
           additional_heating: fromBool(e.additional_heating),
-          heating_type: heatingTypeToSet,
-          heating_type_other: heatingTypeOtherToSet,
+          heating_type: heatingDecoded.selected,
+          heating_type_other: heatingDecoded.other,
 
           // Transport incubator — bool → "Yes"/"No"
           transport_incubator: fromBool(e.transport_incubator),
@@ -435,13 +470,13 @@ export default function FormE() {
 
           // Transport adverse event — bool → "Yes"/"No"
           transport_adverse_event: fromBool(e.transport_adverse_event),
-          adverse_event_type: adverseTypeToSet,
-          adverse_event_other: adverseTypeOtherToSet,
+          adverse_event_type: adverseDecoded.selected,
+          adverse_event_other: adverseDecoded.other,
           tube_accident_type: e.tube_accident_type || "",
 
           // Respiratory — transport
-          transport_mode_resp: e.transport_mode_resp || "",
-          transport_mode_other: "",
+          transport_mode_resp: transportModeIsOther ? "Other" : transportModeRaw,
+          transport_mode_other: transportModeIsOther ? transportModeRaw : "",
           transport_cpap: e.transport_cpap != null ? String(e.transport_cpap) : "",
           transport_pip:  e.transport_pip  != null ? String(e.transport_pip)  : "",
           transport_peep: e.transport_peep != null ? String(e.transport_peep) : "",
@@ -449,8 +484,8 @@ export default function FormE() {
           transport_fio2: e.transport_fio2 != null ? String(e.transport_fio2) : "",
 
           // Respiratory — NICU
-          nicu_mode_resp: e.nicu_mode_resp || "",
-          nicu_mode_other: "",
+          nicu_mode_resp: nicuModeIsOther ? "Other" : nicuModeRaw,
+          nicu_mode_other: nicuModeIsOther ? nicuModeRaw : "",
           nicu_cpap: e.nicu_cpap != null ? String(e.nicu_cpap) : "",
           nicu_pip:  e.nicu_pip  != null ? String(e.nicu_pip)  : "",
           nicu_peep: e.nicu_peep != null ? String(e.nicu_peep) : "",
@@ -508,9 +543,9 @@ export default function FormE() {
     if (name === "age_at_admission_hours")
       if (value && Number(value) > 99) errorMsg = "Must be between 0–99 hours";
     if (name === "adverse_event_other")
-      if (formData.adverse_event_type === "Other" && !value) errorMsg = "Specify adverse event";
+      if (formData.adverse_event_type?.includes("Other") && !value) errorMsg = "Specify adverse event";
       else if (value && !/^[A-Za-z\s]+$/.test(value)) errorMsg = "Only letters are allowed";
-    const requiredFields = ["admission_datetime","temp_skin","temp_axillary","additional_heating",
+    const requiredFields = ["admission_datetime","temp_dr","temp_skin","temp_axillary","additional_heating",
       "transport_incubator","transport_adverse_event","transport_mode_resp","nicu_mode_resp","completed_by"];
     if (requiredFields.includes(name) && !value) errorMsg = "This field is required";
     if (name === "transport_cpap" && value && (Number(value) < 2 || Number(value) > 12)) errorMsg = "Range: 2–12";
@@ -521,14 +556,14 @@ export default function FormE() {
     if (name === "nicu_pip" && value && (Number(value) < 10 || Number(value) > 40)) errorMsg = "Range: 10–40";
     if (name === "nicu_peep" && value && (Number(value) < 2 || Number(value) > 10)) errorMsg = "Range: 2–10";
     if (name === "nicu_map" && value && (Number(value) < 5 || Number(value) > 20)) errorMsg = "Range: 5–20";
-    if (name === "heating_type" && formData.additional_heating === "Yes" && !value) errorMsg = "Select heating type";
+    if (name === "heating_type" && formData.additional_heating === "Yes" && !(Array.isArray(value) ? value.length : value)) errorMsg = "Select heating type";
     if (name === "heating_type_other") {
       if (!value) errorMsg = "Specify heating method";
       else if (!/^[A-Za-z\s]+$/.test(value)) errorMsg = "Only letters are allowed";
     }
     if (name === "transport_mode" && formData.transport_incubator === "No" && !value) errorMsg = "Specify transport mode";
-    if (name === "adverse_event_type" && formData.transport_adverse_event === "Yes" && !value) errorMsg = "Select adverse event";
-    if (name === "tube_accident_type" && formData.adverse_event_type === "Tube accident" && !value) errorMsg = "Select tube accident type";
+    if (name === "adverse_event_type" && formData.transport_adverse_event === "Yes" && !(Array.isArray(value) ? value.length : value)) errorMsg = "Select adverse event";
+    if (name === "tube_accident_type" && formData.adverse_event_type?.includes?.("Tube accident") && !value) errorMsg = "Select tube accident type";
     if (name === "transport_mode_other" && formData.transport_mode_resp === "Other" && !value) errorMsg = "Specify mode";
     if (name === "nicu_mode_other" && formData.nicu_mode_resp === "Other" && !value) errorMsg = "Specify mode";
     setFormData(prev => ({ ...prev, [name]: updatedValue }));
@@ -536,7 +571,22 @@ export default function FormE() {
   };
 
   const handleToggle = (name, value) => {
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => {
+      const updated = { ...prev, [name]: value };
+      if (name === "additional_heating" && value !== "Yes") {
+        updated.heating_type = [];
+        updated.heating_type_other = "";
+      }
+      if (name === "transport_adverse_event" && value !== "Yes") {
+        updated.adverse_event_type = [];
+        updated.adverse_event_other = "";
+        updated.tube_accident_type = "";
+      }
+      if (name === "transport_incubator" && value !== "No") {
+        updated.transport_mode = "";
+      }
+      return updated;
+    });
     setErrors(prev => ({ ...prev, [name]: "" }));
   };
 
@@ -555,22 +605,23 @@ export default function FormE() {
     // Required-field + conditional validation (aligned with CRF E1–E15)
     const v = {};
     if (!formData.admission_datetime) v.admission_datetime = "This field is required";
+    if (!formData.temp_dr) v.temp_dr = "This field is required";
     if (!formData.temp_skin) v.temp_skin = "This field is required";
     if (!formData.temp_axillary) v.temp_axillary = "This field is required";
     if (!formData.transport_incubator) v.transport_incubator = "This field is required";
     if (formData.transport_incubator === "No" && !formData.transport_mode)
       v.transport_mode = "Specify transport mode";
     if (!formData.additional_heating) v.additional_heating = "This field is required";
-    if (formData.additional_heating === "Yes" && !formData.heating_type)
+    if (formData.additional_heating === "Yes" && !(formData.heating_type?.length))
       v.heating_type = "Select heating type";
-    if (formData.heating_type === "Other" && !formData.heating_type_other)
+    if (formData.heating_type?.includes("Other") && !formData.heating_type_other)
       v.heating_type_other = "Specify heating method";
     if (!formData.transport_adverse_event) v.transport_adverse_event = "This field is required";
-    if (formData.transport_adverse_event === "Yes" && !formData.adverse_event_type)
+    if (formData.transport_adverse_event === "Yes" && !(formData.adverse_event_type?.length))
       v.adverse_event_type = "Select adverse event";
-    if (formData.adverse_event_type === "Tube accident" && !formData.tube_accident_type)
+    if (formData.adverse_event_type?.includes("Tube accident") && !formData.tube_accident_type)
       v.tube_accident_type = "Select tube accident type";
-    if (formData.adverse_event_type === "Other" && !formData.adverse_event_other)
+    if (formData.adverse_event_type?.includes("Other") && !formData.adverse_event_other)
       v.adverse_event_other = "Specify adverse event";
     if (!formData.transport_mode_resp) v.transport_mode_resp = "This field is required";
     if (formData.transport_mode_resp === "Other" && !formData.transport_mode_other)
@@ -609,10 +660,11 @@ export default function FormE() {
       transport_incubator: yesNoToBool(formData.transport_incubator),
       transport_mode: formData.transport_mode,
       additional_heating: yesNoToBool(formData.additional_heating),
-      heating_type: formData.heating_type === "Other" ? formData.heating_type_other : formData.heating_type,
+      heating_type: encodeMultiChoice(formData.heating_type, formData.heating_type_other),
       transport_adverse_event: yesNoToBool(formData.transport_adverse_event),
-      adverse_event_type: formData.adverse_event_type === "Other" ? formData.adverse_event_other : formData.adverse_event_type,
-      tube_accident_type: formData.tube_accident_type,
+      adverse_event_type: encodeMultiChoice(formData.adverse_event_type, formData.adverse_event_other),
+      tube_accident_type: formData.adverse_event_type?.includes("Tube accident")
+        ? (formData.tube_accident_type || null) : null,
       transport_mode_resp: formData.transport_mode_resp === "Other" ? formData.transport_mode_other : formData.transport_mode_resp,
       transport_cpap: num(formData.transport_cpap),
       transport_pip:  num(formData.transport_pip),
@@ -776,7 +828,7 @@ export default function FormE() {
               <div className="form-section-body">
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>3. Date &amp; Time <span className="required">*</span></label>
+                    <label>3. Date &amp; Time <span className="required">*</span> <span className="field-note">(DD/MM/YY; HH:MM)</span></label>
                     <DatePicker
                       selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
                       onChange={date => setFormData(prev => ({
@@ -788,13 +840,13 @@ export default function FormE() {
                       disabled={!isFieldEditable} />
                   </div>
                   <div className="form-group">
-                    <label>4. Age at Admission <span className="auto-tag">AUTO</span></label>
+                    <label>4. Age at admission <span className="auto-tag">AUTO</span></label>
                     <div style={{ position:"relative" }}>
                       <input value={formData.age_at_admission_hours || ""}
                         readOnly className="readonly-input" placeholder="Auto-calculated"
                         style={{ paddingRight: 52 }} />
                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
-                        fontSize:11,color:"#94a3b8",fontWeight:600 }}>hrs</span>
+                        fontSize:11,color:"#94a3b8",fontWeight:600 }}>hours</span>
                     </div>
                   </div>
                 </div>
@@ -816,7 +868,8 @@ export default function FormE() {
                   <div className="form-group" style={{ marginBottom: 14 }}>
                     <label>
                       5. Temperature in DR{" "}
-                      <span style={{ fontSize:11, color:"#ef4444", fontWeight:600 }}>
+                      <span className="required">*</span>{" "}
+                      <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>
                         (prior to transport)
                       </span>
                     </label>
@@ -860,7 +913,7 @@ export default function FormE() {
                   {formData.transport_incubator === "No" && (
                     <div className="followup-box" style={{ marginTop:10 }}>
                       <div className="form-group">
-                        <label>8. Mode of transport (if not incubator) <span className="required">*</span></label>
+                        <label>8. If No, mode of transport <span className="required">*</span></label>
                         <input type="text" name="transport_mode"
                           value={formData.transport_mode || ""}
                           readOnly={!isFieldEditable}
@@ -888,21 +941,29 @@ export default function FormE() {
                   {formData.additional_heating === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>10. Type <span className="required">*</span></label>
+                        <label>10. Type <span className="required">*</span> <span style={{ fontSize:11, fontWeight:400, color:"#94a3b8" }}>(select all that apply)</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
-                          {["Gel pack","PCM","Plastic wrap","Cap","Other"].map(type => (
+                          {KNOWN_HEATING_TYPES.map(type => (
                             <button key={type} type="button"
-                              className={`rx-horizontal-btn${formData.heating_type === type ? " active" : ""}`}
+                              className={`rx-horizontal-btn${formData.heating_type?.includes(type) ? " active" : ""}`}
                               onClick={() => {
                                 if (!isFieldEditable) return;
-                                setFormData(prev => ({ ...prev, heating_type: type, heating_type_other: "" }));
+                                setFormData(prev => {
+                                  const next = toggleMultiValue(prev.heating_type, type);
+                                  return {
+                                    ...prev,
+                                    heating_type: next,
+                                    heating_type_other: next.includes("Other") ? prev.heating_type_other : "",
+                                  };
+                                });
+                                setErrors(prev => ({ ...prev, heating_type: "" }));
                               }}
                               disabled={!isFieldEditable}>{type}</button>
                           ))}
                         </div>
                         <FieldErr msg={errors.heating_type} />
                       </div>
-                      {formData.heating_type === "Other" && (
+                      {formData.heating_type?.includes("Other") && (
                         <div className="form-group" style={{ marginTop:10 }}>
                           <label>Specify Heating Type <span className="required">*</span></label>
                           <input type="text" name="heating_type_other"
@@ -933,36 +994,45 @@ export default function FormE() {
                   {formData.transport_adverse_event === "Yes" && (
                     <div className="followup-box" style={{ marginTop:12 }}>
                       <div className="form-group">
-                        <label>12. If yes, type <span className="required">*</span></label>
+                        <label>12. If yes, type <span className="required">*</span> <span style={{ fontSize:11, fontWeight:400, color:"#94a3b8" }}>(select all that apply)</span></label>
                         <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
-                          {["Apnea","Bradycardia","Tube accident","Other"].map(type => (
+                          {KNOWN_ADVERSE_TYPES.map(type => (
                             <button key={type} type="button"
-                              className={`rx-horizontal-btn${formData.adverse_event_type === type ? " active" : ""}`}
+                              className={`rx-horizontal-btn${formData.adverse_event_type?.includes(type) ? " active" : ""}`}
                               onClick={() => {
                                 if (!isFieldEditable) return;
-                                setFormData(prev => ({ ...prev, adverse_event_type: type, adverse_event_other: "" }));
+                                setFormData(prev => {
+                                  const next = toggleMultiValue(prev.adverse_event_type, type);
+                                  return {
+                                    ...prev,
+                                    adverse_event_type: next,
+                                    adverse_event_other: next.includes("Other") ? prev.adverse_event_other : "",
+                                    tube_accident_type: next.includes("Tube accident") ? prev.tube_accident_type : "",
+                                  };
+                                });
+                                setErrors(prev => ({ ...prev, adverse_event_type: "" }));
                               }}
                               disabled={!isFieldEditable}>{type}</button>
                           ))}
                         </div>
                         <FieldErr msg={errors.adverse_event_type} />
                       </div>
-                      {formData.adverse_event_type === "Tube accident" && (
+                      {formData.adverse_event_type?.includes("Tube accident") && (
                         <div className="form-group" style={{ marginTop:10 }}>
-                          <label>13. Tube accident type <span className="required">*</span></label>
+                          <label>13. If Tube accident <span className="required">*</span></label>
                           <Toggle name="tube_accident_type" value={formData.tube_accident_type}
                             options={["Displacement","Blockage"]} onChange={handleToggle}
                             disabled={!isFieldEditable} error={errors.tube_accident_type} />
                         </div>
                       )}
-                      {formData.adverse_event_type === "Other" && (
+                      {formData.adverse_event_type?.includes("Other") && (
                         <div className="form-group" style={{ marginTop:10 }}>
                           <label>Specify adverse event <span className="required">*</span></label>
                           <input type="text" name="adverse_event_other"
                             value={formData.adverse_event_other || ""}
                             readOnly={!isFieldEditable}
                             className={`emr-input${errors.adverse_event_other ? " input-error" : ""}`}
-                            placeholder="e.g. Hypothermia, Apnea"
+                            placeholder="e.g. Hypothermia"
                             onChange={e => {
                               const v = e.target.value;
                               if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);

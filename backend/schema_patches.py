@@ -276,19 +276,36 @@ def apply_schema_patches(engine: Engine) -> None:
             conn.execute(text(stmt))
         for stmt in STUDY_OUTCOMES_COLUMN_PATCHES:
             conn.execute(text(stmt))
+        for stmt in CRANIAL_USG_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in ROP_SCREENING_COLUMN_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in EXTERNAL_HOSPITAL_TABLE_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in SAE_REPORT_TABLE_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in ADVERSE_EVENTS_TABLE_PATCHES:
+            conn.execute(text(stmt))
+        for stmt in SAE_LIST_TABLE_PATCHES:
+            conn.execute(text(stmt))
 
 # New fields added post-July-15 deploy — found missing in production 2026-07-19
 # (caused 500 errors on Form D load, Form B NICU fields, Helper 3 day logs)
 MATERNAL_DETAILS_COLUMN_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS artificial_other VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_courses VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_courses_status VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS multiple_other VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS lddi_known VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_tachycardia VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_abdominal_tenderness VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hypothyroidism BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hyperthyroidism BOOLEAN DEFAULT FALSE",
 ]
 
 POSTNATAL_DAY1_COLUMN_PATCHES_V2 = [
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS lisa_catheter_type VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS lisa_catheter_other VARCHAR",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS device_type_other VARCHAR",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS surfactant_brand_other VARCHAR",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS adverse_type_other VARCHAR",
@@ -714,6 +731,7 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS line_comp_infection BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS line_comp_none BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS line_comp_thrombosis BOOLEAN",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS line_comp_phlebitis BOOLEAN",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS peripheral_arterial VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS peripheral_venous VARCHAR",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS picc VARCHAR",
@@ -747,6 +765,7 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_28d_age_days DOUBLE PRECISION",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter36_method VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter36_other VARCHAR",
+    "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter36_other_text VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death36 BOOLEAN",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death36_cause TEXT",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death36_date DATE",
@@ -771,6 +790,7 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS rop36_date DATE",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter40_method VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter40_other VARCHAR",
+    "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter40_other_text VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death40 BOOLEAN",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death40_cause TEXT",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death40_date DATE",
@@ -789,6 +809,7 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS abnormal_mri_tea VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter44_method VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter44_other VARCHAR",
+    "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS encounter44_other_text VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death44 BOOLEAN",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death44_cause TEXT",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS death44_date DATE",
@@ -814,5 +835,188 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_after_discharge_date DATE",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_after_discharge_time VARCHAR",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_after_discharge_age_days DOUBLE PRECISION",
+    "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS crf_additional_notes JSON",
 ]
-# total new columns: 82
+# Form F / H (Cranial USG) — completion footer fields, added for CRF alignment
+CRANIAL_USG_COLUMN_PATCHES = [
+    "ALTER TABLE cranial_usg_records ADD COLUMN IF NOT EXISTS completed_by VARCHAR",
+    "ALTER TABLE cranial_usg_records ADD COLUMN IF NOT EXISTS designation VARCHAR",
+    "ALTER TABLE cranial_usg_records ADD COLUMN IF NOT EXISTS completion_date VARCHAR",
+]
+
+# Form G (ROP Screening) — LEFT eye mirror of the RIGHT eye summary/treatment
+# fields (previously only RIGHT was persisted), per-eye Anti-VEGF agent and
+# PMA-at-treatment, and the outcome "Other" free-text — added for CRF v3
+# (RBSK/NNF India & ICROP 3rd Edition) alignment. `pma_at_treatment` (singular)
+# is superseded by the per-eye `pma_at_treatment_re` / `pma_at_treatment_le`,
+# and the orphan `bilateral_treatment` column (not on the CRF) is left as-is
+# in the DB (unused) rather than dropped, so no historical data is lost.
+ROP_SCREENING_COLUMN_PATCHES = [
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS pma_at_treatment_re VARCHAR",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS pma_at_treatment_le VARCHAR",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS worst_stage_le VARCHAR",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS worst_zone_le VARCHAR",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS plus_disease_le BOOLEAN",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS a_rop_le BOOLEAN",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS treatment_required_le BOOLEAN",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS treatment_type_le JSON",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS anti_vegf_agent_le VARCHAR",
+    "ALTER TABLE rop_screening ADD COLUMN IF NOT EXISTS outcome_other_text VARCHAR",
+]
+
+# Form J — External Hospital Assessment (create table if missing on older deploys)
+EXTERNAL_HOSPITAL_TABLE_PATCHES = [
+    """
+    CREATE TABLE IF NOT EXISTS external_hospital_assessments (
+        id SERIAL PRIMARY KEY,
+        enrollment_id VARCHAR NOT NULL,
+        assessment_weeks INTEGER NOT NULL,
+        mother_name VARCHAR,
+        dob DATE,
+        death BOOLEAN,
+        death_cause VARCHAR,
+        death_date DATE,
+        death_time VARCHAR,
+        death_age_days INTEGER,
+        resp_support BOOLEAN,
+        resp_support_date DATE,
+        resp_mode VARCHAR,
+        flow_rate DOUBLE PRECISION,
+        fio2 DOUBLE PRECISION,
+        radiographic_lung BOOLEAN,
+        nec BOOLEAN,
+        nec_stage VARCHAR,
+        nec_date DATE,
+        nec_surgery BOOLEAN,
+        ivh_right VARCHAR,
+        ivh_right_date DATE,
+        ivh_left VARCHAR,
+        ivh_left_date DATE,
+        cpvl_right VARCHAR,
+        cpvl_right_date DATE,
+        cpvl_left VARCHAR,
+        cpvl_left_date DATE,
+        rop_right VARCHAR,
+        plus_right BOOLEAN,
+        arop_right BOOLEAN,
+        zone_right VARCHAR,
+        treat_right BOOLEAN,
+        treat_date_right DATE,
+        rop_left VARCHAR,
+        plus_left BOOLEAN,
+        arop_left BOOLEAN,
+        zone_left VARCHAR,
+        treat_left BOOLEAN,
+        treat_date_left DATE,
+        sepsis BOOLEAN,
+        sepsis_episodes INTEGER,
+        mri_done BOOLEAN,
+        completed_by VARCHAR,
+        designation VARCHAR,
+        hospital VARCHAR,
+        completion_date DATE,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP,
+        CONSTRAINT uq_external_hospital_enrollment_week UNIQUE (enrollment_id, assessment_weeks)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_external_hospital_assessments_enrollment_id ON external_hospital_assessments (enrollment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_external_hospital_assessments_id ON external_hospital_assessments (id)",
+]
+
+# Form Y — SAE reports (create table + relax NOT NULL for draft saves on older deploys)
+SAE_REPORT_TABLE_PATCHES = [
+    """
+    CREATE TABLE IF NOT EXISTS sae_reports (
+        id SERIAL PRIMARY KEY,
+        study_id VARCHAR,
+        enrollment_id VARCHAR NOT NULL,
+        report_type VARCHAR,
+        report_date VARCHAR,
+        diagnosis VARCHAR,
+        onset_datetime VARCHAR,
+        end_datetime VARCHAR,
+        ongoing BOOLEAN DEFAULT FALSE,
+        seriousness JSON,
+        severity VARCHAR,
+        causality VARCHAR,
+        action_taken VARCHAR,
+        outcome VARCHAR,
+        date_of_death VARCHAR,
+        narrative VARCHAR,
+        reporter_name VARCHAR,
+        reporter_designation VARCHAR,
+        reporter_contact VARCHAR,
+        reporter_date VARCHAR,
+        reporter_signature VARCHAR,
+        investigator_name VARCHAR,
+        investigator_signature VARCHAR,
+        investigator_date VARCHAR,
+        site VARCHAR,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_sae_reports_enrollment_id ON sae_reports (enrollment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sae_reports_id ON sae_reports (id)",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "ALTER TABLE sae_reports ALTER COLUMN report_type DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN report_date DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN diagnosis DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN onset_datetime DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN seriousness DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN severity DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN causality DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN action_taken DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN outcome DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN narrative DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN reporter_name DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN reporter_designation DROP NOT NULL",
+    "ALTER TABLE sae_reports ALTER COLUMN reporter_date DROP NOT NULL",
+]
+
+# Helper Form — Adverse Events
+ADVERSE_EVENTS_TABLE_PATCHES = [
+    """
+    CREATE TABLE IF NOT EXISTS adverse_events (
+        id SERIAL PRIMARY KEY,
+        enrollment_id VARCHAR NOT NULL,
+        mother_name VARCHAR,
+        baby_uid VARCHAR,
+        maternal_uid VARCHAR,
+        has_adverse_event BOOLEAN,
+        events JSON,
+        completed_by VARCHAR,
+        designation VARCHAR,
+        completion_date VARCHAR,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_adverse_events_enrollment_id ON adverse_events (enrollment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_adverse_events_id ON adverse_events (id)",
+    "ALTER TABLE adverse_events ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "ALTER TABLE adverse_events ALTER COLUMN has_adverse_event DROP NOT NULL",
+]
+
+# Helper Form — SAE Listing
+SAE_LIST_TABLE_PATCHES = [
+    """
+    CREATE TABLE IF NOT EXISTS sae_list (
+        id SERIAL PRIMARY KEY,
+        enrollment_id VARCHAR NOT NULL,
+        rows JSON,
+        completed_by VARCHAR,
+        designation VARCHAR,
+        completion_date VARCHAR,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_sae_list_enrollment_id ON sae_list (enrollment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sae_list_id ON sae_list (id)",
+    "ALTER TABLE sae_list ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "ALTER TABLE sae_list ALTER COLUMN rows DROP NOT NULL",
+]
+
+# total new columns: 92

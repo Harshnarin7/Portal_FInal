@@ -344,11 +344,13 @@ validateJaundice(name, val, updatedForm);
   // Complication "None" exclusive
   if (name === "line_comp_none" && checked) {
     updatedForm.line_comp_thrombosis = false;
+    updatedForm.line_comp_phlebitis = false;
     updatedForm.line_comp_infection = false;
   }
 
   if (
     (name === "line_comp_thrombosis" ||
+      name === "line_comp_phlebitis" ||
       name === "line_comp_infection") &&
     checked
   ) {
@@ -493,6 +495,8 @@ useEffect(() => {
       try {
         const res = await api.get(`/neonatal-morbidities/${enrollmentId}`);
         const rows = Array.isArray(res.data) ? res.data : [res.data];
+        // Prefer newest row (matches POST upsert which updates the latest
+        // duplicate when any exist from the old always-insert bug).
         const existing = rows.length ? rows[rows.length - 1] : null;
         if (!existing) return;
 
@@ -533,20 +537,62 @@ useEffect(() => {
             if (legacyMethods.length) rop_method = legacyMethods.join(", ");
           }
 
+          const yn = (v, fallback = "") => {
+            if (v === true || v === "Yes" || v === "true") return "Yes";
+            if (v === false || v === "No" || v === "false") return "No";
+            return fallback;
+          };
+
+          const boolAsYesNo = {};
+          [
+            "seizures", "status_epilepticus", "bpd", "postnatal_steroids",
+            "feed_intolerance", "nec", "hs_pda", "shock", "hypotension",
+            "pvhi", "phh", "vp_shunt", "pulmonary_hemorrhage", "pneumothorax",
+            "chest_drain", "apnea", "nec_surgery", "pn", "cholestasis", "inotropes",
+            "pda_ligation",
+          ].forEach((key) => {
+            if (existing[key] === true || existing[key] === false || existing[key] === "Yes" || existing[key] === "No") {
+              boolAsYesNo[key] = yn(existing[key]);
+            }
+          });
+
           return {
             ...prev,
             ...existing,
             ivh_side: side, ivh_grade_right, ivh_grade_left, ivh_date_right, ivh_date_left,
             ivh_age_days_right, ivh_age_days_left,
             rop_method,
+            ...boolAsYesNo,
             // map backend booleans back to the Yes/No selects the UI uses
-            ivh_present: existing.ivh === true ? "Yes" : existing.ivh === false ? "No" : prev.ivh_present,
-            pvl_present: existing.pvl === true ? "Yes" : existing.pvl === false ? "No" : prev.pvl_present,
-            ventriculomegaly_present:
-              existing.ventriculomegaly === true ? "Yes" :
-              existing.ventriculomegaly === false ? "No" : prev.ventriculomegaly_present,
-            infections: Array.isArray(existing.infections) ? existing.infections : (prev.infections || []),
+            ivh_present: yn(existing.ivh, prev.ivh_present),
+            pvl_present: yn(existing.pvl, prev.pvl_present),
+            ventriculomegaly_present: yn(existing.ventriculomegaly, prev.ventriculomegaly_present),
+            // Prefer total_los (H12 #253); keep legacy total_los_days in sync
+            total_los: existing.total_los ?? existing.total_los_days ?? prev.total_los ?? "",
+            infections: (() => {
+              const list = Array.isArray(existing.infections)
+                ? existing.infections.map((ep) => ({ ...ep }))
+                : [];
+              // Legacy: totals lived only on the parent row — seed Infection 1
+              // so #233/#234 aren't blank after reopen.
+              if (list.length > 0) {
+                if (
+                  (list[0].total_sepsis_episodes === "" || list[0].total_sepsis_episodes == null) &&
+                  existing.sepsis_episodes != null
+                ) {
+                  list[0].total_sepsis_episodes = existing.sepsis_episodes;
+                }
+                if (
+                  (list[0].total_vap_episodes === "" || list[0].total_vap_episodes == null) &&
+                  existing.vap_episodes != null
+                ) {
+                  list[0].total_vap_episodes = existing.vap_episodes;
+                }
+              }
+              return list.length ? list : (prev.infections || []);
+            })(),
             enrollment_id: enrollmentId,
+            _record_id: existing.id || null,
           };
         });
       } catch (err) {
@@ -559,10 +605,10 @@ useEffect(() => {
   }, [enrollmentId]);
 
   const yesNoToBool = (v) => {
-  if (v === "Yes") return true;
-  if (v === "No") return false;
-  return null;
-};
+    if (v === "Yes" || v === true) return true;
+    if (v === "No" || v === false) return false;
+    return null;
+  };
 
 const validateIVH = (name, value, updatedForm = formData) => {
   let error = "";
@@ -870,8 +916,9 @@ const validateLines = (name, value, updatedForm = formData) => {
     case "line_comp_group":
       const anyComp =
         updatedForm.line_comp_none ||
-        updatedForm.line_comp_thrombosis ||
-        updatedForm.line_comp_infection;
+        updatedForm.line_comp_phlebitis ||
+        updatedForm.line_comp_infection ||
+        updatedForm.line_comp_thrombosis;
 
       if (!anyComp) error = "Select at least one complication";
       break;
@@ -3120,6 +3167,7 @@ const num = (v) => {
     // dynamic Infection episodes into the shape the API understands.
     return {
       ...formData,
+      _record_id: undefined, // UI-only; never send to API
 
       ivh: yesNoToBool(formData.ivh_present),
       ivh_side: formData.ivh_side || null,
@@ -3204,15 +3252,45 @@ const num = (v) => {
       hs_pda: yesNoToBool(formData.hs_pda),
       shock: yesNoToBool(formData.shock),
       hypotension: yesNoToBool(formData.hypotension),
+      pvhi: yesNoToBool(formData.pvhi),
+      phh: yesNoToBool(formData.phh),
+      vp_shunt: yesNoToBool(formData.vp_shunt),
+      pulmonary_hemorrhage: yesNoToBool(formData.pulmonary_hemorrhage),
+      pneumothorax: yesNoToBool(formData.pneumothorax),
+      chest_drain: yesNoToBool(formData.chest_drain),
+      apnea: yesNoToBool(formData.apnea),
+      nec_surgery: yesNoToBool(formData.nec_surgery),
+      pn: yesNoToBool(formData.pn),
+      cholestasis: yesNoToBool(formData.cholestasis),
+      inotropes: yesNoToBool(formData.inotropes),
+      pda_ligation: yesNoToBool(formData.pda_ligation),
       // structural_heart_disease is intentionally left as the raw "Yes"/"No"/""
       // string from formData (via the ...formData spread above) — the backend
       // schema stores it as a string, not a boolean, so it tolerates "" for an
       // unanswered field (see FormH_redesign_notes.md, "why VARCHAR not BOOLEAN").
 
       sepsis: anySepsisAnswered ? anySepsisYes : yesNoToBool(formData.sepsis),
-      sepsis_episodes: num(formData.sepsis_episodes),
+      // Top-level totals mirror the first filled per-episode CRF totals
+      // (#233–234 / #251–252) so dashboards still read sepsis_episodes/vap_episodes.
+      sepsis_episodes: (() => {
+        for (const ep of infectionsList) {
+          if (ep?.total_sepsis_episodes !== "" && ep?.total_sepsis_episodes != null) {
+            return num(ep.total_sepsis_episodes);
+          }
+        }
+        return num(formData.sepsis_episodes);
+      })(),
+      vap_episodes: (() => {
+        for (const ep of infectionsList) {
+          if (ep?.total_vap_episodes !== "" && ep?.total_vap_episodes != null) {
+            return num(ep.total_vap_episodes);
+          }
+        }
+        return num(formData.vap_episodes);
+      })(),
 
-      total_los_days: num(formData.total_los_days),
+      total_los: num(formData.total_los),
+      total_los_days: num(formData.total_los || formData.total_los_days),
       nicu_days: num(formData.nicu_days),
       discharge_weight: num(formData.discharge_weight),
 
@@ -3223,7 +3301,15 @@ const num = (v) => {
   // "Save" on the bottom nav bar — saves without leaving the page.
   const saveFormH = async () => {
     try {
-      await api.post("/neonatal-morbidities/", buildPayload());
+      const payload = buildPayload();
+      if (formData._record_id) {
+        await api.put(`/neonatal-morbidities/${enrollmentId}`, payload);
+      } else {
+        const res = await api.post("/neonatal-morbidities/", payload);
+        if (res?.data?.id) {
+          setFormData((prev) => ({ ...prev, _record_id: res.data.id }));
+        }
+      }
       markFormCompleted("form_h");
       setIsSaved(true);
       setSaveMessage("✅ Saved");
@@ -3257,7 +3343,15 @@ const num = (v) => {
     console.log("🚀 Form H submit clicked");
 
     try {
-      await api.post("/neonatal-morbidities/", buildPayload());
+      const payload = buildPayload();
+      if (formData._record_id) {
+        await api.put(`/neonatal-morbidities/${enrollmentId}`, payload);
+      } else {
+        const res = await api.post("/neonatal-morbidities/", payload);
+        if (res?.data?.id) {
+          setFormData((prev) => ({ ...prev, _record_id: res.data.id }));
+        }
+      }
       markFormCompleted("form_h");
 
       alert("✅ Form H submitted successfully");
@@ -3562,12 +3656,16 @@ const getShockSummary = () => {
   return parts.length ? parts.join(" • ") : "No";
 };
 
-// ================= INFECTION (H10) — dynamic, repeatable episodes =================
-// Replaces the old single flat sepsis_* fields with formData.infections[],
-// so a patient can have any number of infection episodes recorded
-// independently (add / remove without touching any other entry's data).
+// ================= INFECTION (H11) — dynamic, repeatable episodes =================
+// CRF prints Infection 1 (#217–234) and Infection 2 (#235–252). The app allows
+// N episodes; field numbers = 217 + episodeIndex*18 + offset within the block.
+
+/** @param {number} episodeIdx 0-based @param {number} offset 0–17 within episode (incl. totals) */
+const infectionFieldNum = (episodeIdx, offset) => 217 + episodeIdx * 18 + offset;
 
 const emptyInfection = () => ({
+  sepsis_episode_number: "",
+  vap_episode_number: "",
   sepsis: "",
   sepsis_clinical: false,
   sepsis_screen: false,
@@ -3610,13 +3708,18 @@ const emptyInfection = () => ({
   focus_other_text: "",
   clabsi: "",
   vap: "",
+  // CRF #233–234 / #251–252 — totals are inside each Infection block
+  total_sepsis_episodes: "",
+  total_vap_episodes: "",
 });
 
 const addInfection = () => {
-  setFormData(prev => ({
+  const nextIdx = (formData.infections || []).length;
+  setFormData((prev) => ({
     ...prev,
     infections: [...(prev.infections || []), emptyInfection()],
   }));
+  setOpenSection(`infection-${nextIdx}`);
 };
 
 const removeInfection = (index) => {
@@ -3660,7 +3763,7 @@ const validateInfectionField = (index, name, value, entry) => {
 
     case "screen_group":
       groupField = "screen_group";
-      if (entry.sepsis_screen) {
+      if (entry.sepsis_screen || entry.sepsis_culture) {
         const any = entry.screen_crp || entry.screen_pct || entry.screen_other;
         if (!any) error = "Select at least one";
       }
@@ -3696,7 +3799,7 @@ const validateInfectionField = (index, name, value, entry) => {
     case "gp_group":
       groupField = "gp_group";
       if (entry.gram_positive) {
-        const any = entry.staph_aureus || entry.staph_hemolyticus || entry.staph_epidermidis || entry.gp_other;
+        const any = entry.staph_hemolyticus || entry.staph_epidermidis || entry.gp_other || entry.staph_aureus;
         if (!any) error = "Select at least one";
       }
       break;
@@ -3753,10 +3856,19 @@ const handleInfectionChange = (index, name, rawValue) => {
 
   // cascade resets so hidden/irrelevant sub-fields never linger with stale data
   if (name === "sepsis" && rawValue === "No") {
-    entry = { ...entry, sepsis_clinical: false, sepsis_screen: false, sepsis_culture: false };
-  }
-  if (name === "sepsis_screen" && !rawValue) {
-    entry = { ...entry, screen_crp: false, screen_pct: false, screen_other: false, screen_other_text: "" };
+    entry = {
+      ...entry,
+      sepsis_clinical: false, sepsis_screen: false, sepsis_culture: false,
+      screen_crp: false, screen_pct: false, screen_other: false, screen_other_text: "",
+      culture_blood: false, culture_csf: false, culture_urine: false, culture_other: false, culture_other_text: "",
+      gram_positive: false, gram_negative: false, fungus: false,
+      staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "",
+      acinetobacter: false, ecoli: false, klebsiella: false, serratia: false, pseudomonas: false, gn_other: false, gn_other_text: "",
+      mdr: "", xdr: "",
+      focus_septicemia: false, focus_pneumonia: false, focus_meningitis: false,
+      focus_bone_joint: false, focus_uti: false, focus_other: false, focus_other_text: "",
+      clabsi: "", vap: "",
+    };
   }
   if (name === "sepsis_culture" && !rawValue) {
     entry = {
@@ -3766,6 +3878,10 @@ const handleInfectionChange = (index, name, rawValue) => {
       staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "",
       acinetobacter: false, ecoli: false, klebsiella: false, serratia: false, pseudomonas: false, gn_other: false, gn_other_text: "",
     };
+  }
+  // CRF: abnormal params apply when Screen+ OR Culture+ — clear only when both off
+  if ((name === "sepsis_screen" || name === "sepsis_culture") && !entry.sepsis_screen && !entry.sepsis_culture) {
+    entry = { ...entry, screen_crp: false, screen_pct: false, screen_other: false, screen_other_text: "" };
   }
   if (name === "gram_positive" && !rawValue) {
     entry = { ...entry, staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "" };
@@ -3785,7 +3901,9 @@ const handleInfectionChange = (index, name, rawValue) => {
 
   validateInfectionField(index, name, rawValue, entry);
   if (name.startsWith("sepsis_") || name === "sepsis") validateInfectionField(index, "sepsis_type_group", rawValue, entry);
-  if (name.startsWith("screen_")) validateInfectionField(index, "screen_group", rawValue, entry);
+  if (name.startsWith("screen_") || name === "sepsis_screen" || name === "sepsis_culture") {
+    validateInfectionField(index, "screen_group", rawValue, entry);
+  }
   if (name.startsWith("culture_")) validateInfectionField(index, "culture_group", rawValue, entry);
   if (name.startsWith("gram_") || name === "fungus") validateInfectionField(index, "organism_group", rawValue, entry);
   if (name.startsWith("staph_") || name.startsWith("gp_")) validateInfectionField(index, "gp_group", rawValue, entry);
@@ -4086,8 +4204,10 @@ const getCentralLineSummary = () => {
       parts.push(`UAC (${formData.uac_days || "?"}d)`);
     }
 
+    if (formData.line_comp_none) parts.push("None");
+    if (formData.line_comp_phlebitis) parts.push("Phlebitis");
+    if (formData.line_comp_infection) parts.push("Local site infection");
     if (formData.line_comp_thrombosis) parts.push("Thrombosis");
-    if (formData.line_comp_infection) parts.push("Infection");
 
     return parts.join(" • ") || "Yes";
   }
@@ -7587,7 +7707,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="CMV screened" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="CMV screened (site)" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} />
         {errors.cmv_screened && (
           <div className="error-text">{errors.cmv_screened}</div>
         )}
@@ -8274,13 +8394,13 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
 
   <div className="form-group">
-    <YesNoToggle label="PICC" name="picc" value={formData.picc} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="206. PICC" name="picc" value={formData.picc} onChange={handleChange} onBlur={handleBlur} required />
     {errors.picc && <div className="error-text">{errors.picc}</div>}
   </div>
 
   {formData.picc === "Yes" && (
     <div className="form-group">
-      <label>Duration (days) <span className="required">*</span></label>
+      <label><span className="field-num">207.</span> Duration (days) <span className="required">*</span></label>
       <input
         type="number"
         min="0"
@@ -8302,13 +8422,13 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
 
   <div className="form-group">
-    <YesNoToggle label="UVC" name="uvc" value={formData.uvc} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="208. UVC" name="uvc" value={formData.uvc} onChange={handleChange} onBlur={handleBlur} required />
     {errors.uvc && <div className="error-text">{errors.uvc}</div>}
   </div>
 
   {formData.uvc === "Yes" && (
     <div className="form-group">
-      <label>Duration (days) <span className="required">*</span></label>
+      <label><span className="field-num">209.</span> Duration (days) <span className="required">*</span></label>
       <input
         type="number"
         min="0"
@@ -8330,13 +8450,13 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
 
   <div className="form-group">
-    <YesNoToggle label="UAC" name="uac" value={formData.uac} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="210. UAC" name="uac" value={formData.uac} onChange={handleChange} onBlur={handleBlur} required />
     {errors.uac && <div className="error-text">{errors.uac}</div>}
   </div>
 
   {formData.uac === "Yes" && (
     <div className="form-group">
-      <label>Duration (days) <span className="required">*</span></label>
+      <label><span className="field-num">211.</span> Duration (days) <span className="required">*</span></label>
       <input
         type="number"
         min="0"
@@ -8358,7 +8478,7 @@ const peripheralStatus= getPeripheralStatus();
 <div className="pn-adverse-card">
 
   <div className="adverse-title">
-    Complications <span className="required">*</span>
+    <span className="field-num">212.</span> Complications <span className="required">*</span>
   </div>
 
   <div className="pn-checkbox-grid">
@@ -8376,11 +8496,11 @@ const peripheralStatus= getPeripheralStatus();
     <label className="checkbox-item">
       <input
         type="checkbox"
-        name="line_comp_thrombosis"
-        checked={formData.line_comp_thrombosis || false}
+        name="line_comp_phlebitis"
+        checked={formData.line_comp_phlebitis || false}
         onChange={handleChange}
       />
-      Thrombosis
+      Phlebitis
     </label>
 
     <label className="checkbox-item">
@@ -8390,8 +8510,21 @@ const peripheralStatus= getPeripheralStatus();
         checked={formData.line_comp_infection || false}
         onChange={handleChange}
       />
-      Infection
+      Local site infection
     </label>
+
+    {/* Legacy option retained so older saved records still display */}
+    {formData.line_comp_thrombosis && (
+      <label className="checkbox-item">
+        <input
+          type="checkbox"
+          name="line_comp_thrombosis"
+          checked={formData.line_comp_thrombosis || false}
+          onChange={handleChange}
+        />
+        Thrombosis (legacy)
+      </label>
+    )}
 
   </div>
 
@@ -8433,14 +8566,14 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
 
   <div className="form-group">
-    <YesNoToggle label="233. Peripheral Venous" name="peripheral_venous" value={formData.peripheral_venous} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="213. Peripheral venous" name="peripheral_venous" value={formData.peripheral_venous} onChange={handleChange} onBlur={handleBlur} required />
     {errors.peripheral_venous && (
       <div className="error-text">{errors.peripheral_venous}</div>
     )}
   </div>
 
   <div className="form-group">
-    <YesNoToggle label="234. Peripheral Arterial" name="peripheral_arterial" value={formData.peripheral_arterial} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="214. Peripheral arterial" name="peripheral_arterial" value={formData.peripheral_arterial} onChange={handleChange} onBlur={handleBlur} required />
     {errors.peripheral_arterial && (
       <div className="error-text">{errors.peripheral_arterial}</div>
     )}
@@ -8453,7 +8586,7 @@ const peripheralStatus= getPeripheralStatus();
   <div className="pn-adverse-card">
 
     <div className="adverse-title">
-      Arterial Site <span className="required">*</span>
+      <span className="field-num">215.</span> Site <span className="required">*</span>
     </div>
 
     <div className="pn-checkbox-grid">
@@ -8475,7 +8608,7 @@ const peripheralStatus= getPeripheralStatus();
           checked={formData.arterial_posterior_tibial || false}
           onChange={handleChange}
         />
-        Posterior Tibial
+        Posterior tibial
       </label>
 
     </div>
@@ -8492,7 +8625,7 @@ const peripheralStatus= getPeripheralStatus();
   <div className="form-row">
 
     <div className="form-group">
-      <YesNoToggle label="214. Extravasation Injury" name="extravasation" value={formData.extravasation} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="216. Extravasation injury" name="extravasation" value={formData.extravasation} onChange={handleChange} onBlur={handleBlur} required />
       {errors.extravasation && (
         <div className="error-text">{errors.extravasation}</div>
       )}
@@ -8505,26 +8638,46 @@ const peripheralStatus= getPeripheralStatus();
   )}
 </div>
 </div>
-{/* ================= INFECTION ================= */}
+{/* ================= INFECTION (H11) — CRF allows multiple episodes ================= */}
 <div className="form-section soft-blue">
 
-  <h3><Bug size={17} className="sec-icon" /> <span className="sec-num">H11</span> INFECTION</h3>
+  <div className="infection-sec-head">
+    <h3><Bug size={17} className="sec-icon" /> <span className="sec-num">H11</span> INFECTION</h3>
+    <button
+      type="button"
+      className="infection-add-btn infection-add-btn--header"
+      onClick={addInfection}
+      title="Add another infection episode"
+      aria-label="Add another infection episode"
+    >
+      <Plus size={18} strokeWidth={2.5} />
+      <span>Add Infection</span>
+    </button>
+  </div>
 
   <div className="infection-section-summary">{getInfectionSectionSummary()}</div>
+  <p className="infection-section-hint">
+    Infections can occur more than once. Use <strong>+</strong> to add Infection 1, 2, 3… (CRF H11).
+  </p>
 
   {(formData.infections || []).length === 0 && (
     <div className="infection-empty-state">
-      No infection episodes recorded yet. Use "+ Add Infection" below if this baby had a sepsis / VAP episode.
+      <p>No infection episodes recorded yet.</p>
+      <button type="button" className="infection-add-btn" onClick={addInfection}>
+        <Plus size={18} strokeWidth={2.5} /> Add Infection
+      </button>
     </div>
   )}
 
-  {(formData.infections || []).map((entry, idx) => (
+  {(formData.infections || []).map((entry, idx) => {
+    const n = (offset) => infectionFieldNum(idx, offset);
+    return (
     <div className="card infection-entry-card" key={idx}>
       <div
         className="card-header-row"
         onClick={() => setOpenSection(openSection === `infection-${idx}` ? null : `infection-${idx}`)}
       >
-        <span>Infection Episode {idx + 1}</span>
+        <span>H11. Infection {idx + 1}</span>
 
         <div className="right-section">
           <span className={`summary ${getInfectionEntryStatus(entry)}`}>
@@ -8548,9 +8701,32 @@ const peripheralStatus= getPeripheralStatus();
         <div className="card-body">
           <div className="pn-adverse-card">
 
+            <div className="form-row">
+              <div className="form-group">
+                <label><span className="field-num">{n(0)}.</span> Sepsis Episode Number</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={entry.sepsis_episode_number || ""}
+                  onChange={(e) => handleInfectionChange(idx, "sepsis_episode_number", e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label><span className="field-num">{n(1)}.</span> VAP Episode Number</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={entry.vap_episode_number || ""}
+                  onChange={(e) => handleInfectionChange(idx, "vap_episode_number", e.target.value)}
+                />
+              </div>
+            </div>
+
             {/* ---------------- SEPSIS ---------------- */}
             <div className="form-group">
-              <YesNoToggle label="Sepsis" name="sepsis" value={entry.sepsis}
+              <YesNoToggle label={`${n(2)}. Sepsis`} name="sepsis" value={entry.sepsis}
                 onChange={(e) => handleInfectionChange(idx, "sepsis", e.target.value)} required />
               {errors.infectionErrors?.[idx]?.sepsis && (
                 <div className="error-text">{errors.infectionErrors[idx].sepsis}</div>
@@ -8559,12 +8735,12 @@ const peripheralStatus= getPeripheralStatus();
 
             {entry.sepsis === "Yes" && (
               <>
-                <div className="adverse-title">Type <span className="required">*</span></div>
+                <div className="adverse-title"><span className="field-num">{n(3)}.</span> Type <span className="required">*</span></div>
                 <div className="pn-checkbox-grid">
                   <label>
                     <input type="checkbox" checked={entry.sepsis_clinical || false}
                       onChange={(e) => handleInfectionChange(idx, "sepsis_clinical", e.target.checked)} />
-                    Clinical
+                    Clinical/Screen-
                   </label>
                   <label>
                     <input type="checkbox" checked={entry.sepsis_screen || false}
@@ -8584,7 +8760,7 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- AGE ---------------- */}
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Age at onset (hours)</label>
+                    <label><span className="field-num">{n(4)}.</span> Age at onset (hrs)</label>
                     <input
                       type="number"
                       min="0"
@@ -8598,7 +8774,7 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
 
                   <div className="form-group">
-                    <label><span className="field-num">220.</span> Age at blood culture sent (hours)</label>
+                    <label><span className="field-num">{n(5)}.</span> Age at blood culture sent (hrs)</label>
                     <input
                       type="number"
                       min="0"
@@ -8612,7 +8788,7 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
 
                   <div className="form-group">
-                    <label><span className="field-num">238.</span> Age at blood culture sent (days)</label>
+                    <label><span className="field-num">{n(5)}.</span> Age at blood culture sent (days)</label>
                     <input
                       type="number"
                       min="0"
@@ -8626,10 +8802,10 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
                 </div>
 
-                {/* ---------------- SCREEN ---------------- */}
-                {entry.sepsis_screen && (
+                {/* ---------------- SCREEN / abnormal params (CRF: if screen+/culture+) ---------------- */}
+                {(entry.sepsis_screen || entry.sepsis_culture) && (
                   <>
-                    <div className="adverse-title">Screen Positive <span className="required">*</span></div>
+                    <div className="adverse-title"><span className="field-num">{n(6)}.</span> If screen+/culture+ abnormal parameters <span className="required">*</span></div>
                     <div className="pn-checkbox-grid">
                       <label><input type="checkbox" checked={entry.screen_crp || false} onChange={(e) => handleInfectionChange(idx, "screen_crp", e.target.checked)} /> CRP</label>
                       <label><input type="checkbox" checked={entry.screen_pct || false} onChange={(e) => handleInfectionChange(idx, "screen_pct", e.target.checked)} /> PCT</label>
@@ -8656,7 +8832,7 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- CULTURE ---------------- */}
                 {entry.sepsis_culture && (
                   <>
-                    <div className="adverse-title">Culture Source <span className="required">*</span></div>
+                    <div className="adverse-title"><span className="field-num">{n(7)}.</span> If culture+, source <span className="required">*</span></div>
                     <div className="pn-checkbox-grid">
                       <label><input type="checkbox" checked={entry.culture_blood || false} onChange={(e) => handleInfectionChange(idx, "culture_blood", e.target.checked)} /> Blood</label>
                       <label><input type="checkbox" checked={entry.culture_csf || false} onChange={(e) => handleInfectionChange(idx, "culture_csf", e.target.checked)} /> CSF</label>
@@ -8680,7 +8856,7 @@ const peripheralStatus= getPeripheralStatus();
                     )}
 
                     {/* ---------------- ORGANISM ---------------- */}
-                    <div className="adverse-title">Organism Type <span className="required">*</span></div>
+                    <div className="adverse-title"><span className="field-num">{n(8)}.</span> If culture+, organism type <span className="required">*</span></div>
                     <div className="pn-checkbox-grid">
                       <label><input type="checkbox" checked={entry.gram_positive || false} onChange={(e) => handleInfectionChange(idx, "gram_positive", e.target.checked)} /> Gram Positive</label>
                       <label><input type="checkbox" checked={entry.gram_negative || false} onChange={(e) => handleInfectionChange(idx, "gram_negative", e.target.checked)} /> Gram Negative</label>
@@ -8695,12 +8871,14 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- GRAM POSITIVE ---------------- */}
                 {entry.gram_positive && (
                   <>
-                    <div className="adverse-title">Gram Positive <span className="required">*</span></div>
+                    <div className="adverse-title"><span className="field-num">{n(9)}.</span> If Gram Positive <span className="required">*</span></div>
                     <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.staph_aureus || false} onChange={(e) => handleInfectionChange(idx, "staph_aureus", e.target.checked)} /> Staph aureus</label>
-                      <label><input type="checkbox" checked={entry.staph_hemolyticus || false} onChange={(e) => handleInfectionChange(idx, "staph_hemolyticus", e.target.checked)} /> Staph hemolyticus</label>
-                      <label><input type="checkbox" checked={entry.staph_epidermidis || false} onChange={(e) => handleInfectionChange(idx, "staph_epidermidis", e.target.checked)} /> Staph epidermidis</label>
-                      <label><input type="checkbox" checked={entry.gp_other || false} onChange={(e) => handleInfectionChange(idx, "gp_other", e.target.checked)} /> Other</label>
+                      <label><input type="checkbox" checked={entry.staph_hemolyticus || false} onChange={(e) => handleInfectionChange(idx, "staph_hemolyticus", e.target.checked)} /> Staphylococcus hemolyticus</label>
+                      <label><input type="checkbox" checked={entry.staph_epidermidis || false} onChange={(e) => handleInfectionChange(idx, "staph_epidermidis", e.target.checked)} /> Staphylococcus epidermidis</label>
+                      <label><input type="checkbox" checked={entry.gp_other || false} onChange={(e) => handleInfectionChange(idx, "gp_other", e.target.checked)} /> Others</label>
+                      {entry.staph_aureus && (
+                        <label><input type="checkbox" checked={entry.staph_aureus || false} onChange={(e) => handleInfectionChange(idx, "staph_aureus", e.target.checked)} /> Staph aureus (legacy)</label>
+                      )}
                     </div>
                     {errors.infectionErrors?.[idx]?.gp_group && (
                       <div className="error-text">{errors.infectionErrors[idx].gp_group}</div>
@@ -8718,14 +8896,14 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- GRAM NEGATIVE ---------------- */}
                 {entry.gram_negative && (
                   <>
-                    <div className="adverse-title">Gram Negative <span className="required">*</span></div>
+                    <div className="adverse-title"><span className="field-num">{n(10)}.</span> If Gram Negative <span className="required">*</span></div>
                     <div className="pn-checkbox-grid">
                       <label><input type="checkbox" checked={entry.acinetobacter || false} onChange={(e) => handleInfectionChange(idx, "acinetobacter", e.target.checked)} /> Acinetobacter</label>
-                      <label><input type="checkbox" checked={entry.ecoli || false} onChange={(e) => handleInfectionChange(idx, "ecoli", e.target.checked)} /> E coli</label>
+                      <label><input type="checkbox" checked={entry.ecoli || false} onChange={(e) => handleInfectionChange(idx, "ecoli", e.target.checked)} /> E Coli</label>
                       <label><input type="checkbox" checked={entry.klebsiella || false} onChange={(e) => handleInfectionChange(idx, "klebsiella", e.target.checked)} /> Klebsiella</label>
                       <label><input type="checkbox" checked={entry.serratia || false} onChange={(e) => handleInfectionChange(idx, "serratia", e.target.checked)} /> Serratia</label>
                       <label><input type="checkbox" checked={entry.pseudomonas || false} onChange={(e) => handleInfectionChange(idx, "pseudomonas", e.target.checked)} /> Pseudomonas</label>
-                      <label><input type="checkbox" checked={entry.gn_other || false} onChange={(e) => handleInfectionChange(idx, "gn_other", e.target.checked)} /> Other</label>
+                      <label><input type="checkbox" checked={entry.gn_other || false} onChange={(e) => handleInfectionChange(idx, "gn_other", e.target.checked)} /> Others</label>
                     </div>
                     {errors.infectionErrors?.[idx]?.gn_group && (
                       <div className="error-text">{errors.infectionErrors[idx].gn_group}</div>
@@ -8743,17 +8921,17 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- MDR / XDR ---------------- */}
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="MDR (multi-drug resistant)" name="mdr" value={entry.mdr}
+                    <YesNoToggle label={`${n(11)}. MDR`} name="mdr" value={entry.mdr}
                       onChange={(e) => handleInfectionChange(idx, "mdr", e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <YesNoToggle label="XDR (extensively drug resistant)" name="xdr" value={entry.xdr}
+                    <YesNoToggle label={`${n(12)}. XDR`} name="xdr" value={entry.xdr}
                       onChange={(e) => handleInfectionChange(idx, "xdr", e.target.value)} />
                   </div>
                 </div>
 
                 {/* ---------------- FOCUS OF INFECTION ---------------- */}
-                <div className="adverse-title">Focus of the Infection</div>
+                <div className="adverse-title"><span className="field-num">{n(13)}.</span> Focus of the infection</div>
                 <div className="pn-checkbox-grid">
                   <label><input type="checkbox" checked={entry.focus_septicemia || false} onChange={(e) => handleInfectionChange(idx, "focus_septicemia", e.target.checked)} /> Generalized septicemia</label>
                   <label><input type="checkbox" checked={entry.focus_pneumonia || false} onChange={(e) => handleInfectionChange(idx, "focus_pneumonia", e.target.checked)} /> Pneumonia</label>
@@ -8773,66 +8951,55 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- CLABSI / VAP ---------------- */}
                 <div className="form-row">
                   <div className="form-group">
-                    <YesNoToggle label="CLABSI" name="clabsi" value={entry.clabsi}
+                    <YesNoToggle label={`${n(14)}. CLABSI`} name="clabsi" value={entry.clabsi}
                       onChange={(e) => handleInfectionChange(idx, "clabsi", e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <YesNoToggle label="VAP" name="vap" value={entry.vap}
+                    <YesNoToggle label={`${n(15)}. VAP`} name="vap" value={entry.vap}
                       onChange={(e) => handleInfectionChange(idx, "vap", e.target.value)} />
                   </div>
                 </div>
               </>
             )}
+
+            {/* CRF: totals sit inside each Infection block (#233-234 / #251-252) */}
+            <div className="form-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+              <div className="form-group">
+                <label><span className="field-num">{n(16)}.</span> Total number of episodes of sepsis</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={entry.total_sepsis_episodes || ""}
+                  onChange={(e) => handleInfectionChange(idx, "total_sepsis_episodes", e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label><span className="field-num">{n(17)}.</span> Total number of episodes of VAP</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={entry.total_vap_episodes || ""}
+                  onChange={(e) => handleInfectionChange(idx, "total_vap_episodes", e.target.value)}
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}
     </div>
-  ))}
+    );
+  })}
 
-  <button type="button" className="infection-add-btn" onClick={addInfection}>
-    <Plus size={16} /> Add Infection
-  </button>
-
-  {/* ---------------- CUMULATIVE TOTALS (whole hospital course) ---------------- */}
-  <div className="card">
-    <div className="card-body">
-      <div className="form-row">
-        <div className="form-group">
-          <label><span className="field-num">249.</span> Total number of episodes of sepsis</label>
-          <input
-            type="number"
-            name="sepsis_episodes"
-            value={formData.sepsis_episodes || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            min="0"
-            max="20"
-          />
-          {errors.sepsis_episodes && (
-            <div className="error-text">{errors.sepsis_episodes}</div>
-          )}
-        </div>
-
-        <div className="form-group">
-          <label><span className="field-num">250.</span> Total number of episodes of VAP</label>
-          <input
-            type="number"
-            name="vap_episodes"
-            value={formData.vap_episodes || ""}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            min="0"
-            max="20"
-          />
-          {errors.vap_episodes && (
-            <div className="error-text">{errors.vap_episodes}</div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
+  {(formData.infections || []).length > 0 && (
+    <button type="button" className="infection-add-btn" onClick={addInfection}>
+      <Plus size={16} strokeWidth={2.5} /> Add another Infection
+    </button>
+  )}
 
 </div>
+
 
 {/* ================= HOSPITAL COURSE SUMMARY ================= */}
 <div className="form-section summary-section">
@@ -8847,7 +9014,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="summary-grid">
 
       <div className="form-group">
-        <label>Total LOS (days) </label>
+        <label><span className="field-num">253.</span> Total LOS (days)</label>
         <input
           type="number"
           name="total_los"
@@ -8859,7 +9026,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">262.</span> NICU Days </label>
+        <label><span className="field-num">254.</span> NICU Days</label>
         <input
           type="number"
           name="nicu_days"
@@ -8871,7 +9038,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label>O₂ Days</label>
+        <label><span className="field-num">255.</span> O₂ Days</label>
         <input
           type="number"
           name="o2_days"
@@ -8883,7 +9050,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label>Ventilator Days</label>
+        <label><span className="field-num">256.</span> Vent Days</label>
         <input
           type="number"
           name="vent_days"
@@ -8895,7 +9062,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">253.</span> CPAP Days</label>
+        <label><span className="field-num">257.</span> CPAP Days</label>
         <input
           type="number"
           name="cpap_days"
@@ -8918,7 +9085,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="summary-grid">
 
       <div className="form-group">
-        <label>PN Days</label>
+        <label><span className="field-num">258.</span> PN Days</label>
         <input
           type="number"
           name="pn_days_summary"
@@ -8930,7 +9097,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">255.</span> Age at Full Feeds (days)</label>
+        <label><span className="field-num">259.</span> Age at Full Feeds (days)</label>
         <input
           type="number"
           name="age_full_feeds_summary"
@@ -8955,7 +9122,7 @@ const peripheralStatus= getPeripheralStatus();
     <div className="summary-grid">
 
       <div className="form-group">
-        <label>Discharge Weight (g)</label>
+        <label><span className="field-num">260.</span> Discharge Weight (g)</label>
         <input
           type="number"
           name="discharge_weight"
@@ -8969,7 +9136,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label>Discharge Head Circumference (cm)</label>
+        <label><span className="field-num">261.</span> Discharge HC (cm)</label>
         <input
           type="number"
           step="0.1"
@@ -8984,7 +9151,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       <div className="form-group">
-        <label><span className="field-num">258.</span> Discharge Date </label>
+        <label><span className="field-num">262.</span> Discharge Date</label>
         <input
           type="date"
           name="discharge_date"
@@ -9004,7 +9171,7 @@ const peripheralStatus= getPeripheralStatus();
   {/* ================= Outcome ================= */}
   <div className="summary-card">
 
-    <div className="summary-title">Outcome</div>
+    <div className="summary-title"><span className="field-num">263.</span> Outcome</div>
 
     <div className="form-group">
       <select
@@ -9029,7 +9196,7 @@ const peripheralStatus= getPeripheralStatus();
   {formData.outcome === "Back referred" && (
     <div className="summary-card">
 
-      <div className="summary-title">Back Referral Hospital</div>
+      <div className="summary-title"><span className="field-num">264.</span> If back-referred: Hospital/SNCU name</div>
 
       <div className="form-group">
         <select

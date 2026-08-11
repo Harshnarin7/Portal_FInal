@@ -1563,6 +1563,7 @@ export default function BirthResuscitationForm() {
                     handleChange(e);
                     if(e.target.value==="No"){
                       localStorage.setItem("enrollment_locked","true");
+                      localStorage.setItem("enrollment_lock_reason", "no_ppv");
                       window.dispatchEvent(new Event("storage"));
                     }
                   }}

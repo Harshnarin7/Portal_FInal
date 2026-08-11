@@ -158,15 +158,45 @@ export default function Sidebar({ currentForm }) {
 
     request.then(res => {
       if (!active) return;
-      const consent = res.data?.consent_given;
-      if (consentAllowsEnrollment(consent)) {
-        localStorage.removeItem('enrollment_locked');
-        setEnrollmentLocked(false);
+      const d = res.data || {};
+      const consent = d.consent_given;
+      const status = d.screening_status;
+      const weeks = d.gestation_weeks;
+      const days = d.gestation_days ?? 0;
+      let gaOut = false;
+      if (weeks != null && weeks !== "") {
+        const t = Number(weeks) * 7 + Number(days || 0);
+        gaOut = t < 25 * 7 || t > 31 * 7 + 6;
+      } else if (d.gestation_known === "No" && d.ga_source === "Neither") {
+        gaOut = true;
+      }
+
+      const shouldLock =
+        status === "Screen Failure" ||
+        gaOut ||
+        !!d.exclusion_present ||
+        (consent && !consentAllowsEnrollment(consent));
+
+      if (shouldLock) {
+        localStorage.setItem('enrollment_locked', 'true');
+        if (gaOut || status === "Screen Failure") {
+          localStorage.setItem(
+            'enrollment_lock_reason',
+            (d.gestation_known === "No" && d.ga_source === "Neither") ? 'ga_unknown' : 'ga_out_of_range'
+          );
+        } else if (d.exclusion_present) {
+          localStorage.setItem('enrollment_lock_reason', 'exclusion');
+        } else {
+          localStorage.setItem('enrollment_lock_reason', 'consent');
+        }
+        setEnrollmentLocked(true);
         return;
       }
-      if (consent) {
-        localStorage.setItem('enrollment_locked', 'true');
-        setEnrollmentLocked(true);
+
+      if (consentAllowsEnrollment(consent)) {
+        localStorage.removeItem('enrollment_locked');
+        localStorage.removeItem('enrollment_lock_reason');
+        setEnrollmentLocked(false);
       }
     }).catch(() => {
       if (active) setEnrollmentLocked(localStorage.getItem('enrollment_locked') === 'true');
@@ -184,8 +214,30 @@ export default function Sidebar({ currentForm }) {
   };
 
   const isUnlocked = (formId) => {
+    /* Form A always stays open so GA / consent can be corrected */
+    if (formId === 'form_a') return true;
     if (enrollmentLocked) return false;
     return (PREREQS[formId] || []).every(p => completedForms.includes(p));
+  };
+
+  const lockMessage = () => {
+    const reason = localStorage.getItem('enrollment_lock_reason');
+    if (reason === 'ga_out_of_range') {
+      return 'Other forms locked — gestational age is outside the eligibility window (25w0d–31w6d).';
+    }
+    if (reason === 'ga_unknown') {
+      return 'Other forms locked — gestational age cannot be determined.';
+    }
+    if (reason === 'exclusion') {
+      return 'Other forms locked — exclusion criteria present.';
+    }
+    if (reason === 'no_ppv') {
+      return 'Other forms locked — PPV not required; participation ended.';
+    }
+    if (enrollmentLocked) {
+      return 'Enrollment locked — consent not given or participant not eligible.';
+    }
+    return null;
   };
 
   const progressPct = TOTAL_FORMS > 0 ? Math.round((completedForms.length / TOTAL_FORMS) * 100) : 0;
@@ -282,13 +334,16 @@ export default function Sidebar({ currentForm }) {
                     onClick={e => {
                       if (locked) {
                         e.preventDefault();
+                        const msg = lockMessage();
+                        if (msg) {
+                          alert(msg);
+                          return;
+                        }
                         const missing = (PREREQS[form.id] || [])
                           .filter(p => !completedForms.includes(p))
                           .map(p => p === 'form_a' ? 'Form A (Screening)' : 'Form B (Birth & Resuscitation)')
                           .join(' and ');
-                        alert(enrollmentLocked
-                          ? 'Enrollment locked — consent not given.'
-                          : `Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
+                        alert(`Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
                       }
                     }}
                     className={({ isActive }) =>

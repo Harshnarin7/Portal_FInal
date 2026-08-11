@@ -1,1215 +1,934 @@
 import React, { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import "./styles/global.css";
-import "./styles/FormComponents.css";
-import "./styles/Tables.css";
-import "./styles/FormI.css"; // ROP Screening styles — this component is now mounted as Form G
+import "./styles/FormG.css";
 import { usePatient } from "./context/PatientContext";
-import FormLayout from "./components/FormLayout";
-import { User, Info, Calendar, FileText, ShieldAlert, CheckSquare, ArrowLeft, ArrowRight, Save } from "lucide-react";
+import {
+  Eye, Info, Calendar, FileText, ShieldAlert, CheckSquare,
+  ArrowLeft, ArrowRight, Save,
+} from "lucide-react";
 
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
 
-/* ─── YesNoToggle (matching ScreeningForm) ─────────────────── */
-function YesNoToggle({ label, name, value, onChange, disabled = false }) {
-  const fire = (val) => {
-    if (disabled) return;
-    onChange({ target: { name, value: val } });
+/* ══════════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════════ */
+const STAGES = ["None", "1", "2", "3", "4A", "4B", "5"];
+const ZONES = ["I", "II", "III"];
+const METHODS = ["IDO", "RetCam", "Other"];
+const TREATMENT_TYPES = [
+  { key: "Laser", label: "Laser photocoagulation" },
+  { key: "Anti-VEGF", label: "Anti-VEGF with Agent" },
+  { key: "Vitrectomy", label: "Vitrectomy" },
+  { key: "Combination", label: "Combination" },
+];
+
+const NURSES = [
+  "Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
+  "Tanvi Saini", "Yashvi Jolly", "Mannat Guliani", "Shalini Dhiman",
+];
+const getDesignation = (name) => {
+  if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
+  if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
+  return name ? "Project Nurse III" : "";
+};
+
+const emptyScreening = (i) => ({
+  screening_no: i + 1,
+  date: "",
+  dol: "",
+  pma: "",
+  method: "",
+  re_stage: "",
+  re_zone: "",
+  le_stage: "",
+  le_zone: "",
+  plus_status: "",
+  next_review: "",
+  signature: "",
+});
+
+/* ══════════════════════════════════════════════════════
+   UTILITY FUNCTIONS
+══════════════════════════════════════════════════════ */
+const yesNoToBool = (v) => (v === "Yes" ? true : v === "No" ? false : null);
+const boolToYesNo = (v) => (v === true ? "Yes" : v === false ? "No" : "");
+const clean = (v) => (v === "" || v === undefined ? null : v);
+const num = (v) => (v === "" || v === undefined || v === null ? null : Number(v));
+
+function calculateDOLandPMA(dob, screeningDate, gaWeeks, gaDays) {
+  if (!dob || !screeningDate) return { dol: "", pma: "" };
+  const dobDate = new Date(dob);
+  const screenDate = new Date(screeningDate);
+  const diffTime = screenDate - dobDate;
+  const dol = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const weeks = Number(gaWeeks) || 0;
+  const days = Number(gaDays) || 0;
+  const gaBirthDays = weeks * 7 + days;
+  const pmaDays = gaBirthDays + dol;
+  const pmaWeeks = Math.floor(pmaDays / 7);
+  const pmaRemainingDays = pmaDays % 7;
+  return {
+    dol: dol >= 0 ? dol : "",
+    pma: `${pmaWeeks}w ${pmaRemainingDays}d`,
   };
+}
+
+function calculatePMA(dob, eventDate, gaWeeks, gaDays) {
+  if (!dob || !eventDate) return "";
+  const dobDate = new Date(dob + "T00:00:00");
+  const event = new Date(eventDate + "T00:00:00");
+  if (isNaN(dobDate) || isNaN(event)) return "";
+  const diffDays = Math.floor((event - dobDate) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "";
+  const birthDays = (Number(gaWeeks) || 0) * 7 + (Number(gaDays) || 0);
+  const totalDays = birthDays + diffDays;
+  const weeks = Math.floor(totalDays / 7);
+  const days = totalDays % 7;
+  return `${weeks}w ${days}d`;
+}
+
+/* ══════════════════════════════════════════════════════
+   SUB-COMPONENTS
+══════════════════════════════════════════════════════ */
+function YNToggle({ label, value, onChange, disabled = false, required = false }) {
   return (
-    <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label">{label}</span>
-      <div className="yes-no-buttons">
-        <button type="button"
-          className={`yn-btn yn-yes${value === "Yes" ? " yn-active-yes" : ""}`}
-          onClick={() => fire("Yes")} disabled={disabled}>YES</button>
-        <button type="button"
-          className={`yn-btn yn-no${value === "No" ? " yn-active-no" : ""}`}
-          onClick={() => fire("No")} disabled={disabled}>NO</button>
+    <div className="rop-field-row">
+      <span className="rop-field-label">
+        {label}{required && <span className="rop-req"> *</span>}
+      </span>
+      <div className="rop-yn">
+        <button type="button" className={`rop-yn-btn${value === "Yes" ? " is-yes" : ""}`}
+          onClick={() => !disabled && onChange(value === "Yes" ? "" : "Yes")} disabled={disabled}>Yes</button>
+        <button type="button" className={`rop-yn-btn${value === "No" ? " is-no" : ""}`}
+          onClick={() => !disabled && onChange(value === "No" ? "" : "No")} disabled={disabled}>No</button>
       </div>
     </div>
   );
 }
+
+function StagePills({ value, onChange }) {
+  return (
+    <div className="rop-stage-pills">
+      {STAGES.map((s) => (
+        <button
+          key={s} type="button"
+          className={`rop-stage-pill${s === "None" ? " rop-stage-pill--none" : ""}${["4A", "4B", "5"].includes(s) ? " rop-stage-pill--severe" : ""}${value === s ? " is-on" : ""}`}
+          onClick={() => onChange(s)}
+        >{s}</button>
+      ))}
+    </div>
+  );
+}
+
+function ZonePills({ value, onChange }) {
+  return (
+    <div className="rop-zone-pills">
+      {ZONES.map((z) => (
+        <button key={z} type="button"
+          className={`rop-zone-pill${value === z ? " is-on" : ""}`}
+          onClick={() => onChange(z)}
+        >Zone {z}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Peer eye-summary panel (RIGHT 1-8 / LEFT 9-16) — always visible ── */
+function EyePanel({
+  side, offset, formData, onField, onCheckbox,
+  stageField, plusField, aropField, zoneField,
+  reqField, dateField, pmaField, typeField, agentField,
+}) {
+  const treatmentRequired = formData[reqField] === "Yes";
+  const typeList = formData[typeField] || [];
+
+  return (
+    <div className={`rop-eye-panel rop-eye-panel--${side.toLowerCase()}`}>
+      <span className={`rop-eye-badge rop-eye-badge--${side.toLowerCase()}`}>{side}</span>
+
+      <div className="rop-field-block">
+        <span className="rop-field-label">{offset + 1}. Max ROP</span>
+        <StagePills value={formData[stageField]} onChange={(v) => onField(stageField, v)} />
+      </div>
+
+      <YNToggle label={`${offset + 2}. Plus Disease`} value={formData[plusField]} onChange={(v) => onField(plusField, v)} />
+      <YNToggle label={`${offset + 3}. A-ROP`} value={formData[aropField]} onChange={(v) => onField(aropField, v)} />
+
+      <div className="rop-field-block">
+        <span className="rop-field-label">{offset + 4}. Max Zone</span>
+        <ZonePills value={formData[zoneField]} onChange={(v) => onField(zoneField, v)} />
+      </div>
+
+      <YNToggle label={`${offset + 5}. Treatment Required`} value={formData[reqField]} onChange={(v) => onField(reqField, v)} />
+
+      {treatmentRequired && (
+        <div className="rop-treatment-block">
+          <div className="rop-treatment-row2">
+            <div className="rop-field">
+              <label className="rop-label">{offset + 6}. Treatment Date</label>
+              <input type="date" className="rop-input" value={formData[dateField] || ""}
+                onChange={(e) => onField(dateField, e.target.value)}
+                max={toDateOnlyValue(new Date())} />
+            </div>
+            <div className="rop-field">
+              <label className="rop-label">{offset + 7}. PMA at Treatment <span className="rop-auto-tag">AUTO</span></label>
+              <input className="rop-input" value={formData[pmaField] || ""} readOnly placeholder="—" />
+            </div>
+          </div>
+
+          <div className="rop-field-block">
+            <span className="rop-field-label">{offset + 8}. Treatment Type</span>
+            <div className="rop-checkbox-grid">
+              {TREATMENT_TYPES.map(({ key, label }) => (
+                <label key={key} className={`rop-checkbox-item${typeList.includes(key) ? " rop-checkbox-item--on" : ""}`}>
+                  <input type="checkbox" checked={typeList.includes(key)} onChange={() => onCheckbox(typeField, key)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {typeList.includes("Anti-VEGF") && (
+              <div className="rop-field" style={{ marginTop: 4 }}>
+                <label className="rop-label">Anti-VEGF Agent</label>
+                <input
+                  className="rop-input"
+                  value={formData[agentField] || ""}
+                  placeholder="e.g. Bevacizumab"
+                  pattern="[A-Za-z\s]+"
+                  title="Only letters allowed"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^[A-Za-z\s]*$/.test(v)) onField(agentField, v);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════════════════════════ */
 export default function FormG() {
+  const { enrollmentId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { markFormCompleted } = useFormProgress();
   const { patientData } = usePatient();
 
+  const [message, setMessage] = useState("");
+
   const [formData, setFormData] = useState({
     enrollment_id: "",
-    gestation_days: "",
-gestation_at_birth: "",
     gestation_weeks: "",
+    gestation_days: "",
+    gestation_at_birth: "",
     birth_weight: "",
     dob: "",
 
-   
+    screenings: Array.from({ length: 12 }, (_, i) => emptyScreening(i)),
 
-    screenings: Array.from({ length: 12 }, (_, i) => ({
-      screening_no: i + 1,
-      date: "",
-      dol: "",
-      pma: "",
-      re_stage: "",
-      re_zone: "",
-      le_stage: "",
-      le_zone: "",
-      plus_status: "",
-      next_review: "",
-      signature: "",
-    })),
-
-    // RIGHT EYE (fields 1-8)
+    // RIGHT EYE (CRF items 1-8)
     worst_stage: "",
     worst_zone: "",
     plus_disease: "",
     a_rop: "",
     treatment_required: "",
-    treatment_type: [],
-    anti_vegf_agent: "",
     treatment_re_date: "",
     pma_at_treatment_re: "",
+    treatment_type: [],
+    anti_vegf_agent: "",
 
-    // LEFT EYE (fields 9-16)
+    // LEFT EYE (CRF items 9-16) — independent of RIGHT
     worst_stage_le: "",
+    worst_zone_le: "",
     plus_disease_le: "",
     a_rop_le: "",
-    worst_zone_le: "",
     treatment_required_le: "",
     treatment_le_date: "",
     pma_at_treatment_le: "",
     treatment_type_le: [],
+    anti_vegf_agent_le: "",
 
-    // COMMON (fields 17-20)
-    bilateral_treatment: "",
+    // COMMON (CRF items 17-20)
     outcome: "",
     outcome_other_text: "",
+    rop_treatment_composite: "",
     final_screening_date: "",
     pma_discharge: "",
-    rop_treatment_composite: "",
 
     completed_by: "",
     designation: "",
-    
     completion_date: "",
   });
 
-  /* ================= LOAD ENROLLMENT ID ================= */
+  /* ================= LOAD ENROLLMENT ID + HEADER (Form B) ================= */
   useEffect(() => {
-  const id =
-    patientData?.enrollment_id ||
-    location.state?.enrollmentId ||
-    localStorage.getItem("current_enrollment_id") ||
-    localStorage.getItem("enrollment_id") ||
-    "";
+    const id =
+      enrollmentId ||
+      patientData?.enrollment_id ||
+      location.state?.enrollmentId ||
+      localStorage.getItem("current_enrollment_id") ||
+      localStorage.getItem("enrollment_id") ||
+      "";
 
-  setFormData((p) => ({
-    ...p,
-    enrollment_id: id,
-  }));
-  if (id && (!patientData?.gestation_weeks || !patientData?.gestation_days)) {
-    api.get(`/birth-resuscitation/${id}`).then(res => {
-      const b = res.data || {};
-      const weeks = b.gestation_weeks ?? "";
-      const days = b.gestation_days ?? "";
-      setFormData(p => ({
+    setFormData((p) => ({ ...p, enrollment_id: id }));
+
+    if (id) {
+      api.get(`/birth-resuscitation/${id}`).then((res) => {
+        const b = res.data || {};
+        const weeks = b.gestation_weeks ?? "";
+        const days = b.gestation_days ?? "";
+        setFormData((p) => ({
+          ...p,
+          dob: b.date_of_birth || p.dob,
+          birth_weight: b.birth_weight ?? p.birth_weight,
+          gestation_weeks: weeks,
+          gestation_days: days,
+          gestation_at_birth: weeks !== "" && days !== "" ? `${weeks} weeks ${days} days` : p.gestation_at_birth,
+        }));
+      }).catch(() => {});
+    }
+  }, [enrollmentId, patientData, location.state]);
+
+  /* ================= LOAD EXISTING ROP RECORD ================= */
+  useEffect(() => {
+    if (!formData.enrollment_id) return;
+    api.get(`/rop-screening/${formData.enrollment_id}`).then((res) => {
+      const d = res.data || {};
+
+      const loadedScreenings = Array.from({ length: 12 }, (_, i) => {
+        const src = (d.screenings || []).find((s) => Number(s.screening_no) === i + 1) || (d.screenings || [])[i];
+        if (!src) return emptyScreening(i);
+        return {
+          screening_no: i + 1,
+          date: src.date || "",
+          dol: src.dol ?? "",
+          pma: src.pma || "",
+          method: src.method || "",
+          re_stage: src.re_stage || "",
+          re_zone: src.re_zone || "",
+          le_stage: src.le_stage || "",
+          le_zone: src.le_zone || "",
+          plus_status: src.plus_status || "",
+          next_review: src.next_review || "",
+          signature: src.signature || "",
+        };
+      });
+
+      setFormData((p) => ({
         ...p,
-        dob: b.date_of_birth || p.dob,
-        birth_weight: b.birth_weight || p.birth_weight,
-        gestation_weeks: weeks,
-        gestation_days: days,
-        gestation_at_birth: weeks !== "" && days !== "" ? `${weeks} weeks ${days} days` : p.gestation_at_birth,
+        screenings: loadedScreenings,
+
+        worst_stage: d.worst_stage || "",
+        worst_zone: d.worst_zone || "",
+        plus_disease: boolToYesNo(d.plus_disease),
+        a_rop: boolToYesNo(d.a_rop),
+        treatment_required: boolToYesNo(d.treatment_required),
+        treatment_re_date: d.treatment_re_date || "",
+        pma_at_treatment_re: d.pma_at_treatment_re || "",
+        treatment_type: Array.isArray(d.treatment_type) ? d.treatment_type : [],
+        anti_vegf_agent: d.anti_vegf_agent || "",
+
+        worst_stage_le: d.worst_stage_le || "",
+        worst_zone_le: d.worst_zone_le || "",
+        plus_disease_le: boolToYesNo(d.plus_disease_le),
+        a_rop_le: boolToYesNo(d.a_rop_le),
+        treatment_required_le: boolToYesNo(d.treatment_required_le),
+        treatment_le_date: d.treatment_le_date || "",
+        pma_at_treatment_le: d.pma_at_treatment_le || "",
+        treatment_type_le: Array.isArray(d.treatment_type_le) ? d.treatment_type_le : [],
+        anti_vegf_agent_le: d.anti_vegf_agent_le || "",
+
+        outcome: d.outcome || "",
+        outcome_other_text: d.outcome_other_text || "",
+        rop_treatment_composite: boolToYesNo(d.rop_treatment_composite),
+        final_screening_date: d.final_screening_date || "",
+        pma_discharge: d.pma_discharge || "",
+
+        completed_by: d.completed_by || "",
+        designation: d.designation || "",
+        completion_date: d.completion_date || "",
       }));
-    }).catch(() => {});
-  }
-}, [patientData, location.state]);
-
-  useEffect(() => {
-  if (!patientData) return;
-
-  const weeks = patientData.gestation_weeks || "";
-  const days = patientData.gestation_days || "";
-
-  const gestationFormatted =
-    weeks !== "" && days !== ""
-      ? `${weeks} weeks ${days} days`
-      : "";
-
-  setFormData((prev) => ({
-    ...prev,
-    dob: patientData.dob || "",
-    gestation_weeks: weeks,
-    gestation_days: days,
-    gestation_at_birth: gestationFormatted,
-    birth_weight: patientData.birth_weight || "",
-  }));
-}, [patientData]);
-
-
-
+    }).catch((err) => {
+      if (err?.response?.status !== 404) {
+        console.error("Failed to load ROP screening record:", err);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.enrollment_id]);
 
   /* ================= HANDLERS ================= */
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(p => ({ ...p, [name]: value }));
-  };
-  const gestationalAgeDisplay = formData.gestation_at_birth || "";
+  const setField = (name, value) => setFormData((p) => ({ ...p, [name]: value }));
+  const handleChange = (e) => setField(e.target.name, e.target.value);
+
   const handleScreeningChange = (index, field, value) => {
-
-  const updated = [...formData.screenings];
-
-  updated[index][field] = value;
-
-  if (field === "date") {
-    const { dol, pma } = calculateDOLandPMA(
-      formData.dob,
-      value,
-      formData.gestation_weeks,
-      formData.gestation_days
-    );
-
-    updated[index].dol = dol;
-    updated[index].pma = pma;
-  }
-
-  setFormData(prev => ({
-    ...prev,
-    screenings: updated
-  }));
-};
-  
-  const calculateDOLandPMA = (dob, screeningDate, gaWeeks, gaDays) => {
-  if (!dob || !screeningDate) {
-    return { dol: "", pma: "" };
-  }
-
-  const dobDate = new Date(dob);
-  const screenDate = new Date(screeningDate);
-
-  const diffTime = screenDate - dobDate;
-  const dol = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-  const weeks = Number(gaWeeks) || 0;
-  const days = Number(gaDays) || 0;
-
-  const gaBirthDays = weeks * 7 + days;
-
-  const pmaDays = gaBirthDays + dol;
-
-  const pmaWeeks = Math.floor(pmaDays / 7);
-  const pmaRemainingDays = pmaDays % 7;
-
-  return {
-    dol: dol >= 0 ? dol : "",
-    pma: `${pmaWeeks}w ${pmaRemainingDays}d`
-  };
-};
-
-const calculatePMA = (dob, eventDate, gaWeeks, gaDays) => {
-  if (!dob || !eventDate) return "";
-
-  const dobDate = new Date(dob + "T00:00:00");
-  const event = new Date(eventDate + "T00:00:00");
-
-  if (isNaN(dobDate) || isNaN(event)) return "";
-
-  const diffDays = Math.floor((event - dobDate) / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 0) return "";
-
-  const birthDays =
-    (Number(gaWeeks) || 0) * 7 + (Number(gaDays) || 0);
-
-  const totalDays = birthDays + diffDays;
-
-  const weeks = Math.floor(totalDays / 7);
-  const days = totalDays % 7;
-
-  return `${weeks}w ${days}d`;
-};
-
-useEffect(() => {
-  if (formData.treatment_re_date) {
-    const pma = calculatePMA(
-      formData.dob,
-      formData.treatment_re_date,
-      formData.gestation_weeks,
-      formData.gestation_days
-    );
-
-    setFormData(prev => ({
-      ...prev,
-      pma_at_treatment_re: pma
-    }));
-  }
-}, [
-  formData.treatment_re_date,
-  formData.dob,
-  formData.gestation_weeks,
-  formData.gestation_days
-]);
-
-useEffect(() => {
-  if (formData.treatment_le_date) {
-    const pma = calculatePMA(
-      formData.dob,
-      formData.treatment_le_date,
-      formData.gestation_weeks,
-      formData.gestation_days
-    );
-
-    setFormData(prev => ({
-      ...prev,
-      pma_at_treatment_le: pma
-    }));
-  }
-}, [
-  formData.treatment_le_date,
-  formData.dob,
-  formData.gestation_weeks,
-  formData.gestation_days
-]);
-
-useEffect(() => {
-  if (formData.final_screening_date) {
-    const pma = calculatePMA(
-      formData.dob,
-      formData.final_screening_date,
-      formData.gestation_weeks,
-      formData.gestation_days
-    );
-
-    setFormData(prev => ({
-      ...prev,
-      pma_discharge: pma
-    }));
-  }
-}, [
-  formData.final_screening_date,
-  formData.dob,
-  formData.gestation_weeks,
-  formData.gestation_days
-]);
-const handleCheckbox = (field, value) => {
-  setFormData(prev => {
-    const currentArray = prev[field] || [];
-    return {
-      ...prev,
-      [field]: currentArray.includes(value)
-        ? currentArray.filter(v => v !== value)
-        : [...currentArray, value]
-    };
-  });
-};   
-
-const nurses = [
-  "Geetika",
-        "Navkiran Kaur",
-        "Priyanka Thakur",
-        "Seemran Kaur",
-        "Tanvi Saini",
-        "Yashvi Jolly",
-        "Mannat Guliani",
-        "Shalini Dhiman"
-];
-
-const getDesignation = (name) => {
-  if (name === "Mannat Guliani") {
-    return "Project Research Scientist III (Medical)";
-  }
-  if (name === "Shalini Dhiman") {
-    return "Project Research Scientist III (Non-Medical)";
-  }
-  return name ? "Project Nurse III" : "";
-};
-
-const handleCompletedByChange = (e) => {
-  const name = e.target.value;
-
-  setFormData((prev) => ({
-    ...prev,
-    completed_by: name,
-    designation: getDesignation(name)
-  }));
-};
-/* ================= SUBMIT ================= */
-const handleSubmit = async (e) => {
-  e.preventDefault();
-
-  // ---------- helpers ----------
-  const clean = (v) => (v === "" || v === undefined ? null : v);
-
-  const yesNoToBool = (v) => {
-    if (v === "Yes") return true;
-    if (v === "No") return false;
-    return null;
+    const updated = [...formData.screenings];
+    updated[index] = { ...updated[index], [field]: value };
+    if (field === "date") {
+      const { dol, pma } = calculateDOLandPMA(formData.dob, value, formData.gestation_weeks, formData.gestation_days);
+      updated[index].dol = dol;
+      updated[index].pma = pma;
+    }
+    setFormData((prev) => ({ ...prev, screenings: updated }));
   };
 
-  const num = (v) => {
-    if (v === "" || v === undefined || v === null) return null;
-    return Number(v);
+  const handleCheckbox = (field, value) => {
+    setFormData((prev) => {
+      const currentArray = prev[field] || [];
+      return {
+        ...prev,
+        [field]: currentArray.includes(value)
+          ? currentArray.filter((v) => v !== value)
+          : [...currentArray, value],
+      };
+    });
   };
 
-  // ---------- build payload ----------
-  const payload = {
+  const handleCompletedByChange = (e) => {
+    const name = e.target.value;
+    setFormData((prev) => ({ ...prev, completed_by: name, designation: getDesignation(name) }));
+  };
+
+  /* ================= AUTO PMA-AT-TREATMENT (per eye) ================= */
+  useEffect(() => {
+    if (!formData.treatment_re_date) return;
+    const pma = calculatePMA(formData.dob, formData.treatment_re_date, formData.gestation_weeks, formData.gestation_days);
+    setFormData((prev) => (prev.pma_at_treatment_re === pma ? prev : { ...prev, pma_at_treatment_re: pma }));
+  }, [formData.treatment_re_date, formData.dob, formData.gestation_weeks, formData.gestation_days]);
+
+  useEffect(() => {
+    if (!formData.treatment_le_date) return;
+    const pma = calculatePMA(formData.dob, formData.treatment_le_date, formData.gestation_weeks, formData.gestation_days);
+    setFormData((prev) => (prev.pma_at_treatment_le === pma ? prev : { ...prev, pma_at_treatment_le: pma }));
+  }, [formData.treatment_le_date, formData.dob, formData.gestation_weeks, formData.gestation_days]);
+
+  useEffect(() => {
+    if (!formData.final_screening_date) return;
+    const pma = calculatePMA(formData.dob, formData.final_screening_date, formData.gestation_weeks, formData.gestation_days);
+    setFormData((prev) => (prev.pma_discharge === pma ? prev : { ...prev, pma_discharge: pma }));
+  }, [formData.final_screening_date, formData.dob, formData.gestation_weeks, formData.gestation_days]);
+
+  /* ================= AUTO-CALC COMPOSITE (item 18) ================= */
+  const eitherEyeTreated = formData.treatment_required === "Yes" || formData.treatment_required_le === "Yes";
+  const compositeValue = eitherEyeTreated ? "Yes" : formData.rop_treatment_composite;
+
+  useEffect(() => {
+    if (eitherEyeTreated && formData.rop_treatment_composite !== "Yes") {
+      setField("rop_treatment_composite", "Yes");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eitherEyeTreated]);
+
+  /* ================= SUBMIT ================= */
+  const buildPayload = () => ({
     enrollment_id: formData.enrollment_id,
-
     gestation_weeks: num(formData.gestation_weeks),
     birth_weight: num(formData.birth_weight),
     dob: clean(formData.dob),
 
-    risk_factors: formData.risk_factors || [],
+    risk_factors: [],
 
     screenings: (formData.screenings || [])
-  .filter(
-    (s) =>
-      s.date ||
-      s.re_stage ||
-      s.le_stage ||
-      s.re_zone ||
-      s.le_zone ||
-      s.plus_status
-  )
-  .map((s) => ({
-    screening_no: s.screening_no,
-    date: clean(s.date),
-    dol: num(s.dol),
-    pma: clean(s.pma),
-    re_stage: clean(s.re_stage),
-    re_zone: clean(s.re_zone),
-    le_stage: clean(s.le_stage),
-    le_zone: clean(s.le_zone),
-    plus_status: clean(s.plus_status),
-    next_review: clean(s.next_review),
-    signature: clean(s.signature),
-  })),
+      .filter((s) => s.date || s.re_stage || s.le_stage || s.re_zone || s.le_zone || s.plus_status || s.method)
+      .map((s) => ({
+        screening_no: s.screening_no,
+        date: clean(s.date),
+        dol: num(s.dol),
+        pma: clean(s.pma),
+        method: clean(s.method),
+        re_stage: clean(s.re_stage),
+        re_zone: clean(s.re_zone),
+        le_stage: clean(s.le_stage),
+        le_zone: clean(s.le_zone),
+        plus_status: clean(s.plus_status),
+        next_review: clean(s.next_review),
+        signature: clean(s.signature),
+      })),
 
+    // RIGHT EYE
     worst_stage: clean(formData.worst_stage),
     worst_zone: clean(formData.worst_zone),
     plus_disease: yesNoToBool(formData.plus_disease),
     a_rop: yesNoToBool(formData.a_rop),
-
     treatment_required: yesNoToBool(formData.treatment_required),
     treatment_type: formData.treatment_type || [],
     anti_vegf_agent: clean(formData.anti_vegf_agent),
     treatment_re_date: clean(formData.treatment_re_date),
-    treatment_le_date: clean(formData.treatment_le_date),
-    bilateral_treatment: yesNoToBool(formData.bilateral_treatment),
-    pma_at_treatment: clean(formData.pma_at_treatment),
+    pma_at_treatment_re: clean(formData.pma_at_treatment_re),
 
+    // LEFT EYE — always sent, independent of RIGHT
+    worst_stage_le: clean(formData.worst_stage_le),
+    worst_zone_le: clean(formData.worst_zone_le),
+    plus_disease_le: yesNoToBool(formData.plus_disease_le),
+    a_rop_le: yesNoToBool(formData.a_rop_le),
+    treatment_required_le: yesNoToBool(formData.treatment_required_le),
+    treatment_type_le: formData.treatment_type_le || [],
+    anti_vegf_agent_le: clean(formData.anti_vegf_agent_le),
+    treatment_le_date: clean(formData.treatment_le_date),
+    pma_at_treatment_le: clean(formData.pma_at_treatment_le),
+
+    // COMMON
     outcome: clean(formData.outcome),
+    outcome_other_text: clean(formData.outcome_other_text),
+    rop_treatment_composite: yesNoToBool(compositeValue),
     final_screening_date: clean(formData.final_screening_date),
     pma_discharge: clean(formData.pma_discharge),
-    rop_treatment_composite: yesNoToBool(formData.rop_treatment_composite),
 
     completed_by: clean(formData.completed_by),
     designation: clean(formData.designation),
     signature: clean(formData.completed_by),
-    
     completion_date: clean(formData.completion_date),
+  });
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      await api.post("/rop-screening/", buildPayload());
+      markFormCompleted("form_g");
+      setMessage("Form G saved successfully.");
+      setTimeout(() => setMessage(""), 3000);
+      return true;
+    } catch (err) {
+      console.error("Form G submission error:", err.response?.data);
+      const detail = err?.response?.data?.detail || "Unknown error";
+      setMessage(`Error saving Form G: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+      return false;
+    }
   };
 
-  // ---------- submit ----------
-  try {
-    await api.post("/rop-screening/", payload);
-   markFormCompleted("form_g");
-    alert("✅ Form I submitted successfully");
-   markFormCompleted("form_g");
-    navigate(`/form-h/${formData.enrollment_id}`);
-  } catch (err) {
-    console.error("❌ Form I submission error:", err.response?.data);
-    alert(
-      "Error submitting Form I:\n" +
-      JSON.stringify(err.response?.data, null, 2)
-    );
-  }
-};
-
-
+  /* ════════════════════ RENDER ════════════════════ */
   return (
-    <div className="screening-form">
-      <div className="form-inner">
-        
-        {/* ═══ PAGE HEADER ═══ */}
-        <div className="form-header-action-row">
-          <div className="form-header-title-area">
-            <div className="form-breadcrumb">
-              <FileText size={11} /> FORM G
-            </div>
-            <h1 className="form-main-title">
-              Retinopathy of Prematurity (ROP) Screening Record
-            </h1>
-            <p className="form-main-subtitle">
-              Based on RBSK/NNF India &amp; ICROP 3rd Edition Guidelines
-            </p>
+    <div className="rop-page">
+
+      {/* ══ PATIENT CONTEXT BAR ══ */}
+      <div className="rop-context-bar">
+        <div className="rop-context-trial">
+          <div className="rop-context-trial-icon"><Eye size={17} /></div>
+          <div className="rop-context-trial-info">
+            <span className="rop-context-name">PORTAL Trial</span>
+            <span className="rop-context-sub">Form G — ROP Screening</span>
           </div>
         </div>
+        <div className="rop-context-fields">
+          {[
+            { label: "Enrolment ID", value: formData.enrollment_id || "—" },
+            { label: "Gestation", value: formData.gestation_weeks !== "" ? `${formData.gestation_weeks} wks ${formData.gestation_days || 0} days` : "—" },
+            { label: "Birth Weight", value: formData.birth_weight !== "" ? `${formData.birth_weight} g` : "—" },
+            { label: "DOB", value: formData.dob || "—" },
+          ].map((f, i, arr) => (
+            <div key={f.label} className={`rop-context-field${i === arr.length - 1 ? " rop-context-field--last" : ""}`}>
+              <span className="rop-context-field-label">{f.label}</span>
+              <span className="rop-context-field-value">{f.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
+      <div className="rop-body">
         <form onSubmit={handleSubmit}>
 
-      {/* ═══ IDENTIFICATION ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <User size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">Identification</h3>
-            <p className="section-subtitle-card">Patient demographics and eligibility</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-        <div className="form-row">
-          <div className="form-group">
-            <label>Enrollment ID</label>
-            <input name="enrollment_id" value={formData.enrollment_id} readOnly />
-          </div>
-          <div className="form-group">
-            <label>Date of Birth</label>
-            <input
-  type="date"
-  name="dob"
-  value={formData.dob}
-  readOnly
-  onChange={handleChange}
-  max={toDateOnlyValue(new Date())}
-/>
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-  <label>Gestation Age</label>
-  <input
-    type="text"
-    value={gestationalAgeDisplay}
-    readOnly
-  />
-</div>
-          <div className="form-group">
-            <label>Birth Weight (g)</label>
-            <input type="number" name="birth_weight" value={formData.birth_weight} onChange={handleChange} readOnly />
-          </div>
-        </div>
-        </div>
-      </div>
-
-      {/* ═══ ELIGIBILITY & SCREENING GUIDELINES ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <Info size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">Eligibility & Screening Guidelines</h3>
-            <p className="section-subtitle-card">RBSK/NNF India & ICROP 3rd Edition</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-     <div className="rop-guideline-wrapper">
-
-  <div className="rop-guideline-card">
-
-    <h4>Eligibility (RBSK / NNF India)</h4>
-
-    <ul>
-      <li>GA ≤34 weeks OR BW ≤2000 g</li>
-      <li>34–36 weeks / 1750–2000 g with risk factors</li>
-    </ul>
-
-    <p className="guideline-sub">
-      <strong>Risk factors:</strong> O₂ therapy, sepsis, IVH, RDS,
-      transfusions, poor weight gain
-    </p>
-
-  </div>
-
-
-  <div className="rop-guideline-card">
-
-    <h4>First Screening</h4>
-
-    <ul>
-      <li>GA &lt;28 weeks: at 2–3 weeks of life</li>
-      <li>GA ≥28 weeks: at 4 weeks / 30 days of life</li>
-    </ul>
-
-    <p>OR 31 weeks PMA, whichever is later</p>
-
-    <p className="guideline-sub">
-      <strong>Never later than 30 days of life</strong>
-    </p>
-
-  </div>
-
-</div>
-        </div>
-      </div>
-
-      {/* ═══ G1. ROP SCREENING RECORD ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <Calendar size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">G1. ROP Screening Record</h3>
-            <p className="section-subtitle-card">12 screening visits with eye findings</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-      {/* ================= ROP SCREENING VISITS ================= */}
-<div className="rop-panel">
-  <div className="rop-scroll">
-    <table className="rop-table">
-      <thead>
-  <tr>
-    <th rowSpan="2" className="th-neutral">#</th>
-    <th rowSpan="2" className="th-neutral">Date</th>
-    <th rowSpan="2" className="th-neutral">DOL</th>
-    <th rowSpan="2" className="th-neutral">PMA</th>
-
-    <th colSpan="2" className="th-re">Right Eye</th>
-    <th colSpan="2" className="th-le">Left Eye</th>
-
-    <th rowSpan="2" className="th-warning">Plus / A-ROP</th>
-    <th rowSpan="2" className="th-info">Next Review</th>
-    <th rowSpan="2" className="th-neutral">Name</th>
-  </tr>
-
-  <tr>
-    <th className="th-re-sub">Stage</th>
-    <th className="th-re-sub">Zone</th>
-    <th className="th-le-sub">Stage</th>
-    <th className="th-le-sub">Zone</th>
-  </tr>
-</thead>
-
-
-      <tbody>
-        {formData.screenings.map((s, i) => (
-          <tr key={i}>
-            <td>{s.screening_no}</td>
-            <td><input type="date" value={s.date} onChange={e => handleScreeningChange(i,"date",e.target.value)} /></td>
-            <td><input className="xs" value={s.dol} onChange={e => handleScreeningChange(i,"dol",e.target.value)}readOnly /></td>
-            <td><input className="xs" value={s.pma} onChange={e => handleScreeningChange(i,"pma",e.target.value)} readOnly/></td>
-
-            <td><select className="xs" value={s.re_stage} onChange={e => handleScreeningChange(i,"re_stage",e.target.value)}>
-              <option></option><option>0</option><option>1</option><option>2</option><option>3</option><option>4A</option><option>4B</option><option>5</option>
-            </select></td>
-
-            <td><select className="xs" value={s.re_zone} onChange={e => handleScreeningChange(i,"re_zone",e.target.value)}>
-              <option></option><option>I</option><option>II</option><option>III</option>
-            </select></td>
-
-            <td><select className="xs" value={s.le_stage} onChange={e => handleScreeningChange(i,"le_stage",e.target.value)}>
-              <option></option><option>0</option><option>1</option><option>2</option><option>3</option><option>4A</option><option>4B</option><option>5</option>
-            </select></td>
-
-            <td><select className="xs" value={s.le_zone} onChange={e => handleScreeningChange(i,"le_zone",e.target.value)}>
-              <option></option><option>I</option><option>II</option><option>III</option>
-            </select></td>
-
-            <td>
-              <select className="sm" value={s.plus_status} onChange={e => handleScreeningChange(i,"plus_status",e.target.value)}>
-                <option></option>
-                <option>None</option>
-                <option>Plus</option>
-                <option>A-ROP</option>
-              </select>
-            </td>
-
-            <td><input className="sm" value={s.next_review} onChange={e => handleScreeningChange(i,"next_review",e.target.value)} /></td>
-            <td><input className="sm" value={s.signature} onChange={e => handleScreeningChange(i,"signature",e.target.value)} /></td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-</div>
-        </div>
-      </div>
-
-      {/* ═══ ICROP CLASSIFICATION & FOLLOW-UP ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <FileText size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">ICROP 3rd Edition Classification (2021)</h3>
-            <p className="section-subtitle-card">Stages, Zones, Plus Disease & Follow-up Schedule</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-<div className="icrop-section">
-
-  <div className="icrop-header">
-    ICROP 3rd Edition Classification (2021)
-  </div>
-
-  <div className="icrop-grid">
-
-    {/* STAGES */}
-    <div className="icrop-card">
-      <h4>Stages</h4>
-      <p><b>0:</b> Immature vascularization, no ROP</p>
-      <p><b>1:</b> Demarcation line</p>
-      <p><b>2:</b> Ridge</p>
-      <p><b>3:</b> Ridge with extra retinal tissue</p>
-      <p><b>4:</b> Partial retinal detachment (4A: fovea attached, 4B: fovea detached)</p>
-      <p><b>5:</b> Total retinal detachment</p>
-    </div>
-
-    {/* ZONES */}
-    <div className="icrop-card">
-      <h4>Zones</h4>
-      <p><b>Zone I:</b> Circle centered on disc, radius = 2× disc-fovea distance</p>
-      <p><b>Zone II:</b> From edge of Zone I to ora serrata nasally</p>
-      <p><b>Zone III:</b> Residual temporal crescent</p>
-
-      <p><b>Plus Disease:</b> ≥2 quadrants of vascular tortuosity/dilatation</p>
-
-      <p><b>A-ROP:</b> Aggressive ROP (formerly AP-ROP)</p>
-    </div>
-
-    {/* FOLLOW UP */}
-    <div className="icrop-card icrop-follow">
-      <h4>Follow-up Schedule (Based on Findings)</h4>
-
-      <ul>
-        <li>Immature retina / No ROP: 2 weeks</li>
-        <li>Stage 1 or 2 in Zone III: 2 weeks</li>
-        <li>Stage 1 in Zone II: 1–2 weeks</li>
-        <li>Stage 2 in Zone II / Stage 1–2 in Zone I: 1 week or less</li>
-        <li>Stage 3 / Plus disease / A-ROP: Treatment within 48–72 hours</li>
-        <li>Continue screening until retina fully vascularized OR Zone III reached without prior Zone I/II ROP OR 45 weeks PMA</li>
-      </ul>
-    </div>
-
-  </div>
-
-</div>
-        </div>
-      </div>
-
-      {/* ═══ G2. TREATMENT & OUTCOME SUMMARY ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <ShieldAlert size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">G2. Treatment & Outcome Summary</h3>
-            <p className="section-subtitle-card">Detailed findings for both eyes and treatment outcomes</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-          <div className="pn-adverse-card rop-summary-card">
-
-{/* RIGHT EYE */}
-<div className="rop-stage-block">
-  <label className="summary-title">RIGHT — 1. Max ROP</label>
-  <div className="stage-pill-group">
-    {["None","1","2","3","4A","4B","5"].map(stage => (
-      <label
-        key={stage}
-        className={`stage-pill ${formData.worst_stage === stage ? "active" : ""}`}
-      >
-        <input
-          type="radio"
-          name="worst_stage"
-          value={stage}
-          checked={formData.worst_stage === stage}
-          onChange={handleChange}
-        />
-        {stage}
-      </label>
-    ))}
-  </div>
-</div>
-
-{/* 2 & 3: Plus Disease and A-ROP side by side */}
-<div className="rop-toggle-row">
-  <YesNoToggle
-    label="2. Plus Disease"
-    name="plus_disease"
-    value={formData.plus_disease}
-    onChange={handleChange}
-  />
-  <YesNoToggle
-    label="3. A-ROP"
-    name="a_rop"
-    value={formData.a_rop}
-    onChange={handleChange}
-  />
-</div>
-
-</div>
-
-
-  {/* 4. Max Zone */}
-  {formData.worst_stage !== "None" && (
-    <div className="pn-adverse-card">
-      <h4>4. Max Zone</h4>
-      <div className="pn-checkbox-grid">
-        {["Zone I","Zone II","Zone III"].map(zone => (
-          <label className="checkbox-item" key={zone}>
-            <input
-              type="radio"
-              name="worst_zone"
-              value={zone}
-              checked={formData.worst_zone === zone}
-              onChange={handleChange}
-            />
-            {zone}
-          </label>
-        ))}
-      </div>
-    </div>
-  )}
-
-  {/* 5. Treatment Required */}
-  <div className="pn-adverse-card">
-    <YesNoToggle
-      label="5. Treatment Required"
-      name="treatment_required"
-      value={formData.treatment_required}
-      onChange={handleChange}
-    />
-  </div>
-
-
-  {/* Treatment Details for RIGHT EYE */}
-  {formData.treatment_required === "Yes" && (
-    <>
-      <div className="pn-adverse-card">
-        <div className="form-row">
-          <div className="form-group">
-            <label>6. Treatment Date (RE)</label>
-            <input
-              type="date"
-              name="treatment_re_date"
-              value={formData.treatment_re_date}
-              onChange={handleChange}
-              max={toDateOnlyValue(new Date())}
-            />
+          {/* ═══ ELIGIBILITY & SCREENING GUIDELINES ═══ */}
+          <div className="rop-card">
+            <div className="rop-card-header">
+              <div className="rop-card-header-left">
+                <div className="rop-card-icon"><Info size={17} /></div>
+                <div>
+                  <h3 className="rop-card-title">Eligibility &amp; Screening Guidelines</h3>
+                  <p className="rop-card-sub">RBSK / NNF India &amp; ICROP 3rd Edition</p>
+                </div>
+              </div>
+            </div>
+            <div className="rop-guideline-grid">
+              <div className="rop-guideline-card">
+                <h4>Eligibility (RBSK / NNF India)</h4>
+                <ul>
+                  <li>GA ≤34 weeks OR BW ≤2000 g</li>
+                  <li>34–36 weeks / 1750–2000 g with risk factors</li>
+                </ul>
+                <p className="rop-guideline-sub">
+                  <strong>Risk factors:</strong> O₂ therapy, sepsis, IVH, RDS, transfusions, poor weight gain
+                </p>
+              </div>
+              <div className="rop-guideline-card">
+                <h4>First Screening</h4>
+                <ul>
+                  <li>GA &lt;28 weeks: at 2–3 weeks of life</li>
+                  <li>GA ≥28 weeks: at 4 weeks / 30 days of life</li>
+                </ul>
+                <p>OR 31 weeks PMA, whichever is later</p>
+                <p className="rop-guideline-sub"><strong>Never later than 30 days of life</strong></p>
+              </div>
+            </div>
           </div>
 
-          <div className="form-group">
-            <label>7. PMA at treatment (RE)</label>
-            <input
-              name="pma_at_treatment_re"
-              value={formData.pma_at_treatment_re || ""}
-              readOnly
-            />
+          {/* ═══ G1. ROP SCREENING RECORD ═══ */}
+          <div className="rop-card">
+            <div className="rop-card-header">
+              <div className="rop-card-header-left">
+                <div className="rop-card-icon"><Calendar size={17} /></div>
+                <div>
+                  <h3 className="rop-card-title">G1. ROP Screening Record</h3>
+                  <p className="rop-card-sub">Up to 12 screening visits with bilateral eye findings</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rop-table-wrap">
+              <table className="rop-table">
+                <colgroup>
+                  <col className="rop-col-num" />
+                  <col className="rop-col-date" />
+                  <col className="rop-col-dol" />
+                  <col className="rop-col-pma" />
+                  <col className="rop-col-method" />
+                  <col className="rop-col-stage" />
+                  <col className="rop-col-zone" />
+                  <col className="rop-col-stage" />
+                  <col className="rop-col-zone" />
+                  <col className="rop-col-plus" />
+                  <col className="rop-col-review" />
+                  <col className="rop-col-name" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th rowSpan="2">#</th>
+                    <th rowSpan="2">Date</th>
+                    <th rowSpan="2">DOL</th>
+                    <th rowSpan="2">PMA</th>
+                    <th rowSpan="2">Method</th>
+                    <th colSpan="2" className="rop-th-re">Right Eye</th>
+                    <th colSpan="2" className="rop-th-le">Left Eye</th>
+                    <th rowSpan="2">Plus/AP</th>
+                    <th rowSpan="2">Next Review</th>
+                    <th rowSpan="2">Name</th>
+                  </tr>
+                  <tr>
+                    <th className="rop-th-re">Stage</th>
+                    <th className="rop-th-re">Zone</th>
+                    <th className="rop-th-le">Stage</th>
+                    <th className="rop-th-le">Zone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formData.screenings.map((s, i) => (
+                    <tr key={i}>
+                      <td className="rop-table-num">{s.screening_no}</td>
+                      <td>
+                        <input
+                          type="date"
+                          className="rop-in-date"
+                          value={s.date}
+                          onChange={(e) => handleScreeningChange(i, "date", e.target.value)}
+                        />
+                      </td>
+                      <td><input className="rop-in-xs" value={s.dol} readOnly tabIndex={-1} /></td>
+                      <td><input className="rop-in-xs" value={s.pma} readOnly tabIndex={-1} /></td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.method || ""}
+                          onChange={(e) => handleScreeningChange(i, "method", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.re_stage || ""}
+                          onChange={(e) => handleScreeningChange(i, "re_stage", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {["0", "1", "2", "3", "4A", "4B", "5"].map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.re_zone || ""}
+                          onChange={(e) => handleScreeningChange(i, "re_zone", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {ZONES.map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.le_stage || ""}
+                          onChange={(e) => handleScreeningChange(i, "le_stage", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {["0", "1", "2", "3", "4A", "4B", "5"].map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.le_zone || ""}
+                          onChange={(e) => handleScreeningChange(i, "le_zone", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {ZONES.map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="rop-in-select"
+                          value={s.plus_status || ""}
+                          onChange={(e) => handleScreeningChange(i, "plus_status", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          <option value="None">None</option>
+                          <option value="Plus">Plus</option>
+                          <option value="A-ROP">A-ROP</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="rop-in-text"
+                          value={s.next_review || ""}
+                          placeholder="e.g. 1 week"
+                          onChange={(e) => handleScreeningChange(i, "next_review", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="rop-in-text"
+                          value={s.signature || ""}
+                          placeholder="Examiner"
+                          onChange={(e) => handleScreeningChange(i, "signature", e.target.value)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="rop-table-hint">Scroll horizontally if needed to see all columns</div>
           </div>
-        </div>
-      </div>
 
-      <div className="pn-adverse-card">
-        <h4>8. Treatment Type (RE)</h4>
-        <div className="pn-checkbox-grid">
-          <label className="checkbox-item">
-            <input
-              type="checkbox"
-              checked={formData.treatment_type.includes("Laser")}
-              onChange={() => handleCheckbox("treatment_type","Laser")}
-            />
-            Laser photocoagulation
-          </label>
-
-          <label className="checkbox-item">
-            <input
-              type="checkbox"
-              checked={formData.treatment_type.includes("Anti-VEGF")}
-              onChange={() => handleCheckbox("treatment_type","Anti-VEGF")}
-            />
-            Anti-VEGF
-          </label>
-
-          <label className="checkbox-item">
-            <input
-              type="checkbox"
-              checked={formData.treatment_type.includes("Vitrectomy")}
-              onChange={() => handleCheckbox("treatment_type","Vitrectomy")}
-            />
-            Vitrectomy
-          </label>
-
-          <label className="checkbox-item">
-            <input
-              type="checkbox"
-              checked={formData.treatment_type.includes("Combination")}
-              onChange={() => handleCheckbox("treatment_type","Combination")}
-            />
-            Combination
-          </label>
-        </div>
-
-        {formData.treatment_type.includes("Anti-VEGF") && (
-          <div className="form-group other-specify">
-            <label>Agent</label>
-            <input
-              name="anti_vegf_agent"
-              value={formData.anti_vegf_agent}
-              placeholder="e.g. Bevacizumab"
-              pattern="[A-Za-z\s]+"
-              title="Only letters allowed"
-              onChange={(e) => {
-                const value = e.target.value;
-                if (/^[A-Za-z\s]*$/.test(value)) {
-                  setFormData(prev => ({
-                    ...prev,
-                    anti_vegf_agent: value
-                  }));
-                }
-              }}
-            />
+          {/* ═══ ICROP CLASSIFICATION & FOLLOW-UP ═══ */}
+          <div className="rop-card">
+            <div className="rop-card-header">
+              <div className="rop-card-header-left">
+                <div className="rop-card-icon"><FileText size={17} /></div>
+                <div>
+                  <h3 className="rop-card-title">ICROP 3rd Edition Classification (2021)</h3>
+                  <p className="rop-card-sub">Stages, Zones, Plus Disease &amp; Follow-up Schedule</p>
+                </div>
+              </div>
+            </div>
+            <div className="rop-icrop-grid">
+              <div className="rop-icrop-card">
+                <h5>Stages</h5>
+                <p><b>0:</b> Immature vascularization, no ROP</p>
+                <p><b>1:</b> Demarcation line</p>
+                <p><b>2:</b> Ridge</p>
+                <p><b>3:</b> Ridge with extra-retinal tissue</p>
+                <p><b>4:</b> Partial retinal detachment (4A: fovea attached, 4B: fovea detached)</p>
+                <p><b>5:</b> Total retinal detachment</p>
+              </div>
+              <div className="rop-icrop-card">
+                <h5>Zones &amp; Plus Disease</h5>
+                <p><b>Zone I:</b> Circle centered on disc, radius = 2× disc-fovea distance</p>
+                <p><b>Zone II:</b> From edge of Zone I to ora serrata nasally</p>
+                <p><b>Zone III:</b> Residual temporal crescent</p>
+                <p><b>Plus:</b> ≥2 quadrants of vascular tortuosity/dilatation</p>
+                <p><b>A-ROP:</b> Aggressive ROP (formerly AP-ROP)</p>
+              </div>
+              <div className="rop-icrop-card rop-icrop-card--follow">
+                <h5>Follow-up Schedule</h5>
+                <ul>
+                  <li>Immature retina / No ROP: 2 weeks</li>
+                  <li>Stage 1–2 in Zone III: 2 weeks</li>
+                  <li>Stage 1 in Zone II: 1–2 weeks</li>
+                  <li>Stage 2 in Zone II / Stage 1–2 in Zone I: ≤1 week</li>
+                  <li>Stage 3 / Plus / A-ROP: Treat within 48–72 hrs</li>
+                  <li>Continue until fully vascularized, Zone III w/o prior ROP, or 45 wks PMA</li>
+                </ul>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
 
-      {/* LEFT EYE SECTION */}
-      <div className="rop-left-eye-section">
-        <h3 className="eye-section-title">LEFT</h3>
+          {/* ═══ G2. TREATMENT & OUTCOME SUMMARY ═══ */}
+          <div className="rop-card">
+            <div className="rop-card-header">
+              <div className="rop-card-header-left">
+                <div className="rop-card-icon"><ShieldAlert size={17} /></div>
+                <div>
+                  <h3 className="rop-card-title">G2. Treatment &amp; Outcome Summary</h3>
+                  <p className="rop-card-sub">Right (items 1-8) and Left (items 9-16) recorded independently</p>
+                </div>
+              </div>
+            </div>
 
-        {/* 9. Max ROP (LE) */}
-        <div className="rop-stage-block">
-          <label className="summary-title">9. Max ROP (LE)</label>
-          <div className="stage-pill-group">
-            {["None","1","2","3","4A","4B","5"].map(stage => (
-              <label
-                key={stage}
-                className={`stage-pill ${formData.worst_stage_le === stage ? "active" : ""}`}
-              >
-                <input
-                  type="radio"
-                  name="worst_stage_le"
-                  value={stage}
-                  checked={formData.worst_stage_le === stage}
-                  onChange={handleChange}
-                />
-                {stage}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* 10 & 11: Plus Disease and A-ROP side by side */}
-        <div className="rop-toggle-row">
-          <YesNoToggle
-            label="10. Plus Disease (LE)"
-            name="plus_disease_le"
-            value={formData.plus_disease_le}
-            onChange={handleChange}
-          />
-          <YesNoToggle
-            label="11. A-ROP (LE)"
-            name="a_rop_le"
-            value={formData.a_rop_le}
-            onChange={handleChange}
-          />
-        </div>
-
-        {/* 12. Max Zone (LE) */}
-        <div className="pn-adverse-card">
-          <h4>12. Max Zone (LE)</h4>
-          <div className="pn-checkbox-grid">
-            {["Zone I","Zone II","Zone III"].map(zone => (
-              <label className="checkbox-item" key={zone}>
-                <input
-                  type="radio"
-                  name="worst_zone_le"
-                  value={zone}
-                  checked={formData.worst_zone_le === zone}
-                  onChange={handleChange}
-                />
-                {zone}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* 13. Treatment Required (LE) */}
-        <div className="pn-adverse-card">
-          <YesNoToggle
-            label="13. Treatment Required (LE)"
-            name="treatment_required_le"
-            value={formData.treatment_required_le}
-            onChange={handleChange}
-          />
-        </div>
-
-        {/* 14 & 15: Treatment Date and PMA */}
-        <div className="pn-adverse-card">
-          <div className="form-row">
-            <div className="form-group">
-              <label>14. Treatment Date (LE)</label>
-              <input
-                type="date"
-                name="treatment_le_date"
-                value={formData.treatment_le_date}
-                onChange={handleChange}
-                max={toDateOnlyValue(new Date())}
+            <div className="rop-eye-grid">
+              <EyePanel
+                side="RIGHT" offset={0} formData={formData} onField={setField} onCheckbox={handleCheckbox}
+                stageField="worst_stage" plusField="plus_disease" aropField="a_rop" zoneField="worst_zone"
+                reqField="treatment_required" dateField="treatment_re_date" pmaField="pma_at_treatment_re"
+                typeField="treatment_type" agentField="anti_vegf_agent"
+              />
+              <EyePanel
+                side="LEFT" offset={8} formData={formData} onField={setField} onCheckbox={handleCheckbox}
+                stageField="worst_stage_le" plusField="plus_disease_le" aropField="a_rop_le" zoneField="worst_zone_le"
+                reqField="treatment_required_le" dateField="treatment_le_date" pmaField="pma_at_treatment_le"
+                typeField="treatment_type_le" agentField="anti_vegf_agent_le"
               />
             </div>
 
-            <div className="form-group">
-              <label>15. PMA at treatment (LE)</label>
-              <input
-                name="pma_at_treatment_le"
-                value={formData.pma_at_treatment_le || ""}
-                readOnly
-              />
+            <div className="rop-summary-row">
+              {/* 17. Outcome */}
+              <div className="rop-summary-item">
+                <div className="rop-field">
+                  <label className="rop-label">17. Outcome</label>
+                  <select className="rop-select" name="outcome" value={formData.outcome} onChange={handleChange}>
+                    <option value="">-- Select --</option>
+                    <option>Regressed</option>
+                    <option>Regressing</option>
+                    <option>Progressed</option>
+                    <option>Retinal detachment</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                {formData.outcome === "Other" && (
+                  <div className="rop-field" style={{ marginTop: 10 }}>
+                    <label className="rop-label">Specify Outcome</label>
+                    <input
+                      className="rop-input"
+                      value={formData.outcome_other_text}
+                      onChange={(e) => setField("outcome_other_text", e.target.value)}
+                      placeholder="Specify outcome"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* 19 & 20. Final Screening */}
+              <div className="rop-summary-item">
+                <div className="rop-row2">
+                  <div className="rop-field">
+                    <label className="rop-label">19. Final Screening Date</label>
+                    <input type="date" className="rop-input" name="final_screening_date"
+                      value={formData.final_screening_date} onChange={handleChange}
+                      max={toDateOnlyValue(new Date())} />
+                  </div>
+                  <div className="rop-field">
+                    <label className="rop-label">20. PMA at Discharge from Screening <span className="rop-auto-tag">AUTO</span></label>
+                    <input className="rop-input" value={formData.pma_discharge || ""} readOnly placeholder="weeks" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 18. Composite Outcome */}
+            <div className="rop-composite-card">
+              <div className="rop-composite-left">
+                <ShieldAlert size={20} className="rop-composite-icon" />
+                <div>
+                  <h4 className="rop-composite-title">18. ROP Requiring Treatment (Composite Outcome)</h4>
+                  <p className="rop-composite-desc">
+                    {eitherEyeTreated
+                      ? "Auto-calculated: Yes — treatment required in at least one eye"
+                      : "Set manually if no treatment recorded above"}
+                  </p>
+                </div>
+              </div>
+              {eitherEyeTreated ? (
+                <span className={`rop-composite-badge rop-composite-badge--yes`}>Yes</span>
+              ) : (
+                <div className="rop-yn">
+                  <button type="button" className={`rop-yn-btn${formData.rop_treatment_composite === "Yes" ? " is-yes" : ""}`}
+                    onClick={() => setField("rop_treatment_composite", formData.rop_treatment_composite === "Yes" ? "" : "Yes")}>Yes</button>
+                  <button type="button" className={`rop-yn-btn${formData.rop_treatment_composite === "No" ? " is-no" : ""}`}
+                    onClick={() => setField("rop_treatment_composite", formData.rop_treatment_composite === "No" ? "" : "No")}>No</button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
 
-        {/* 16. Treatment Type (LE) */}
-        <div className="pn-adverse-card">
-          <h4>16. Treatment Type (LE)</h4>
-          <div className="pn-checkbox-grid">
-            <label className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={formData.treatment_type_le?.includes("Laser")}
-                onChange={() => handleCheckbox("treatment_type_le","Laser")}
-              />
-              Laser photocoagulation
-            </label>
-            <label className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={formData.treatment_type_le?.includes("Anti-VEGF")}
-                onChange={() => handleCheckbox("treatment_type_le","Anti-VEGF")}
-              />
-              Anti-VEGF
-            </label>
-            <label className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={formData.treatment_type_le?.includes("Vitrectomy")}
-                onChange={() => handleCheckbox("treatment_type_le","Vitrectomy")}
-              />
-              Vitrectomy
-            </label>
-            <label className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={formData.treatment_type_le?.includes("Combination")}
-                onChange={() => handleCheckbox("treatment_type_le","Combination")}
-              />
-              Combination
-            </label>
+          {/* ═══ COMPLETION ═══ */}
+          <div className="rop-card">
+            <div className="rop-card-header">
+              <div className="rop-card-header-left">
+                <div className="rop-card-icon"><CheckSquare size={17} /></div>
+                <div>
+                  <h3 className="rop-card-title">Form Completion</h3>
+                  <p className="rop-card-sub">Verification and signature</p>
+                </div>
+              </div>
+            </div>
+            <div className="rop-completion-grid">
+              <div className="rop-field">
+                <label className="rop-label">Completed By <span className="rop-req">*</span></label>
+                <select className="rop-select" name="completed_by" value={formData.completed_by || ""} onChange={handleCompletedByChange} required>
+                  <option value="">Select…</option>
+                  {NURSES.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div className="rop-field">
+                <label className="rop-label">Designation</label>
+                <input className="rop-input" value={formData.designation || ""} readOnly placeholder="Auto-filled" />
+              </div>
+              <div className="rop-field">
+                <label className="rop-label">Date</label>
+                <input type="date" className="rop-input" name="completion_date" value={formData.completion_date || ""} onChange={handleChange} />
+              </div>
+            </div>
           </div>
-        </div>
+
+          {message && (
+            <div className={`rop-message${message.startsWith("Form G saved") ? " rop-message--success" : " rop-message--error"}`}>
+              {message}
+            </div>
+          )}
+        </form>
       </div>
-    </>
-  )}
-
-
-  {/* 17. Outcome */}
-  <div className="pn-adverse-card">
-    <div className="form-group">
-      <label>17. Outcome</label>
-      <select
-        name="outcome"
-        value={formData.outcome}
-        onChange={handleChange}
-      >
-        <option value="">-- Select --</option>
-        <option>Regressed</option>
-        <option>Regressing</option>
-        <option>Progressed</option>
-        <option>Retinal detachment</option>
-        <option>Other</option>
-      </select>
-    </div>
-
-    {formData.outcome === "Other" && (
-      <div className="form-group other-specify">
-        <label>Specify Outcome</label>
-        <input
-          name="outcome_other_text"
-          value={formData.outcome_other_text}
-          onChange={(e) => {
-            const value = e.target.value;
-            if (/^[A-Za-z\s]*$/.test(value)) {
-              setFormData(prev => ({
-                ...prev,
-                outcome_other_text: value
-              }));
-            }
-          }}
-          placeholder="Specify outcome"
-        />
-      </div>
-    )}
-  </div>
-
-  {/* 18. Composite Outcome */}
-  <div className="pn-adverse-card">
-    <YesNoToggle
-      label="18. ROP requiring treatment (for Composite Outcome)"
-      name="rop_treatment_composite"
-      value={formData.rop_treatment_composite}
-      onChange={handleChange}
-    />
-  </div>
-
-  {/* 19 & 20. Final Screening */}
-  <div className="pn-adverse-card">
-    <div className="form-row">
-      <div className="form-group">
-        <label>19. Final screening date</label>
-        <input
-          type="date"
-          name="final_screening_date"
-          value={formData.final_screening_date}
-          onChange={handleChange}
-          max={toDateOnlyValue(new Date())}
-        />
-      </div>
-
-      <div className="form-group">
-        <label>20. PMA at discharge from screening</label>
-        <input
-          name="pma_discharge"
-          value={formData.pma_discharge || ""}
-          readOnly
-          placeholder="weeks"
-        />
-      </div>
-    </div>
-  </div>
-
-</div>
-        </div>
-
-      {/* ═══ COMPLETION ═══ */}
-      <div className="form-section card-section">
-        <div className="section-header-card">
-          <div className="section-icon-card">
-            <CheckSquare size={18} />
-          </div>
-          <div className="section-title-group">
-            <h3 className="section-title-card">Completion Details</h3>
-            <p className="section-subtitle-card">Form verification and signature</p>
-          </div>
-        </div>
-
-        <div className="section-body-card">
-          <div className="form-row">
-    <div className="form-group">
-      <label>Completed by<span className="required">*</span></label>
-      <select
-        name="completed_by"
-        value={formData.completed_by || ""}
-        onChange={handleCompletedByChange}
-        required
-      >
-        <option value="">-- Select Nurse --</option>
-        {nurses.map((nurse) => (
-          <option key={nurse} value={nurse}>
-            {nurse}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    <div className="form-group">
-      <label>Designation<span className="required">*</span></label>
-      <input
-        name="designation"
-        value={formData.designation || ""}
-        readOnly
-        placeholder="Auto-filled"
-      />
-    </div>
-  </div>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Date</label>
-      <input
-        type="date"
-        name="completion_date"
-        value={formData.completion_date || ""}
-        onChange={handleChange}
-      />
-    </div>
-  </div>
-        </div>
-      </div>
-    </form>
 
       {/* ══ STICKY FOOTER NAVIGATION BAR ══ */}
       <div className="form-navigation">
-        {/* ← Back to Form F */}
-        <button 
-          type="button" 
-          className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/form-f/${formData.enrollment_id}`)}
-        >
-          <ArrowLeft size={15}/> Form F
+        <button type="button" className="btn btn-secondary btn-outline"
+          onClick={() => navigate(`/form-f/${formData.enrollment_id}`)}>
+          <ArrowLeft size={15} /> Form F
         </button>
 
-        {/* Save */}
-        <button 
-          type="button" 
-          className="btn btn-save btn-outline-blue"
-          onClick={(e) => {
-            e.preventDefault();
-            handleSubmit(e);
-          }}
-        >
-          <Save size={15}/> Save
+        <button type="button" className="btn btn-save btn-outline-blue"
+          onClick={(e) => { e.preventDefault(); handleSubmit(e); }}>
+          <Save size={15} /> Save
         </button>
 
-        {/* Save for Later */}
-        <button 
-          type="button" 
-          className="btn btn-draft"
+        <button type="button" className="btn btn-draft"
           onClick={async (e) => {
             e.preventDefault();
             await handleSubmit(e);
             navigate("/dashboard");
-          }}
-        >
-          <Save size={15}/> Save for Later
+          }}>
+          <Save size={15} /> Save for Later
         </button>
 
-        {/* Step indicator */}
         <div className="footer-step-indicator">
-          <span className="step-text">FORM I — ROP SCREENING</span>
+          <span className="step-text">FORM G — ROP SCREENING</span>
           <div className="step-progress-line">
             <div className="progress-segment active" />
           </div>
         </div>
 
-        {/* Next to Form H → */}
-        <button 
-          type="button" 
-          className="btn btn-primary"
+        <button type="button" className="btn btn-primary"
           onClick={async (e) => {
             e.preventDefault();
             await handleSubmit(e);
             navigate(`/form-h/${formData.enrollment_id}`);
-          }}
-        >
-          Form H <ArrowRight size={15}/>
+          }}>
+          Form H <ArrowRight size={15} />
         </button>
-      </div>
-
       </div>
     </div>
   );

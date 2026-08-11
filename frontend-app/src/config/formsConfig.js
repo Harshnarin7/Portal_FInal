@@ -8,7 +8,7 @@ export const FORMS_CONFIG = [
   { key: "form_g", label: "Form G – ROP Screening", route: "/form-g" },
   { key: "form_h", label: "Form H – Morbidities", route: "/form-h" },
   { key: "form_i", label: "Form I – Study Outcomes", route: "/form-i" },
-  { key: "form_j", label: "Form J – Composite Outcome", route: "/form-j" },
+  { key: "form_j", label: "Form J – External Hospital Outcomes", route: "/form-j" },
 
   { key: "form_k", label: "Form K - MRI Brain Assessment", route: "/form-k" },
   { key: "form_l", label: "Form L - Study Completion", route: "/form-l" },

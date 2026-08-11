@@ -92,8 +92,10 @@ const RULES = {
   adverse_type_other:{ required: (fd) => Array.isArray(fd.adverse_type) && fd.adverse_type.includes("Other"), type: "text",
     validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
 
-  // LISA — catheter type now has 3 options per CRF: Infant feeding tube / LISA catheter / Other
+  // LISA — catheter type: Infant feeding tube / LISA catheter / Other
   lisa_catheter_type: { required: (fd) => fd.surfactant_method === "LISA", type: "toggle" },
+  lisa_catheter_other: { required: (fd) => fd.lisa_catheter_type === "Other", type: "text",
+    validate: v => /^[A-Za-z\s]+$/.test(v) ? null : "Only alphabets allowed" },
   device_assistance:  { required: (fd) => fd.surfactant_method === "LISA", type: "toggle" },
   device_type:        { required: (fd) => fd.device_assistance === "Yes", type: "toggle" },
   device_type_other:  { required: (fd) => fd.device_type === "Other", type: "text",
@@ -313,7 +315,8 @@ export default function FormD() {
     surfactant_required: "", surfactant_brand_other: "", surfactant_indication: "",
     cpap_cm: "", fio2_percent: "", surfactant_method: "",
     premedication_given: "", premedication_drugs: "", premedication_other: "",
-    lisa_catheter: "", device_assistance: "", device_type: "",
+    lisa_catheter: "", lisa_catheter_type: "", lisa_catheter_other: "",
+    device_assistance: "", device_type: "",
     surfactant_brand: "", surfactant_dose: "", adverse_effects: "",
     adverse_type: [], adverse_type_other: "", mode_of_support: [],
     early_cpap: "", humidified_gas: "", max_fio2_1hr: "",
@@ -346,6 +349,16 @@ export default function FormD() {
         updated.premedication_given = "";
         updated.premedication_drugs = "";
         updated.premedication_other = "";
+      }
+      if (name === "surfactant_method" && value !== "LISA") {
+        updated.lisa_catheter_type = "";
+        updated.lisa_catheter_other = "";
+        updated.device_assistance = "";
+        updated.device_type = "";
+        updated.device_type_other = "";
+      }
+      if (name === "lisa_catheter_type" && value !== "Other") {
+        updated.lisa_catheter_other = "";
       }
       if (name === "premedication_given" && value !== "Yes") {
         updated.premedication_drugs = "";
@@ -513,6 +526,7 @@ export default function FormD() {
           // ── LISA ──
           lisa_catheter: d.lisa_catheter || "",
           lisa_catheter_type: d.lisa_catheter_type || "",
+          lisa_catheter_other: d.lisa_catheter_other || "",
           device_assistance:  fromBool(d.device_assistance),
           // device_type was saved as the final resolved value; restore it
           device_type:        d.device_type || "",
@@ -683,8 +697,10 @@ export default function FormD() {
     surfactant_brand_other: formData.surfactant_brand_other,
     lisa_catheter: formData.lisa_catheter,
     lisa_catheter_type: formData.lisa_catheter_type,
+    lisa_catheter_other: formData.lisa_catheter_type === "Other" ? (formData.lisa_catheter_other || null) : null,
     device_assistance:  yesNoToBool(formData.device_assistance),
     device_type: formData.device_type === "Other" ? formData.device_type_other : formData.device_type,
+    device_type_other: formData.device_type === "Other" ? (formData.device_type_other || null) : null,
     adverse_type_other:  formData.adverse_type_other,
     mode_of_support:     formData.mode_of_support.join(", "),
     caffeine:            yesNoToBool(formData.caffeine),
@@ -835,7 +851,8 @@ export default function FormD() {
     cpap_cm: "MAP", fio2_percent: "FiO₂ at Administration",
     adverse_effects: "Adverse Effects", adverse_type: "Adverse Effect Type",
     adverse_type_other: "Adverse Effect — Specify",
-    lisa_catheter_type: "LISA Catheter Type", device_assistance: "Device Assistance",
+    lisa_catheter_type: "LISA Catheter Type", lisa_catheter_other: "LISA Catheter Other",
+    device_assistance: "Device Assistance",
     device_type: "Device Type", device_type_other: "Device Type — Specify",
     early_cpap: "Early / DR-CPAP", humidified_gas: "Humidified Gas",
     intubation_after_resus: "Intubation After Resuscitation",
@@ -897,8 +914,8 @@ export default function FormD() {
             <div className="form-header-action-row">
               <div className="form-header-title-area">
                 <div className="form-breadcrumb"><Home size={12} /> FORM D</div>
-                <h2 className="form-main-title">Postnatal Day 1</h2>
-                <p className="form-main-subtitle">Day 1 of Postnatal Life — Early Clinical Assessment</p>
+                <h2 className="form-main-title">Day 1 of Postnatal Life</h2>
+                <p className="form-main-subtitle">Fill for randomized subjects</p>
               </div>
               <div className="form-header-meta-area">
                 {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
@@ -927,12 +944,10 @@ export default function FormD() {
                     <label>1. Enrollment ID</label>
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
-                  {formData.site_name === "PGIMER" && (
-                    <div className="form-group">
-                      <label>2. Annual Number <span className="field-note">(auto)</span></label>
-                      <input value={formData.annual_number || ""} readOnly className="readonly-input" />
-                    </div>
-                  )}
+                  <div className="form-group">
+                    <label>2. Annual Number <span className="field-note">(auto)</span></label>
+                    <input value={formData.annual_number || ""} readOnly className="readonly-input" />
+                  </div>
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
@@ -1048,7 +1063,7 @@ export default function FormD() {
                   </FieldWrap>
                   <FieldWrap name="et_intubation"
                     formData={formData} touched={touched}
-                    label="10. Endotracheal intubation for resuscitation" required={isRequired("et_intubation")}>
+                    label="10. ET intubation for resuscitation" required={isRequired("et_intubation")}>
                     <SegmentedToggle name="et_intubation" value={formData.et_intubation}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} />
@@ -1058,7 +1073,7 @@ export default function FormD() {
                   {formData.et_intubation === "Yes" && (
                     <FieldWrap name="remained_intubated"
                     formData={formData} touched={touched}
-                      label="11. Remained intubated after resuscitation" required={isRequired("remained_intubated")}>
+                      label="11. If yes, Remained intubated after resus" required={isRequired("remained_intubated")}>
                       <SegmentedToggle name="remained_intubated" value={formData.remained_intubated}
                         options={["Yes","No"]} onChange={handleToggle}
                         disabled={!isFieldEditable} />
@@ -1066,7 +1081,7 @@ export default function FormD() {
                   )}
                   <FieldWrap name="labored_breathing"
                     formData={formData} touched={touched}
-                    label="12. Labored breathing after resuscitation" required={isRequired("labored_breathing")}>
+                    label="12. Labored breathing after resus" required={isRequired("labored_breathing")}>
                     <SegmentedToggle name="labored_breathing" value={formData.labored_breathing}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} />
@@ -1100,7 +1115,7 @@ export default function FormD() {
                       <div className="obstetric-subcard__title">Indication</div>
                       <FieldWrap name="surfactant_indication"
                     formData={formData} touched={touched}
-                        label="14. Indication for surfactant" required={isRequired("surfactant_indication")}>
+                        label="14. Indication" required={isRequired("surfactant_indication")}>
                         <SegmentedToggle name="surfactant_indication" value={formData.surfactant_indication}
                           options={[
                             { label: "FiO₂ & pressure based", value: "FiO2 & pressure based" },
@@ -1205,7 +1220,7 @@ export default function FormD() {
                       <div className="obstetric-subcard__title">Method of Administration</div>
                       <FieldWrap name="surfactant_method"
                     formData={formData} touched={touched}
-                        label="19. Method of administration" required={isRequired("surfactant_method")}>
+                        label="19. Method of admn" required={isRequired("surfactant_method")}>
                         <SegmentedToggle name="surfactant_method" value={formData.surfactant_method}
                           options={["InSurE","LISA","Remained intubated"]}
                           onChange={handleToggle} disabled={!isFieldEditable} />
@@ -1271,11 +1286,25 @@ export default function FormD() {
                         <div className="obstetric-subcard__title">LISA Details</div>
                         <FieldWrap name="lisa_catheter_type"
                     formData={formData} touched={touched}
-                          label="22. If LISA — Catheter type" required={isRequired("lisa_catheter_type")}>
+                          label="22. If LISA, Catheter type" required={isRequired("lisa_catheter_type")}>
                           <SegmentedToggle name="lisa_catheter_type" value={formData.lisa_catheter_type}
                             options={["Infant feeding tube","LISA catheter","Other"]}
                             onChange={handleToggle} disabled={!isFieldEditable} />
                         </FieldWrap>
+                        {formData.lisa_catheter_type === "Other" && (
+                          <div style={{ marginTop:10 }}>
+                            <FieldWrap name="lisa_catheter_other"
+                    formData={formData} touched={touched}
+                              label="Specify catheter type" required={isRequired("lisa_catheter_other")}>
+                              <input type="text" name="lisa_catheter_other"
+                                value={formData.lisa_catheter_other || ""}
+                                readOnly={!isFieldEditable}
+                                className={`emr-input${vr("lisa_catheter_other")?.level === "error" ? " fv-input-error" : vr("lisa_catheter_other")?.level === "ok" ? " fv-input-ok" : ""}`}
+                                onChange={e => { touch("lisa_catheter_other"); const v = e.target.value; if (/^[A-Za-z\s]*$/.test(v)) setFormData(p => ({ ...p, lisa_catheter_other: v })); }}
+                                placeholder="Enter catheter type" />
+                            </FieldWrap>
+                          </div>
+                        )}
 
                         {/* ── Row 6: Device assistance + Type (FOL / VL / Magill / Other) ── */}
                         <div style={{ marginTop:14 }}>
@@ -1444,7 +1473,7 @@ export default function FormD() {
                     <div className="form-grid-2" style={{ marginTop:12 }}>
                       <FieldWrap name="caffeine_loading_abs"
                     formData={formData} touched={touched}
-                        label="31. Absolute Loading Dose (mg)" required={isRequired("caffeine_loading_abs")}>
+                        label="Absolute Dose (mg)" required={isRequired("caffeine_loading_abs")}>
                         <UnitInput name="caffeine_loading_abs" value={formData.caffeine_loading_abs} unit="mg"
                           readOnly={!isFieldEditable}
                           error={vr("caffeine_loading_abs")?.level === "error"}
@@ -1452,7 +1481,7 @@ export default function FormD() {
                           onChange={e => { touch("caffeine_loading_abs"); handleChange(e); }} />
                       </FieldWrap>
                       <div className="form-group">
-                        <label>32. Loading Dose <span className="auto-tag">AUTO</span></label>
+                        <label>32. Dose <span className="auto-tag">AUTO</span></label>
                         <div style={{ position:"relative" }}>
                           <input value={
                               formData.caffeine_loading_abs && formData.birth_weight
@@ -1464,7 +1493,7 @@ export default function FormD() {
                     </div>
                     <div className="form-grid-2" style={{ marginTop:12 }}>
                       <FieldWrap name="caffeine_date"
-                    formData={formData} touched={touched} label="33. Date of Administration" required={isRequired("caffeine_date")}>
+                    formData={formData} touched={touched} label="33. Date of Administration (DD/MM/YY)" required={isRequired("caffeine_date")}>
                         <DatePicker
                           selected={formData.caffeine_date ? parseDateOnly(formData.caffeine_date) : null}
                           onChange={date => {
@@ -1475,13 +1504,7 @@ export default function FormD() {
                           dateFormat="dd-MM-yyyy" placeholderText="Select date"
                           readOnly={!isFieldEditable} />
                       </FieldWrap>
-                      <div className="form-group">
-                        <label>Administration Time</label>
-                        <input type="time" name="caffeine_time"
-                          value={formData.caffeine_time || ""}
-                          onChange={handleChange} readOnly={!isFieldEditable}
-                          className="emr-input" />
-                      </div>
+                      <div />
                     </div>
                     </>
                   )}
@@ -1493,7 +1516,7 @@ export default function FormD() {
                     <div className="form-grid-2">
                       <FieldWrap name="caffeine_maint_abs"
                     formData={formData} touched={touched}
-                        label="34. If loading dose is given, maintenance dose of caffeine: absolute dose" required={isRequired("caffeine_maint_abs")}>
+                        label="34. If Loading dose is given, Maintenance Dose of Caffeine: Absolute Dose" required={isRequired("caffeine_maint_abs")}>
                         <UnitInput name="caffeine_maint_abs" value={formData.caffeine_maint_abs} unit="mg"
                           readOnly={!isFieldEditable}
                           error={vr("caffeine_maint_abs")?.level === "error"}
@@ -1501,7 +1524,7 @@ export default function FormD() {
                           onChange={e => { touch("caffeine_maint_abs"); handleChange(e); }} />
                       </FieldWrap>
                       <div className="form-group">
-                        <label>35. Maintenance Dose <span className="auto-tag">AUTO</span></label>
+                        <label>35. Dose <span className="auto-tag">AUTO</span></label>
                         <div style={{ position:"relative" }}>
                           <input value={
                               formData.caffeine_maint_abs && formData.birth_weight
@@ -1514,7 +1537,7 @@ export default function FormD() {
                   </div>
                   )}
                 </div>
-                {/* Field 35 — Immediate KMC */}
+                {/* Field 36 — Immediate KMC */}
                 <div className="obstetric-subcard" style={{ marginTop:16 }}>
                   <div className="obstetric-subcard__title">Kangaroo Mother Care</div>
                   <div className="form-grid-2">

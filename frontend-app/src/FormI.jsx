@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, createContext, useContext } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
@@ -12,7 +13,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
-  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home,
+  Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home, Clock,
 } from "lucide-react";
 
 // FIX (focus-loss bug): RYesNo/RSelect/RNum/RText/Mini*/CrfRow/CrfTable/
@@ -126,10 +127,168 @@ function MiniDate({ label, name }) {
     </Mini>
   );
 }
-function MiniTime({ label, name }) {
-  const { formData, handleChange } = useContext(FormIDataContext);
+
+/** 24-hour HH:MM picker — never AM/PM (native <input type="time"> follows OS locale).
+ *  Popover is portaled to document.body so table overflow doesn't clip it. */
+function Time24Input({ value, onChange, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const wrapRef = useRef(null);
+  const popoverRef = useRef(null);
+  const parts = String(value || "").split(":");
+  const hour = parts[0] || "";
+  const minute = parts[1] || "";
+  const h = hour === "" ? "" : String(hour).padStart(2, "0");
+  const m = minute === "" ? "" : String(minute).padStart(2, "0");
+  const display = (h || m) ? `${h || "00"}:${m || "00"}` : "";
+
+  const calcCoords = () => {
+    const el = wrapRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const popH = 200;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placeAbove = spaceBelow < popH && rect.top > spaceBelow;
+    return {
+      top: placeAbove ? rect.top - 6 : rect.bottom + 6,
+      left: Math.min(Math.max(8, rect.left), window.innerWidth - 120),
+      width: Math.max(rect.width, 108),
+      placeAbove,
+    };
+  };
+
+  const toggleOpen = () => {
+    if (disabled) return;
+    if (open) {
+      setOpen(false);
+      setCoords(null);
+      return;
+    }
+    setCoords(calcCoords());
+    setOpen(true);
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const onReposition = () => setCoords(calcCoords());
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !popoverRef.current) return;
+    popoverRef.current.querySelectorAll(".mt-popover-item-active").forEach((node) => {
+      node.scrollIntoView({ block: "center" });
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onClickOutside = (e) => {
+      const inTrigger = wrapRef.current && wrapRef.current.contains(e.target);
+      const inPopover = popoverRef.current && popoverRef.current.contains(e.target);
+      if (!inTrigger && !inPopover) {
+        setOpen(false);
+        setCoords(null);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const minOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+
+  const pick = (part, val) => {
+    const curH = hour === "" ? 0 : Number(hour);
+    const curM = minute === "" ? 0 : Number(minute);
+    const nextH = part === "h" ? Number(val) : curH;
+    const nextM = part === "m" ? Number(val) : curM;
+    onChange(`${String(nextH).padStart(2, "0")}:${String(nextM).padStart(2, "0")}`);
+  };
+
+  const popover = open && !disabled && coords && createPortal(
+    <div
+      ref={popoverRef}
+      className="mt-popover mt-popover-portal"
+      style={{
+        position: "fixed",
+        top: coords.placeAbove ? undefined : coords.top,
+        bottom: coords.placeAbove ? window.innerHeight - coords.top : undefined,
+        left: coords.left,
+        minWidth: coords.width,
+        zIndex: 10050,
+      }}
+    >
+      <div className="mt-popover-col">
+        <div className="mt-popover-label">HH</div>
+        <div className="mt-popover-list">
+          {hourOptions.map((v) => (
+            <div
+              key={v}
+              className={`mt-popover-item${h === v ? " mt-popover-item-active" : ""}`}
+              onClick={() => pick("h", v)}
+            >
+              {v}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-popover-col">
+        <div className="mt-popover-label">MM</div>
+        <div className="mt-popover-list">
+          {minOptions.map((v) => (
+            <div
+              key={v}
+              className={`mt-popover-item${m === v ? " mt-popover-item-active" : ""}`}
+              onClick={() => pick("m", v)}
+            >
+              {v}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+
   return (
-    <Mini label={label}><input className="crf-text" type="time" name={name} value={formData[name] || ""} onChange={handleChange} /></Mini>
+    <div className="mt-wrap" ref={wrapRef}>
+      <div
+        className={`mt-display${disabled ? " mt-disabled" : ""}`}
+        onClick={toggleOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (!disabled && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            toggleOpen();
+          }
+        }}
+      >
+        <span className={`mt-display-value${display ? "" : " mt-display-placeholder"}`}>
+          {display || "HH:MM (24h)"}
+        </span>
+        <Clock size={16} className="mt-clock-btn" />
+      </div>
+      {popover}
+    </div>
+  );
+}
+
+function MiniTime({ label, name }) {
+  const { formData, setFormData } = useContext(FormIDataContext);
+  return (
+    <Mini label={label}>
+      <Time24Input
+        value={formData[name] || ""}
+        onChange={(val) => setFormData((p) => ({ ...p, [name]: val }))}
+      />
+    </Mini>
   );
 }
 function MiniText({ label, name, placeholder }) {
@@ -144,10 +303,30 @@ function MiniReadOnly({ label, value }) {
   );
 }
 
-/* One row of the CRF table. `info` is only rendered once the
-   triggering Yes/No (or other) field is answered — keeps rows
-   compact until they're relevant, same as the paper form's blank
-   lines only mattering "if yes". */
+/** Free-text Additional information cell (replaces the old "—" dash). */
+function AddlInfoText({ fieldNum, placeholder = "Enter additional information" }) {
+  const { formData, setFormData } = useContext(FormIDataContext);
+  const notes = formData.crf_additional_notes || {};
+  const key = String(fieldNum);
+  return (
+    <input
+      className="crf-text"
+      type="text"
+      value={notes[key] ?? ""}
+      onChange={(e) =>
+        setFormData((p) => ({
+          ...p,
+          crf_additional_notes: { ...(p.crf_additional_notes || {}), [key]: e.target.value },
+        }))
+      }
+      placeholder={placeholder}
+      aria-label={`Additional information for field ${fieldNum}`}
+    />
+  );
+}
+
+/* One row of the CRF table. When structured `info` is not shown, the
+   Additional-info column is always an editable text box (never a dash). */
 function CrfRow({ num, outcome, definition, result, info, showInfo }) {
   return (
     <tr className="fi-crf-row">
@@ -155,7 +334,9 @@ function CrfRow({ num, outcome, definition, result, info, showInfo }) {
       <td className="crf-outcome-cell">{outcome}</td>
       <td className="crf-def-cell">{definition}</td>
       <td className="crf-result-cell">{result}</td>
-      <td className="crf-info-cell">{showInfo ? info : <span className="crf-dash">—</span>}</td>
+      <td className="crf-info-cell">
+        {showInfo && info ? info : <AddlInfoText fieldNum={num} />}
+      </td>
     </tr>
   );
 }
@@ -180,18 +361,31 @@ function CrfTable({ children }) {
 }
 
 /* Reusable "death at timepoint" detail — cause / date / time / age,
-   shown in the Additional-info column once the toggle is Yes. */
-function DeathInfo({ fieldPrefix, ageLabel }) {
+   shown in the Additional-info column once the toggle is Yes.
+   `nums` = CRF field numbers { cause, date, time, age }. */
+function DeathInfo({ fieldPrefix, ageLabel, nums }) {
   const { formData } = useContext(FormIDataContext);
+  const n = nums || {};
   return (
     <>
-      <MiniText label="Cause of death" name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
-      <MiniDate label="Date of death" name={`${fieldPrefix}_date`} />
-      <MiniTime label="Time of death" name={`${fieldPrefix}_time`} />
-      <MiniReadOnly label={`Age at death (${ageLabel})`} value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`]} />
+      <MiniText label={`${n.cause ? `${n.cause}. ` : ""}Cause of death`} name={`${fieldPrefix}_cause`} placeholder="Enter cause" />
+      <MiniDate label={`${n.date ? `${n.date}. ` : ""}Date of death`} name={`${fieldPrefix}_date`} />
+      <MiniTime label={`${n.time ? `${n.time}. ` : ""}Time of death`} name={`${fieldPrefix}_time`} />
+      <MiniReadOnly
+        label={`${n.age ? `${n.age}. ` : ""}Age at death (${ageLabel})`}
+        value={formData[`${fieldPrefix}_age_hrs`] ?? formData[`${fieldPrefix}_age_days`]}
+      />
     </>
   );
 }
+
+/** Empty string → null; keep legitimate 0 / false. */
+const emptyToNull = (v) => (v === "" || v === undefined || v === null ? null : v);
+const numOrNull = (v) => {
+  if (v === "" || v === undefined || v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 const getStatusClass = (value) => {
   if (!value) return "empty";
@@ -216,6 +410,27 @@ export default function FormI() {
   const { enrollmentId } = useParams();
   const { patientData } = usePatient() || {};
   const { markFormCompleted } = useFormProgress();
+
+  const [assessors, setAssessors] = useState([]);
+  const [siteName, setSiteName] = useState("");
+
+  const getDesignation = (name) => {
+    if (!name) return "";
+    const n = name.replace(/^Dr\.\s*/i, "").trim();
+    if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
+    if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
+    if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
+    return "Project Nurse III";
+  };
+
+  const handleAssessedByChange = (e) => {
+    const name = e.target.value;
+    setFormData((prev) => ({
+      ...prev,
+      completed_by: name,
+      designation: getDesignation(name),
+    }));
+  };
 
   const [openSection, setOpenSection] = useState("i1");
   const [isSaved, setIsSaved] = useState(false);
@@ -274,6 +489,7 @@ export default function FormI() {
     // I.3 Assessment at 36 weeks PMA
     encounter36_method: "",
     encounter36_other: "",
+    encounter36_other_text: "",
     death36: "",
     death36_cause: "",
     death36_date: "",
@@ -300,6 +516,7 @@ export default function FormI() {
     // I.4 Assessment at 40 weeks PMA
     encounter40_method: "",
     encounter40_other: "",
+    encounter40_other_text: "",
     death40: "",
     death40_cause: "",
     death40_date: "",
@@ -320,6 +537,7 @@ export default function FormI() {
     // I.5 Assessment at 44 weeks PMA
     encounter44_method: "",
     encounter44_other: "",
+    encounter44_other_text: "",
     death44: "",
     death44_cause: "",
     death44_date: "",
@@ -355,10 +573,12 @@ export default function FormI() {
     mortality_after_discharge_time: "",
     mortality_after_discharge_age_days: "",
 
+    // Free-text Additional information per CRF row number
+    crf_additional_notes: {},
+
     // Completion
     completed_by: "",
     designation: "",
-    signature: "",
     completion_date: "",
   });
 
@@ -372,6 +592,13 @@ export default function FormI() {
         const res = await api.get(`/screenings/by-enrollment/${enrollmentId}`);
         screeningData = res.data || {};
       } catch { /* no screening found yet */ }
+
+      const resolvedSite =
+        screeningData?.site_name ||
+        patientData?.site_name ||
+        patientData?.site ||
+        "";
+      if (resolvedSite) setSiteName(resolvedSite);
 
       let birthData = {};
       try {
@@ -399,7 +626,7 @@ export default function FormI() {
           resus_chest_compressions: boolToYesNo(existing.resus_chest_compressions),
           intubation_during_resus: boolToYesNo(existing.intubation_during_resus),
           time_to_spontaneous_breathing: existing.time_to_spontaneous_breathing ?? "",
-          hie_grade: existing.hie_grade || "",
+          hie_grade: existing.hie_grade === "Moderate" ? "Mod" : (existing.hie_grade || ""),
 
           resp_support_72h: boolToYesNo(existing.resp_support_72h),
           sepsis_eos: boolToYesNo(existing.sepsis_eos),
@@ -419,6 +646,7 @@ export default function FormI() {
 
           encounter36_method: existing.encounter36_method || "",
           encounter36_other: existing.encounter36_other || "",
+          encounter36_other_text: existing.encounter36_other_text || "",
           death36: boolToYesNo(existing.death36),
           death36_cause: existing.death36_cause || "",
           death36_date: existing.death36_date || "",
@@ -444,6 +672,7 @@ export default function FormI() {
 
           encounter40_method: existing.encounter40_method || "",
           encounter40_other: existing.encounter40_other || "",
+          encounter40_other_text: existing.encounter40_other_text || "",
           death40: boolToYesNo(existing.death40),
           death40_cause: existing.death40_cause || "",
           death40_date: existing.death40_date || "",
@@ -463,6 +692,7 @@ export default function FormI() {
 
           encounter44_method: existing.encounter44_method || "",
           encounter44_other: existing.encounter44_other || "",
+          encounter44_other_text: existing.encounter44_other_text || "",
           death44: boolToYesNo(existing.death44),
           death44_cause: existing.death44_cause || "",
           death44_date: existing.death44_date || "",
@@ -497,9 +727,13 @@ export default function FormI() {
           mortality_after_discharge_time: existing.mortality_after_discharge_time || "",
           mortality_after_discharge_age_days: existing.mortality_after_discharge_age_days ?? "",
 
+          crf_additional_notes:
+            existing.crf_additional_notes && typeof existing.crf_additional_notes === "object"
+              ? existing.crf_additional_notes
+              : {},
+
           completed_by: existing.completed_by || "",
-          designation: existing.designation || "",
-          signature: existing.signature || "",
+          designation: existing.designation || (existing.completed_by ? getDesignation(existing.completed_by) : ""),
           completion_date: existing.completion_date || "",
         } : {}),
       }));
@@ -507,6 +741,19 @@ export default function FormI() {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentId]);
+
+  // Load Assessed-by roster for this baby's site
+  useEffect(() => {
+    const site = siteName || patientData?.site_name || patientData?.site || "";
+    if (!site) {
+      setAssessors([]);
+      return;
+    }
+    api
+      .get(`/sites/${encodeURIComponent(site)}/screeners`)
+      .then((r) => setAssessors(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAssessors([]));
+  }, [siteName, patientData?.site_name, patientData?.site]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -589,117 +836,123 @@ export default function FormI() {
 
   const buildPayload = () => ({
     enrollment_id: formData.enrollment_id,
-    baby_uid: formData.baby_uid || null,
-    gestation_weeks: formData.gestation_weeks || null,
-    birth_weight: formData.birth_weight || null,
+    baby_uid: emptyToNull(formData.baby_uid),
+    gestation_weeks: numOrNull(formData.gestation_weeks),
+    birth_weight: numOrNull(formData.birth_weight),
 
     ventilation_required: yesNoToBool(formData.ventilation_required),
     switched_100_o2: yesNoToBool(formData.switched_100_o2),
     resus_chest_compressions: yesNoToBool(formData.resus_chest_compressions),
     intubation_during_resus: yesNoToBool(formData.intubation_during_resus),
-    time_to_spontaneous_breathing: formData.time_to_spontaneous_breathing || null,
-    hie_grade: formData.hie_grade || null,
+    time_to_spontaneous_breathing: numOrNull(formData.time_to_spontaneous_breathing),
+    hie_grade: emptyToNull(formData.hie_grade),
 
     resp_support_72h: yesNoToBool(formData.resp_support_72h),
     sepsis_eos: yesNoToBool(formData.sepsis_eos),
     sepsis_los: yesNoToBool(formData.sepsis_los),
     culture_positive_sepsis: yesNoToBool(formData.culture_positive_sepsis),
-    culture_positive_body_fluid: formData.culture_positive_body_fluid || null,
+    culture_positive_body_fluid: emptyToNull(formData.culture_positive_body_fluid),
     mortality_7_days: yesNoToBool(formData.mortality_7_days),
-    mortality_7d_cause: formData.mortality_7d_cause || null,
-    mortality_7d_date: formData.mortality_7d_date || null,
-    mortality_7d_time: formData.mortality_7d_time || null,
-    mortality_7d_age_hrs: formData.mortality_7d_age_hrs || null,
+    mortality_7d_cause: emptyToNull(formData.mortality_7d_cause),
+    mortality_7d_date: emptyToNull(formData.mortality_7d_date),
+    mortality_7d_time: emptyToNull(formData.mortality_7d_time),
+    mortality_7d_age_hrs: numOrNull(formData.mortality_7d_age_hrs),
     mortality_28_days: yesNoToBool(formData.mortality_28_days),
-    mortality_28d_cause: formData.mortality_28d_cause || null,
-    mortality_28d_date: formData.mortality_28d_date || null,
-    mortality_28d_time: formData.mortality_28d_time || null,
-    mortality_28d_age_days: formData.mortality_28d_age_days || null,
+    mortality_28d_cause: emptyToNull(formData.mortality_28d_cause),
+    mortality_28d_date: emptyToNull(formData.mortality_28d_date),
+    mortality_28d_time: emptyToNull(formData.mortality_28d_time),
+    mortality_28d_age_days: numOrNull(formData.mortality_28d_age_days),
 
-    encounter36_method: formData.encounter36_method || null,
-    encounter36_other: formData.encounter36_other || null,
+    encounter36_method: emptyToNull(formData.encounter36_method),
+    encounter36_other: emptyToNull(formData.encounter36_other),
+    encounter36_other_text: emptyToNull(formData.encounter36_other_text),
     death36: yesNoToBool(formData.death36),
-    death36_cause: formData.death36_cause || null,
-    death36_date: formData.death36_date || null,
-    death36_time: formData.death36_time || null,
-    death36_age_days: formData.death36_age_days || null,
-    bpd36_jensen_grade: formData.bpd36_jensen_grade || null,
-    bpd36_jensen_date: formData.bpd36_jensen_date || null,
+    death36_cause: emptyToNull(formData.death36_cause),
+    death36_date: emptyToNull(formData.death36_date),
+    death36_time: emptyToNull(formData.death36_time),
+    death36_age_days: numOrNull(formData.death36_age_days),
+    bpd36_jensen_grade: emptyToNull(formData.bpd36_jensen_grade),
+    bpd36_jensen_date: emptyToNull(formData.bpd36_jensen_date),
     bpd36_nichd_radiographic: yesNoToBool(formData.bpd36_nichd_radiographic),
-    bpd36_nichd_fio2: formData.bpd36_nichd_fio2 || null,
-    bpd36_nichd_flow: formData.bpd36_nichd_flow || null,
-    bpd36_nichd_grade: formData.bpd36_nichd_grade || null,
-    bpd36_nichd_date: formData.bpd36_nichd_date || null,
+    bpd36_nichd_fio2: numOrNull(formData.bpd36_nichd_fio2),
+    bpd36_nichd_flow: numOrNull(formData.bpd36_nichd_flow),
+    bpd36_nichd_grade: emptyToNull(formData.bpd36_nichd_grade),
+    bpd36_nichd_date: emptyToNull(formData.bpd36_nichd_date),
     nec36_stage: yesNoToBool(formData.nec36_stage),
     nec36_surgery: yesNoToBool(formData.nec36_surgery),
-    nec36_date: formData.nec36_date || null,
+    nec36_date: emptyToNull(formData.nec36_date),
     ivh36_grade3: yesNoToBool(formData.ivh36_grade3),
-    ivh36_date: formData.ivh36_date || null,
+    ivh36_date: emptyToNull(formData.ivh36_date),
     cpvl36_grade2: yesNoToBool(formData.cpvl36_grade2),
-    cpvl36_date: formData.cpvl36_date || null,
+    cpvl36_date: emptyToNull(formData.cpvl36_date),
     rop36: yesNoToBool(formData.rop36),
     rop36_treated: yesNoToBool(formData.rop36_treated),
-    rop36_date: formData.rop36_date || null,
+    rop36_date: emptyToNull(formData.rop36_date),
 
-    encounter40_method: formData.encounter40_method || null,
-    encounter40_other: formData.encounter40_other || null,
+    encounter40_method: emptyToNull(formData.encounter40_method),
+    encounter40_other: emptyToNull(formData.encounter40_other),
+    encounter40_other_text: emptyToNull(formData.encounter40_other_text),
     death40: yesNoToBool(formData.death40),
-    death40_cause: formData.death40_cause || null,
-    death40_date: formData.death40_date || null,
-    death40_time: formData.death40_time || null,
-    death40_age_days: formData.death40_age_days || null,
+    death40_cause: emptyToNull(formData.death40_cause),
+    death40_date: emptyToNull(formData.death40_date),
+    death40_time: emptyToNull(formData.death40_time),
+    death40_age_days: numOrNull(formData.death40_age_days),
     nec40_stage: yesNoToBool(formData.nec40_stage),
     nec40_surgery: yesNoToBool(formData.nec40_surgery),
-    nec40_date: formData.nec40_date || null,
+    nec40_date: emptyToNull(formData.nec40_date),
     ivh40_grade3: yesNoToBool(formData.ivh40_grade3),
-    ivh40_date: formData.ivh40_date || null,
+    ivh40_date: emptyToNull(formData.ivh40_date),
     cpvl40_grade2: yesNoToBool(formData.cpvl40_grade2),
-    cpvl40_date: formData.cpvl40_date || null,
+    cpvl40_date: emptyToNull(formData.cpvl40_date),
     rop40: yesNoToBool(formData.rop40),
     rop40_treated: yesNoToBool(formData.rop40_treated),
-    rop40_date: formData.rop40_date || null,
-    abnormal_mri_tea: formData.abnormal_mri_tea || null,
+    rop40_date: emptyToNull(formData.rop40_date),
+    abnormal_mri_tea: emptyToNull(formData.abnormal_mri_tea),
 
-    encounter44_method: formData.encounter44_method || null,
-    encounter44_other: formData.encounter44_other || null,
+    encounter44_method: emptyToNull(formData.encounter44_method),
+    encounter44_other: emptyToNull(formData.encounter44_other),
+    encounter44_other_text: emptyToNull(formData.encounter44_other_text),
     death44: yesNoToBool(formData.death44),
-    death44_cause: formData.death44_cause || null,
-    death44_date: formData.death44_date || null,
-    death44_time: formData.death44_time || null,
-    death44_age_days: formData.death44_age_days || null,
+    death44_cause: emptyToNull(formData.death44_cause),
+    death44_date: emptyToNull(formData.death44_date),
+    death44_time: emptyToNull(formData.death44_time),
+    death44_age_days: numOrNull(formData.death44_age_days),
     nec44_stage: yesNoToBool(formData.nec44_stage),
     nec44_surgery: yesNoToBool(formData.nec44_surgery),
-    nec44_date: formData.nec44_date || null,
+    nec44_date: emptyToNull(formData.nec44_date),
     ivh44_grade3: yesNoToBool(formData.ivh44_grade3),
-    ivh44_date: formData.ivh44_date || null,
+    ivh44_date: emptyToNull(formData.ivh44_date),
     cpvl44_grade2: yesNoToBool(formData.cpvl44_grade2),
-    cpvl44_date: formData.cpvl44_date || null,
+    cpvl44_date: emptyToNull(formData.cpvl44_date),
     rop44_assessed: yesNoToBool(formData.rop44_assessed),
     rop44_treated: yesNoToBool(formData.rop44_treated),
-    rop44_date: formData.rop44_date || null,
+    rop44_date: emptyToNull(formData.rop44_date),
 
-    mv_days: formData.mv_days || null,
-    niv_days: formData.niv_days || null,
-    cpap_days: formData.cpap_days || null,
-    hfnc_days: formData.hfnc_days || null,
-    nippv_days: formData.nippv_days || null,
+    mv_days: numOrNull(formData.mv_days),
+    niv_days: numOrNull(formData.niv_days),
+    cpap_days: numOrNull(formData.cpap_days),
+    hfnc_days: numOrNull(formData.hfnc_days),
+    nippv_days: numOrNull(formData.nippv_days),
     sepsis_overall: yesNoToBool(formData.sepsis_overall),
-    sepsis_overall_episodes: formData.sepsis_overall_episodes || null,
+    sepsis_overall_episodes: numOrNull(formData.sepsis_overall_episodes),
     mortality_in_hospital: yesNoToBool(formData.mortality_in_hospital),
-    mortality_hospital_cause: formData.mortality_hospital_cause || null,
-    mortality_hospital_date: formData.mortality_hospital_date || null,
-    mortality_hospital_time: formData.mortality_hospital_time || null,
-    mortality_hospital_age_days: formData.mortality_hospital_age_days || null,
+    mortality_hospital_cause: emptyToNull(formData.mortality_hospital_cause),
+    mortality_hospital_date: emptyToNull(formData.mortality_hospital_date),
+    mortality_hospital_time: emptyToNull(formData.mortality_hospital_time),
+    mortality_hospital_age_days: numOrNull(formData.mortality_hospital_age_days),
     mortality_after_discharge: yesNoToBool(formData.mortality_after_discharge),
-    mortality_after_discharge_cause: formData.mortality_after_discharge_cause || null,
-    mortality_after_discharge_date: formData.mortality_after_discharge_date || null,
-    mortality_after_discharge_time: formData.mortality_after_discharge_time || null,
-    mortality_after_discharge_age_days: formData.mortality_after_discharge_age_days || null,
+    mortality_after_discharge_cause: emptyToNull(formData.mortality_after_discharge_cause),
+    mortality_after_discharge_date: emptyToNull(formData.mortality_after_discharge_date),
+    mortality_after_discharge_time: emptyToNull(formData.mortality_after_discharge_time),
+    mortality_after_discharge_age_days: numOrNull(formData.mortality_after_discharge_age_days),
 
-    completed_by: formData.completed_by || null,
-    designation: formData.designation || null,
-    signature: formData.signature || null,
-    completion_date: formData.completion_date || null,
+    crf_additional_notes: formData.crf_additional_notes && typeof formData.crf_additional_notes === "object"
+      ? formData.crf_additional_notes
+      : {},
+
+    completed_by: emptyToNull(formData.completed_by),
+    designation: emptyToNull(formData.designation),
+    completion_date: emptyToNull(formData.completion_date),
   });
 
   const saveFormI = async () => {
@@ -818,7 +1071,7 @@ export default function FormI() {
               definition="Time when baby had spontaneous respiratory efforts and PPV was discontinued"
               result={<RNum name="time_to_spontaneous_breathing" unit="sec" />} />
             <CrfRow num={6} outcome="HIE (Levene's)" definition="Mild/Moderate/Severe HIE"
-              result={<RSelect name="hie_grade" options={["None", "Mild", "Moderate", "Severe"]} />} />
+              result={<RSelect name="hie_grade" options={["None", "Mild", "Mod", "Severe"]} />} />
           </CrfTable>
         </div>
 
@@ -835,15 +1088,15 @@ export default function FormI() {
             <CrfRow num={10} outcome="Culture positive sepsis" definition="Blood or body fluid positive for organism"
               result={<RYesNo name="culture_positive_sepsis" />}
               showInfo={formData.culture_positive_sepsis === "Yes"}
-              info={<MiniText label="11. Body fluid" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF" />} />
+              info={<MiniText label="11. Body fluid" name="culture_positive_body_fluid" placeholder="e.g. Blood, CSF, Urine" />} />
             <CrfRow num={12} outcome="All-cause mortality ≤ 7 days" definition="Death due to any cause from birth till completion of D7 of age"
               result={<RYesNo name="mortality_7_days" />}
               showInfo={formData.mortality_7_days === "Yes"}
-              info={<DeathInfo fieldPrefix="mortality_7d" ageLabel="hrs" />} />
+              info={<DeathInfo fieldPrefix="mortality_7d" ageLabel="hrs" nums={{ cause: 13, date: 14, time: 15, age: 16 }} />} />
             <CrfRow num={17} outcome="All-cause mortality ≤ 28 days" definition="Death due to any cause from birth till completion of D28 of age"
               result={<RYesNo name="mortality_28_days" />}
               showInfo={formData.mortality_28_days === "Yes"}
-              info={<DeathInfo fieldPrefix="mortality_28d" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="mortality_28d" ageLabel="days" nums={{ cause: 18, date: 19, time: 20, age: 21 }} />} />
           </CrfTable>
         </div>
 
@@ -855,16 +1108,21 @@ export default function FormI() {
               <RSelect name="encounter36_method" options={["Direct", "Telephonic"]} />
             </Mini>
             {formData.encounter36_method === "Telephonic" && (
-              <Mini label="23. If Telephonic">
-                <RSelect name="encounter36_other" options={["Attendant", "Treating physician", "Others"]} />
-              </Mini>
+              <>
+                <Mini label="23. If Telephonic">
+                  <RSelect name="encounter36_other" options={["Attendant", "Treating physician", "Others"]} />
+                </Mini>
+                {formData.encounter36_other === "Others" && (
+                  <MiniText label="23. Specify others" name="encounter36_other_text" placeholder="Specify" />
+                )}
+              </>
             )}
           </div>
           <CrfTable>
             <CrfRow num={24} outcome="Death by 36 weeks PMA" definition="Death due to any cause from birth till completion of 36 weeks of PMA"
               result={<RYesNo name="death36" />}
               showInfo={formData.death36 === "Yes"}
-              info={<DeathInfo fieldPrefix="death36" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="death36" ageLabel="days" nums={{ cause: 25, date: 26, time: 27, age: 28 }} />} />
             <CrfRow num={29} outcome="BPD at 36 weeks PMA (Jensen)"
               definition="BPD is assessed based on respiratory support at 36 weeks PMA, regardless of FiO2 as per Jensen's criteria (2019) — Primary"
               result={<RSelect name="bpd36_jensen_grade" placeholder="Select grade"
@@ -920,16 +1178,21 @@ export default function FormI() {
               <RSelect name="encounter40_method" options={["Direct", "Telephonic"]} />
             </Mini>
             {formData.encounter40_method === "Telephonic" && (
-              <Mini label="43. If Telephonic">
-                <RSelect name="encounter40_other" options={["Attendant", "Treating physician", "Others"]} />
-              </Mini>
+              <>
+                <Mini label="43. If Telephonic">
+                  <RSelect name="encounter40_other" options={["Attendant", "Treating physician", "Others"]} />
+                </Mini>
+                {formData.encounter40_other === "Others" && (
+                  <MiniText label="43. Specify others" name="encounter40_other_text" placeholder="Specify" />
+                )}
+              </>
             )}
           </div>
           <CrfTable>
             <CrfRow num={44} outcome="Death between 36 and 40 weeks PMA" definition="Death due to any cause from 36 weeks till completion of 40 weeks of PMA"
               result={<RYesNo name="death40" />}
               showInfo={formData.death40 === "Yes"}
-              info={<DeathInfo fieldPrefix="death40" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="death40" ageLabel="days" nums={{ cause: 45, date: 46, time: 47, age: 48 }} />} />
             <CrfRow num={49} outcome="NEC" definition="Modified Bell's Staging"
               result={<><span className="crf-subline">Stage ≥ IIA</span><RYesNo name="nec40_stage" /></>}
               showInfo={formData.nec40_stage === "Yes"}
@@ -957,7 +1220,10 @@ export default function FormI() {
             <CrfRow num={58} outcome="Abnormal MRI Brain at TEA" definition="Abnormal MRI brain at 40 ± 2w PMA"
               result={<RSelect name="abnormal_mri_tea" options={["Yes", "No", "Not done"]} />}
               showInfo
-              info={<span className="crf-note">Check MRI form for more details</span>} />
+              info={<>
+                <span className="crf-note">Check MRI form (Form K) for more details</span>
+                <AddlInfoText fieldNum={58} />
+              </>} />
           </CrfTable>
         </div>
 
@@ -969,16 +1235,21 @@ export default function FormI() {
               <RSelect name="encounter44_method" options={["Direct", "Telephonic"]} />
             </Mini>
             {formData.encounter44_method === "Telephonic" && (
-              <Mini label="60. If Telephonic">
-                <RSelect name="encounter44_other" options={["Attendant", "Treating physician", "Others"]} />
-              </Mini>
+              <>
+                <Mini label="60. If Telephonic">
+                  <RSelect name="encounter44_other" options={["Attendant", "Treating physician", "Others"]} />
+                </Mini>
+                {formData.encounter44_other === "Others" && (
+                  <MiniText label="60. Specify others" name="encounter44_other_text" placeholder="Specify" />
+                )}
+              </>
             )}
           </div>
           <CrfTable>
             <CrfRow num={61} outcome="Death between 40 and 44 weeks PMA" definition="Death due to any cause from 40 weeks till completion of 44 weeks of PMA"
               result={<RYesNo name="death44" />}
               showInfo={formData.death44 === "Yes"}
-              info={<DeathInfo fieldPrefix="death44" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="death44" ageLabel="days" nums={{ cause: 62, date: 63, time: 64, age: 65 }} />} />
             <CrfRow num={66} outcome="NEC" definition="Modified Bell's Staging"
               result={<><span className="crf-subline">Stage ≥ IIA</span><RYesNo name="nec44_stage" /></>}
               showInfo={formData.nec44_stage === "Yes"}
@@ -1023,15 +1294,15 @@ export default function FormI() {
             <CrfRow num={76} outcome="Sepsis (overall)" definition="Any type"
               result={<RYesNo name="sepsis_overall" />}
               showInfo={formData.sepsis_overall === "Yes"}
-              info={<MiniText label="77. Number of episodes" name="sepsis_overall_episodes" placeholder="e.g. 2" />} />
+              info={<Mini label="77. Number of episodes"><RNum name="sepsis_overall_episodes" placeholder="e.g. 2" /></Mini>} />
             <CrfRow num={78} outcome="All-cause mortality during hospital stay" definition="Death due to any cause occurring from birth and before discharge"
               result={<RYesNo name="mortality_in_hospital" />}
               showInfo={formData.mortality_in_hospital === "Yes"}
-              info={<DeathInfo fieldPrefix="mortality_hospital" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="mortality_hospital" ageLabel="days" nums={{ cause: 79, date: 80, time: 81, age: 82 }} />} />
             <CrfRow num={83} outcome="All-cause mortality after discharge" definition="Death due to any cause occurring after discharge from hospital"
               result={<RYesNo name="mortality_after_discharge" />}
               showInfo={formData.mortality_after_discharge === "Yes"}
-              info={<DeathInfo fieldPrefix="mortality_after_discharge" ageLabel="days" />} />
+              info={<DeathInfo fieldPrefix="mortality_after_discharge" ageLabel="days" nums={{ cause: 84, date: 85, time: 86, age: 87 }} />} />
           </CrfTable>
         </div>
 
@@ -1041,13 +1312,33 @@ export default function FormI() {
           <div className="form-row">
             <div className="form-group">
               <label>Assessed by</label>
-              <input name="completed_by" value={formData.completed_by || ""} onChange={handleChange} />
+              <select
+                name="completed_by"
+                value={formData.completed_by || ""}
+                onChange={handleAssessedByChange}
+              >
+                <option value="">-- Select --</option>
+                {assessors.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+                {/* Keep a previously saved name visible even if not in current roster */}
+                {formData.completed_by && !assessors.includes(formData.completed_by) && (
+                  <option value={formData.completed_by}>{formData.completed_by}</option>
+                )}
+              </select>
+              {!siteName && !patientData?.site_name && !patientData?.site && (
+                <div className="field-note">Site not loaded yet — assessor list will appear when site is known.</div>
+              )}
             </div>
             <div className="form-group">
               <label>Designation</label>
-              <input name="designation" value={formData.designation || ""} onChange={handleChange} />
+              <input
+                name="designation"
+                value={formData.designation || ""}
+                readOnly
+                placeholder="Auto-filled from Assessed by"
+              />
             </div>
-            
             <div className="form-group">
               <label>Date</label>
               <DatePicker

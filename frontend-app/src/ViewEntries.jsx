@@ -24,7 +24,7 @@ const FORM_LABELS = [
   { key: "form_g",              short: "G",   label: "ROP Screening"     },
   { key: "form_h",              short: "H",   label: "Morbidities"       },
   { key: "form_i",              short: "I",   label: "Outcomes"          },
-  { key: "form_j",              short: "J",   label: "Composite Outcome" },
+  { key: "form_j",              short: "J",   label: "External Hospital Outcomes" },
   { key: "fio2_auc",            short: "F2",  label: "FiO₂ AUC"         },
   { key: "vs6_1",               short: "RC",  label: "Resp/CV/Neuro"    },
   { key: "infect_gi_hema",      short: "IG",  label: "Infect/GI/Hema"   },
