@@ -1890,11 +1890,17 @@ class MetabRenalVascEyeDayLog(Base):
     hypoglycemia_rx        = Column(Boolean, nullable=True)                      # 3
     highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >180    #4
     insulin                = Column(Boolean, nullable=True)  # Hyperglycemia Rx  #5
-    metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6
-    sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7
-    potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8
-    ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9
+    metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6 (derived from ph_readings_json)
+    sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7 (summary: most recent)
+    potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8 (summary: most recent)
+    ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9 (summary: most recent)
     osteopenia_suspected   = Column(Boolean, nullable=True)                      # 10
+
+    # Multi-entry reading payloads (Helper-5-style "+ Add values")
+    ph_readings_json         = Column(Text, nullable=True)  # [{id,date,time,ph}, ...]
+    sodium_readings_json     = Column(Text, nullable=True)  # [{id,date,time,value}, ...]
+    potassium_readings_json  = Column(Text, nullable=True)
+    calcium_readings_json    = Column(Text, nullable=True)
 
     # Legacy — superseded by the numbered fields above
     hypoglycemia           = Column(Boolean, nullable=True)
@@ -1903,13 +1909,18 @@ class MetabRenalVascEyeDayLog(Base):
     dyselectrolytemia_type = Column(String,  nullable=True)  # "Na,K,Ca"
 
     # ── 4.2 RENAL (items 11-14) ───────────────────────────────
-    aki_stage              = Column(String,  nullable=True)  # AKI / KDIGO stage #11
-    creatinine             = Column(Float,   nullable=True)  # mg/dL             #12
-    urine_output_total     = Column(String,  nullable=True)  # 8am-2pm+2pm-8pm+8pm-8am #13
+    # #11 Yes/No lives in aki_suspected; aki_stage holds KDIGO stage when Yes
+    aki_suspected          = Column(Boolean, nullable=True)  # #11 AKI suspected
+    aki_stage              = Column(String,  nullable=True)  # KDIGO Stage 1/2/3 (when #11 Yes)
+    creatinine             = Column(Float,   nullable=True)  # legacy numeric mg/dL
+    creatinine_value       = Column(String,  nullable=True)  # #12 numeric | "Not Tested" | "Awaited"
+    urine_output_8am_2pm   = Column(Float,   nullable=True)  # #13 window
+    urine_output_2pm_8pm   = Column(Float,   nullable=True)
+    urine_output_8pm_8am   = Column(Float,   nullable=True)
+    urine_output_total     = Column(String,  nullable=True)  # #13 summary (sum of windows)
     dialysis_crrt          = Column(Boolean, nullable=True)                      # 14
 
-    # Legacy — superseded by aki_stage / urine_output_total above
-    aki_suspected          = Column(Boolean, nullable=True)
+    # Legacy — superseded by urine window columns / creatinine_value above
     aki_kdigo_stage        = Column(String,  nullable=True)  # "Stage 1/2/3"
     urine_output_low       = Column(Boolean, nullable=True)
 

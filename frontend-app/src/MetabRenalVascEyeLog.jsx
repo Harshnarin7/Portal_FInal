@@ -10,8 +10,9 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Shield, FileCheck, Copy, Edit,
-  AlertOctagon, Unlock, History, RefreshCw,
+  AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2,
 } from "lucide-react";
+import "./styles/MinimalMonitoring.css";
 
 /* ══════════════════════════════════════════════════════
    STATUS CONSTANTS — identical to Helper Forms 2 & 3
@@ -58,8 +59,12 @@ const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "Renal",
     rows: [
+      { key: "aki_suspected",         label: "AKI Suspected", bool: true },
       { key: "aki_stage",             label: "AKI (KDIGO stage)" },
-      { key: "creatinine",            label: "Serum Creatinine", suffix: "mg/dL" },
+      { key: "creatinine_value",      label: "Serum Creatinine" },
+      { key: "urine_output_8am_2pm",  label: "UO 8am–2pm", suffix: " ml/kg/hr" },
+      { key: "urine_output_2pm_8pm",  label: "UO 2pm–8pm", suffix: " ml/kg/hr" },
+      { key: "urine_output_8pm_8am",  label: "UO 8pm–8am", suffix: " ml/kg/hr" },
       { key: "urine_output_total",    label: "Urine Output Total", suffix: " ml/kg/hr" },
       { key: "dialysis_crrt",         label: "Dialysis/CRRT", bool: true },
     ],
@@ -171,8 +176,8 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0" }) {
   );
 }
 
-/** Text/numeric row for glucose #1/#4 — must accept "Not Tested" / "Not Low" / "Not High". */
-function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled }) {
+/** Text/numeric row for creatinine — accepts number | "Not Tested" | "Awaited". */
+function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—" }) {
   return (
     <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <span className="rcn-yn-label">
@@ -185,10 +190,138 @@ function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled }) 
           value={value ?? ""}
           onChange={e => !disabled && onChange(e.target.value === "" ? null : e.target.value)}
           readOnly={disabled}
-          placeholder="—"
+          placeholder={placeholder}
         />
         {unit && <span className="rcn-num-unit">{unit}</span>}
       </div>
+    </div>
+  );
+}
+
+/** Display-only autofill field (#1/#2/#4) — never a free-text input. */
+function ReadonlyAutoField({ label, value, unit, autofilled }) {
+  const display = value === null || value === undefined || value === "" ? "—" : String(value);
+  return (
+    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
+      <span className="rcn-yn-label">
+        {label}
+        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+      </span>
+      <div className={`rcn-readonly-value${autofilled ? " rcn-num-input--autofill" : ""}`}>
+        {display}{unit && display !== "—" ? ` ${unit}` : ""}
+      </div>
+    </div>
+  );
+}
+
+const pad2 = n => String(n).padStart(2, "0");
+const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function blankReading(extra = {}) {
+  const d = new Date();
+  return { id: uid(), date: toDateOnlyValue(d), time: nowTime(d), ...extra };
+}
+
+function parseJsonArray(raw) {
+  if (!raw) return null;
+  try {
+    const p = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(p) && p.length ? p : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Summary for electrolyte columns: most recent non-empty value. */
+function latestReadingSummary(readings, valueKey = "value") {
+  if (!Array.isArray(readings)) return null;
+  for (let i = readings.length - 1; i >= 0; i--) {
+    const v = readings[i]?.[valueKey];
+    if (v !== null && v !== undefined && v !== "") return String(v);
+  }
+  return null;
+}
+
+function deriveMetabolicAcidosis(readings) {
+  if (!Array.isArray(readings) || !readings.length) return null;
+  let any = false;
+  for (const r of readings) {
+    if (r?.ph === "" || r?.ph == null) continue;
+    const n = Number(r.ph);
+    if (!Number.isFinite(n)) continue;
+    any = true;
+    if (n < 7.2) return true;
+  }
+  return any ? false : null;
+}
+
+function isNumericHighGlucose(v) {
+  if (v == null || v === "" || v === "Not Tested" || v === "Not High" || v === "Not Low") return false;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 180;
+}
+
+function computeUrineTotal(a, b, c) {
+  const nums = [a, b, c]
+    .map(v => (v === null || v === undefined || v === "" ? null : Number(v)))
+    .filter(n => Number.isFinite(n));
+  if (!nums.length) return null;
+  const sum = nums.reduce((s, n) => s + n, 0);
+  return String(Math.round(sum * 1000) / 1000);
+}
+
+function migrateAkiFromLegacy(d) {
+  if (d.aki_suspected === true || d.aki_suspected === false) {
+    return { aki_suspected: d.aki_suspected, aki_stage: d.aki_stage || null };
+  }
+  if (d.aki_stage === "N") return { aki_suspected: false, aki_stage: null };
+  if (d.aki_stage && String(d.aki_stage).startsWith("Stage")) {
+    return { aki_suspected: true, aki_stage: d.aki_stage };
+  }
+  return { aki_suspected: null, aki_stage: d.aki_stage || null };
+}
+
+/** Helper-5-style multi-entry block (date/time + value field(s)). */
+function ReadingsBlock({
+  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
+}) {
+  const list = entries?.length ? entries : [blankFactory ? blankFactory() : blankReading()];
+  return (
+    <div className="rcn-subsection mml-subblock">
+      <div className="mml-subblock-head">
+        <span className="mml-subblock-code">{code}</span>
+      </div>
+      {list.map((entry, idx) => (
+        <div className="mml-entry" key={entry.id || idx}>
+          <div className="mml-entry-head">
+            <div className="mml-entry-meta">
+              {list.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
+              <label className="mml-meta-field">
+                <span>Date</span>
+                <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
+                  disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
+              </label>
+              <label className="mml-meta-field">
+                <span>Time</span>
+                <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
+                  disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
+              </label>
+            </div>
+            {list.length > 1 && !disabled && (
+              <button type="button" className="mml-remove-btn" title="Remove this reading"
+                onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
+            )}
+          </div>
+          <div className="rcn-grid-3">{children(entry, idx)}</div>
+        </div>
+      ))}
+      {!disabled && (
+        <button type="button" className="mml-add-btn"
+          onClick={() => onAdd(blankFactory ? blankFactory() : blankReading())}>
+          <Plus size={14} /> Add values
+        </button>
+      )}
     </div>
   );
 }
@@ -501,16 +634,20 @@ export default function MetabRenalVascEyeLog() {
 
   // ⚡ METABOLIC (4.1, items 1-10)
   const [metabData, setMetabData] = useState({
-    lowest_glucose:         null, // #1
-    hypoglycemia_episodes:  null, // #2
-    hypoglycemia_rx:        null, // #3
-    highest_glucose:        null, // #4
-    insulin:                null, // #5
-    metabolic_acidosis:     null, // #6
-    sodium_value:           null, // #7
-    potassium_value:        null, // #8
-    ionized_calcium_value:  null, // #9
+    lowest_glucose:         null, // #1 autofill
+    hypoglycemia_episodes:  null, // #2 autofill
+    hypoglycemia_rx:        null, // #3 gated
+    highest_glucose:        null, // #4 autofill
+    insulin:                null, // #5 gated hyper Rx
+    metabolic_acidosis:     null, // #6 derived from ph_readings
+    sodium_value:           null, // #7 summary
+    potassium_value:        null, // #8 summary
+    ionized_calcium_value:  null, // #9 summary
     osteopenia_suspected:   null, // #10
+    ph_readings:            [blankReading({ ph: "" })],
+    sodium_readings:        [blankReading({ value: "" })],
+    potassium_readings:     [blankReading({ value: "" })],
+    calcium_readings:       [blankReading({ value: "" })],
   });
   // Tracks which of #1/#2/#4 still show the Helper-5 autofill badge (cleared on manual edit).
   const [glucoseAutofilled, setGlucoseAutofilled] = useState({
@@ -523,9 +660,13 @@ export default function MetabRenalVascEyeLog() {
 
   // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
-    aki_stage:              null, // #11 — e.g. "Stage 1/2/3"
-    creatinine:             null, // #12 — numeric mg/dL
-    urine_output_total:     null, // #13
+    aki_suspected:          null, // #11 Yes/No
+    aki_stage:              null, // KDIGO when #11 Yes
+    creatinine_value:       null, // #12 string | Not Tested | Awaited
+    urine_output_8am_2pm:   null,
+    urine_output_2pm_8pm:   null,
+    urine_output_8pm_8am:   null,
+    urine_output_total:     null, // derived sum
     dialysis_crrt:          null, // #14
   });
 
@@ -638,7 +779,7 @@ export default function MetabRenalVascEyeLog() {
   ═══════════════════════════════════════ */
   const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
-  // Metabolic: #1–10, with #3 Hypoglycemia Rx required only when episodes > 0
+  // Metabolic: gated #3/#5; #6–#9 answered via derived/summary values from readings
   const hypoEpisodesNum = (() => {
     const v = metabData.hypoglycemia_episodes;
     if (v === null || v === undefined || v === "") return 0;
@@ -646,32 +787,65 @@ export default function MetabRenalVascEyeLog() {
     return Number.isFinite(n) ? n : 0;
   })();
   const hypoRxRequired = hypoEpisodesNum > 0;
+  const hyperRxRequired = isNumericHighGlucose(metabData.highest_glucose);
+  const extravasationRequired =
+    vascData.peripheral_iv === true || vascData.peripheral_arterial === true;
+  const ropDue = eyeData.rop_screening_due === true;
+  const ropScreenedYes = eyeData.rop_screened === true;
+  const akiSuspectedYes = renalData.aki_suspected === true;
+
   const METAB_BASE = [
     "lowest_glucose", "hypoglycemia_episodes",
     ...(hypoRxRequired ? ["hypoglycemia_rx"] : []),
-    "highest_glucose", "insulin", "metabolic_acidosis",
-    "sodium_value", "potassium_value", "ionized_calcium_value", "osteopenia_suspected",
+    "highest_glucose",
+    ...(hyperRxRequired ? ["insulin"] : []),
+    "metabolic_acidosis",
+    "sodium_value", "potassium_value", "ionized_calcium_value",
+    "osteopenia_suspected",
   ];
   const metabTotal   = METAB_BASE.length;
   const metabAnswered= METAB_BASE.filter(k => ans(metabData[k])).length;
 
-  // Renal: 4 fields (items 11-14)
-  const RENAL_BASE  = ["aki_stage","creatinine","urine_output_total","dialysis_crrt"];
-  const renalTotal  = RENAL_BASE.length;
-  const renalAnswered = RENAL_BASE.filter(k => ans(renalData[k])).length;
+  // Renal: #11 Yes/No (+ stage when Yes), #12 creatinine_value, #13 any urine window, #14
+  const RENAL_KEYS = [
+    "aki_suspected",
+    ...(akiSuspectedYes ? ["aki_stage"] : []),
+    "creatinine_value",
+    "urine_output_total",
+    "dialysis_crrt",
+  ];
+  const urineAnswered =
+    ans(renalData.urine_output_8am_2pm)
+    || ans(renalData.urine_output_2pm_8pm)
+    || ans(renalData.urine_output_8pm_8am)
+    || ans(renalData.urine_output_total);
+  const renalTotal = RENAL_KEYS.length;
+  const renalAnswered = RENAL_KEYS.filter(k => {
+    if (k === "urine_output_total") return urineAnswered;
+    return ans(renalData[k]);
+  }).length;
 
   // Thermoregulation: 1 field (item 15)
   const THERMO_KEYS    = ["axillary_temperature"];
   const thermoTotal    = THERMO_KEYS.length;
   const thermoAnswered = THERMO_KEYS.filter(k => ans(thermoData[k])).length;
 
-  // Vascular: 7 fields always
-  const VASC_KEYS    = ["picc_in_situ","uvc_in_situ","uac_in_situ","peripheral_iv","peripheral_arterial","extravasation_injury","line_complication"];
+  // Vascular: #21 gated on #19 or #20 Yes
+  const VASC_KEYS = [
+    "picc_in_situ", "uvc_in_situ", "uac_in_situ",
+    "peripheral_iv", "peripheral_arterial",
+    ...(extravasationRequired ? ["extravasation_injury"] : []),
+    "line_complication",
+  ];
   const vascTotal    = VASC_KEYS.length;
   const vascAnswered = Math.min(VASC_KEYS.filter(k => ans(vascData[k])).length, vascTotal);
 
-  // Eye: paper CRF items 23–25 only (stage/plus/treatment are optional extras)
-  const EYE_BASE  = ["rop_screening_due","rop_screened","rop_detected"];
+  // Eye: #24 gated on #23 Yes; #25 gated on #24 Yes
+  const EYE_BASE = [
+    "rop_screening_due",
+    ...(ropDue ? ["rop_screened"] : []),
+    ...(ropDue && ropScreenedYes ? ["rop_detected"] : []),
+  ];
   const eyeTotal  = EYE_BASE.length;
   const eyeAnswered = Math.min(EYE_BASE.filter(k => ans(eyeData[k])).length, eyeTotal);
 
@@ -690,21 +864,108 @@ export default function MetabRenalVascEyeLog() {
     if (!isFieldEditable) return;
     setMetabData(p => {
       const next = { ...p, [k]: v };
-      // Clearing low-episode count drops the Rx gate (eye-style conditional).
       if (k === "hypoglycemia_episodes") {
         const n = v === null || v === undefined || v === "" ? 0 : Number(v);
         if (!Number.isFinite(n) || n <= 0) next.hypoglycemia_rx = null;
       }
+      if (k === "highest_glucose" && !isNumericHighGlucose(v)) next.insulin = null;
       return next;
     });
-    if (k === "lowest_glucose" || k === "hypoglycemia_episodes" || k === "highest_glucose") {
-      setGlucoseAutofilled(prev => ({ ...prev, [k]: false }));
-    }
   };
-  const setRenal = (k, v) => isFieldEditable && setRenalData(p => ({ ...p, [k]: v }));
+
+  const updateReadingList = (listKey, valueKey, updater) => {
+    if (!isFieldEditable) return;
+    setMetabData(p => {
+      const list = [...(p[listKey] || [])];
+      const nextList = updater(list);
+      const next = { ...p, [listKey]: nextList };
+      if (listKey === "ph_readings") {
+        next.metabolic_acidosis = deriveMetabolicAcidosis(nextList);
+      } else if (listKey === "sodium_readings") {
+        next.sodium_value = latestReadingSummary(nextList, valueKey);
+      } else if (listKey === "potassium_readings") {
+        next.potassium_value = latestReadingSummary(nextList, valueKey);
+      } else if (listKey === "calcium_readings") {
+        next.ionized_calcium_value = latestReadingSummary(nextList, valueKey);
+      }
+      return next;
+    });
+  };
+
+  const setReadingField = (listKey, idx, key, value, valueKey = "value") => {
+    updateReadingList(listKey, valueKey, list => {
+      const next = [...list];
+      next[idx] = { ...next[idx], [key]: value };
+      return next;
+    });
+  };
+  const addReading = (listKey, blank, valueKey = "value") => {
+    updateReadingList(listKey, valueKey, list => [...(list.length ? list : []), blank]);
+  };
+  const removeReading = (listKey, idx, valueKey = "value") => {
+    updateReadingList(listKey, valueKey, list => {
+      if (list.length <= 1) return list;
+      const next = [...list];
+      next.splice(idx, 1);
+      return next;
+    });
+  };
+
+  const setRenal = (k, v) => {
+    if (!isFieldEditable) return;
+    setRenalData(p => {
+      const next = { ...p, [k]: v };
+      if (k === "aki_suspected" && v !== true) next.aki_stage = null;
+      if (
+        k === "urine_output_8am_2pm"
+        || k === "urine_output_2pm_8pm"
+        || k === "urine_output_8pm_8am"
+      ) {
+        next.urine_output_total = computeUrineTotal(
+          k === "urine_output_8am_2pm" ? v : p.urine_output_8am_2pm,
+          k === "urine_output_2pm_8pm" ? v : p.urine_output_2pm_8pm,
+          k === "urine_output_8pm_8am" ? v : p.urine_output_8pm_8am,
+        );
+      }
+      return next;
+    });
+  };
   const setThermo= (k, v) => isFieldEditable && setThermoData(p => ({ ...p, [k]: v }));
-  const setVasc  = (k, v) => isFieldEditable && setVascData(p => ({ ...p, [k]: v }));
-  const setEye   = (k, v) => isFieldEditable && setEyeData(p => ({ ...p, [k]: v }));
+  const setVasc  = (k, v) => {
+    if (!isFieldEditable) return;
+    setVascData(p => {
+      const next = { ...p, [k]: v };
+      const iv = k === "peripheral_iv" ? v : next.peripheral_iv;
+      const art = k === "peripheral_arterial" ? v : next.peripheral_arterial;
+      if (iv !== true && art !== true) next.extravasation_injury = null;
+      return next;
+    });
+  };
+  const setEye = (k, v) => {
+    if (!isFieldEditable) return;
+    setEyeData(p => {
+      const next = { ...p, [k]: v };
+      if (k === "rop_screening_due" && v !== true) {
+        next.rop_screened = null;
+        next.rop_detected = null;
+        next.rop_stage = null;
+        next.plus_disease = null;
+        next.rop_treatment = null;
+      }
+      if (k === "rop_screened" && v !== true) {
+        next.rop_detected = null;
+        next.rop_stage = null;
+        next.plus_disease = null;
+        next.rop_treatment = null;
+      }
+      if (k === "rop_detected" && v !== true) {
+        next.rop_stage = null;
+        next.plus_disease = null;
+        next.rop_treatment = null;
+      }
+      return next;
+    });
+  };
   const setTail  = (k, v) => isFieldEditable && setTailData(p => ({ ...p, [k]: v }));
 
   /* ── Glucose autofill from Helper Form 5 (today's sheet only) ── */
@@ -737,6 +998,7 @@ export default function MetabRenalVascEyeLog() {
       }
       const ep = Number(next.hypoglycemia_episodes);
       if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
+      if (!isNumericHighGlucose(next.highest_glucose)) next.insulin = null;
 
       setMetabData(next);
       setGlucoseAutofilled(prev => ({
@@ -886,23 +1148,39 @@ export default function MetabRenalVascEyeLog() {
         const res = await api.get(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`);
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
+          const aki = migrateAkiFromLegacy(d);
+          const phReadings = parseJsonArray(d.ph_readings_json) || [blankReading({ ph: "" })];
+          const naReadings = parseJsonArray(d.sodium_readings_json) || [blankReading({ value: "" })];
+          const kReadings = parseJsonArray(d.potassium_readings_json) || [blankReading({ value: "" })];
+          const caReadings = parseJsonArray(d.calcium_readings_json) || [blankReading({ value: "" })];
+          const creatVal = d.creatinine_value
+            ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null);
           loadedMetab = {
             lowest_glucose:         d.lowest_glucose         ?? null,
             hypoglycemia_episodes:  d.hypoglycemia_episodes  ?? null,
             hypoglycemia_rx:        d.hypoglycemia_rx        ?? null,
             highest_glucose:        d.highest_glucose        ?? null,
             insulin:                d.insulin                ?? null,
-            metabolic_acidosis:     d.metabolic_acidosis     ?? null,
-            sodium_value:           d.sodium_value           ?? null,
-            potassium_value:        d.potassium_value        ?? null,
-            ionized_calcium_value:  d.ionized_calcium_value  ?? null,
+            metabolic_acidosis:     d.metabolic_acidosis ?? deriveMetabolicAcidosis(phReadings),
+            sodium_value:           d.sodium_value ?? latestReadingSummary(naReadings),
+            potassium_value:        d.potassium_value ?? latestReadingSummary(kReadings),
+            ionized_calcium_value:  d.ionized_calcium_value ?? latestReadingSummary(caReadings),
             osteopenia_suspected:   d.osteopenia_suspected   ?? null,
+            ph_readings:            phReadings,
+            sodium_readings:        naReadings,
+            potassium_readings:     kReadings,
+            calcium_readings:       caReadings,
           };
           setMetabData(loadedMetab);
           setRenalData({
-            aki_stage:              d.aki_stage          || null,
-            creatinine:             d.creatinine         ?? null,
-            urine_output_total:     d.urine_output_total ?? null,
+            aki_suspected:          aki.aki_suspected,
+            aki_stage:              aki.aki_stage,
+            creatinine_value:       creatVal,
+            urine_output_8am_2pm:   d.urine_output_8am_2pm ?? null,
+            urine_output_2pm_8pm:   d.urine_output_2pm_8pm ?? null,
+            urine_output_8pm_8am:   d.urine_output_8pm_8am ?? null,
+            urine_output_total:     d.urine_output_total
+              ?? computeUrineTotal(d.urine_output_8am_2pm, d.urine_output_2pm_8pm, d.urine_output_8pm_8am),
             dialysis_crrt:          d.dialysis_crrt      ?? null,
           });
           setThermoData({
@@ -943,6 +1221,10 @@ export default function MetabRenalVascEyeLog() {
             lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
             insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
             ionized_calcium_value:null,osteopenia_suspected:null,
+            ph_readings:[blankReading({ ph: "" })],
+            sodium_readings:[blankReading({ value: "" })],
+            potassium_readings:[blankReading({ value: "" })],
+            calcium_readings:[blankReading({ value: "" })],
           };
         }
       } catch (err) {
@@ -952,6 +1234,10 @@ export default function MetabRenalVascEyeLog() {
             lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
             insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
             ionized_calcium_value:null,osteopenia_suspected:null,
+            ph_readings:[blankReading({ ph: "" })],
+            sodium_readings:[blankReading({ value: "" })],
+            potassium_readings:[blankReading({ value: "" })],
+            calcium_readings:[blankReading({ value: "" })],
           };
         }
       } finally {
@@ -992,6 +1278,7 @@ export default function MetabRenalVascEyeLog() {
                 }
                 const ep = Number(next.hypoglycemia_episodes);
                 if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
+                if (!isNumericHighGlucose(next.highest_glucose)) next.insulin = null;
                 if (Object.values(flags).some(Boolean)) {
                   setMetabData(next);
                   setGlucoseAutofilled(flags);
@@ -1008,15 +1295,25 @@ export default function MetabRenalVascEyeLog() {
   }, [enrollmentId, activeDay, day1Date]);
 
   const resetFormState = () => {
-    setMetabData({ lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
+    setMetabData({
+      lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
       insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
-      ionized_calcium_value:null,osteopenia_suspected:null });
+      ionized_calcium_value:null,osteopenia_suspected:null,
+      ph_readings:[blankReading({ ph: "" })],
+      sodium_readings:[blankReading({ value: "" })],
+      potassium_readings:[blankReading({ value: "" })],
+      calcium_readings:[blankReading({ value: "" })],
+    });
     setGlucoseAutofilled({
       lowest_glucose: false,
       hypoglycemia_episodes: false,
       highest_glucose: false,
     });
-    setRenalData({ aki_stage:null,creatinine:null,urine_output_total:null,dialysis_crrt:null });
+    setRenalData({
+      aki_suspected:null, aki_stage:null, creatinine_value:null,
+      urine_output_8am_2pm:null, urine_output_2pm_8pm:null, urine_output_8pm_8am:null,
+      urine_output_total:null, dialysis_crrt:null,
+    });
     setThermoData({ axillary_temperature:null });
     setVascData({ picc_in_situ:null,uvc_in_situ:null,uac_in_situ:null,peripheral_iv:null,
       peripheral_arterial:null,extravasation_injury:null,line_complication:null });
@@ -1028,14 +1325,60 @@ export default function MetabRenalVascEyeLog() {
     setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.EMPTY }));
   };
 
-  const buildPayload = (now) => ({
-    enrollment_id: enrollmentId, nicu_day: activeDay,
-    ...metabData, ...renalData, ...thermoData, ...vascData, ...eyeData, ...tailData,
-    submission_status: STATUS.DRAFT,
-    saved_at: now,
-    saved_by: user?.name || user?.username || "Nurse",
-  });
-
+  const buildPayload = (now) => {
+    const phReadings = metabData.ph_readings || [];
+    const naReadings = metabData.sodium_readings || [];
+    const kReadings = metabData.potassium_readings || [];
+    const caReadings = metabData.calcium_readings || [];
+    const acidosis = deriveMetabolicAcidosis(phReadings);
+    const naSum = latestReadingSummary(naReadings);
+    const kSum = latestReadingSummary(kReadings);
+    const caSum = latestReadingSummary(caReadings);
+    const urineTotal = computeUrineTotal(
+      renalData.urine_output_8am_2pm,
+      renalData.urine_output_2pm_8pm,
+      renalData.urine_output_8pm_8am,
+    );
+    const creatVal = renalData.creatinine_value;
+    const creatNum = (() => {
+      if (creatVal == null || creatVal === "" || creatVal === "Not Tested" || creatVal === "Awaited") return null;
+      const n = Number(creatVal);
+      return Number.isFinite(n) ? n : null;
+    })();
+    const {
+      ph_readings, sodium_readings, potassium_readings, calcium_readings,
+      ...metabFlat
+    } = metabData;
+    return {
+      enrollment_id: enrollmentId,
+      nicu_day: activeDay,
+      ...metabFlat,
+      metabolic_acidosis: acidosis,
+      sodium_value: naSum,
+      potassium_value: kSum,
+      ionized_calcium_value: caSum,
+      ph_readings_json: JSON.stringify(phReadings),
+      sodium_readings_json: JSON.stringify(naReadings),
+      potassium_readings_json: JSON.stringify(kReadings),
+      calcium_readings_json: JSON.stringify(caReadings),
+      aki_suspected: renalData.aki_suspected,
+      aki_stage: renalData.aki_suspected === true ? renalData.aki_stage : null,
+      creatinine_value: creatVal,
+      creatinine: creatNum,
+      urine_output_8am_2pm: renalData.urine_output_8am_2pm,
+      urine_output_2pm_8pm: renalData.urine_output_2pm_8pm,
+      urine_output_8pm_8am: renalData.urine_output_8pm_8am,
+      urine_output_total: urineTotal,
+      dialysis_crrt: renalData.dialysis_crrt,
+      ...thermoData,
+      ...vascData,
+      ...eyeData,
+      ...tailData,
+      submission_status: STATUS.DRAFT,
+      saved_at: now,
+      saved_by: user?.name || user?.username || "Nurse",
+    };
+  };
   /* ── Save ── */
   const handleSave = async () => {
     if (!enrollmentId) return;
@@ -1095,16 +1438,37 @@ export default function MetabRenalVascEyeLog() {
         setMessage(`⚠️ No data for Day ${sourceDay}`);
         setTimeout(() => setMessage(""), 3000); return;
       }
+      const aki = migrateAkiFromLegacy(d);
+      const phReadings = parseJsonArray(d.ph_readings_json) || [blankReading({ ph: "" })];
+      const naReadings = parseJsonArray(d.sodium_readings_json) || [blankReading({ value: "" })];
+      const kReadings = parseJsonArray(d.potassium_readings_json) || [blankReading({ value: "" })];
+      const caReadings = parseJsonArray(d.calcium_readings_json) || [blankReading({ value: "" })];
       setMetabData({
         lowest_glucose: d.lowest_glucose??null, hypoglycemia_episodes: d.hypoglycemia_episodes??null,
         hypoglycemia_rx: d.hypoglycemia_rx??null, highest_glucose: d.highest_glucose??null,
-        insulin: d.insulin??null, metabolic_acidosis: d.metabolic_acidosis??null,
-        sodium_value: d.sodium_value??null, potassium_value: d.potassium_value??null,
-        ionized_calcium_value: d.ionized_calcium_value??null,
+        insulin: d.insulin??null,
+        metabolic_acidosis: d.metabolic_acidosis ?? deriveMetabolicAcidosis(phReadings),
+        sodium_value: d.sodium_value ?? latestReadingSummary(naReadings),
+        potassium_value: d.potassium_value ?? latestReadingSummary(kReadings),
+        ionized_calcium_value: d.ionized_calcium_value ?? latestReadingSummary(caReadings),
         osteopenia_suspected: d.osteopenia_suspected??null,
+        ph_readings: phReadings,
+        sodium_readings: naReadings,
+        potassium_readings: kReadings,
+        calcium_readings: caReadings,
       });
-      setRenalData({ aki_stage: d.aki_stage||null, creatinine: d.creatinine??null,
-        urine_output_total: d.urine_output_total??null, dialysis_crrt: d.dialysis_crrt??null });
+      setRenalData({
+        aki_suspected: aki.aki_suspected,
+        aki_stage: aki.aki_stage,
+        creatinine_value: d.creatinine_value
+          ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null),
+        urine_output_8am_2pm: d.urine_output_8am_2pm??null,
+        urine_output_2pm_8pm: d.urine_output_2pm_8pm??null,
+        urine_output_8pm_8am: d.urine_output_8pm_8am??null,
+        urine_output_total: d.urine_output_total
+          ?? computeUrineTotal(d.urine_output_8am_2pm, d.urine_output_2pm_8pm, d.urine_output_8pm_8am),
+        dialysis_crrt: d.dialysis_crrt??null,
+      });
       setThermoData({ axillary_temperature: d.axillary_temperature??null });
       setVascData({ picc_in_situ: d.picc_in_situ??null, uvc_in_situ: d.uvc_in_situ??null,
         uac_in_situ: d.uac_in_situ??null, peripheral_iv: d.peripheral_iv??null,
@@ -1466,45 +1830,149 @@ export default function MetabRenalVascEyeLog() {
               ) : null}
             >
               <div className="rcn-yn-list">
-                <GlucoseTextRow
+                <ReadonlyAutoField
                   label="1. Lowest glucose reading (if <45 mg/dL)"
                   value={metabData.lowest_glucose}
-                  onChange={v => setMetab("lowest_glucose", v)}
-                  disabled={!isFieldEditable}
                   unit="mg/dL"
                   autofilled={!!glucoseAutofilled.lowest_glucose}
                 />
-                <div className={glucoseAutofilled.hypoglycemia_episodes ? "rcn-autofilled-row" : undefined}>
-                  {glucoseAutofilled.hypoglycemia_episodes && (
-                    <span className="rcn-autofill-tag rcn-autofill-tag--above">Auto-filled from Helper 5</span>
-                  )}
-                  <NumRow label="2. No of episodes of hypoglycemia" value={metabData.hypoglycemia_episodes}
-                    onChange={v=>setMetab("hypoglycemia_episodes",v)} disabled={!isFieldEditable}/>
-                </div>
+                <ReadonlyAutoField
+                  label="2. No of episodes of hypoglycemia"
+                  value={metabData.hypoglycemia_episodes}
+                  autofilled={!!glucoseAutofilled.hypoglycemia_episodes}
+                />
                 {hypoRxRequired && (
                   <div className="rcn-conditional-block">
                     <YNRow label="3. Hypoglycemia Rx (required — low reading present)" value={metabData.hypoglycemia_rx}
                       onChange={v=>setMetab("hypoglycemia_rx",v)} disabled={!isFieldEditable}/>
                   </div>
                 )}
-                <GlucoseTextRow
+                <ReadonlyAutoField
                   label="4. Highest glucose reading (if >180 mg/dL)"
                   value={metabData.highest_glucose}
-                  onChange={v => setMetab("highest_glucose", v)}
-                  disabled={!isFieldEditable}
                   unit="mg/dL"
                   autofilled={!!glucoseAutofilled.highest_glucose}
                 />
-                <YNRow label="5. Hyperglycemia Rx (Insulin)" value={metabData.insulin}
-                  onChange={v=>setMetab("insulin",v)} disabled={!isFieldEditable}/>
-                <YNRow label="6. Metabolic acidosis (pH<7.2)" value={metabData.metabolic_acidosis}
-                  onChange={v=>setMetab("metabolic_acidosis",v)} disabled={!isFieldEditable}/>
-                <NumRow label="7. Sodium value (<135 or >142)" value={metabData.sodium_value}
-                  onChange={v=>setMetab("sodium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
-                <NumRow label="8. Potassium value (<3.5 or >6)" value={metabData.potassium_value}
-                  onChange={v=>setMetab("potassium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
-                <NumRow label="9. Ionized Calcium value (<0.9 or >1.2)" value={metabData.ionized_calcium_value}
-                  onChange={v=>setMetab("ionized_calcium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
+                {hyperRxRequired && (
+                  <div className="rcn-conditional-block">
+                    <YNRow label="5. Hyperglycemia Rx (Insulin)" value={metabData.insulin}
+                      onChange={v=>setMetab("insulin",v)} disabled={!isFieldEditable}/>
+                  </div>
+                )}
+
+                <div className="rcn-subsection" style={{ marginTop: 8 }}>
+                  <div className="rcn-subsection-title">6. Metabolic acidosis (pH&lt;7.2) — enter readings</div>
+                  <ReadingsBlock
+                    code="pH"
+                    entries={metabData.ph_readings}
+                    disabled={!isFieldEditable}
+                    blankFactory={() => blankReading({ ph: "" })}
+                    onChangeEntry={(i, k, v) => setReadingField("ph_readings", i, k, v, "ph")}
+                    onAdd={blank => addReading("ph_readings", blank, "ph")}
+                    onRemove={i => removeReading("ph_readings", i, "ph")}
+                  >
+                    {(e, i) => (
+                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                        <span className="rcn-yn-label">pH</span>
+                        <div className="rcn-num-input" style={{ width: 140 }}>
+                          <input type="number" step="0.01" value={e.ph ?? ""}
+                            disabled={!isFieldEditable}
+                            onChange={ev => setReadingField("ph_readings", i, "ph",
+                              ev.target.value === "" ? "" : Number(ev.target.value), "ph")} />
+                        </div>
+                      </div>
+                    )}
+                  </ReadingsBlock>
+                  <div className="rcn-yn-list" style={{ marginTop: 8 }}>
+                    <ReadonlyAutoField
+                      label="Metabolic acidosis (auto)"
+                      value={
+                        metabData.metabolic_acidosis === true ? "Yes"
+                          : metabData.metabolic_acidosis === false ? "No"
+                            : "—"
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="rcn-subsection">
+                  <div className="rcn-subsection-title">7. Sodium value (&lt;135 or &gt;142)</div>
+                  <ReadingsBlock
+                    code="Na"
+                    entries={metabData.sodium_readings}
+                    disabled={!isFieldEditable}
+                    blankFactory={() => blankReading({ value: "" })}
+                    onChangeEntry={(i, k, v) => setReadingField("sodium_readings", i, k, v)}
+                    onAdd={blank => addReading("sodium_readings", blank)}
+                    onRemove={i => removeReading("sodium_readings", i)}
+                  >
+                    {(e, i) => (
+                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                        <span className="rcn-yn-label">Value</span>
+                        <div className="rcn-num-input" style={{ width: 140 }}>
+                          <input type="number" step="0.01" value={e.value ?? ""}
+                            disabled={!isFieldEditable}
+                            onChange={ev => setReadingField("sodium_readings", i, "value",
+                              ev.target.value === "" ? "" : Number(ev.target.value))} />
+                          <span className="rcn-num-unit">mmol/L</span>
+                        </div>
+                      </div>
+                    )}
+                  </ReadingsBlock>
+                </div>
+
+                <div className="rcn-subsection">
+                  <div className="rcn-subsection-title">8. Potassium value (&lt;3.5 or &gt;6)</div>
+                  <ReadingsBlock
+                    code="K"
+                    entries={metabData.potassium_readings}
+                    disabled={!isFieldEditable}
+                    blankFactory={() => blankReading({ value: "" })}
+                    onChangeEntry={(i, k, v) => setReadingField("potassium_readings", i, k, v)}
+                    onAdd={blank => addReading("potassium_readings", blank)}
+                    onRemove={i => removeReading("potassium_readings", i)}
+                  >
+                    {(e, i) => (
+                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                        <span className="rcn-yn-label">Value</span>
+                        <div className="rcn-num-input" style={{ width: 140 }}>
+                          <input type="number" step="0.01" value={e.value ?? ""}
+                            disabled={!isFieldEditable}
+                            onChange={ev => setReadingField("potassium_readings", i, "value",
+                              ev.target.value === "" ? "" : Number(ev.target.value))} />
+                          <span className="rcn-num-unit">mmol/L</span>
+                        </div>
+                      </div>
+                    )}
+                  </ReadingsBlock>
+                </div>
+
+                <div className="rcn-subsection">
+                  <div className="rcn-subsection-title">9. Ionized Calcium value (&lt;0.9 or &gt;1.2)</div>
+                  <ReadingsBlock
+                    code="iCa"
+                    entries={metabData.calcium_readings}
+                    disabled={!isFieldEditable}
+                    blankFactory={() => blankReading({ value: "" })}
+                    onChangeEntry={(i, k, v) => setReadingField("calcium_readings", i, k, v)}
+                    onAdd={blank => addReading("calcium_readings", blank)}
+                    onRemove={i => removeReading("calcium_readings", i)}
+                  >
+                    {(e, i) => (
+                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                        <span className="rcn-yn-label">Value</span>
+                        <div className="rcn-num-input" style={{ width: 140 }}>
+                          <input type="number" step="0.01" value={e.value ?? ""}
+                            disabled={!isFieldEditable}
+                            onChange={ev => setReadingField("calcium_readings", i, "value",
+                              ev.target.value === "" ? "" : Number(ev.target.value))} />
+                          <span className="rcn-num-unit">mmol/L</span>
+                        </div>
+                      </div>
+                    )}
+                  </ReadingsBlock>
+                </div>
+
                 <YNRow label="10. Osteopenia suspected" value={metabData.osteopenia_suspected}
                   onChange={v=>setMetab("osteopenia_suspected",v)} disabled={!isFieldEditable}/>
               </div>
@@ -1513,25 +1981,45 @@ export default function MetabRenalVascEyeLog() {
             {/* ════ 4.2 RENAL ════ */}
             <SectionCard iconEmoji="💧" title="4.2 Renal"
               answered={renalAnswered} total={renalTotal} defaultOpen={true}>
-              <div className="rcn-subsection" style={{marginTop:0}}>
-                <div className="rcn-subsection-title">11. AKI (e.g. KDIGO stage)</div>
-                <PillSingle
-                  options={["N", "Stage 1", "Stage 2", "Stage 3"]}
-                  value={renalData.aki_stage}
-                  onChange={v => isFieldEditable && setRenalData(p=>({...p, aki_stage:v}))}
-                  disabled={!isFieldEditable}
-                />
-              </div>
-
               <div className="rcn-yn-list">
-                <NumRow label="12. Serum Creatinine (mg/dL)" value={renalData.creatinine}
-                  onChange={v=>setRenal("creatinine",v)} disabled={!isFieldEditable}
-                  unit="mg/dL" placeholder="0.00"/>
-                <NumRow
-                  label="13. Urine output (8am→2pm + 2pm→8pm + 8pm→8am) = Total (ml/kg/hour)"
-                  value={renalData.urine_output_total}
-                  onChange={v=>setRenal("urine_output_total",v)} disabled={!isFieldEditable}
+                <YNRow label="11. AKI suspected" value={renalData.aki_suspected}
+                  onChange={v=>setRenal("aki_suspected",v)} disabled={!isFieldEditable}/>
+              </div>
+              {akiSuspectedYes && (
+                <div className="rcn-conditional-block" style={{ marginTop: 10 }}>
+                  <div className="rcn-subsection-title">KDIGO stage</div>
+                  <PillSingle
+                    options={["Stage 1", "Stage 2", "Stage 3"]}
+                    value={renalData.aki_stage}
+                    onChange={v => setRenal("aki_stage", v)}
+                    disabled={!isFieldEditable}
+                  />
+                </div>
+              )}
+
+              <div className="rcn-yn-list" style={{ marginTop: 12 }}>
+                <GlucoseTextRow
+                  label="12. Serum Creatinine (mg/dL)"
+                  value={renalData.creatinine_value}
+                  onChange={v => setRenal("creatinine_value", v)}
+                  disabled={!isFieldEditable}
+                  unit="mg/dL"
+                  placeholder="value / Not Tested / Awaited"
+                />
+                <NumRow label="13a. Urine output 8am → 2pm" value={renalData.urine_output_8am_2pm}
+                  onChange={v=>setRenal("urine_output_8am_2pm",v)} disabled={!isFieldEditable}
                   unit="ml/kg/hr"/>
+                <NumRow label="13b. Urine output 2pm → 8pm" value={renalData.urine_output_2pm_8pm}
+                  onChange={v=>setRenal("urine_output_2pm_8pm",v)} disabled={!isFieldEditable}
+                  unit="ml/kg/hr"/>
+                <NumRow label="13c. Urine output 8pm → 8am" value={renalData.urine_output_8pm_8am}
+                  onChange={v=>setRenal("urine_output_8pm_8am",v)} disabled={!isFieldEditable}
+                  unit="ml/kg/hr"/>
+                <ReadonlyAutoField
+                  label="13. Urine output total (sum)"
+                  value={renalData.urine_output_total}
+                  unit="ml/kg/hr"
+                />
                 <YNRow label="14. Dialysis/CRRT" value={renalData.dialysis_crrt}
                   onChange={v=>setRenal("dialysis_crrt",v)} disabled={!isFieldEditable}/>
               </div>
@@ -1555,7 +2043,12 @@ export default function MetabRenalVascEyeLog() {
                 <YNRow label="18. UAC in situ"            value={vascData.uac_in_situ}          onChange={v=>setVasc("uac_in_situ",v)}          disabled={!isFieldEditable}/>
                 <YNRow label="19. Peripheral IV"          value={vascData.peripheral_iv}        onChange={v=>setVasc("peripheral_iv",v)}        disabled={!isFieldEditable}/>
                 <YNRow label="20. Peripheral arterial"    value={vascData.peripheral_arterial}  onChange={v=>setVasc("peripheral_arterial",v)}  disabled={!isFieldEditable}/>
-                <YNRow label="21. Extravasation injury"   value={vascData.extravasation_injury} onChange={v=>setVasc("extravasation_injury",v)} disabled={!isFieldEditable}/>
+                {extravasationRequired && (
+                  <div className="rcn-conditional-block">
+                    <YNRow label="21. Extravasation injury" value={vascData.extravasation_injury}
+                      onChange={v=>setVasc("extravasation_injury",v)} disabled={!isFieldEditable}/>
+                  </div>
+                )}
                 <YNRow label="22. Line complication"      value={vascData.line_complication}    onChange={v=>setVasc("line_complication",v)}    disabled={!isFieldEditable}/>
               </div>
             </SectionCard>
@@ -1566,14 +2059,18 @@ export default function MetabRenalVascEyeLog() {
               <div className="rcn-yn-list">
                 <YNRow label="23. ROP screening due" value={eyeData.rop_screening_due}
                   onChange={v=>setEye("rop_screening_due",v)} disabled={!isFieldEditable}/>
-                <YNRow label="24. ROP screened"      value={eyeData.rop_screened}
-                  onChange={v=>setEye("rop_screened",v)}      disabled={!isFieldEditable}/>
-                <YNRow label="25. ROP detected"      value={eyeData.rop_detected}
-                  onChange={v => {
-                    setEye("rop_detected", v);
-                    if (v !== true)
-                      setEyeData(p => ({ ...p, rop_stage:null, plus_disease:null, rop_treatment:null }));
-                  }} disabled={!isFieldEditable}/>
+                {ropDue && (
+                  <div className="rcn-conditional-block">
+                    <YNRow label="24. ROP screened" value={eyeData.rop_screened}
+                      onChange={v=>setEye("rop_screened",v)} disabled={!isFieldEditable}/>
+                  </div>
+                )}
+                {ropDue && ropScreenedYes && (
+                  <div className="rcn-conditional-block">
+                    <YNRow label="25. ROP detected" value={eyeData.rop_detected}
+                      onChange={v=>setEye("rop_detected",v)} disabled={!isFieldEditable}/>
+                  </div>
+                )}
               </div>
 
               {ropYes && (

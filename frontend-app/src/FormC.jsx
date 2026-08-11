@@ -13,7 +13,7 @@ import OfflineBanner from "./components/OfflineBanner";
 import FormNavBar    from "./components/FormNavBar";
 import FormModals    from "./components/FormModals";
 import useFormSession from "./hooks/useFormSession";
-import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap } from "lucide-react";
+import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap, Pencil } from "lucide-react";
 
 const STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
@@ -207,18 +207,51 @@ export default function FormC() {
     else              set({ pregnancy_supervision: "Supervised" });
   }, [formData.anc_visits]);
 
-  /* ── Auto-calc MgSO4 gestation ── */
+  /* ── Auto-calc MgSO4 gestation at administration ──
+     GA (days) = 280 − (EDD − adminDate) using calendar days only.
+     DatePicker values can carry a wall-clock time; comparing those with
+     midnight EDD via Math.floor(ms/86400000) drifts by ±1 day — normalize
+     both to local calendar dates first (same approach as Form A GA). */
   useEffect(() => {
-    if (!formData.mgso4_date || !formData.edd) return;
-    const mg = new Date(formData.mgso4_date);
-    const eddDate = formData.edd;
-    if (!(mg instanceof Date) || !(eddDate instanceof Date)) return;
-    if (isNaN(mg.getTime()) || isNaN(eddDate.getTime())) return;
-    const diffDays = Math.floor((eddDate.getTime() - mg.getTime()) / (1000*60*60*24));
-    const adminGA  = 280 - diffDays;
-    if (adminGA < 0) return;
-    set({ mgso4_gestation_weeks: Math.floor(adminGA/7), mgso4_gestation_days: adminGA%7 });
-  }, [formData.mgso4_date, formData.edd]);
+    const toLocalDay = (value) => {
+      if (!value) return null;
+      if (value instanceof Date && !isNaN(value.getTime())) {
+        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+      }
+      return parseDateOnly(String(value).slice(0, 10));
+    };
+
+    const admin = toLocalDay(formData.mgso4_date);
+    if (!admin) {
+      if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
+        set({ mgso4_gestation_weeks: "", mgso4_gestation_days: "" });
+      }
+      return;
+    }
+
+    const edd = toLocalDay(formData.edd);
+    const lmp = toLocalDay(formData.lmp);
+    let gestDays = null;
+    if (edd) {
+      const daysUntilEdd = Math.round((edd.getTime() - admin.getTime()) / 86400000);
+      gestDays = 280 - daysUntilEdd;
+    } else if (lmp) {
+      gestDays = Math.round((admin.getTime() - lmp.getTime()) / 86400000);
+    }
+
+    if (gestDays == null || gestDays < 0 || gestDays > 314) {
+      if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
+        set({ mgso4_gestation_weeks: "", mgso4_gestation_days: "" });
+      }
+      return;
+    }
+
+    const weeks = Math.floor(gestDays / 7);
+    const days = gestDays % 7;
+    if (formData.mgso4_gestation_weeks !== weeks || formData.mgso4_gestation_days !== days) {
+      set({ mgso4_gestation_weeks: weeks, mgso4_gestation_days: days });
+    }
+  }, [formData.mgso4_date, formData.edd, formData.lmp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Auto-calc Triple I from infection fields ── */
   useEffect(() => {
@@ -749,7 +782,16 @@ export default function FormC() {
     }
   }, [formData, isFormCLoaded, buildPayload, markFormCompleted, session]); // eslint-disable-line
 
-  const handleNext     = async () => { const ok = await saveForm(); if (ok) navigate(`/form-d/${formData.enrollment_id}`); };
+  const handleNext = async () => {
+    const ok = await saveForm();
+    if (ok) {
+      if (localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+        setMessage("✅ Form C saved. Forms D and later are locked — PPV was not required.");
+        return;
+      }
+      navigate(`/form-d/${formData.enrollment_id}`);
+    }
+  };
   // FIX: navigate(-1) relied on browser history, which lands on whatever
   // page happened to be previous in this tab's history — not necessarily
   // Form B. Navigate to the actual Form B route (using this enrollment's
@@ -801,9 +843,14 @@ export default function FormC() {
       <OfflineBanner isOnline={session.isOnline} offlineQueue={session.offlineQueue} />
 
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot"/>
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -1139,19 +1186,31 @@ export default function FormC() {
                       <div className="form-group">
                         <label>27. Date of administration<span className="required">*</span></label>
                         <DatePicker
-                          selected={formData.mgso4_date ? new Date(formData.mgso4_date) : null}
-                          onChange={date => { set({mgso4_date:date}); touchField("mgso4_date"); setErrors(p=>({...p,mgso4_date:validateField("mgso4_date",date,formData)})); }}
+                          selected={formData.mgso4_date
+                            ? (formData.mgso4_date instanceof Date
+                                ? formData.mgso4_date
+                                : parseDateOnly(String(formData.mgso4_date).slice(0, 10)))
+                            : null}
+                          onChange={date => {
+                            const day = date
+                              ? new Date(date.getFullYear(), date.getMonth(), date.getDate())
+                              : "";
+                            set({ mgso4_date: day });
+                            touchField("mgso4_date");
+                            setErrors(p => ({ ...p, mgso4_date: validateField("mgso4_date", day, formData) }));
+                          }}
                           dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY"
                           className={E("mgso4_date")?"input-error":""}
                           readOnly={!isFieldEditable}/>
                         <FieldError msg={E("mgso4_date")}/>
                       </div>
                       <div className="form-group">
-                        <label>28. Gestation at administration <span className="field-note">(auto weeks)</span></label>
+                        <label>28. Gestation at administration <span className="field-note">(auto from EDD)</span></label>
                         <input value={formData.mgso4_gestation_weeks!==""&&formData.mgso4_gestation_weeks!=null
-                          ? `${formData.mgso4_gestation_weeks} weeks`
+                          ? `${formData.mgso4_gestation_weeks}w ${formData.mgso4_gestation_days ?? 0}d`
                           : ""}
-                          readOnly className="readonly-input" placeholder="auto"/>
+                          readOnly className="readonly-input"
+                          placeholder={!formData.edd && !formData.lmp ? "Needs EDD/LMP from Form A" : "auto"}/>
                       </div>
                     </div>
                   </div>
@@ -1656,7 +1715,7 @@ export default function FormC() {
         onSaveDraft={session.saveDraft}
         onNext={handleNext}
         backLabel="Birth & Resuscitation"
-        nextLabel="Postnatal Day 1"
+        nextLabel={localStorage.getItem("enrollment_lock_reason") === "no_ppv" ? "Finish (A–C only)" : "Postnatal Day 1"}
         step={3} totalSteps={17}
         isSaved={isSaved}
       />

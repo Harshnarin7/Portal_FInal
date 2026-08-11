@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import api from "./api/axios";
-import { ArrowLeft, ArrowRight, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Save, RefreshCw } from "lucide-react";
 import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
@@ -11,7 +11,6 @@ import "./styles/FiO2AUC.css";
 /* 
    CONSTANTS & PURE HELPERS
  */
-const DAYS   = [1, 2, 3, 4, 5, 6, 7];
 const mkRow  = (fio2 = "", dur = "") => ({ id: Date.now() + Math.random(), fio2, dur });
 // FIX (faster data entry): a brand-new window almost always starts as a
 // single FiO2 value covering the whole 12h block. Defaulting the first
@@ -19,7 +18,44 @@ const mkRow  = (fio2 = "", dur = "") => ({ id: Date.now() + Math.random(), fio2,
 // no need to also type "12" for the common single-value case. If the
 // value changes mid-block, adding a row (see addRow below) recomputes
 // this automatically.
-const mkDay  = d => ({ day: d, expanded: d === 1, start1: "", start2: "", w1: [mkRow("", 12)], w2: [mkRow("", 12)] });
+const mkDay  = (d, expand = false) => ({
+  day: d, expanded: expand, start1: "", start2: "",
+  w1: [mkRow("", 12)], w2: [mkRow("", 12)],
+});
+
+/** True if the nurse (or a saved log) has entered FiO2 values (not just a start time / blank stub). */
+const dayHasEnteredData = (d) => {
+  if (!d) return false;
+  if ((d.w1 && d.w1.length > 1) || (d.w2 && d.w2.length > 1)) return true;
+  const hasFio2 = rows => (rows || []).some(r => r.fio2 !== "" && r.fio2 != null);
+  return hasFio2(d.w1) || hasFio2(d.w2);
+};
+
+const restoreEntriesFromLog = (log) => {
+  if (!log) return [mkRow("", 12)];
+  const entries = Array.isArray(log.entries) ? log.entries : [];
+  if (!entries.length) return [mkRow("", 12)];
+  return entries.map(e => ({
+    id: Date.now() + Math.random(),
+    fio2: e.fio2 != null ? String(e.fio2) : "",
+    dur:  e.dur  != null ? String(e.dur)  : "",
+  }));
+};
+
+const dayFromLogs = (dayNum, logs, expand) => {
+  const w1Log = logs.find(l => l.day === dayNum && String(l.block || "").startsWith("0"));
+  const w2Log = logs.find(l => l.day === dayNum && String(l.block || "").startsWith("12"));
+  return {
+    ...mkDay(dayNum, expand),
+    start1: w1Log?.start_time || "",
+    start2: w2Log?.start_time || "",
+    w1: restoreEntriesFromLog(w1Log),
+    w2: restoreEntriesFromLog(w2Log),
+  };
+};
+
+/** Saved fio2_logs often stub every day 1–7 from the old form — only keep days with real values. */
+const savedDayHasEnteredData = (dayNum, logs) => dayHasEnteredData(dayFromLogs(dayNum, logs, false));
 
 const rowAUC      = (fio2, dur) => ((parseFloat(fio2) || 0) / 100) * (parseFloat(dur) || 0);
 const windowAUC   = rows => rows.reduce((s, r) => s + rowAUC(r.fio2, r.dur), 0);
@@ -157,10 +193,10 @@ export default function Fio2AUCForm() {
     enrollment_id: "", dob: "", gestation: "", gestation_source: "", mother_name: "", maternal_uid: ""
   });
 
-  /*  Per-day state  */
-  const [days, setDays] = useState(() =>
-    DAYS.map(mkDay)
-  );
+  /*  Per-day state — built from Helper 2 surfactant=Yes days (not a fixed 1–7) */
+  const [days, setDays] = useState([]);
+  const [daysLoading, setDaysLoading] = useState(false);
+  const [helper2Refreshing, setHelper2Refreshing] = useState(false);
 
   /*  UI state  */
   const [message, setMessage] = useState("");
@@ -233,52 +269,80 @@ export default function Fio2AUCForm() {
     }).catch(() => {});
   }, [enrollmentId]);
 
-  /*  Load saved FiO2 AUC record and rehydrate all 7 days  */
-  useEffect(() => {
+  /**
+   * Build day-cards from Helper 2 surfactant=Yes days, unioned with any days
+   * that already have saved/local FiO2 data (so Helper 2 corrections never
+   * silently drop entered AUC values). No 7-day cap.
+   */
+  const syncDaysFromHelper2 = useCallback(async ({ preserveLocal = true, showToast = false } = {}) => {
     if (!enrollmentId) return;
-    api.get(`/fio2-auc/${enrollmentId}`)
-      .then(res => {
-        const list = Array.isArray(res.data) ? res.data : [];
-        if (!list.length) return;
-        const record = list[0]; // most recent record
-        const logs   = Array.isArray(record.fio2_logs) ? record.fio2_logs : [];
-        if (!logs.length) return;
+    if (showToast) setHelper2Refreshing(true);
+    else setDaysLoading(true);
+    try {
+      const [sumRes, fio2Res] = await Promise.all([
+        api.get(`/resp-cv-neuro/${enrollmentId}/summary`),
+        api.get(`/fio2-auc/${enrollmentId}`).catch(err => {
+          if (err?.response?.status === 404) return { data: [] };
+          throw err;
+        }),
+      ]);
 
-        setDays(prev => prev.map(dayState => {
-          const w1Log = logs.find(l => l.day === dayState.day && String(l.block || "").startsWith("0"));
-          const w2Log = logs.find(l => l.day === dayState.day && String(l.block || "").startsWith("12"));
+      const surfactantDays = (sumRes?.data || [])
+        .filter(s => s.surfactant === true)
+        .map(s => Number(s.nicu_day))
+        .filter(n => Number.isFinite(n) && n >= 1);
 
-          const restoreEntries = (log) => {
-            if (!log) return [mkRow()];
-            const entries = Array.isArray(log.entries) ? log.entries : [];
-            if (!entries.length) return [mkRow()];
-            // Regenerate IDs to avoid React key collisions; preserve fio2/dur values
-            return entries.map(e => ({
-              id:  Date.now() + Math.random(),
-              fio2: e.fio2 != null ? String(e.fio2) : "",
-              dur:  e.dur  != null ? String(e.dur)  : "",
-            }));
-          };
+      const list = Array.isArray(fio2Res?.data) ? fio2Res.data : [];
+      const record = list[0];
+      const logs = Array.isArray(record?.fio2_logs) ? record.fio2_logs : [];
+      // Cards ONLY for Helper 2 days with Surfactant given = Yes.
+      // Old empty fio2_logs stubs (or a lone start time) must not open a day.
+      const dayNums = [...surfactantDays].sort((a, b) => a - b);
 
-          return {
-            ...dayState,
-            start1: w1Log?.start_time || "",
-            start2: w2Log?.start_time || "",
-            w1: restoreEntries(w1Log),
-            w2: restoreEntries(w2Log),
-            // Expand day 1, collapse rest (same as initial state)
-            expanded: dayState.day === 1,
-          };
-        }));
+      setDays(prev => {
+        if (!dayNums.length) return [];
 
-        setIsSaved(true);
-        setHasUnsavedChanges(false);
-      })
-      .catch(err => {
-        if (err?.response?.status !== 404)
-          console.log(" Error loading FiO2 AUC data", err);
+        const earliest = dayNums[0];
+        return dayNums.map(n => {
+          const prevDay = prev.find(d => d.day === n);
+          if (preserveLocal && prevDay && dayHasEnteredData(prevDay)) {
+            return { ...prevDay, expanded: n === earliest };
+          }
+          const hasLog = logs.some(l => Number(l.day) === n);
+          if (hasLog) return dayFromLogs(n, logs, n === earliest);
+          return mkDay(n, n === earliest);
+        });
       });
+
+      const anySavedOnSurfactantDays = dayNums.some(n => savedDayHasEnteredData(n, logs));
+      if (anySavedOnSurfactantDays) {
+        setIsSaved(true);
+        if (!preserveLocal) setHasUnsavedChanges(false);
+      }
+      if (showToast) {
+        setMessage(
+          surfactantDays.length
+            ? `Synced ${surfactantDays.length} surfactant day${surfactantDays.length === 1 ? "" : "s"} from Helper 2`
+            : "No Helper 2 days with Surfactant Given = Yes yet"
+        );
+        setTimeout(() => setMessage(""), 3500);
+      }
+    } catch (err) {
+      console.log("Error syncing FiO2 days from Helper 2", err);
+      if (showToast) {
+        setMessage("Could not refresh from Helper 2 — try again");
+        setTimeout(() => setMessage(""), 3500);
+      }
+    } finally {
+      setDaysLoading(false);
+      setHelper2Refreshing(false);
+    }
   }, [enrollmentId]);
+
+  /*  Initial load: Helper 2 surfactant days + saved FiO2 AUC  */
+  useEffect(() => {
+    syncDaysFromHelper2({ preserveLocal: false, showToast: false });
+  }, [syncDaysFromHelper2]);
 
   /*  Warn before unload if there are unsaved changes  */
   useEffect(() => {
@@ -358,10 +422,12 @@ export default function Fio2AUCForm() {
       const h2 = windowHours(thisDay.w2);
       const justCompleted = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
       if (!justCompleted) return updated;
-      // Auto-collapse this day, expand the next
+      // Auto-collapse this day, expand the next *rendered* day (gaps allowed)
+      const idx = updated.findIndex(x => x.day === d);
+      const nextDayNum = idx >= 0 && idx < updated.length - 1 ? updated[idx + 1].day : null;
       return updated.map(x => {
-        if (x.day === d)     return { ...x, expanded: false };
-        if (x.day === d + 1) return { ...x, expanded: true };
+        if (x.day === d) return { ...x, expanded: false };
+        if (nextDayNum != null && x.day === nextDayNum) return { ...x, expanded: true };
         return x;
       });
     });
@@ -682,10 +748,15 @@ export default function Fio2AUCForm() {
           <div className="kpi-card kpi-card--white">
             <p className="kpi-label kpi-label--muted">Days Complete</p>
             <div className="kpi-value-row">
-              <span className="kpi-big kpi-big--dark">{daysComplete} / 7</span>
+              <span className="kpi-big kpi-big--dark">
+                {daysComplete} / {Math.max(days.length, 1)}
+              </span>
             </div>
             <div className="kpi-progress-track">
-              <div className="kpi-progress-fill kpi-progress-fill--green" style={{ width: `${(daysComplete / 7) * 100}%` }} />
+              <div
+                className="kpi-progress-fill kpi-progress-fill--green"
+                style={{ width: `${days.length ? (daysComplete / days.length) * 100 : 0}%` }}
+              />
             </div>
           </div>
         </section>
@@ -694,9 +765,19 @@ export default function Fio2AUCForm() {
         <div className="fio2-section-header">
           <h3 className="fio2-section-title">
             <span className="fio2-section-icon">&#128203;</span>
-            Daily FiO2 Logging (First 7 Days)
+            Daily FiO2 Logging (Surfactant days)
           </h3>
           <div className="fio2-section-actions">
+            <button
+              type="button"
+              className="btn-export"
+              onClick={() => syncDaysFromHelper2({ preserveLocal: true, showToast: true })}
+              disabled={helper2Refreshing || daysLoading}
+              title="Re-sync which days appear from Helper Form 2 (Surfactant Given = Yes)"
+            >
+              <RefreshCw size={14} className={helper2Refreshing ? "fio2-spin" : ""} />
+              {helper2Refreshing ? "Refreshing…" : "Refresh from Helper 2"}
+            </button>
             <button type="button" className="btn-export" onClick={handleExportPdf}>
               &#11123; Export PDF
             </button>
@@ -705,7 +786,13 @@ export default function Fio2AUCForm() {
 
         {/*  DAY CARDS  */}
         <div className="day-stack">
-          {days.map((d, idx) => {
+          {daysLoading && !days.length ? (
+            <div className="fio2-empty-state">Loading surfactant days from Helper 2…</div>
+          ) : !days.length ? (
+            <div className="fio2-empty-state">
+              FiO2 AUC tracking starts once Helper Form 2 records a day with Surfactant Given = Yes.
+            </div>
+          ) : days.map((d, idx) => {
             const dAuc  = dayAUC(d.w1, d.w2);
             const mFiO2 = ((dAuc / 24) * 100).toFixed(1);
             const h1    = windowHours(d.w1);
@@ -715,12 +802,13 @@ export default function Fio2AUCForm() {
             // rather than exactly 12, which would otherwise never register as done.
             const done  = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
 
-            // Day is locked if any previous day is incomplete
+            // Day is locked if any previous *rendered* day is incomplete
             const isLocked = idx > 0 && days.slice(0, idx).some(prev => {
               const ph1 = windowHours(prev.w1);
               const ph2 = windowHours(prev.w2);
               return Math.abs(ph1 - 12) >= 0.01 || Math.abs(ph2 - 12) >= 0.01;
             });
+            const prevRendered = idx > 0 ? days[idx - 1] : null;
 
             return (
               <div key={d.day} className={`day-card${d.expanded ? " day-card--open" : ""}${isLocked ? " day-card--locked" : ""}`}>
@@ -735,9 +823,9 @@ export default function Fio2AUCForm() {
                     <span className="day-title" style={{ color: isLocked ? "#94a3b8" : undefined }}>
                       Day {d.day}
                     </span>
-                    {isLocked && (
+                    {isLocked && prevRendered && (
                       <span className="locked-hint">
-                        Complete Day {d.day - 1} first
+                        Complete Day {prevRendered.day} first
                       </span>
                     )}
                     {!d.expanded && !isLocked && (

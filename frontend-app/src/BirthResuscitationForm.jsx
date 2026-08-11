@@ -8,10 +8,11 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
+import PrintSummaryB from "./components/PrintSummaryB";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
-  ArrowLeft, ArrowRight, Save, Home, User, Baby,
+  ArrowLeft, ArrowRight, Save, Home, User, Baby, Pencil,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
   Clock,
 } from "lucide-react";
@@ -1088,26 +1089,18 @@ export default function BirthResuscitationForm() {
           reasonExit = "Other";
         }
         setFormData(p=>({...p,...dSafe,
-          // FIX: gestation_weeks/gestation_days/gestation_rand_weeks/
-          // gestation_rand_days are ALSO null-or-stale on this endpoint for
-          // the same reason contact_mother etc. were excluded above.
-          // gestation_weeks/days can be null (or, before the Form A fix,
-          // a leftover 0/0) here until Form B has been saved at least once
-          // with real values, and gestation_rand_weeks/days are computed
-          // client-side (see the auto-calc effect below) — this table's
-          // stored copy of them can easily be stale. Blindly spreading `d`
-          // was wiping out the values already loaded from the Form A
-          // screening fetch (and the client-side randomisation calc) with
-          // nulls — or, just as bad, with a stale 0 — on every page load,
-          // leaving fields 11 and 12 blank or stuck even though correct
-          // data existed. 0 weeks is never a real value clinically, so it's
-          // treated the same as missing here (truthy check, not `!= null`)
-          // — otherwise a stale 0 saved on this record before Form A's
-          // fix would keep silently overriding the corrected value on
-          // every load. Only trust `d`'s copy when it's actually non-zero;
-          // otherwise keep whatever is already in state.
-          gestation_weeks:      d.gestation_weeks      || p.gestation_weeks,
-          gestation_days:       d.gestation_weeks      ? (d.gestation_days      ?? p.gestation_days)      : p.gestation_days,
+          // FIX: GET /birth-resuscitation overlays Form D NBS GA onto
+          // gestation_weeks when NBS differs by >2 weeks — that is for
+          // forms AFTER Form D only. Form B must keep the original birth/
+          // screening GA (exposed as original_gestation_*), otherwise
+          // reopening Form B shows NBS values and autosave can permanently
+          // overwrite the Form B record.
+          gestation_weeks:      (d.original_gestation_weeks != null && d.original_gestation_weeks !== ""
+                                  ? d.original_gestation_weeks
+                                  : d.gestation_weeks) || p.gestation_weeks,
+          gestation_days:       (d.original_gestation_weeks != null && d.original_gestation_weeks !== ""
+                                  ? (d.original_gestation_days ?? 0)
+                                  : (d.gestation_weeks ? (d.gestation_days ?? p.gestation_days) : p.gestation_days)),
           gestation_rand_weeks: d.gestation_rand_weeks || p.gestation_rand_weeks,
           gestation_rand_days:  d.gestation_rand_weeks ? (d.gestation_rand_days ?? p.gestation_rand_days) : p.gestation_rand_days,
           date_of_birth: d.date_of_birth ? String(d.date_of_birth).slice(0, 10) : p.date_of_birth,
@@ -1143,6 +1136,16 @@ export default function BirthResuscitationForm() {
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
         }));
+        if (d.required_resuscitation === false) {
+          localStorage.setItem("enrollment_locked", "true");
+          localStorage.setItem("enrollment_lock_reason", "no_ppv");
+          window.dispatchEvent(new Event("storage"));
+        } else if (d.required_resuscitation === true
+                   && localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+          localStorage.removeItem("enrollment_locked");
+          localStorage.removeItem("enrollment_lock_reason");
+          window.dispatchEvent(new Event("storage"));
+        }
         hasBirthRecordRef.current = true;
         isInitialRender.current = true;
         setIsFormBLoaded(true); setIsSaved(true);
@@ -1238,9 +1241,14 @@ export default function BirthResuscitationForm() {
         </div>
       )}
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot"/>
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -1565,6 +1573,12 @@ export default function BirthResuscitationForm() {
                       localStorage.setItem("enrollment_locked","true");
                       localStorage.setItem("enrollment_lock_reason", "no_ppv");
                       window.dispatchEvent(new Event("storage"));
+                    } else if (e.target.value === "Yes") {
+                      if (localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+                        localStorage.removeItem("enrollment_locked");
+                        localStorage.removeItem("enrollment_lock_reason");
+                        window.dispatchEvent(new Event("storage"));
+                      }
                     }
                   }}
                   disabled={!isFieldEditable}/>
@@ -1572,8 +1586,8 @@ export default function BirthResuscitationForm() {
                 {formData.required_resuscitation==="No" && (
                   <div className="alert-danger">
                     <AlertTriangle size={16}/>
-                    Resuscitation beyond initial steps not required — participation ends here.
-                    Save Form B and submit. No further forms required.
+                    Resuscitation (PPV) not required — Forms D and later stay locked.
+                    Complete Forms A–C only, then stop.
                   </div>
                 )}
 
@@ -2119,7 +2133,11 @@ export default function BirthResuscitationForm() {
             </>)}
 
             {/* Notes */}
-            <NotesBox formKey={`form_b_${formData.screening_id||"new"}`}/>
+            <NotesBox formKey={`form_b_${(
+              (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
+              || formData.screening_id
+              || "new"
+            )}`}/>
 
             {message && (
               <div className={`form-message${message.startsWith("✅")?" msg-success":" msg-error"}`}>
@@ -2244,6 +2262,8 @@ export default function BirthResuscitationForm() {
           </div>
         </div>
       )}
+
+      <PrintSummaryB formData={formData} />
     </>
   );
 }

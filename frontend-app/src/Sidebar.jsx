@@ -1,6 +1,6 @@
 // Sidebar.jsx — PORTAL Trial EDC — Light Theme, CRF v1.22 + Form K & L
 import React, { useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   ClipboardCheck, Baby, UserRoundCheck, CalendarDays, Hospital,
   FileHeart, HeartPulse, Microscope, TestTube2,
@@ -86,7 +86,7 @@ const SECTIONS = [
     items: [
       { id: 'form_y_sae',     label: 'Form Y', sub: 'SAE Reporting',  path: '/form-y-sae',     Icon: ShieldAlert   },
       { id: 'adverse_events', label: 'AE',     sub: 'Adverse Events', path: '/adverse-events', Icon: ClipboardList },
-      { id: 'sae_list',       label: 'SAE',    sub: 'SAE Listing',    path: '/sae-list',       Icon: FileText      },
+      { id: 'sae_list',       label: 'SAE',     sub: 'SAE Listing',    path: '/sae-list',       Icon: FileText      },
     ],
   },
 ];
@@ -105,14 +105,26 @@ export default function Sidebar({ currentForm }) {
   const { completedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Below the 1024px breakpoint (see Sidebar.css) the sidebar stacks above
-  // the form instead of sitting fixed alongside it, and the full forms
-  // list is tall enough that it pushed the actual form off-screen —
-  // requiring a long scroll every time before reaching Form B's fields.
-  // Collapsed by default on tablet/mobile; the current form + progress
-  // are always visible above the fold, list expands on tap.
+  // ≤1024px: sticky bar + overlay drawer (does not push form content)
   const [navOpen, setNavOpen] = useState(false);
+  const closeNav = () => setNavOpen(false);
+  const toggleNav = () => setNavOpen(o => !o);
+
+  useEffect(() => { setNavOpen(false); }, [location.pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [navOpen]);
 
   const readIds = () => ({
     screeningId:  validId(localStorage.getItem('current_screening_id')),
@@ -193,6 +205,13 @@ export default function Sidebar({ currentForm }) {
         return;
       }
 
+      /* Keep no_ppv lock from Form B — consent OK must not wipe it */
+      if (localStorage.getItem('enrollment_lock_reason') === 'no_ppv') {
+        localStorage.setItem('enrollment_locked', 'true');
+        setEnrollmentLocked(true);
+        return;
+      }
+
       if (consentAllowsEnrollment(consent)) {
         localStorage.removeItem('enrollment_locked');
         localStorage.removeItem('enrollment_lock_reason');
@@ -213,46 +232,108 @@ export default function Sidebar({ currentForm }) {
     return eid ? `${form.path}/${eid}` : form.path;
   };
 
+  const FORMS_ALLOWED_WHEN_NO_PPV = new Set(["form_a", "form_b", "form_c"]);
+
+  const getLockReason = () => localStorage.getItem("enrollment_lock_reason");
+
   const isUnlocked = (formId) => {
     /* Form A always stays open so GA / consent can be corrected */
-    if (formId === 'form_a') return true;
+    if (formId === "form_a") return true;
+
+    const reason = getLockReason();
+    /* PPV not required: Forms A–C stay open; D+ stay closed */
+    if (enrollmentLocked && reason === "no_ppv") {
+      return FORMS_ALLOWED_WHEN_NO_PPV.has(formId);
+    }
     if (enrollmentLocked) return false;
     return (PREREQS[formId] || []).every(p => completedForms.includes(p));
   };
 
   const lockMessage = () => {
-    const reason = localStorage.getItem('enrollment_lock_reason');
-    if (reason === 'ga_out_of_range') {
-      return 'Other forms locked — gestational age is outside the eligibility window (25w0d–31w6d).';
+    const reason = getLockReason();
+    if (reason === "ga_out_of_range") {
+      return "Other forms locked — gestational age is outside the eligibility window (25w0d–31w6d).";
     }
-    if (reason === 'ga_unknown') {
-      return 'Other forms locked — gestational age cannot be determined.';
+    if (reason === "ga_unknown") {
+      return "Other forms locked — gestational age cannot be determined.";
     }
-    if (reason === 'exclusion') {
-      return 'Other forms locked — exclusion criteria present.';
+    if (reason === "exclusion") {
+      return "Other forms locked — exclusion criteria present.";
     }
-    if (reason === 'no_ppv') {
-      return 'Other forms locked — PPV not required; participation ended.';
+    if (reason === "no_ppv") {
+      return "Forms after Form C are locked — resuscitation (PPV) not required. Only Forms A–C can be completed.";
     }
     if (enrollmentLocked) {
-      return 'Enrollment locked — consent not given or participant not eligible.';
+      return "Enrollment locked — consent not given or participant not eligible.";
     }
     return null;
   };
 
   const progressPct = TOTAL_FORMS > 0 ? Math.round((completedForms.length / TOTAL_FORMS) * 100) : 0;
+  const currentMeta = getCurrentFormMeta(currentForm);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${navOpen ? ' is-drawer-open' : ''}`}>
 
+      {/* Narrow screens: one sticky chrome bar */}
+      <div className="sidebar-sticky-bar">
+        <button
+          type="button"
+          className="sidebar-menu-btn"
+          onClick={toggleNav}
+          aria-expanded={navOpen}
+          aria-controls="sidebar-nav"
+          title={navOpen ? 'Close forms menu' : 'Open forms menu'}
+        >
+          {navOpen ? <X size={18} strokeWidth={2.5} /> : <Menu size={18} strokeWidth={2.5} />}
+        </button>
+
+        <button
+          type="button"
+          className="sidebar-sticky-brand"
+          onClick={() => { closeNav(); navigate('/dashboard'); }}
+          title="Dashboard"
+        >
+          <img src="/logo.png" alt="" className="sidebar-sticky-logo" />
+        </button>
+
+        <div className="sidebar-sticky-current">
+          <span className="sidebar-sticky-label">
+            {currentMeta ? currentMeta.label : 'PORTAL'}
+          </span>
+          <span className="sidebar-sticky-sub">
+            {currentMeta ? currentMeta.sub : 'Clinical EDC'}
+          </span>
+        </div>
+
+        <span className="sidebar-sticky-progress" title="Case progress">
+          {completedForms.length}/{TOTAL_FORMS}
+        </span>
+
+        <div className="sidebar-sticky-user">
+          <div className="sidebar-avatar" title={user?.name || 'User'}>
+            {(user?.name || 'U')[0].toUpperCase()}
+          </div>
+          <button
+            type="button"
+            className="sidebar-logout"
+            onClick={() => { localStorage.clear(); window.location.href = '/login'; }}
+            title="Log out"
+          >
+            <LogOut size={14} strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+
+      {/* Desktop header */}
       <div className="sidebar-header">
         <div className="sidebar-brand" onClick={() => navigate('/dashboard')} title="Dashboard">
           <div className="sidebar-logo-box">
-            <img src="/portal-logo.png" alt="PORTAL" className="sidebar-logo-img" />
+            <img src="/logo.png" alt="PORTAL" className="sidebar-logo-img" />
           </div>
           <div>
             <div className="sidebar-header-title">PORTAL Trial</div>
-            <div className="sidebar-header-sub">Clinical EDC · CRF v1.22</div>
+            <div className="sidebar-header-sub">Clinical EDC · CRF v1.25</div>
           </div>
         </div>
         <div className="sidebar-progress">
@@ -266,117 +347,121 @@ export default function Sidebar({ currentForm }) {
         </div>
       </div>
 
-      {/* Mobile/tablet-only bar: shows current form, tap to expand/collapse
-          the full forms list below instead of it always taking the space. */}
       <button
         type="button"
-        className="sidebar-mobile-toggle"
-        onClick={() => setNavOpen(o => !o)}
-        aria-expanded={navOpen}
-      >
-        <span className="sidebar-mobile-toggle-label">
-          {navOpen ? 'Hide forms list' : (getCurrentFormMeta(currentForm)?.label
-            ? `${getCurrentFormMeta(currentForm).label} · ${getCurrentFormMeta(currentForm).sub}`
-            : 'All forms')}
-        </span>
-        <span className="sidebar-mobile-toggle-icon">
-          {navOpen ? <X size={15} strokeWidth={2.5} /> : <Menu size={15} strokeWidth={2.5} />}
-        </span>
-      </button>
+        className="sidebar-drawer-backdrop"
+        aria-label="Close forms menu"
+        tabIndex={navOpen ? 0 : -1}
+        onClick={closeNav}
+      />
 
-      <nav className={`sidebar-nav${navOpen ? ' nav-open' : ''}`}>
-        <div className="sidebar-nav-inner">
-        <NavLink to="/dashboard"
-          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
-          <LayoutDashboard size={14} strokeWidth={2} />
-          <span>Dashboard</span>
-        </NavLink>
-        <NavLink to="/trial-monitoring"
-          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
-          <BarChart3 size={14} strokeWidth={2} />
-          <span>Trial Monitoring</span>
-        </NavLink>
-        <NavLink to="/helper-form-records"
-          className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
-          <ClipboardList size={14} strokeWidth={2} />
-          <span>Helper Form Records</span>
-        </NavLink>
-        <div className="sidebar-sep" />
-
-        {!isProgressLoaded ? (
-          <div className="sidebar-loading">
-            <div className="sb-dots"><span/><span/><span/></div>
-            <span>Loading…</span>
+      <nav id="sidebar-nav" className={`sidebar-nav${navOpen ? ' nav-open' : ''}`}>
+        <div className="sidebar-drawer-head">
+          <div>
+            <div className="sidebar-drawer-title">Forms</div>
+            <div className="sidebar-drawer-sub">PORTAL Trial · CRF v1.25</div>
           </div>
-        ) : SECTIONS.map(section => {
-          const done  = section.items.filter(i => completedForms.includes(i.id)).length;
-          const total = section.items.length;
-          return (
-            <div key={section.key} className="sidebar-section">
-              <div className="sidebar-section-header">
-                <span className="sidebar-section-title">{section.title}</span>
-                <span className={`sidebar-section-badge ${done === total ? 'all-done' : ''}`}>
-                  {done}/{total}
-                </span>
-              </div>
+          <button type="button" className="sidebar-drawer-close" onClick={closeNav} aria-label="Close">
+            <X size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+        <div className="sidebar-nav-inner">
+          <NavLink to="/dashboard"
+            onClick={closeNav}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <LayoutDashboard size={14} strokeWidth={2} />
+            <span>Dashboard</span>
+          </NavLink>
+          <NavLink to="/trial-monitoring"
+            onClick={closeNav}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <BarChart3 size={14} strokeWidth={2} />
+            <span>Trial Monitoring</span>
+          </NavLink>
+          <NavLink to="/helper-form-records"
+            onClick={closeNav}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <ClipboardList size={14} strokeWidth={2} />
+            <span>Helper Form Records</span>
+          </NavLink>
+          <div className="sidebar-sep" />
 
-              {section.items.map(form => {
-                const completed = completedForms.includes(form.id);
-                const unlocked  = isUnlocked(form.id);
-                const locked    = !unlocked;
-                const isCurrent = currentForm === form.id;
-                const { Icon }  = form;
-                const path      = getPath(form);
-                const stateClass = locked ? 'state-locked' : completed ? 'state-done' : isCurrent ? 'state-active' : 'state-open';
+          {!isProgressLoaded ? (
+            <div className="sidebar-loading">
+              <div className="sb-dots"><span/><span/><span/></div>
+              <span>Loading…</span>
+            </div>
+          ) : SECTIONS.map(section => {
+            const done  = section.items.filter(i => completedForms.includes(i.id)).length;
+            const total = section.items.length;
+            return (
+              <div key={section.key} className="sidebar-section">
+                <div className="sidebar-section-header">
+                  <span className="sidebar-section-title">{section.title}</span>
+                  <span className={`sidebar-section-badge ${done === total ? 'all-done' : ''}`}>
+                    {done}/{total}
+                  </span>
+                </div>
 
-                return (
-                  <NavLink key={form.id} to={locked ? '#' : path}
-                    onClick={e => {
-                      if (locked) {
-                        e.preventDefault();
-                        const msg = lockMessage();
-                        if (msg) {
-                          alert(msg);
+                {section.items.map(form => {
+                  const completed = completedForms.includes(form.id);
+                  const unlocked  = isUnlocked(form.id);
+                  const locked    = !unlocked;
+                  const isCurrent = currentForm === form.id;
+                  const { Icon }  = form;
+                  const path      = getPath(form);
+                  const stateClass = locked ? 'state-locked' : completed ? 'state-done' : isCurrent ? 'state-active' : 'state-open';
+
+                  return (
+                    <NavLink key={form.id} to={locked ? '#' : path}
+                      onClick={e => {
+                        if (locked) {
+                          e.preventDefault();
+                          const msg = lockMessage();
+                          if (msg) {
+                            alert(msg);
+                            return;
+                          }
+                          const missing = (PREREQS[form.id] || [])
+                            .filter(p => !completedForms.includes(p))
+                            .map(p => p === 'form_a' ? 'Form A (Screening)' : 'Form B (Birth & Resuscitation)')
+                            .join(' and ');
+                          alert(`Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
                           return;
                         }
-                        const missing = (PREREQS[form.id] || [])
-                          .filter(p => !completedForms.includes(p))
-                          .map(p => p === 'form_a' ? 'Form A (Screening)' : 'Form B (Birth & Resuscitation)')
-                          .join(' and ');
-                        alert(`Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
+                        closeNav();
+                      }}
+                      className={({ isActive }) =>
+                        `sidebar-item ${stateClass}${isActive && !locked ? ' nav-active' : ''}`
                       }
-                    }}
-                    className={({ isActive }) =>
-                      `sidebar-item ${stateClass}${isActive && !locked ? ' nav-active' : ''}`
-                    }
-                  >
-                    {isCurrent && !locked && <div className="item-accent" />}
-                    <div className={`item-icon ${stateClass}`}>
-                      {locked    ? <Lock  size={12} strokeWidth={2.5} /> :
-                       completed ? <Check size={12} strokeWidth={3}   /> :
-                                   <Icon  size={12} strokeWidth={2}   />}
-                    </div>
-                    <div className="item-text">
-                      <span className="item-label">{form.label}</span>
-                      <span className="item-sub">{form.sub}</span>
-                    </div>
-                    <div className="item-right">
-                      {completed ? (
-                        <span className="item-badge done">✓</span>
-                      ) : locked ? (
-                        <Lock size={10} strokeWidth={2.5} className="item-lock-icon" />
-                      ) : isCurrent ? (
-                        <span className="item-badge active">Active</span>
-                      ) : (
-                        <ChevronRight size={12} className="item-chevron" />
-                      )}
-                    </div>
-                  </NavLink>
-                );
-              })}
-            </div>
-          );
-        })}
+                    >
+                      {isCurrent && !locked && <div className="item-accent" />}
+                      <div className={`item-icon ${stateClass}`}>
+                        {locked    ? <Lock  size={12} strokeWidth={2.5} /> :
+                         completed ? <Check size={12} strokeWidth={3}   /> :
+                                     <Icon  size={12} strokeWidth={2}   />}
+                      </div>
+                      <div className="item-text">
+                        <span className="item-label">{form.label}</span>
+                        <span className="item-sub">{form.sub}</span>
+                      </div>
+                      <div className="item-right">
+                        {completed ? (
+                          <span className="item-badge done">✓</span>
+                        ) : locked ? (
+                          <Lock size={10} strokeWidth={2.5} className="item-lock-icon" />
+                        ) : isCurrent ? (
+                          <span className="item-badge active">Active</span>
+                        ) : (
+                          <ChevronRight size={12} className="item-chevron" />
+                        )}
+                      </div>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </nav>
 

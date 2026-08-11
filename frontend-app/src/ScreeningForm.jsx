@@ -11,7 +11,7 @@ import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
 import {
-  ArrowLeft, ArrowRight, Save, Home,
+  ArrowLeft, ArrowRight, Save, Home, Pencil,
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -440,11 +440,13 @@ export default function ScreeningForm() {
      value into the field). */
   useEffect(() => {
     if (!isSiteLocked) return;
-    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return; // don't clobber who actually screened an existing record
+    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return;
     if (formData.screened_by) return;
     if (!user?.full_name || !nurses.length) return;
-    if (!nurses.includes(user.full_name)) return;
-    setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: user.full_name });
+    const target = String(user.full_name).trim().toLowerCase();
+    const match = nurses.find(n => String(n).trim().toLowerCase() === target);
+    if (!match) return;
+    setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: match });
   }, [nurses, isSiteLocked, user, screeningId, formData.screened_by]);
 
   /* ─── LMP → EDD auto-calc ── */
@@ -1026,9 +1028,14 @@ export default function ScreeningForm() {
       )}
 
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot" />
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -1652,8 +1659,15 @@ export default function ScreeningForm() {
 
             </>)}
 
-            {/* ── NOTES BOX ── */}
-            <NotesBox formKey={`form_a_${formData.screening_id || "new"}`} />
+            {/* ── NOTES BOX ──
+                Prefer URL screeningId so we don't briefly key notes under
+                `form_a_new` while formData is still loading (that wipe bug
+                cleared notes when returning from Form B). */}
+            <NotesBox formKey={`form_a_${(
+              (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
+              || formData.screening_id
+              || "new"
+            )}`} />
 
             {message && <div className={`form-message${message.startsWith("✅") ? " msg-success" : message.startsWith("⚠️") ? " msg-warn" : " msg-error"}`}>{message}</div>}
 
@@ -1832,6 +1846,9 @@ export default function ScreeningForm() {
           </div>
         </div>
       )}
+
+      {/* Print report lives outside #root via portal — required for window.print() */}
+      <PrintSummary formData={formData} />
     </>
   );
 }

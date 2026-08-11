@@ -7,6 +7,7 @@ import "./styles/FormL.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { resolveEffectiveGestation } from "./utils/gestation";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -220,6 +221,11 @@ export default function FormL() {
       .then(async (res) => {
         const b = Array.isArray(res.data) ? res.data[0] : res.data;
         if (!b) return;
+        let formD = null;
+        try {
+          formD = (await api.get(`/postnatal-day1/${id}`)).data || null;
+        } catch { /* Form D optional */ }
+        const ga = resolveEffectiveGestation(b, formD);
         let resolvedSite = b.site_name || patientData?.site_name || patientData?.site || "";
         let mother = "";
         if (b.screening_id) {
@@ -240,8 +246,12 @@ export default function FormL() {
           ...p,
           enrollment_id: id,
           dob: p.dob || b.date_of_birth || "",
-          gestation_weeks: p.gestation_weeks !== "" && p.gestation_weeks != null ? p.gestation_weeks : (b.gestation_weeks ?? ""),
-          gestation_days: p.gestation_days !== "" && p.gestation_days != null ? p.gestation_days : (b.gestation_days ?? ""),
+          gestation_weeks: p.gestation_weeks !== "" && p.gestation_weeks != null
+            ? p.gestation_weeks
+            : (ga.weeks ?? ""),
+          gestation_days: p.gestation_days !== "" && p.gestation_days != null
+            ? p.gestation_days
+            : (ga.days ?? ""),
           mother_name: p.mother_name || mother || "",
         }));
       })

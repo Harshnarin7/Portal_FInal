@@ -150,10 +150,11 @@
    use, so the header adapts at the same width the sidebar stacks at,
    instead of staying squeezed into a 3-column desktop grid until 768px. */
 @media (max-width: 1024px) {
-  .header-inner { grid-template-columns: 100px 1fr 100px; min-height: 96px; }
-  .header-logo-box { width: 52px; height: 52px; }
-  .header-titles h1 { font-size: 22px; }
-  .header-subtitle { max-width: 100%; }
+  /* Sidebar already carries brand + progress on narrow layouts.
+     Hiding this tall hero frees the viewport for the actual CRF. */
+  .app-header {
+    display: none !important;
+  }
 }
 
 @media (max-width: 768px) {

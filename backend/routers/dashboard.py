@@ -1377,3 +1377,394 @@ def get_enrollment_trend(
         "total_randomised": cumulative,
         "by_date":          by_date,
     }
+
+
+# ============================================================
+# GET /dashboard/ops-summary — Clinical Ops dashboard (live only)
+# Available to any authenticated user; site-scoped like CONSORT.
+# ============================================================
+
+@router.get("/ops-summary")
+def get_ops_summary(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    global_view = is_global(current_user)
+    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    site_set = set(s for s in sites if s)
+
+    KPI_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__unknown__') AS site_name,
+            COUNT(*) AS screened,
+            SUM(CASE WHEN s.screening_status = 'Eligible' THEN 1 ELSE 0 END) AS eligible,
+            SUM(CASE WHEN s.screening_status = 'Screen Failure' THEN 1 ELSE 0 END) AS screen_failures,
+            SUM(CASE WHEN s.screening_status = 'Not Eligible' THEN 1 ELSE 0 END) AS not_eligible,
+            SUM(CASE WHEN s.enrollment_id IS NOT NULL AND s.enrollment_id <> '' THEN 1 ELSE 0 END) AS with_enrollment_id,
+            SUM(CASE WHEN s.consent_given = 'Yes' THEN 1 ELSE 0 END) AS consented
+        FROM screenings s
+        WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY COALESCE(s.site_name, '__unknown__')
+    """)
+
+    RAND_Q = text("""
+        SELECT
+            COALESCE(s.site_name, '__unknown__') AS site_name,
+            COUNT(*) AS randomised
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE
+          AND COALESCE(s.is_deleted, FALSE) = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY COALESCE(s.site_name, '__unknown__')
+    """)
+
+    MONTHLY_Q = text("""
+        SELECT
+            TO_CHAR(DATE_TRUNC('month', COALESCE(br.created_at, NOW())), 'Mon') AS m,
+            DATE_TRUNC('month', COALESCE(br.created_at, NOW())) AS month_start,
+            COUNT(*) AS n
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE
+          AND COALESCE(s.is_deleted, FALSE) = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+        GROUP BY DATE_TRUNC('month', COALESCE(br.created_at, NOW()))
+        ORDER BY month_start
+    """)
+
+    MONTHLY_SITE_Q = text("""
+        SELECT
+            TO_CHAR(DATE_TRUNC('month', COALESCE(br.created_at, NOW())), 'Mon') AS m,
+            DATE_TRUNC('month', COALESCE(br.created_at, NOW())) AS month_start,
+            COUNT(*) AS n
+        FROM birth_resuscitation br
+        JOIN screenings s ON s.screening_id = br.screening_id
+        WHERE br.randomised = TRUE
+          AND COALESCE(s.is_deleted, FALSE) = FALSE
+          AND s.site_name = :site
+        GROUP BY DATE_TRUNC('month', COALESCE(br.created_at, NOW()))
+        ORDER BY month_start
+    """)
+
+    RECENT_Q = text("""
+        SELECT
+            s.screening_id,
+            s.enrollment_id,
+            s.site_name,
+            s.screening_status,
+            s.updated_at,
+            s.created_at
+        FROM screenings s
+        WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+        ORDER BY COALESCE(s.updated_at, s.created_at) DESC NULLS LAST
+        LIMIT 40
+    """)
+
+    SAE_LIST_Q = text("""
+        SELECT
+            sr.id,
+            sr.enrollment_id,
+            sr.site,
+            sr.diagnosis,
+            sr.severity,
+            sr.outcome,
+            sr.report_type,
+            sr.report_date,
+            sr.ongoing
+        FROM sae_reports sr
+        ORDER BY sr.id DESC
+        LIMIT 50
+    """)
+
+    kpi_rows = db.execute(KPI_Q).mappings().all()
+    rand_rows = {r["site_name"]: int(r["randomised"] or 0) for r in db.execute(RAND_Q).mappings().all()}
+
+    by_site = []
+    totals = {
+        "screened": 0,
+        "eligible": 0,
+        "screen_failures": 0,
+        "not_eligible": 0,
+        "with_enrollment_id": 0,
+        "consented": 0,
+        "randomised": 0,
+    }
+    for r in kpi_rows:
+        site = r["site_name"]
+        if site_set and site not in site_set:
+            continue
+        sc = int(r["screened"] or 0)
+        el = int(r["eligible"] or 0)
+        sf = int(r["screen_failures"] or 0)
+        ne = int(r["not_eligible"] or 0)
+        we = int(r["with_enrollment_id"] or 0)
+        co = int(r["consented"] or 0)
+        rn = rand_rows.get(site, 0)
+        by_site.append({
+            "site": site,
+            "screened": sc,
+            "eligible": el,
+            "screen_failures": sf,
+            "enrolled": rn,
+            "consented": co,
+        })
+        totals["screened"] += sc
+        totals["eligible"] += el
+        totals["screen_failures"] += sf
+        totals["not_eligible"] += ne
+        totals["with_enrollment_id"] += we
+        totals["consented"] += co
+        totals["randomised"] += rn
+
+    by_site.sort(key=lambda x: x["enrolled"], reverse=True)
+
+    if not global_view and site_set:
+        site_name = next(iter(site_set))
+        monthly_src = db.execute(MONTHLY_SITE_Q, {"site": site_name}).mappings().all()
+    else:
+        monthly_src = db.execute(MONTHLY_Q).mappings().all()
+    monthly = [
+        {"m": r["m"], "n": int(r["n"] or 0), "month_start": str(r["month_start"])[:10]}
+        for r in monthly_src
+    ]
+
+    site_totals = {s: 0 for s in ALL_SITES}
+    site_counts = {s: {k: 0 for k, _ in FORM_KEYS} for s in ALL_SITES}
+    for row in db.execute(COMPLETION_QUERY).mappings():
+        site = row["site_name"]
+        if site_set and site not in site_set:
+            continue
+        if site not in site_totals:
+            continue
+        site_totals[site] = site_totals.get(site, 0) + 1
+        for key, _ in FORM_KEYS:
+            if row.get(key):
+                site_counts[site][key] = site_counts[site].get(key, 0) + 1
+
+    scope_sites = sites if sites else ALL_SITES
+    overall_total = sum(site_totals.get(s, 0) for s in scope_sites)
+    form_completion = []
+    for key, label in FORM_KEYS:
+        n = sum(site_counts.get(s, {}).get(key, 0) for s in scope_sites)
+        pct = round(100 * n / overall_total, 1) if overall_total else 0
+        form_completion.append({"key": key, "label": label, "n": n, "total": overall_total, "pct": pct})
+
+    ACTION_LABELS = {
+        "consented_no_form_b": "Consented but Form B not entered",
+        "randomised_no_form_c": "Randomised but Form C missing",
+        "randomised_no_form_i": "Randomised but Form I missing",
+        "few_day_logs": "Randomised >=7 days with <7 Resp/CV/Neuro logs",
+    }
+    action_items = {k: [] for k in ACTION_LABELS}
+    action_counts = {k: 0 for k in ACTION_LABELS}
+    for row in db.execute(ACTION_LIST_QUERY).mappings():
+        site = row["site_name"]
+        if site_set and site not in site_set:
+            continue
+        issue = row["issue"]
+        if issue not in ACTION_LABELS:
+            continue
+        action_counts[issue] += 1
+        if len(action_items[issue]) < 8:
+            action_items[issue].append({"site": site, "ref": row["ref_id"]})
+
+    tasks = [
+        {
+            "key": k,
+            "title": ACTION_LABELS[k],
+            "count": action_counts[k],
+            "items": [f"{it['ref']} · {it['site']}" for it in action_items[k]],
+        }
+        for k in ACTION_LABELS
+    ]
+    pending_forms = (
+        action_counts.get("consented_no_form_b", 0)
+        + action_counts.get("randomised_no_form_c", 0)
+        + action_counts.get("randomised_no_form_i", 0)
+    )
+    log_gaps = action_counts.get("few_day_logs", 0)
+
+    sae_rows = []
+    for r in db.execute(SAE_LIST_Q).mappings().all():
+        site = r["site"] or ""
+        if site_set:
+            if not site or site not in site_set:
+                continue
+        resolved = (r["outcome"] or "").lower() in ("recovered", "resolved", "fatal")
+        sae_rows.append({
+            "id": f"SAE-{r['id']}",
+            "enrollment_id": r["enrollment_id"],
+            "site": site or "—",
+            "diagnosis": r["diagnosis"] or "SAE",
+            "severity": r["severity"] or "—",
+            "outcome": r["outcome"] or "—",
+            "report_type": r["report_type"] or "—",
+            "ongoing": bool(r["ongoing"]),
+            "open": bool(r["ongoing"]) or not resolved,
+        })
+    open_saes = sum(1 for s in sae_rows if s["open"])
+
+    safety = {"randomised_n": totals["randomised"], "mortality": {}, "morbidities": {}}
+    try:
+        if global_view:
+            mort = db.execute(text("""
+                SELECT
+                    COUNT(so.enrollment_id) AS n,
+                    SUM(CASE WHEN so.mortality_in_hospital = TRUE THEN 1 ELSE 0 END) AS n_hosp,
+                    SUM(CASE WHEN so.mortality_28_days = TRUE THEN 1 ELSE 0 END) AS n_28d
+                FROM study_outcomes so
+                JOIN birth_resuscitation br ON br.enrollment_id = so.enrollment_id AND br.randomised = TRUE
+                JOIN screenings s ON s.screening_id = br.screening_id
+                WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+                  AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+            """)).mappings().first()
+        else:
+            mort = db.execute(text("""
+                SELECT
+                    COUNT(so.enrollment_id) AS n,
+                    SUM(CASE WHEN so.mortality_in_hospital = TRUE THEN 1 ELSE 0 END) AS n_hosp,
+                    SUM(CASE WHEN so.mortality_28_days = TRUE THEN 1 ELSE 0 END) AS n_28d
+                FROM study_outcomes so
+                JOIN birth_resuscitation br ON br.enrollment_id = so.enrollment_id AND br.randomised = TRUE
+                JOIN screenings s ON s.screening_id = br.screening_id
+                WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+                  AND s.site_name = :site
+            """), {"site": next(iter(site_set), "")}).mappings().first()
+        n = int((mort or {}).get("n") or 0)
+        nh = int((mort or {}).get("n_hosp") or 0)
+        n28 = int((mort or {}).get("n_28d") or 0)
+        safety["mortality"] = {
+            "n": n,
+            "in_hospital": {"n": nh, "pct": round(100 * nh / n, 1) if n else 0},
+            "at_28_days": {"n": n28, "pct": round(100 * n28 / n, 1) if n else 0},
+        }
+    except Exception:
+        safety["mortality"] = {"n": 0, "in_hospital": {"n": 0, "pct": 0}, "at_28_days": {"n": 0, "pct": 0}}
+
+    try:
+        if global_view:
+            morb = db.execute(text("""
+                SELECT
+                    COUNT(nm.enrollment_id) AS n,
+                    SUM(CASE WHEN nm.bpd = TRUE THEN 1 ELSE 0 END) AS n_bpd,
+                    SUM(CASE WHEN nm.nec = TRUE THEN 1 ELSE 0 END) AS n_nec,
+                    SUM(CASE WHEN nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
+                    SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4') THEN 1 ELSE 0 END) AS n_ivh
+                FROM neonatal_morbidities nm
+                JOIN birth_resuscitation br ON br.enrollment_id = nm.enrollment_id AND br.randomised = TRUE
+                JOIN screenings s ON s.screening_id = br.screening_id
+                WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+                  AND s.site_name IS NOT NULL AND s.site_name NOT IN ('', 'DRAFT')
+            """)).mappings().first()
+        else:
+            morb = db.execute(text("""
+                SELECT
+                    COUNT(nm.enrollment_id) AS n,
+                    SUM(CASE WHEN nm.bpd = TRUE THEN 1 ELSE 0 END) AS n_bpd,
+                    SUM(CASE WHEN nm.nec = TRUE THEN 1 ELSE 0 END) AS n_nec,
+                    SUM(CASE WHEN nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
+                    SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4') THEN 1 ELSE 0 END) AS n_ivh
+                FROM neonatal_morbidities nm
+                JOIN birth_resuscitation br ON br.enrollment_id = nm.enrollment_id AND br.randomised = TRUE
+                JOIN screenings s ON s.screening_id = br.screening_id
+                WHERE COALESCE(s.is_deleted, FALSE) = FALSE
+                  AND s.site_name = :site
+            """), {"site": next(iter(site_set), "")}).mappings().first()
+        n = int((morb or {}).get("n") or 0)
+
+        def _p(v):
+            vv = int(v or 0)
+            return {"n": vv, "pct": round(100 * vv / n, 1) if n else 0}
+
+        safety["morbidities"] = {
+            "n": n,
+            "bpd": _p((morb or {}).get("n_bpd")),
+            "nec": _p((morb or {}).get("n_nec")),
+            "rop_tx": _p((morb or {}).get("n_rop")),
+            "ivh_severe": _p((morb or {}).get("n_ivh")),
+        }
+    except Exception:
+        safety["morbidities"] = {
+            "n": 0,
+            "bpd": {"n": 0, "pct": 0},
+            "nec": {"n": 0, "pct": 0},
+            "rop_tx": {"n": 0, "pct": 0},
+            "ivh_severe": {"n": 0, "pct": 0},
+        }
+
+    activities = []
+    for r in db.execute(RECENT_Q).mappings().all():
+        site = r["site_name"]
+        if site_set and site not in site_set:
+            continue
+        status = r["screening_status"] or "Updated"
+        eid = r["enrollment_id"] or r["screening_id"]
+        ts = r["updated_at"] or r["created_at"]
+        when = "—"
+        if ts:
+            try:
+                aware = ts if getattr(ts, "tzinfo", None) else ts.replace(tzinfo=timezone.utc)
+                delta = datetime.now(timezone.utc) - aware
+                mins = int(delta.total_seconds() // 60)
+                if mins < 60:
+                    when = f"{max(mins, 0)}m"
+                elif mins < 1440:
+                    when = f"{mins // 60}h"
+                else:
+                    when = f"{mins // 1440}d"
+            except Exception:
+                when = "—"
+        col = "#0E7C7B"
+        if status == "Screen Failure":
+            col = "#ef4444"
+        elif status == "Eligible":
+            col = "#22c55e"
+        activities.append({
+            "col": col,
+            "txt": f"{status} — {eid} ({site})",
+            "t": when,
+        })
+        if len(activities) >= 8:
+            break
+
+    arms = [
+        {"name": "30% O₂", "value": 0, "color": "#3b82f6"},
+        {"name": "60% O₂", "value": 0, "color": "#0E7C7B"},
+        {"name": "90% O₂", "value": 0, "color": "#E8A020"},
+    ]
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "target": 700,
+        "kpis": {
+            "screened": totals["screened"],
+            "eligible": totals["eligible"],
+            "screen_failures": totals["screen_failures"],
+            "enrolled": totals["randomised"],
+            "consented": totals["consented"],
+            "open_saes": open_saes,
+            "pending_forms": pending_forms,
+            "log_gaps": log_gaps,
+            "eligible": totals["eligible"],
+        },
+        "by_site": by_site,
+        "monthly": monthly,
+        "arms": arms,
+        "arms_note": "Trial arm allocation is blinded and not exposed in live ops data.",
+        "form_completion": form_completion,
+        "tasks": tasks,
+        "saes": sae_rows[:20],
+        "safety": safety,
+        "activities": activities,
+        "notifications": [
+            {
+                "type": "info" if "Eligible" in a["txt"] else ("error" if "Failure" in a["txt"] else "warn"),
+                "msg": a["txt"],
+                "time": f"{a['t']} ago" if a["t"] != "—" else "—",
+            }
+            for a in activities[:5]
+        ],
+    }

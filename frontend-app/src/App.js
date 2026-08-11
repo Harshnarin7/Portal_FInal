@@ -38,6 +38,7 @@ import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
 import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
 import Login from "./Login";
+import ChangePassword from "./ChangePassword";
 import LandingPage from "./LandingPage";
 import ManageStaff from "./ManageStaff";
 
@@ -56,6 +57,8 @@ function AppContent() {
 
   const isLandingPage = location.pathname === "/";
   const isLoginPage   = location.pathname === "/login";
+  const isChangePasswordPage = location.pathname === "/change-password";
+  const isAuthChromePage = isLoginPage || isChangePasswordPage;
 
   const isFormPage =
     location.pathname.includes("/form-") ||
@@ -70,15 +73,15 @@ function AppContent() {
   return (
     <div className={`app-container ${isFormPage ? "form-page-layout" : ""}`}>
 
-      {/* ===== HEADER — hidden on landing page and form pages only ===== */}
-      {!isFormPage && !isLandingPage && (
+      {/* ===== HEADER — hidden on landing, login, password change, forms ===== */}
+      {!isFormPage && !isLandingPage && !isAuthChromePage && (
         <header className="app-header">
           <div className="header-inner">
 
             {/* LEFT — PORTAL logo */}
             <div className="header-logo-panel">
               <div className="header-logo-box">
-                <img src="/portal-logo.png" alt="PORTAL Trial Logo" className="header-logo-img" />
+                <img src="/logo.png" alt="PORTAL Trial Logo" className="header-logo-img" />
               </div>
               <span className="header-logo-label">PORTAL</span>
             </div>
@@ -102,7 +105,7 @@ function AppContent() {
             {/* RIGHT — ICMR logo */}
             <div className="header-logo-panel">
               <div className="header-logo-box">
-                <img src="/icmr-logo.svg" alt="ICMR Logo" className="header-logo-img" />
+                <img src="/icmr-logo.jpg" alt="ICMR Logo" className="header-logo-img" />
               </div>
               <span className="header-logo-label">ICMR</span>
             </div>
@@ -120,8 +123,8 @@ function AppContent() {
         </header>
       )}
 
-        {/* ===== NAVBAR — hidden on landing page and login page ===== */}
-        {token && !isFormPage && !isLandingPage && !isLoginPage && (
+        {/* ===== NAVBAR — hidden on landing / login / password change ===== */}
+        {token && !isFormPage && !isLandingPage && !isAuthChromePage && (
           <nav className="nav-bar">
             <div className="nav-links">
               <NavLink
@@ -182,6 +185,7 @@ function AppContent() {
         <PatientProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/change-password" element={<ChangePassword />} />
             <Route
               path="*"
               element={
@@ -225,7 +229,7 @@ function AppContent() {
         </PatientProvider>
 
         {/* ===== FOOTER ===== */}
-        {!isFormPage && !isLandingPage && (
+        {!isFormPage && !isLandingPage && !isAuthChromePage && (
           <footer className="app-footer">
             <p>© 2025 PORTAL Trial | Developed for Clinical Research Data Entry</p>
           </footer>

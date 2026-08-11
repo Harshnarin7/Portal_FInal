@@ -2330,11 +2330,16 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     hypoglycemia_rx:        Optional[bool]  = None  # #3
     highest_glucose:        Optional[str]   = None  # #4
     insulin:                Optional[bool]  = None  # #5
-    metabolic_acidosis:     Optional[bool]  = None  # #6
-    sodium_value:           Optional[str]   = None  # #7
-    potassium_value:        Optional[str]   = None  # #8
-    ionized_calcium_value:  Optional[str]   = None  # #9
+    metabolic_acidosis:     Optional[bool]  = None  # #6 (derived)
+    sodium_value:           Optional[str]   = None  # #7 summary
+    potassium_value:        Optional[str]   = None  # #8 summary
+    ionized_calcium_value:  Optional[str]   = None  # #9 summary
     osteopenia_suspected:   Optional[bool]  = None  # #10
+
+    ph_readings_json:         Optional[str] = None
+    sodium_readings_json:     Optional[str] = None
+    potassium_readings_json:  Optional[str] = None
+    calcium_readings_json:    Optional[str] = None
 
     # Legacy — superseded by the numbered fields above
     hypoglycemia:           Optional[bool]  = None
@@ -2343,13 +2348,17 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     dyselectrolytemia_type: Optional[str]   = None
 
     # 4.2 Renal
-    aki_stage:              Optional[str]   = None  # #11
-    creatinine:             Optional[float] = None  # #12
-    urine_output_total:     Optional[str]   = None  # #13
+    aki_suspected:          Optional[bool]  = None  # #11 Yes/No
+    aki_stage:              Optional[str]   = None  # KDIGO stage when #11 Yes
+    creatinine:             Optional[float] = None  # legacy float
+    creatinine_value:       Optional[str]   = None  # #12 numeric | Not Tested | Awaited
+    urine_output_8am_2pm:   Optional[float] = None
+    urine_output_2pm_8pm:   Optional[float] = None
+    urine_output_8pm_8am:   Optional[float] = None
+    urine_output_total:     Optional[str]   = None  # #13 summary (sum)
     dialysis_crrt:          Optional[bool]  = None  # #14
 
-    # Legacy — superseded by aki_stage / urine_output_total above
-    aki_suspected:          Optional[bool]  = None
+    # Legacy
     aki_kdigo_stage:        Optional[str]   = None
     urine_output_low:       Optional[bool]  = None
 
@@ -2395,7 +2404,7 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     @field_validator(
         "lowest_glucose", "hypoglycemia_episodes", "highest_glucose",
         "sodium_value", "potassium_value", "ionized_calcium_value",
-        "urine_output_total", "axillary_temperature",
+        "urine_output_total", "axillary_temperature", "creatinine_value",
         mode="before",
     )
     @classmethod

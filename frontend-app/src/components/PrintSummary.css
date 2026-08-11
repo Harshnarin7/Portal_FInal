@@ -14,15 +14,21 @@
 ════════════════════════════════════════════════════════════ */
 @media print {
 
-  /* Hide the React app root — safe because the report
-     is in #print-portal which is a sibling, not a child */
-  #root {
+  /* Hide the React app root only when a print summary is mounted.
+     Otherwise Form B/C print (or leftover CSS after leaving Form A)
+     would blank the page. */
+  body.has-print-summary #root {
     display: none !important;
   }
 
   /* Show the portal container */
   #print-portal {
     display: block !important;
+    visibility: visible !important;
+  }
+
+  #print-portal * {
+    visibility: visible !important;
   }
 
   /* Report root */

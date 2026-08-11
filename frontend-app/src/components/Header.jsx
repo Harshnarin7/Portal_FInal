@@ -9,7 +9,7 @@ const Header = ({ title, subtitle, siteName, idBadge }) => (
       {/* LEFT — PORTAL logo */}
       <div className="header-logo-panel">
         <div className="header-logo-box">
-          <img src="/portal-logo.png" alt="PORTAL Trial" className="header-logo-img" />
+          <img src="/logo.png" alt="PORTAL Trial" className="header-logo-img" />
         </div>
         
       </div>
@@ -39,7 +39,7 @@ const Header = ({ title, subtitle, siteName, idBadge }) => (
           </div>
         )}
         <div className="header-logo-box">
-          <img src="/icmr-logo.svg" alt="ICMR" className="header-logo-img" />
+          <img src="/icmr-logo.jpg" alt="ICMR" className="header-logo-img" />
         </div>
         
       </div>

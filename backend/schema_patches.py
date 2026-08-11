@@ -157,6 +157,15 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS axillary_temperature VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS location VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS survived_the_day BOOLEAN",
+    # Multi-entry reading JSON + creatinine string + urine windows (CRF redesign)
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS ph_readings_json TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS sodium_readings_json TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS potassium_readings_json TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS calcium_readings_json TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS creatinine_value VARCHAR",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8am_2pm DOUBLE PRECISION",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_2pm_8pm DOUBLE PRECISION",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8pm_8am DOUBLE PRECISION",
 ]
 
 MINIMAL_MONITORING_TABLE_PATCHES = [

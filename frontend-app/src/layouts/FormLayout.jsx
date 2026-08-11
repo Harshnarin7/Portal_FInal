@@ -9,16 +9,30 @@ import '../styles/Theme.css';
 const FormLayout = ({ children, currentForm, headerProps }) => {
   const navigate = useNavigate();
 
-  /* Block deep-links to Form B+ when screening locked out (GA / consent / exclusion).
-     Form A stays reachable so the nurse can correct eligibility. */
+  /* Block deep-links past allowed forms when enrollment is locked.
+     - Screen failure / consent / GA: only Form A
+     - PPV not required (no_ppv): Forms A–C only */
   useEffect(() => {
-    if (!currentForm || currentForm === 'form_a') return;
-    if (localStorage.getItem('enrollment_locked') !== 'true') return;
+    if (!currentForm || currentForm === "form_a") return;
+    if (localStorage.getItem("enrollment_locked") !== "true") return;
 
-    const sid = localStorage.getItem('current_screening_id');
-    const target = sid && sid !== 'undefined' && sid !== 'null'
-      ? `/form-a/${sid}`
-      : '/form-a';
+    const reason = localStorage.getItem("enrollment_lock_reason");
+    if (reason === "no_ppv" && (currentForm === "form_b" || currentForm === "form_c")) {
+      return;
+    }
+
+    const sid = localStorage.getItem("current_screening_id");
+    const eid = localStorage.getItem("current_enrollment_id");
+    let target;
+    if (reason === "no_ppv") {
+      target = eid && eid !== "undefined" && eid !== "null"
+        ? `/form-c/${eid}`
+        : (sid && sid !== "undefined" && sid !== "null" ? `/form-b/${sid}` : "/form-b");
+    } else {
+      target = sid && sid !== "undefined" && sid !== "null"
+        ? `/form-a/${sid}`
+        : "/form-a";
+    }
     navigate(target, { replace: true });
   }, [currentForm, navigate]);
 

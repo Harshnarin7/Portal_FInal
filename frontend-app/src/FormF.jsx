@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import "./styles/FormF.css";
 import NotesBox from "./components/NotesBox";
+import { resolveEffectiveGestation } from "./utils/gestation";
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS
@@ -343,8 +344,13 @@ export default function FormF() {
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
-        gaW = b.gestation_weeks ?? null;
-        gaD = b.gestation_days ?? null;
+        let formD = null;
+        try {
+          formD = (await api.get(`/postnatal-day1/${enrollmentId}`)).data || null;
+        } catch (_) { /* Form D optional */ }
+        const ga = resolveEffectiveGestation(b, formD);
+        gaW = ga.weeks ?? null;
+        gaD = ga.days ?? null;
         bw  = b.birth_weight != null ? Number(b.birth_weight) : null;
         dob = b.date_of_birth || "";
         setPatientInfo({ enrollmentId, gaWeeks: gaW, gaDays: gaD, birthWeight: bw, dob });
@@ -542,9 +548,14 @@ export default function FormF() {
   return (
     <>
       {isSaved && isEditing && (
-        <div className="cu-editing-banner">
-          <span className="cu-editing-dot" />
-          Editing mode active — changes will be saved when you click Save.
+        <div className="cu-editing-banner" role="status">
+          <span className="cu-editing-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="cu-editing-copy">
+            <span className="cu-editing-label">Editing mode</span>
+            <span className="cu-editing-hint">Changes will be saved when you click Save</span>
+          </div>
         </div>
       )}
 

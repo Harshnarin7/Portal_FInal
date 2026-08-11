@@ -282,6 +282,7 @@ export default function FormE() {
   const [formData, setFormData] = useState({
     enrollment_id: "",
     baby_uid: "", annual_number: "", baby_name: "", date_of_birth: "",
+    time_of_birth: "",
     admission_datetime: "", age_at_admission_hours: "",
     temp_dr: "",
     temp_skin: "", temp_axillary: "",
@@ -414,6 +415,15 @@ export default function FormE() {
           baby_name: motherName ? `Baby of ${motherName}` : (b?.baby_name || ""),
           annual_number: b?.annual_number || "",
           date_of_birth: formatDOB(b?.date_of_birth),
+          time_of_birth: (() => {
+            const t = b?.time_of_birth;
+            if (!t) return "";
+            const m = String(t).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+            if (!m) return String(t);
+            return m[3] !== undefined
+              ? `${m[1].padStart(2, "0")}:${m[2]}:${m[3]}`
+              : `${m[1].padStart(2, "0")}:${m[2]}:00`;
+          })(),
         }));
       });
 
@@ -518,13 +528,50 @@ export default function FormE() {
   }, [enrollmentId, resetInitialRender]);
 
   useEffect(() => {
-    if (!formData.date_of_birth || !formData.admission_datetime) return;
-    const birth = new Date(formData.date_of_birth + "T00:00:00");
-    const admission = new Date(formData.admission_datetime.replace("T", " "));
-    if (isNaN(birth.getTime()) || isNaN(admission.getTime())) return;
-    const diffHours = Math.floor((admission.getTime() - birth.getTime()) / (1000 * 60 * 60));
-    if (diffHours >= 0) setFormData(prev => ({ ...prev, age_at_admission_hours: diffHours }));
-  }, [formData.date_of_birth, formData.admission_datetime]);
+    if (!formData.date_of_birth || !formData.admission_datetime) {
+      if (formData.age_at_admission_hours !== "" && formData.age_at_admission_hours != null) {
+        setFormData(prev => ({ ...prev, age_at_admission_hours: "" }));
+      }
+      return;
+    }
+
+    /* Build local birth datetime (Form B date + time). Ignoring time_of_birth
+       and using midnight made age-at-admission hours systematically wrong. */
+    const dob = parseDateOnly(String(formData.date_of_birth).slice(0, 10));
+    if (!dob) return;
+    const tm = String(formData.time_of_birth || "00:00:00")
+      .match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (tm) {
+      dob.setHours(Number(tm[1]), Number(tm[2]), Number(tm[3] || 0), 0);
+    } else {
+      dob.setHours(0, 0, 0, 0);
+    }
+
+    /* admission_datetime is stored as "YYYY-MM-DDTHH:mm" via toDateTimeLocalValue */
+    const admMatch = String(formData.admission_datetime)
+      .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    let admission = null;
+    if (admMatch) {
+      admission = new Date(
+        Number(admMatch[1]), Number(admMatch[2]) - 1, Number(admMatch[3]),
+        Number(admMatch[4]), Number(admMatch[5]), Number(admMatch[6] || 0), 0
+      );
+    } else {
+      const fallback = new Date(formData.admission_datetime);
+      if (!isNaN(fallback.getTime())) admission = fallback;
+    }
+    if (!admission || isNaN(admission.getTime())) return;
+
+    const diffMs = admission.getTime() - dob.getTime();
+    if (diffMs < 0) {
+      setFormData(prev => ({ ...prev, age_at_admission_hours: "" }));
+      return;
+    }
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (String(formData.age_at_admission_hours) !== String(diffHours)) {
+      setFormData(prev => ({ ...prev, age_at_admission_hours: diffHours }));
+    }
+  }, [formData.date_of_birth, formData.time_of_birth, formData.admission_datetime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -830,7 +877,19 @@ export default function FormE() {
                   <div className="form-group">
                     <label>3. Date &amp; Time <span className="required">*</span> <span className="field-note">(DD/MM/YY; HH:MM)</span></label>
                     <DatePicker
-                      selected={formData.admission_datetime ? new Date(formData.admission_datetime) : null}
+                      selected={(() => {
+                        const v = formData.admission_datetime;
+                        if (!v) return null;
+                        const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+                        if (m) {
+                          return new Date(
+                            Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+                            Number(m[4]), Number(m[5]), Number(m[6] || 0), 0
+                          );
+                        }
+                        const d = new Date(v);
+                        return isNaN(d.getTime()) ? null : d;
+                      })()}
                       onChange={date => setFormData(prev => ({
                         ...prev, admission_datetime: date ? toDateTimeLocalValue(date) : ""
                       }))}
@@ -842,8 +901,12 @@ export default function FormE() {
                   <div className="form-group">
                     <label>4. Age at admission <span className="auto-tag">AUTO</span></label>
                     <div style={{ position:"relative" }}>
-                      <input value={formData.age_at_admission_hours || ""}
-                        readOnly className="readonly-input" placeholder="Auto-calculated"
+                      <input
+                        value={formData.age_at_admission_hours === "" || formData.age_at_admission_hours == null
+                          ? ""
+                          : formData.age_at_admission_hours}
+                        readOnly className="readonly-input"
+                        placeholder={formData.date_of_birth ? "Auto-calculated" : "Needs DOB from Form B"}
                         style={{ paddingRight: 52 }} />
                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
                         fontSize:11,color:"#94a3b8",fontWeight:600 }}>hours</span>

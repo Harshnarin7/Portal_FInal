@@ -12,6 +12,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { resolveEffectiveGestation } from "./utils/gestation";
 import {
   Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home, Clock,
 } from "lucide-react";
@@ -601,10 +602,15 @@ export default function FormI() {
       if (resolvedSite) setSiteName(resolvedSite);
 
       let birthData = {};
+      let formD = null;
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         birthData = res.data || {};
       } catch { /* no birth data found yet */ }
+      try {
+        formD = (await api.get(`/postnatal-day1/${enrollmentId}`)).data || null;
+      } catch { /* Form D optional */ }
+      const effectiveGa = resolveEffectiveGestation(birthData, formD);
 
       let existing = {};
       try {
@@ -617,7 +623,10 @@ export default function FormI() {
         ...prev,
         enrollment_id: enrollmentId || "",
         baby_uid: birthData?.baby_uid || existing?.baby_uid || "",
-        gestation_weeks: birthData?.gestation_weeks || screeningData?.gestation_weeks || existing?.gestation_weeks || "",
+        gestation_weeks:
+          (effectiveGa.weeks != null && effectiveGa.weeks !== "")
+            ? effectiveGa.weeks
+            : (screeningData?.gestation_weeks || existing?.gestation_weeks || ""),
         birth_weight: birthData?.birth_weight || existing?.birth_weight || "",
         dob: birthData?.date_of_birth || "",
         ...(existing.id ? {

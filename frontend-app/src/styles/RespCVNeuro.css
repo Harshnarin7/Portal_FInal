@@ -808,6 +808,18 @@
   box-shadow: inset 0 0 0 1.5px #7DD3FC;
   background: #F0F9FF;
 }
+.rcn-readonly-value {
+  min-width: 120px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0F172A;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .rcn-conditional-block {
   padding: 8px 10px;
   border-radius: 10px;

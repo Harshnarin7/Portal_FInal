@@ -453,13 +453,15 @@ export default function FormD() {
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
         const growth = deriveGrowthStatus(b?.intrauterine_centile);
 
-        // Set identification fields from Form B first
+        // Identification from Form B — use original_* so a Form D NBS
+        // overlay on GET /birth-resuscitation never seeds Form D's
+        // "previous GA" / non-NBS display with the NBS value itself.
         setFormData(prev => ({
           ...prev,
           enrollment_id:   b?.enrollment_id || enrollmentId,
           annual_number:   b?.baby_annual_no || prev.annual_number,
-          gestation_weeks: b?.gestation_weeks || "",
-          gestation_days:  b?.gestation_days  || "",
+          gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
+          gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
           original_gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
           original_gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
           birth_weight:    b?.birth_weight    || "",
@@ -1596,7 +1598,7 @@ export default function FormD() {
               </div>
             </div>
 
-            <NotesBox formKey={`form_d_${formData.enrollment_id || "new"}`}/>
+            <NotesBox formKey={`form_d_${enrollmentId || formData.enrollment_id || "new"}`}/>
 
             {message && (
               <div className={`form-message${message.startsWith("✅") ? " form-message--success" : " form-message--error"}`}>

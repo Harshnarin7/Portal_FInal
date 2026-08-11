@@ -186,6 +186,24 @@
   transition: background 0.15s;
 }
 .btn-export:hover { background: var(--c-surface-container-highest); }
+.btn-export:disabled { opacity: 0.55; cursor: not-allowed; }
+
+@keyframes fio2-spin {
+  to { transform: rotate(360deg); }
+}
+.fio2-spin { animation: fio2-spin 0.8s linear infinite; }
+
+.fio2-empty-state {
+  padding: 28px 20px;
+  text-align: center;
+  border: 1px dashed #CBD5E1;
+  border-radius: 12px;
+  background: #F8FAFC;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
 
 .btn-submit {
   padding: 8px 16px;

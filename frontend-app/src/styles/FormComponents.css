@@ -378,10 +378,14 @@
 }
 .yes-no-buttons {
   display: inline-flex; align-items: center; flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 0;
   position: relative;
   border: 1.5px solid #d1d5db; border-radius: 7px; overflow: hidden;
   background: #fff;
   width: 104px;
+  height: 32px;
+  box-sizing: border-box;
 }
 .yes-no-buttons.yn-wide {
   width: auto;
@@ -412,13 +416,17 @@
 .yes-no-buttons.yn-pos-2 .yn-thumb { transform: translateX(52px); background: #2563eb; }
 .yn-btn {
   position: relative; z-index: 1;
-  width: 52px; height: 32px; padding: 0;
+  flex: 0 0 52px;
+  width: 52px; height: 32px; min-height: 32px;
+  padding: 0;
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-  border: none; background: transparent; color: #9ca3af;
+  border: none; border-radius: 0;
+  background: transparent; color: #9ca3af;
   cursor: pointer; transition: color 0.15s;
   font-family: 'Inter', system-ui, sans-serif;
+  box-sizing: border-box;
 }
-.yn-btn:first-child { border-right: 1.5px solid #d1d5db; }
+.yes-no-buttons .yn-btn.yn-yes { border-right: 1.5px solid #d1d5db; }
 .yn-btn:hover:not(:disabled):not(.yn-active) { color: #374151; }
 .yn-btn.yn-active { color: #fff; }
 .yn-btn:disabled { cursor: not-allowed; }

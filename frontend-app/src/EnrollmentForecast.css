@@ -1,18 +1,19 @@
+/* EnrollmentForecast — soft mint/sky light theme */
+
 .ef-root {
   padding: 12px 0;
-  color: #c8daea;
+  color: #0b1c30;
 }
 
 .ef-state {
   padding: 32px;
   text-align: center;
-  color: #7a9bbb;
+  color: #4a5568;
   font-size: 14px;
 }
 
-.ef-error { color: #f87171; }
+.ef-error { color: #ba1a1a; }
 
-/* Controls */
 .ef-controls {
   display: flex;
   gap: 24px;
@@ -26,26 +27,29 @@
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #7a9bbb;
+  color: #0369a1;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 700;
 }
 
 .ef-control input {
-  background: #0f2233;
-  border: 1px solid #1e3a55;
-  border-radius: 6px;
-  color: #c8daea;
-  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  color: #0b1c30;
+  padding: 7px 11px;
   font-size: 14px;
   outline: none;
   width: 140px;
 }
 
 .ef-control input[type="number"] { width: 90px; }
-.ef-control input:focus { border-color: #22d3ee; }
+.ef-control input:focus {
+  border-color: #0e7c7b;
+  box-shadow: 0 0 0 3px rgba(14, 124, 123, 0.18);
+}
 
-/* Stats row */
 .ef-stats {
   display: flex;
   gap: 12px;
@@ -54,70 +58,75 @@
 }
 
 .ef-stat {
-  background: #0d1f30;
-  border: 1px solid #1a3449;
-  border-radius: 8px;
-  padding: 12px 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%);
+  border: 1px solid #d5e4f0;
+  border-radius: 12px;
+  padding: 14px 18px;
   min-width: 140px;
   flex: 1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .ef-stat-label {
   font-size: 11px;
-  color: #5a7a9a;
+  color: #0369a1;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 4px;
+  font-weight: 700;
 }
 
 .ef-stat-value {
-  font-size: 20px;
-  font-weight: 600;
-  color: #e2eaf2;
+  font-size: 22px;
+  font-weight: 750;
+  color: #0b1c30;
   line-height: 1.2;
 }
 
 .ef-stat-sub {
   font-size: 11px;
-  color: #5a7a9a;
+  color: #64748b;
   margin-top: 3px;
 }
 
-.ef-behind .ef-stat-value { color: #f87171; }
-.ef-ahead  .ef-stat-value { color: #4ade80; }
-.ef-projected .ef-stat-value { color: #facc15; font-size: 15px; }
+.ef-behind .ef-stat-value { color: #ba1a1a; }
+.ef-ahead  .ef-stat-value { color: #15803d; }
+.ef-projected .ef-stat-value { color: #0e7c7b; font-size: 15px; }
 
-/* Chart */
 .ef-chart-wrap {
-  background: #0a1a28;
-  border: 1px solid #1a3449;
-  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcff 100%);
+  border: 1px solid #d5e4f0;
+  border-radius: 14px;
   padding: 16px 8px 8px;
   margin-bottom: 12px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(2, 132, 199, 0.05);
 }
 
-/* Tooltip */
 .ef-tooltip {
-  background: #0d1f30;
-  border: 1px solid #1e3a55;
-  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.6;
+  color: #0b1c30;
+  box-shadow: 0 8px 20px rgba(2, 132, 199, 0.12);
 }
 
 .ef-tooltip-date {
-  color: #7a9bbb;
+  color: #0369a1;
   font-size: 11px;
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 700;
 }
 
-/* Timestamp */
 .ef-timestamp {
   font-size: 11px;
-  color: #3a5a7a;
+  color: #64748b;
   text-align: right;
   margin-top: 4px;
 }
