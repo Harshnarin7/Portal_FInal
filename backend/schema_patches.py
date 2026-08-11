@@ -164,7 +164,7 @@ MINIMAL_MONITORING_TABLE_PATCHES = [
     CREATE TABLE IF NOT EXISTS minimal_monitoring_day_logs (
         id SERIAL PRIMARY KEY,
         enrollment_id VARCHAR NOT NULL,
-        nicu_day INTEGER NOT NULL,
+        nicu_day INTEGER,
         record_date VARCHAR,
         shift VARCHAR,
         axillary_temp DOUBLE PRECISION,
@@ -216,8 +216,7 @@ MINIMAL_MONITORING_TABLE_PATCHES = [
         submitted_at TIMESTAMP,
         submitted_by VARCHAR,
         created_at TIMESTAMP,
-        updated_at TIMESTAMP,
-        CONSTRAINT uq_minimal_monitoring_enrollment_day UNIQUE (enrollment_id, nicu_day)
+        updated_at TIMESTAMP
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_minimal_monitoring_day_logs_enrollment_id ON minimal_monitoring_day_logs (enrollment_id)",
@@ -226,6 +225,14 @@ MINIMAL_MONITORING_TABLE_PATCHES = [
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS steroid_other VARCHAR",
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS apnea_shift VARCHAR",
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS feed_shift VARCHAR",
+    # Same-day scratchpad keying: (enrollment_id, record_date). Keep nicu_day for
+    # backward compatibility but stop requiring it; never submit/lock this form.
+    "ALTER TABLE minimal_monitoring_day_logs ALTER COLUMN nicu_day DROP NOT NULL",
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_minimal_monitoring_enrollment_date
+    ON minimal_monitoring_day_logs (enrollment_id, record_date)
+    WHERE record_date IS NOT NULL
+    """,
 ]
 
 

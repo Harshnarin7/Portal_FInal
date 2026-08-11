@@ -178,3 +178,105 @@
     width: 100% !important;
   }
 }
+
+/* ── Quick-nav rail (Form I pattern) ── */
+.mml-quicknav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 16px 24px 8px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.mml-quicknav button {
+  width: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1.5px solid #E2E8F0;
+  background: #F8FAFC;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.mml-quicknav button:hover {
+  border-color: #0F4C81;
+  color: #0F4C81;
+  background: #fff;
+}
+.mml-quicknav button.mml-quicknav-done {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: #ECFDF5;
+  color: #047857;
+}
+.mml-quicknav-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mml-quicknav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(15, 76, 129, 0.1);
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mml-quicknav-done .mml-quicknav-badge {
+  background: rgba(16, 185, 129, 0.18);
+}
+
+.mml-sheet-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0F4C81;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+  padding: 7px 12px;
+  display: inline-block;
+}
+
+.mml-section-card {
+  scroll-margin-top: 72px;
+}
+
+.rcn-status-banner--late {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.rcn-status-banner--late svg { color: #D97706; flex-shrink: 0; }
+
+@media (max-width: 720px) {
+  .mml-quicknav {
+    position: static;
+    margin: 12px 16px 8px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mml-quicknav::-webkit-scrollbar { display: none; }
+}

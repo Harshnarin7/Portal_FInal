@@ -1968,7 +1968,8 @@ class MinimalMonitoringDayLog(Base):
 
     id            = Column(Integer, primary_key=True, index=True)
     enrollment_id = Column(String, index=True, nullable=False)
-    nicu_day      = Column(Integer, nullable=False, index=True)
+    # Kept for backward compatibility; form is keyed by (enrollment_id, record_date).
+    nicu_day      = Column(Integer, nullable=True, index=True)
 
     record_date = Column(String, nullable=True)
     shift       = Column(String, nullable=True)
@@ -2037,12 +2038,9 @@ class MinimalMonitoringDayLog(Base):
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (
-        UniqueConstraint(
-            'enrollment_id', 'nicu_day',
-            name='uq_minimal_monitoring_enrollment_day'
-        ),
-    )
+    # Unique (enrollment_id, record_date) is enforced by partial index in schema_patches
+    # (uq_minimal_monitoring_enrollment_date). Legacy uq_minimal_monitoring_enrollment_day
+    # may still exist on older DBs.
 
 
 # ============================================================================

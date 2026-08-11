@@ -2421,7 +2421,7 @@ class MetabRenalVascEyeDayOut(MetabRenalVascEyeDayCreate):
 
 class MinimalMonitoringDayCreate(BaseModel):
     enrollment_id: str
-    nicu_day: int
+    nicu_day: Optional[int] = None
 
     record_date: Optional[str] = None
     shift: Optional[str] = None
@@ -2492,7 +2492,7 @@ class MinimalMonitoringDaySubmit(BaseModel):
 
 
 class MinimalMonitoringDayOut(MinimalMonitoringDayCreate):
-    id: int
+    id: Optional[int] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[str] = None
     created_at: Optional[datetime] = None

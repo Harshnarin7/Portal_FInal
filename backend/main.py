@@ -23,7 +23,7 @@ from models import (
     CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDaySubmit, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -3218,8 +3218,10 @@ def get_metab_renal_vasc_eye_day(
         MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
         MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
     ).first()
+    # Empty day is normal — return null (200) so the client can show a blank
+    # sheet without treating "not started yet" as an error.
     if not record:
-        raise HTTPException(status_code=404, detail="No data for this day")
+        return None
     return record
  
  
@@ -3306,174 +3308,99 @@ MINIMAL_MONITORING_FIELDS = [
 ]
 
 
-def _minimal_monitoring_completion_pct(r) -> int:
-    def ans(v):
-        if isinstance(v, (list, dict)):
-            return bool(v)
-        return v is not None and v != ""
-
-    # Prefer entries_json progress when present
-    import json as _json
-    raw = getattr(r, "entries_json", None)
-    if raw:
-        try:
-            entries = _json.loads(raw) if isinstance(raw, str) else raw
-            slots = 0
-            filled = 0
-            for block_entries in (entries or {}).values():
-                if not isinstance(block_entries, list):
-                    continue
-                for entry in block_entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    for k, v in entry.items():
-                        if k in ("id",):
-                            continue
-                        slots += 1
-                        if ans(v):
-                            filled += 1
-            if slots:
-                return min(100, round((filled / slots) * 100))
-        except Exception:
-            pass
-
-    total = len(MINIMAL_MONITORING_FIELDS)
-    done = sum(1 for key in MINIMAL_MONITORING_FIELDS if ans(getattr(r, key, None)))
-    if getattr(r, "symptomatic_status", None) == "symptomatic":
-        total += 1
-        if ans(getattr(r, "symptomatic_detail", None)):
-            done += 1
-    if "Other" in str(getattr(r, "postnatal_steroids", "") or ""):
-        total += 1
-        if ans(getattr(r, "steroid_other", None)):
-            done += 1
-    drugs = getattr(r, "vasoactive_drugs", None)
-    if not ans(drugs):
-        # dose/unit not expected when no vasoactive drugs
-        for skip in ("vasoactive_dose", "vasoactive_unit"):
-            if skip in MINIMAL_MONITORING_FIELDS and not ans(getattr(r, skip, None)):
-                total = max(1, total - 1)
-    return min(100, round((done / total) * 100)) if total else 0
+# Nurse-friendly day boundary (same idea as RespCVNeuroLog's RCN_LATE_GRACE_HOUR):
+# before boundary_hour local time, "today" still means the previous calendar date.
+MML_LATE_GRACE_HOUR = 8
 
 
-def _minimal_monitoring_can_submit(r) -> bool:
-    """CRF: fill when values available — only date + shift are required to lock a day."""
-    return bool(getattr(r, "record_date", None)) and bool(getattr(r, "shift", None))
+def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
+    now = datetime.now()
+    sheet = now.date()
+    if now.hour < max(0, min(23, int(boundary_hour))):
+        sheet = sheet - timedelta(days=1)
+    return sheet.isoformat()
 
 
-@app.get("/minimal-monitoring/{enrollment_id}/summary")
-def get_minimal_monitoring_summary(
+def _mml_empty_payload(enrollment_id: str, record_date: str) -> dict:
+    return {
+        "id": None,
+        "enrollment_id": enrollment_id,
+        "nicu_day": None,
+        "record_date": record_date,
+        "submission_status": "empty",
+        "entries_json": None,
+    }
+
+
+@app.get("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
+def get_minimal_monitoring_today(
     enrollment_id: str,
+    boundary_hour: int = MML_LATE_GRACE_HOUR,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Load today's scratchpad sheet. Does not create a row if none exists."""
     require_enrollment_access(enrollment_id, db, current_user)
-    records = (
+    record_date = _mml_sheet_date(boundary_hour)
+    record = (
         db.query(MinimalMonitoringDayLog)
-        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
-        .order_by(MinimalMonitoringDayLog.nicu_day)
-        .all()
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == record_date,
+        )
+        .first()
     )
-    return [
-        {
-            "nicu_day": r.nicu_day,
-            "submission_status": r.submission_status or "empty",
-            "completion_pct": _minimal_monitoring_completion_pct(r),
-            "saved_at": r.saved_at,
-            "submitted_at": r.submitted_at,
-        }
-        for r in records
-    ]
-
-
-@app.get("/minimal-monitoring/{enrollment_id}/{nicu_day}", response_model=MinimalMonitoringDayOut)
-def get_minimal_monitoring_day(
-    enrollment_id: str,
-    nicu_day: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    require_enrollment_access(enrollment_id, db, current_user)
-    record = db.query(MinimalMonitoringDayLog).filter(
-        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-        MinimalMonitoringDayLog.nicu_day == nicu_day,
-    ).first()
     if not record:
-        raise HTTPException(status_code=404, detail="No data for this day")
+        return _mml_empty_payload(enrollment_id, record_date)
     return record
 
 
-@app.post("/minimal-monitoring/", response_model=MinimalMonitoringDayOut)
-def create_minimal_monitoring_day(
+@app.put("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
+def upsert_minimal_monitoring_today(
+    enrollment_id: str,
     data: MinimalMonitoringDayCreate,
+    boundary_hour: int = MML_LATE_GRACE_HOUR,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_enrollment_access(data.enrollment_id, db, current_user)
-    existing = db.query(MinimalMonitoringDayLog).filter(
-        MinimalMonitoringDayLog.enrollment_id == data.enrollment_id,
-        MinimalMonitoringDayLog.nicu_day == data.nicu_day,
-    ).first()
-    if existing:
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
+    """Upsert today's scratchpad. Always editable — no submit/lock gating."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record_date = _mml_sheet_date(boundary_hour)
+    payload = data.model_dump(exclude_unset=True)
+    payload["enrollment_id"] = enrollment_id
+    payload["record_date"] = record_date
+    # Scratchpad is never locked; keep a soft draft marker for older clients.
+    if not payload.get("submission_status") or payload.get("submission_status") == "empty":
+        payload["submission_status"] = "draft"
+    if "saved_at" not in payload or payload.get("saved_at") is None:
+        payload["saved_at"] = datetime.utcnow()
+
+    record = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == record_date,
+        )
+        .first()
+    )
+    if record:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            if hasattr(record, key):
+                setattr(record, key, value)
         db.commit()
-        db.refresh(existing)
-        return existing
-    record = MinimalMonitoringDayLog(**data.model_dump())
+        db.refresh(record)
+        return record
+
+    # Only pass columns that exist on the model
+    col_keys = {c.name for c in MinimalMonitoringDayLog.__table__.columns}
+    create_data = {k: v for k, v in payload.items() if k in col_keys}
+    record = MinimalMonitoringDayLog(**create_data)
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
-
-
-@app.put("/minimal-monitoring/{enrollment_id}/{nicu_day}", response_model=MinimalMonitoringDayOut)
-def update_minimal_monitoring_day(
-    enrollment_id: str,
-    nicu_day: int,
-    data: MinimalMonitoringDayCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    require_enrollment_access(enrollment_id, db, current_user)
-    record = db.query(MinimalMonitoringDayLog).filter(
-        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-        MinimalMonitoringDayLog.nicu_day == nicu_day,
-    ).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Record not found - use POST to create")
-    if record.submission_status == "submitted":
-        raise HTTPException(status_code=403, detail="Day is submitted and locked")
-    for key, value in data.model_dump(exclude_unset=True).items():
-        if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
-            setattr(record, key, value)
-    db.commit()
-    db.refresh(record)
-    return record
-
-
-@app.patch("/minimal-monitoring/{enrollment_id}/{nicu_day}/submit")
-def submit_minimal_monitoring_day(
-    enrollment_id: str,
-    nicu_day: int,
-    data: MinimalMonitoringDaySubmit,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    require_enrollment_access(enrollment_id, db, current_user)
-    record = db.query(MinimalMonitoringDayLog).filter(
-        MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-        MinimalMonitoringDayLog.nicu_day == nicu_day,
-    ).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Day record not found")
-    record.submission_status = "submitted"
-    record.submitted_at = data.submitted_at
-    record.submitted_by = data.submitted_by
-    db.commit()
-    db.refresh(record)
-    return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 # ============================================================================
 # FORM H â€” CRANIAL USG ENDPOINTS
 # Add these to main.py

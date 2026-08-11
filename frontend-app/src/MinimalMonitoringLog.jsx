@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, AlertTriangle, ChevronDown, Edit, Lock, Plus, Save, Send, Trash2,
+  ArrowLeft, ChevronDown, Plus, Save, Trash2,
   Heart, Wind, Beaker, Utensils, Brain, Droplet,
 } from "lucide-react";
 import api from "./api/axios";
@@ -11,12 +11,8 @@ import { toDateOnlyValue } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
-const STATUS = {
-  EMPTY: "empty",
-  DRAFT: "draft",
-  COMPLETE: "complete",
-  SUBMITTED: "submitted",
-};
+/** Before this local hour, "today" still means the previous calendar date (server + client). */
+const MML_BOUNDARY_HOUR = 8;
 
 const SECTION_META = {
   cardiovascular: { code: "5.1", title: "Cardiovascular", icon: Heart },
@@ -26,6 +22,8 @@ const SECTION_META = {
   neurological: { code: "5.5", title: "Neurological", icon: Brain },
   hematology: { code: "5.6", title: "Hematology", icon: Droplet },
 };
+
+const SECTION_KEYS = Object.keys(SECTION_META);
 
 const BLOCK_TO_SECTION = {
   cv_a: "cardiovascular", cv_b: "cardiovascular", cv_c: "cardiovascular", cv_d: "cardiovascular",
@@ -228,29 +226,28 @@ function MetricCard({ label, value, tone = "blue" }) {
   );
 }
 
-function ProgressRing({ percent }) {
-  const r = 24;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (percent / 100) * circ;
-  return (
-    <div className="rcn-ring">
-      <svg width="58" height="58" viewBox="0 0 58 58">
-        <circle className="rcn-ring-bg" cx="29" cy="29" r={r} />
-        <circle className="rcn-ring-fill" cx="29" cy="29" r={r}
-          strokeDasharray={circ} strokeDashoffset={offset}
-          style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%" }} />
-      </svg>
-      <span className="rcn-ring-text">{percent}%</span>
-    </div>
-  );
-}
-
-function SectionCard({ icon: Icon, code, title, answered, total, children, defaultOpen = true }) {
-  const [open, setOpen] = useState(defaultOpen);
+function SectionCard({
+  icon: Icon,
+  code,
+  title,
+  answered,
+  total,
+  children,
+  defaultOpen = true,
+  open: openProp,
+  onToggle,
+  sectionRef,
+}) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const open = openProp !== undefined ? openProp : internalOpen;
+  const toggle = () => {
+    if (onToggle) onToggle(!open);
+    else setInternalOpen((o) => !o);
+  };
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
   return (
-    <section className="rcn-card">
-      <div className="rcn-card-header" onClick={() => setOpen(o => !o)}>
+    <section className="rcn-card mml-section-card" ref={sectionRef}>
+      <div className="rcn-card-header" onClick={toggle}>
         <div className="rcn-card-header-left">
           <div className="rcn-card-icon-wrap"><Icon size={20} className="rcn-card-icon" /></div>
           <div><h3 className="rcn-card-title">{code} {title}</h3></div>
@@ -388,52 +385,67 @@ export default function MinimalMonitoringLog() {
   const { markFormCompleted } = useFormProgress();
   const enrollmentId = params.enrollmentId || localStorage.getItem("current_enrollment_id") || "";
 
-  const [activeDay, setActiveDay] = useState(1);
-  const [totalDays, setTotalDays] = useState(14);
   const [entries, setEntries] = useState(emptyEntries);
-  const [dayStatuses, setDayStatuses] = useState({});
-  const [dayMeta, setDayMeta] = useState({});
+  const [sheetDate, setSheetDate] = useState("");
   const [patientInfo, setPatientInfo] = useState({ enrollmentId, motherName: "", babyUid: "", gestation: "" });
-  const [isSaved, setIsSaved] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState({});
+  const [saveTick, setSaveTick] = useState(0);
+  const hydratedRef = useRef(false);
+  const autosaveTimer = useRef(null);
 
-  const isSubmitted = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
-  const isEditable = !isSubmitted && (!isSaved || isEditing);
+  /* Quick-nav: one ref per top-level section (5.1–5.6) */
+  const sectionRefs = {
+    cardiovascular: useRef(null),
+    respiratory: useRef(null),
+    metabolic: useRef(null),
+    gastrointestinal: useRef(null),
+    neurological: useRef(null),
+    hematology: useRef(null),
+  };
+  const [openSections, setOpenSections] = useState(() =>
+    Object.fromEntries(SECTION_KEYS.map((k) => [k, true]))
+  );
+  const goToSection = (key) => {
+    setOpenSections((prev) => ({ ...prev, [key]: true }));
+    requestAnimationFrame(() => {
+      sectionRefs[key]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const isEditable = true;
   const counts = useMemo(() => countProgress(entries), [entries]);
 
   const setEntryField = (block, idx, key, value) => {
-    if (!isEditable) return;
     setEntries(prev => {
       const list = [...(prev[block] || [])];
       list[idx] = { ...list[idx], [key]: value };
       return { ...prev, [block]: list };
     });
     setErrors(prev => ({ ...prev, [`${block}.${idx}.${key}`]: null }));
+    setSaveTick((t) => t + 1);
   };
 
   const addEntry = (block, blank) => {
-    if (!isEditable) return;
     setEntries(prev => ({ ...prev, [block]: [...(prev[block] || []), blank] }));
+    setSaveTick((t) => t + 1);
   };
 
   const removeEntry = (block, idx) => {
-    if (!isEditable) return;
     setEntries(prev => {
       const list = [...(prev[block] || [])];
       if (list.length <= 1) return prev;
       list.splice(idx, 1);
       return { ...prev, [block]: list };
     });
+    setSaveTick((t) => t + 1);
   };
 
   useEffect(() => {
     if (!enrollmentId) return;
-    const load = async () => {
+    const loadPatient = async () => {
       try {
         const birth = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = birth?.data || {};
@@ -451,54 +463,45 @@ export default function MinimalMonitoringLog() {
           motherName: `${p.mother_first_name || ""} ${p.mother_surname || ""}`.trim(),
         }));
       } catch (_) {}
-      try {
-        const summary = await api.get(`/minimal-monitoring/${enrollmentId}/summary`);
-        const statuses = {};
-        const meta = {};
-        (summary?.data || []).forEach(s => {
-          statuses[s.nicu_day] = s.submission_status || STATUS.DRAFT;
-          meta[s.nicu_day] = { pct: s.completion_pct || 0 };
-        });
-        setDayStatuses(statuses);
-        setDayMeta(meta);
-      } catch (_) {}
     };
-    load();
+    loadPatient();
   }, [enrollmentId]);
 
   useEffect(() => {
     if (!enrollmentId) return;
-    const loadDay = async () => {
+    let cancelled = false;
+    const loadToday = async () => {
       setLoading(true);
       setErrors({});
+      hydratedRef.current = false;
       try {
-        const res = await api.get(`/minimal-monitoring/${enrollmentId}/${activeDay}`);
-        setEntries(hydrateEntries(res?.data || {}));
-        setIsSaved(true);
-        setIsEditing(false);
-        setDayStatuses(prev => ({ ...prev, [activeDay]: res?.data?.submission_status || STATUS.DRAFT }));
-      } catch (err) {
-        if (err?.response?.status === 404) {
+        const res = await api.get(
+          `/minimal-monitoring/${enrollmentId}/today`,
+          { params: { boundary_hour: MML_BOUNDARY_HOUR } }
+        );
+        if (cancelled) return;
+        const data = res?.data || {};
+        setSheetDate(data.record_date || "");
+        setEntries(hydrateEntries(data));
+      } catch (_) {
+        if (!cancelled) {
           setEntries(emptyEntries());
-          setIsSaved(false);
-          setIsEditing(false);
-          setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.EMPTY }));
-        } else {
-          setMessage("Could not load this day. Please try again.");
+          setMessage("Could not load today's sheet. Please try again.");
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          // Defer so the hydrate setEntries doesn't trigger autosave
+          requestAnimationFrame(() => { hydratedRef.current = true; });
+        }
       }
     };
-    loadDay();
-  }, [enrollmentId, activeDay]);
+    loadToday();
+    return () => { cancelled = true; };
+  }, [enrollmentId]);
 
   const validate = () => {
     const next = {};
-    const cvA = entries.cv_a?.[0];
-    if (!cvA?.date) next["cv_a.0.date"] = "Date is required";
-    if (!cvA?.shift) next["cv_a.0.shift"] = "Shift is required";
-
     (entries.resp_a || []).forEach((e, i) => {
       if (e.max_fio2 !== "" && e.max_fio2 != null && (Number(e.max_fio2) < 21 || Number(e.max_fio2) > 100)) {
         next[`resp_a.${i}.max_fio2`] = "Enter 21 to 100";
@@ -537,31 +540,29 @@ export default function MinimalMonitoringLog() {
     return Object.keys(next).length === 0;
   };
 
-  const payload = () => ({
+  const buildPayload = () => ({
     enrollment_id: enrollmentId,
-    nicu_day: activeDay,
     ...flattenEntries(entries),
-    submission_status: STATUS.DRAFT,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
 
-  const handleSave = async () => {
-    if (!validate() || !isEditable) return false;
+  const persist = async ({ silent = false, runValidate = false } = {}) => {
+    if (!enrollmentId) return false;
+    if (runValidate && !validate()) return false;
     setSaving(true);
     try {
-      const body = payload();
-      isSaved
-        ? await api.put(`/minimal-monitoring/${enrollmentId}/${activeDay}`, body)
-        : await api.post("/minimal-monitoring/", body);
+      const res = await api.put(
+        `/minimal-monitoring/${enrollmentId}/today`,
+        buildPayload(),
+        { params: { boundary_hour: MML_BOUNDARY_HOUR } }
+      );
+      if (res?.data?.record_date) setSheetDate(res.data.record_date);
       markFormCompleted("minimal_monitoring");
-      setIsSaved(true);
-      setIsEditing(false);
-      const status = counts.canSubmit ? STATUS.COMPLETE : STATUS.DRAFT;
-      setDayStatuses(prev => ({ ...prev, [activeDay]: status }));
-      setDayMeta(prev => ({ ...prev, [activeDay]: { pct: counts.pct } }));
-      setMessage(`Day ${activeDay} saved successfully`);
-      setTimeout(() => setMessage(""), 3000);
+      if (!silent) {
+        setMessage("Today's sheet saved");
+        setTimeout(() => setMessage(""), 3000);
+      }
       return true;
     } catch (err) {
       setMessage(err?.response?.data?.detail || "Error saving. Please try again.");
@@ -571,33 +572,21 @@ export default function MinimalMonitoringLog() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!counts.canSubmit) {
-      setMessage("Enter Date and Shift in 5.1.A before submitting this day.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const saved = isEditable ? await handleSave() : true;
-      if (!saved) return;
-      const now = new Date().toISOString();
-      await api.patch(`/minimal-monitoring/${enrollmentId}/${activeDay}/submit`, {
-        submission_status: STATUS.SUBMITTED,
-        submitted_at: now,
-        submitted_by: user?.name || user?.username || "Site User",
-      });
-      setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.SUBMITTED }));
-      setIsEditing(false);
-      setMessage(`Day ${activeDay} submitted and locked`);
-      setTimeout(() => setMessage(""), 4000);
-    } catch (err) {
-      setMessage(err?.response?.data?.detail || "Submission failed. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const handleSave = () => persist({ silent: false, runValidate: true });
 
-  const days = Array.from({ length: totalDays }, (_, i) => i + 1);
+  /* Debounced autosave (~1.5s) after hydrate */
+  useEffect(() => {
+    if (!hydratedRef.current || !enrollmentId || saveTick === 0) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      persist({ silent: true, runValidate: false });
+    }, 1500);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveTick, enrollmentId]);
+
   const err = (block, idx, key) => errors[`${block}.${idx}.${key}`];
 
   return (
@@ -608,7 +597,10 @@ export default function MinimalMonitoringLog() {
             <div className="rcn-patient-header-badge">HELPER FORM 5</div>
             <h2 className="rcn-patient-header-form-name">Minimal Monitoring</h2>
             <p className="rcn-patient-header-subtitle">
-              Fill for each shift or when values are available — Date/Time default to now
+              Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers
+            </p>
+            <p className="mml-sheet-note">
+              Today's sheet{sheetDate ? ` (${sheetDate})` : ""} — clears automatically after 8:00 AM
             </p>
           </div>
           <div className="rcn-patient-cards">
@@ -619,86 +611,41 @@ export default function MinimalMonitoringLog() {
           </div>
         </div>
 
-        <div className="rcn-timeline-wrap">
-          <div className="rcn-timeline-header">
-            <span className="rcn-timeline-label">Days</span>
-            <button type="button" className="rcn-day-add"
-              onClick={() => { setTotalDays(totalDays + 1); setActiveDay(totalDays + 1); }}>
-              <span className="rcn-day-add-plus">+</span><span className="rcn-day-add-label">Day</span>
-            </button>
-          </div>
-          <div className="rcn-timeline">
-            {days.map(day => {
-              const st = dayStatuses[day] || STATUS.EMPTY;
-              return (
-                <button key={day} type="button"
-                  className={`rcn-day ${day === activeDay ? "rcn-day--active" : ""} rcn-day--${st}`}
-                  onClick={() => setActiveDay(day)}>
-                  <span className="rcn-day-d">D</span>
-                  <span className="rcn-day-num">{day}</span>
-                  {st === STATUS.SUBMITTED
-                    ? <Lock size={10} className="rcn-day-dot" />
-                    : <span className="rcn-day-dot" />}
-                  <span className="rcn-day-date">{dayMeta[day]?.pct ? `${dayMeta[day].pct}%` : ""}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {/* Quick-nav rail — jumps to a section card */}
+        <nav className="mml-quicknav" aria-label="Jump to section">
+          {SECTION_KEYS.map((key) => {
+            const meta = SECTION_META[key];
+            const Icon = meta.icon;
+            const prog = counts.bySection[key] || { done: 0, total: 0 };
+            const complete = prog.total > 0 && prog.done >= prog.total;
+            return (
+              <button
+                type="button"
+                key={key}
+                className={complete ? "mml-quicknav-done" : ""}
+                onClick={() => goToSection(key)}
+                title={`${meta.code} ${meta.title}`}
+              >
+                <Icon size={13} />
+                <span className="mml-quicknav-label">{meta.code} {meta.title}</span>
+                <span className="mml-quicknav-badge">
+                  {prog.done}/{prog.total}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
 
-        <div className="rcn-summary">
-          <div className="rcn-summary-left">
-            <h2 className="rcn-summary-title">Day {activeDay}</h2>
-            <div className="rcn-summary-meta">
-              {isSubmitted ? <Lock size={13} /> : <AlertTriangle size={13} />}
-              <span>
-                {isSubmitted
-                  ? "Submitted and locked"
-                  : counts.canSubmit
-                    ? `${counts.done} values entered — ready to submit`
-                    : "Enter Date + Shift in 5.1.A to enable submit"}
-              </span>
-            </div>
-          </div>
-          <div className="rcn-summary-right">
-            <div className="rcn-summary-sections">
-              {Object.entries(counts.bySection).map(([key, value]) => (
-                <div className="rcn-summary-section" key={key}>
-                  <span className="rcn-summary-section-name">{SECTION_META[key]?.code || key}</span>
-                  <span className="rcn-summary-section-count">
-                    {value.done}<span className="rcn-summary-section-total">/{value.total}</span>
-                  </span>
-                  <div className="rcn-summary-section-bar">
-                    <div className="rcn-summary-section-bar-fill"
-                      style={{ width: `${value.total ? (value.done / value.total) * 100 : 0}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="rcn-summary-ring-wrap">
-              <ProgressRing percent={counts.pct} />
-              <span className="rcn-summary-ring-label">Filled</span>
-            </div>
-          </div>
-        </div>
-
-        {isSubmitted && (
-          <div className="rcn-status-banner rcn-status-banner--submitted" style={{ margin: "16px 24px 0" }}>
-            <Lock size={15} />
-            <div className="rcn-status-banner-text">
-              <strong>Day {activeDay} submitted</strong>
-              <span>This day is locked from further edits.</span>
-            </div>
-          </div>
-        )}
-
-        {loading ? <div className="rcn-loading">Loading day {activeDay} data...</div> : (
+        {loading ? <div className="rcn-loading">Loading today's sheet...</div> : (
           <div className="rcn-sections">
 
             {/* ════════════════ 5.1 CARDIOVASCULAR ════════════════ */}
             <SectionCard icon={SECTION_META.cardiovascular.icon} code={SECTION_META.cardiovascular.code}
               title={SECTION_META.cardiovascular.title}
-              answered={counts.bySection.cardiovascular.done} total={counts.bySection.cardiovascular.total}>
+              answered={counts.bySection.cardiovascular.done} total={counts.bySection.cardiovascular.total}
+              open={openSections.cardiovascular}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, cardiovascular: v }))}
+              sectionRef={sectionRefs.cardiovascular}>
 
               <EntryBlock code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
@@ -788,7 +735,10 @@ export default function MinimalMonitoringLog() {
             {/* ════════════════ 5.2 RESPIRATORY ════════════════ */}
             <SectionCard icon={SECTION_META.respiratory.icon} code={SECTION_META.respiratory.code}
               title={SECTION_META.respiratory.title}
-              answered={counts.bySection.respiratory.done} total={counts.bySection.respiratory.total}>
+              answered={counts.bySection.respiratory.done} total={counts.bySection.respiratory.total}
+              open={openSections.respiratory}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, respiratory: v }))}
+              sectionRef={sectionRefs.respiratory}>
 
               <EntryBlock code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
@@ -899,7 +849,10 @@ export default function MinimalMonitoringLog() {
             {/* ════════════════ 5.3 METABOLIC ════════════════ */}
             <SectionCard icon={SECTION_META.metabolic.icon} code={SECTION_META.metabolic.code}
               title={SECTION_META.metabolic.title}
-              answered={counts.bySection.metabolic.done} total={counts.bySection.metabolic.total}>
+              answered={counts.bySection.metabolic.done} total={counts.bySection.metabolic.total}
+              open={openSections.metabolic}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, metabolic: v }))}
+              sectionRef={sectionRefs.metabolic}>
 
               <EntryBlock code="5.3.A" entries={entries.met_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
@@ -979,7 +932,10 @@ export default function MinimalMonitoringLog() {
             {/* ════════════════ 5.4 GASTROINTESTINAL ════════════════ */}
             <SectionCard icon={SECTION_META.gastrointestinal.icon} code={SECTION_META.gastrointestinal.code}
               title={SECTION_META.gastrointestinal.title}
-              answered={counts.bySection.gastrointestinal.done} total={counts.bySection.gastrointestinal.total}>
+              answered={counts.bySection.gastrointestinal.done} total={counts.bySection.gastrointestinal.total}
+              open={openSections.gastrointestinal}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, gastrointestinal: v }))}
+              sectionRef={sectionRefs.gastrointestinal}>
 
               <EntryBlock code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
@@ -1017,7 +973,10 @@ export default function MinimalMonitoringLog() {
             {/* ════════════════ 5.5 NEUROLOGICAL ════════════════ */}
             <SectionCard icon={SECTION_META.neurological.icon} code={SECTION_META.neurological.code}
               title={SECTION_META.neurological.title}
-              answered={counts.bySection.neurological.done} total={counts.bySection.neurological.total}>
+              answered={counts.bySection.neurological.done} total={counts.bySection.neurological.total}
+              open={openSections.neurological}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, neurological: v }))}
+              sectionRef={sectionRefs.neurological}>
 
               <EntryBlock code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
@@ -1068,7 +1027,10 @@ export default function MinimalMonitoringLog() {
             {/* ════════════════ 5.6 HEMATOLOGY ════════════════ */}
             <SectionCard icon={SECTION_META.hematology.icon} code={SECTION_META.hematology.code}
               title={SECTION_META.hematology.title}
-              answered={counts.bySection.hematology.done} total={counts.bySection.hematology.total}>
+              answered={counts.bySection.hematology.done} total={counts.bySection.hematology.total}
+              open={openSections.hematology}
+              onToggle={(v) => setOpenSections((p) => ({ ...p, hematology: v }))}
+              sectionRef={sectionRefs.hematology}>
 
               <EntryBlock code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
                 onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
@@ -1111,24 +1073,9 @@ export default function MinimalMonitoringLog() {
           onClick={() => navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
           <ArrowLeft size={15} /> Metab Helper Form
         </button>
-        {isEditable && (
-          <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSave} disabled={saving}>
-            <Save size={15} /> {saving ? "Saving..." : "Save"}
-          </button>
-        )}
-        {isSaved && !isEditing && !isSubmitted && (
-          <button type="button" className="btn btn-edit btn-outline-blue" onClick={() => setIsEditing(true)}>
-            <Edit size={13} /> Edit Day {activeDay}
-          </button>
-        )}
-        {isSubmitted ? (
-          <div className="rcn-locked-badge"><Lock size={13} /> Day {activeDay} Locked</div>
-        ) : (
-          <button type="button" className="btn btn-submit-day" onClick={handleSubmit}
-            disabled={submitting || !counts.canSubmit}>
-            <Send size={15} /> {submitting ? "Submitting..." : `Submit Day ${activeDay}`}
-          </button>
-        )}
+        <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSave} disabled={saving}>
+          <Save size={15} /> {saving ? "Saving..." : "Save"}
+        </button>
       </div>
     </>
   );

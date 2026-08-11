@@ -10,7 +10,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Shield, FileCheck, Copy, Edit,
-  AlertOctagon, Unlock, History,
+  AlertOctagon, Unlock, History, RefreshCw,
 } from "lucide-react";
 
 /* ══════════════════════════════════════════════════════
@@ -58,10 +58,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "Renal",
     rows: [
-      { key: "aki_stage",             label: "AKI Stage" },
+      { key: "aki_stage",             label: "AKI (KDIGO stage)" },
       { key: "creatinine",            label: "Serum Creatinine", suffix: "mg/dL" },
-      { key: "urine_output_total",    label: "Urine Output Total" },
-      { key: "dialysis_crrt",         label: "Dialysis / CRRT", bool: true },
+      { key: "urine_output_total",    label: "Urine Output Total", suffix: " ml/kg/hr" },
+      { key: "dialysis_crrt",         label: "Dialysis/CRRT", bool: true },
     ],
   },
   {
@@ -171,7 +171,29 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0" }) {
   );
 }
 
-function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen=true }) {
+/** Text/numeric row for glucose #1/#4 — must accept "Not Tested" / "Not Low" / "Not High". */
+function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled }) {
+  return (
+    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
+      <span className="rcn-yn-label">
+        {label}
+        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+      </span>
+      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}`} style={{ width: 180 }}>
+        <input
+          type="text"
+          value={value ?? ""}
+          onChange={e => !disabled && onChange(e.target.value === "" ? null : e.target.value)}
+          readOnly={disabled}
+          placeholder="—"
+        />
+        {unit && <span className="rcn-num-unit">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen=true, headerAction=null }) {
   const [open, setOpen] = useState(defaultOpen);
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
   return (
@@ -182,6 +204,11 @@ function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen=
             <span className="rcn-card-emoji">{iconEmoji}</span>
           </div>
           <h3 className="rcn-card-title">{title}</h3>
+          {headerAction && (
+            <div className="rcn-card-header-action" onClick={e => e.stopPropagation()}>
+              {headerAction}
+            </div>
+          )}
         </div>
         <div className="rcn-card-header-right">
           <div className="rcn-card-prog-bar">
@@ -201,6 +228,55 @@ function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen=
       )}
     </div>
   );
+}
+
+/* ── Helper 5 → Helper 4 glucose autofill ─────────────────────────
+   Form 5 met_a[].glucose → Form 4 fields #1, #2, #4.
+   Boundaries: <45 low, 45–180 normal, >180 high (inclusive normal). */
+const GLUCOSE_LOW_MAX = 45;
+const GLUCOSE_HIGH_MIN = 180;
+
+function parseMetAGlucoseReadings(payload) {
+  let entries = payload?.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const list = entries?.met_a;
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const row of list) {
+    const raw = row?.glucose;
+    if (raw === null || raw === undefined || raw === "") continue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+function computeGlucoseAutofill(readings) {
+  if (!readings.length) {
+    return {
+      lowest_glucose: "Not Tested",
+      hypoglycemia_episodes: 0,
+      highest_glucose: "Not Tested",
+    };
+  }
+  const lows = readings.filter(v => v < GLUCOSE_LOW_MAX);
+  const highs = readings.filter(v => v > GLUCOSE_HIGH_MIN);
+  return {
+    lowest_glucose: lows.length
+      ? String(Math.min(...lows))
+      : "Not Low",
+    hypoglycemia_episodes: lows.length,
+    highest_glucose: highs.length
+      ? String(Math.max(...highs))
+      : "Not High",
+  };
+}
+
+function isEmptyMetabField(v) {
+  return v === null || v === undefined || v === "";
 }
 
 /* Grade/Stage selection cards — same pattern as IVH Grade in Helper Form 2 */
@@ -367,7 +443,8 @@ export default function MetabRenalVascEyeLog() {
 
   /* ── UI state ── */
   const [activeDay, setActiveDay]         = useState(1);
-  const [totalDays, setTotalDays]         = useState(14);
+  // Paper CRF shows NICU days 1–31
+  const [totalDays, setTotalDays]         = useState(31);
   // Day 1 date — manually entered, drives all day date labels.
   // NOT auto-filled from birth date. User manually sets in helper form.
   const [day1Date, setDay1Date] = useState(() =>
@@ -435,6 +512,14 @@ export default function MetabRenalVascEyeLog() {
     ionized_calcium_value:  null, // #9
     osteopenia_suspected:   null, // #10
   });
+  // Tracks which of #1/#2/#4 still show the Helper-5 autofill badge (cleared on manual edit).
+  const [glucoseAutofilled, setGlucoseAutofilled] = useState({
+    lowest_glucose: false,
+    hypoglycemia_episodes: false,
+    highest_glucose: false,
+  });
+  const [glucoseRefreshing, setGlucoseRefreshing] = useState(false);
+  const glucoseAutoDoneRef = useRef(null);
 
   // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
@@ -498,11 +583,25 @@ export default function MetabRenalVascEyeLog() {
     return Math.floor((today - base) / 86400000) + 1;
   }, [day1Date]);
 
+  /** Calendar date for the open NICU day (day1Date + activeDay − 1). */
+  const activeDayDate = useMemo(() => {
+    if (!day1Date) return null;
+    const base = new Date(day1Date + "T00:00:00");
+    if (isNaN(base.getTime())) return null;
+    base.setDate(base.getDate() + activeDay - 1);
+    return toDateOnlyValue(base);
+  }, [day1Date, activeDay]);
+
+  /** Autofill only when Form 4 is on today's actual calendar date (Form 5 has no history). */
+  const isActiveDayToday = useMemo(() => {
+    if (!activeDayDate) return false;
+    return activeDayDate === toDateOnlyValue(new Date());
+  }, [activeDayDate]);
+
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
-  // Same-morning grace window: yesterday's day stays open until 11:00 today
-  // so a nurse finishing a late-night shift can still complete it.
-  // (Aligned to 11am to match Helper 2/3 — this was inconsistently 8am.)
+  // Complete by 11:00 AM — yesterday stays editable until then so night
+  // shift can finish the prior day (aligned with Helper Forms 2 & 3).
   const MRVE_LATE_GRACE_HOUR = 11;
   const isLateGraceActiveDay =
     todayNicuDay != null && activeDay === todayNicuDay - 1 &&
@@ -539,10 +638,20 @@ export default function MetabRenalVascEyeLog() {
   ═══════════════════════════════════════ */
   const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
-  // Metabolic: 10 fields (items 1-10)
-  const METAB_BASE   = ["lowest_glucose","hypoglycemia_episodes","hypoglycemia_rx","highest_glucose",
-                        "insulin","metabolic_acidosis","sodium_value","potassium_value",
-                        "ionized_calcium_value","osteopenia_suspected"];
+  // Metabolic: #1–10, with #3 Hypoglycemia Rx required only when episodes > 0
+  const hypoEpisodesNum = (() => {
+    const v = metabData.hypoglycemia_episodes;
+    if (v === null || v === undefined || v === "") return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  })();
+  const hypoRxRequired = hypoEpisodesNum > 0;
+  const METAB_BASE = [
+    "lowest_glucose", "hypoglycemia_episodes",
+    ...(hypoRxRequired ? ["hypoglycemia_rx"] : []),
+    "highest_glucose", "insulin", "metabolic_acidosis",
+    "sodium_value", "potassium_value", "ionized_calcium_value", "osteopenia_suspected",
+  ];
   const metabTotal   = METAB_BASE.length;
   const metabAnswered= METAB_BASE.filter(k => ans(metabData[k])).length;
 
@@ -561,15 +670,10 @@ export default function MetabRenalVascEyeLog() {
   const vascTotal    = VASC_KEYS.length;
   const vascAnswered = Math.min(VASC_KEYS.filter(k => ans(vascData[k])).length, vascTotal);
 
-  // Eye: 3 base + 3 conditional
+  // Eye: paper CRF items 23–25 only (stage/plus/treatment are optional extras)
   const EYE_BASE  = ["rop_screening_due","rop_screened","rop_detected"];
-  const EYE_ROP   = ["rop_stage","plus_disease","rop_treatment"];
-  const eyeTotal  = EYE_BASE.length + (ropYes ? EYE_ROP.length : 0);
-  const eyeAnswered = Math.min(
-    EYE_BASE.filter(k => ans(eyeData[k])).length
-    + (ropYes ? EYE_ROP.filter(k => ans(eyeData[k])).length : 0),
-    eyeTotal
-  );
+  const eyeTotal  = EYE_BASE.length;
+  const eyeAnswered = Math.min(EYE_BASE.filter(k => ans(eyeData[k])).length, eyeTotal);
 
   // Location & Survived the day: 2 fields (4.6, 4.7)
   const TAIL_KEYS    = ["location","survived_the_day"];
@@ -582,12 +686,83 @@ export default function MetabRenalVascEyeLog() {
   const canSubmit     = completionPct === 100 && !isSubmitted;
 
   /* ── Setters ── */
-  const setMetab = (k, v) => isFieldEditable && setMetabData(p => ({ ...p, [k]: v }));
+  const setMetab = (k, v) => {
+    if (!isFieldEditable) return;
+    setMetabData(p => {
+      const next = { ...p, [k]: v };
+      // Clearing low-episode count drops the Rx gate (eye-style conditional).
+      if (k === "hypoglycemia_episodes") {
+        const n = v === null || v === undefined || v === "" ? 0 : Number(v);
+        if (!Number.isFinite(n) || n <= 0) next.hypoglycemia_rx = null;
+      }
+      return next;
+    });
+    if (k === "lowest_glucose" || k === "hypoglycemia_episodes" || k === "highest_glucose") {
+      setGlucoseAutofilled(prev => ({ ...prev, [k]: false }));
+    }
+  };
   const setRenal = (k, v) => isFieldEditable && setRenalData(p => ({ ...p, [k]: v }));
   const setThermo= (k, v) => isFieldEditable && setThermoData(p => ({ ...p, [k]: v }));
   const setVasc  = (k, v) => isFieldEditable && setVascData(p => ({ ...p, [k]: v }));
   const setEye   = (k, v) => isFieldEditable && setEyeData(p => ({ ...p, [k]: v }));
   const setTail  = (k, v) => isFieldEditable && setTailData(p => ({ ...p, [k]: v }));
+
+  /* ── Glucose autofill from Helper Form 5 (today's sheet only) ── */
+  const metabDataRef = useRef(metabData);
+  metabDataRef.current = metabData;
+
+  const applyGlucoseAutofill = async ({ force = false, seed = null } = {}) => {
+    if (!enrollmentId || !isActiveDayToday || !activeDayDate) return false;
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
+        params: { boundary_hour: 8 },
+      });
+      const data = res?.data || {};
+      // Form 5 may still be on yesterday before 8am — don't pull the wrong day.
+      if (data.record_date && data.record_date !== activeDayDate) return false;
+
+      const computed = computeGlucoseAutofill(parseMetAGlucoseReadings(data));
+      const base = seed || metabDataRef.current;
+      const next = { ...base };
+      const flags = {
+        lowest_glucose: false,
+        hypoglycemia_episodes: false,
+        highest_glucose: false,
+      };
+      for (const key of ["lowest_glucose", "hypoglycemia_episodes", "highest_glucose"]) {
+        if (force || isEmptyMetabField(base[key])) {
+          next[key] = computed[key];
+          flags[key] = true;
+        }
+      }
+      const ep = Number(next.hypoglycemia_episodes);
+      if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
+
+      setMetabData(next);
+      setGlucoseAutofilled(prev => ({
+        lowest_glucose: flags.lowest_glucose ? true : (force ? false : prev.lowest_glucose),
+        hypoglycemia_episodes: flags.hypoglycemia_episodes ? true : (force ? false : prev.hypoglycemia_episodes),
+        highest_glucose: flags.highest_glucose ? true : (force ? false : prev.highest_glucose),
+      }));
+      return Object.values(flags).some(Boolean);
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const handleRefreshGlucoseFromHelper5 = async () => {
+    if (!isActiveDayToday || !isFieldEditable) return;
+    setGlucoseRefreshing(true);
+    try {
+      const ok = await applyGlucoseAutofill({ force: true });
+      setMessage(ok
+        ? "✅ Glucose fields refreshed from Helper 5"
+        : "⚠️ No matching Helper 5 glucose sheet for today");
+      setTimeout(() => setMessage(""), 3000);
+    } finally {
+      setGlucoseRefreshing(false);
+    }
+  };
 
   /* ── Load patient info ── */
   useEffect(() => {
@@ -688,6 +863,8 @@ export default function MetabRenalVascEyeLog() {
           newMeta[s.nicu_day] = { pct: s.completion_pct || 0, savedAt: s.saved_at };
         });
         setDayStatuses(newSt); setDayMeta(newMeta);
+        const maxDay = sums.reduce((m, s) => Math.max(m, s.nicu_day || 0), 0);
+        if (maxDay > 31) setTotalDays(maxDay);
       } catch (_) {}
     };
     load();
@@ -698,11 +875,18 @@ export default function MetabRenalVascEyeLog() {
     if (!enrollmentId) return;
     const loadDay = async () => {
       setLoading(true);
+      glucoseAutoDoneRef.current = null;
+      setGlucoseAutofilled({
+        lowest_glucose: false,
+        hypoglycemia_episodes: false,
+        highest_glucose: false,
+      });
+      let loadedMetab = null;
       try {
         const res = await api.get(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`);
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
-          setMetabData({
+          loadedMetab = {
             lowest_glucose:         d.lowest_glucose         ?? null,
             hypoglycemia_episodes:  d.hypoglycemia_episodes  ?? null,
             hypoglycemia_rx:        d.hypoglycemia_rx        ?? null,
@@ -713,7 +897,8 @@ export default function MetabRenalVascEyeLog() {
             potassium_value:        d.potassium_value        ?? null,
             ionized_calcium_value:  d.ionized_calcium_value  ?? null,
             osteopenia_suspected:   d.osteopenia_suspected   ?? null,
-          });
+          };
+          setMetabData(loadedMetab);
           setRenalData({
             aki_stage:              d.aki_stage          || null,
             creatinine:             d.creatinine         ?? null,
@@ -752,18 +937,85 @@ export default function MetabRenalVascEyeLog() {
           setIsSaved(true); setIsEditing(false);
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
-        } else { resetFormState(); }
+        } else {
+          resetFormState();
+          loadedMetab = {
+            lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
+            insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+            ionized_calcium_value:null,osteopenia_suspected:null,
+          };
+        }
       } catch (err) {
-        if (err?.response?.status === 404) resetFormState();
-      } finally { setLoading(false); }
+        if (err?.response?.status === 404) {
+          resetFormState();
+          loadedMetab = {
+            lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
+            insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+            ionized_calcium_value:null,osteopenia_suspected:null,
+          };
+        }
+      } finally {
+        setLoading(false);
+        // Soft autofill into empty glucose fields when this NICU day is calendar-today.
+        if (loadedMetab) {
+          const dayDate = (() => {
+            if (!day1Date) return null;
+            const base = new Date(day1Date + "T00:00:00");
+            if (isNaN(base.getTime())) return null;
+            base.setDate(base.getDate() + activeDay - 1);
+            return toDateOnlyValue(base);
+          })();
+          const today = toDateOnlyValue(new Date());
+          if (dayDate && dayDate === today && glucoseAutoDoneRef.current !== activeDay) {
+            glucoseAutoDoneRef.current = activeDay;
+            // Defer so isActiveDayToday/activeDayDate from next render aren't required —
+            // we pass seed and rely on inline date check inside a dedicated call.
+            (async () => {
+              try {
+                const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
+                  params: { boundary_hour: 8 },
+                });
+                const data = res?.data || {};
+                if (data.record_date && data.record_date !== dayDate) return;
+                const computed = computeGlucoseAutofill(parseMetAGlucoseReadings(data));
+                const next = { ...loadedMetab };
+                const flags = {
+                  lowest_glucose: false,
+                  hypoglycemia_episodes: false,
+                  highest_glucose: false,
+                };
+                for (const key of ["lowest_glucose", "hypoglycemia_episodes", "highest_glucose"]) {
+                  if (isEmptyMetabField(loadedMetab[key])) {
+                    next[key] = computed[key];
+                    flags[key] = true;
+                  }
+                }
+                const ep = Number(next.hypoglycemia_episodes);
+                if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
+                if (Object.values(flags).some(Boolean)) {
+                  setMetabData(next);
+                  setGlucoseAutofilled(flags);
+                  // Keep fields editable so the nurse can review/save autofill.
+                  setIsEditing(true);
+                }
+              } catch (_) { /* Helper 5 optional */ }
+            })();
+          }
+        }
+      }
     };
     loadDay();
-  }, [enrollmentId, activeDay]);
+  }, [enrollmentId, activeDay, day1Date]);
 
   const resetFormState = () => {
     setMetabData({ lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
       insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
       ionized_calcium_value:null,osteopenia_suspected:null });
+    setGlucoseAutofilled({
+      lowest_glucose: false,
+      hypoglycemia_episodes: false,
+      highest_glucose: false,
+    });
     setRenalData({ aki_stage:null,creatinine:null,urine_output_total:null,dialysis_crrt:null });
     setThermoData({ axillary_temperature:null });
     setVascData({ picc_in_situ:null,uvc_in_situ:null,uac_in_situ:null,peripheral_iv:null,
@@ -862,6 +1114,11 @@ export default function MetabRenalVascEyeLog() {
         rop_detected: d.rop_detected??null, rop_stage: d.rop_stage||null,
         plus_disease: d.plus_disease??null, rop_treatment: d.rop_treatment??null });
       setTailData({ location: d.location||null, survived_the_day: d.survived_the_day??null });
+      setGlucoseAutofilled({
+        lowest_glucose: false,
+        hypoglycemia_episodes: false,
+        highest_glucose: false,
+      });
       setIsSaved(false);
       setMessage(`📋 Copied from Day ${sourceDay} — review and save`);
       setTimeout(() => setMessage(""), 4000);
@@ -919,8 +1176,10 @@ export default function MetabRenalVascEyeLog() {
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
             <div className="rcn-patient-header-badge">HELPER FORM 4</div>
-            <h2 className="rcn-patient-header-form-name">Metabolic / Renal / Vascular / Eye Daily Log</h2>
-            <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
+            <h2 className="rcn-patient-header-form-name">Metab-Renal-Vasc-Eye</h2>
+            <p className="rcn-patient-header-subtitle">
+              Y = Yes, N = No, or enter value where applicable. Complete at the end of 24 hours (11 am).
+            </p>
           </div>
           <div className="rcn-patient-cards">
             <div className="rcn-pcard rcn-pcard--blue">
@@ -928,15 +1187,6 @@ export default function MetabRenalVascEyeLog() {
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Enrolment ID</span>
                 <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
-              </div>
-            </div>
-            <div className="rcn-pcard rcn-pcard--violet">
-              <span className="rcn-pcard-icon">🤱</span>
-              <div className="rcn-pcard-body">
-                <span className="rcn-pcard-label">Mother's Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap">
-                  {patientInfo.motherName || "—"}
-                </span>
               </div>
             </div>
             <div className="rcn-pcard rcn-pcard--teal">
@@ -948,20 +1198,20 @@ export default function MetabRenalVascEyeLog() {
                 <span className="rcn-pcard-value">{patientInfo.gestationalAge || "—"}</span>
               </div>
             </div>
+            <div className="rcn-pcard rcn-pcard--violet">
+              <span className="rcn-pcard-icon">🤱</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">Mother's Name</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                  {patientInfo.motherName || "—"}
+                </span>
+              </div>
+            </div>
             <div className="rcn-pcard rcn-pcard--amber">
               <span className="rcn-pcard-icon">🏷️</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Baby UID</span>
                 <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
-              </div>
-            </div>
-            <div className="rcn-pcard rcn-pcard--rose">
-              <span className="rcn-pcard-icon">👶</span>
-              <div className="rcn-pcard-body">
-                <span className="rcn-pcard-label">Baby Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap">
-                  {patientInfo.babyName || <span className="rcn-pcard-empty">if available</span>}
-                </span>
               </div>
             </div>
           </div>
@@ -1141,6 +1391,8 @@ export default function MetabRenalVascEyeLog() {
                 { emoji:"🌡️", label:"Thermoregulation",  done:thermoAnswered, total:thermoTotal },
                 { emoji:"🩺", label:"Vascular",          done:vascAnswered,   total:vascTotal   },
                 { emoji:"👁️", label:"Eye",               done:eyeAnswered,    total:eyeTotal    },
+                { emoji:"📍", label:"Location",          done:ans(tailData.location) ? 1 : 0, total: 1 },
+                { emoji:"✅", label:"Survived",          done:tailData.survived_the_day === true || tailData.survived_the_day === false ? 1 : 0, total: 1 },
               ].map(s => (
                 <div className="rcn-summary-section" key={s.label}>
                   <span className="rcn-summary-section-emoji">{s.emoji}</span>
@@ -1197,42 +1449,76 @@ export default function MetabRenalVascEyeLog() {
               </div>
             )}
 
-            {/* ════ METABOLIC ════ */}
-            <SectionCard iconEmoji="⚡" title="4.1 Metabolic Assessment"
-              answered={metabAnswered} total={metabTotal} defaultOpen={true}>
+            {/* ════ 4.1 METABOLIC ════ */}
+            <SectionCard iconEmoji="⚡" title="4.1 Metabolic"
+              answered={metabAnswered} total={metabTotal} defaultOpen={true}
+              headerAction={isActiveDayToday ? (
+                <button
+                  type="button"
+                  className="rcn-refresh-helper5"
+                  onClick={handleRefreshGlucoseFromHelper5}
+                  disabled={!isFieldEditable || glucoseRefreshing}
+                  title="Re-sync glucose #1–#4 from Helper Form 5 today's sheet"
+                >
+                  <RefreshCw size={12} className={glucoseRefreshing ? "rcn-spin" : ""} />
+                  {glucoseRefreshing ? "Refreshing…" : "Refresh from Helper 5"}
+                </button>
+              ) : null}
+            >
               <div className="rcn-yn-list">
-                <NumRow label="1. Lowest Glucose (if <45 mg/dL)" value={metabData.lowest_glucose}
-                  onChange={v=>setMetab("lowest_glucose",v)} disabled={!isFieldEditable} unit="mg/dL"/>
-                <NumRow label="2. No. of Hypoglycemia Episodes" value={metabData.hypoglycemia_episodes}
-                  onChange={v=>setMetab("hypoglycemia_episodes",v)} disabled={!isFieldEditable}/>
-                <YNRow label="3. Hypoglycemia Rx" value={metabData.hypoglycemia_rx}
-                  onChange={v=>setMetab("hypoglycemia_rx",v)} disabled={!isFieldEditable}/>
-                <NumRow label="4. Highest Glucose (if >180 mg/dL)" value={metabData.highest_glucose}
-                  onChange={v=>setMetab("highest_glucose",v)} disabled={!isFieldEditable} unit="mg/dL"/>
+                <GlucoseTextRow
+                  label="1. Lowest glucose reading (if <45 mg/dL)"
+                  value={metabData.lowest_glucose}
+                  onChange={v => setMetab("lowest_glucose", v)}
+                  disabled={!isFieldEditable}
+                  unit="mg/dL"
+                  autofilled={!!glucoseAutofilled.lowest_glucose}
+                />
+                <div className={glucoseAutofilled.hypoglycemia_episodes ? "rcn-autofilled-row" : undefined}>
+                  {glucoseAutofilled.hypoglycemia_episodes && (
+                    <span className="rcn-autofill-tag rcn-autofill-tag--above">Auto-filled from Helper 5</span>
+                  )}
+                  <NumRow label="2. No of episodes of hypoglycemia" value={metabData.hypoglycemia_episodes}
+                    onChange={v=>setMetab("hypoglycemia_episodes",v)} disabled={!isFieldEditable}/>
+                </div>
+                {hypoRxRequired && (
+                  <div className="rcn-conditional-block">
+                    <YNRow label="3. Hypoglycemia Rx (required — low reading present)" value={metabData.hypoglycemia_rx}
+                      onChange={v=>setMetab("hypoglycemia_rx",v)} disabled={!isFieldEditable}/>
+                  </div>
+                )}
+                <GlucoseTextRow
+                  label="4. Highest glucose reading (if >180 mg/dL)"
+                  value={metabData.highest_glucose}
+                  onChange={v => setMetab("highest_glucose", v)}
+                  disabled={!isFieldEditable}
+                  unit="mg/dL"
+                  autofilled={!!glucoseAutofilled.highest_glucose}
+                />
                 <YNRow label="5. Hyperglycemia Rx (Insulin)" value={metabData.insulin}
                   onChange={v=>setMetab("insulin",v)} disabled={!isFieldEditable}/>
-                <YNRow label="6. Metabolic Acidosis (pH <7.2)" value={metabData.metabolic_acidosis}
+                <YNRow label="6. Metabolic acidosis (pH<7.2)" value={metabData.metabolic_acidosis}
                   onChange={v=>setMetab("metabolic_acidosis",v)} disabled={!isFieldEditable}/>
-                <NumRow label="7. Sodium Value (<135 or >142)" value={metabData.sodium_value}
+                <NumRow label="7. Sodium value (<135 or >142)" value={metabData.sodium_value}
                   onChange={v=>setMetab("sodium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
-                <NumRow label="8. Potassium Value (<3.5 or >6)" value={metabData.potassium_value}
+                <NumRow label="8. Potassium value (<3.5 or >6)" value={metabData.potassium_value}
                   onChange={v=>setMetab("potassium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
-                <NumRow label="9. Ionized Calcium Value (<0.9 or >1.2)" value={metabData.ionized_calcium_value}
+                <NumRow label="9. Ionized Calcium value (<0.9 or >1.2)" value={metabData.ionized_calcium_value}
                   onChange={v=>setMetab("ionized_calcium_value",v)} disabled={!isFieldEditable} unit="mmol/L"/>
-                <YNRow label="10. Osteopenia Suspected" value={metabData.osteopenia_suspected}
+                <YNRow label="10. Osteopenia suspected" value={metabData.osteopenia_suspected}
                   onChange={v=>setMetab("osteopenia_suspected",v)} disabled={!isFieldEditable}/>
               </div>
             </SectionCard>
 
-            {/* ════ RENAL ════ */}
-            <SectionCard iconEmoji="💧" title="4.2 Renal Assessment"
+            {/* ════ 4.2 RENAL ════ */}
+            <SectionCard iconEmoji="💧" title="4.2 Renal"
               answered={renalAnswered} total={renalTotal} defaultOpen={true}>
               <div className="rcn-subsection" style={{marginTop:0}}>
-                <div className="rcn-subsection-title">11. AKI (e.g. KDIGO Stage)</div>
-                <StageCards
-                  options={["Stage 1","Stage 2","Stage 3"]}
+                <div className="rcn-subsection-title">11. AKI (e.g. KDIGO stage)</div>
+                <PillSingle
+                  options={["N", "Stage 1", "Stage 2", "Stage 3"]}
                   value={renalData.aki_stage}
-                  onChange={v => isFieldEditable && setRenalData(p=>({...p,aki_stage:v}))}
+                  onChange={v => isFieldEditable && setRenalData(p=>({...p, aki_stage:v}))}
                   disabled={!isFieldEditable}
                 />
               </div>
@@ -1241,14 +1527,17 @@ export default function MetabRenalVascEyeLog() {
                 <NumRow label="12. Serum Creatinine (mg/dL)" value={renalData.creatinine}
                   onChange={v=>setRenal("creatinine",v)} disabled={!isFieldEditable}
                   unit="mg/dL" placeholder="0.00"/>
-                <NumRow label="13. Urine Output Total (8am–8am, mL/kg/hr)" value={renalData.urine_output_total}
-                  onChange={v=>setRenal("urine_output_total",v)} disabled={!isFieldEditable}/>
-                <YNRow label="14. Dialysis / CRRT" value={renalData.dialysis_crrt}
+                <NumRow
+                  label="13. Urine output (8am→2pm + 2pm→8pm + 8pm→8am) = Total (ml/kg/hour)"
+                  value={renalData.urine_output_total}
+                  onChange={v=>setRenal("urine_output_total",v)} disabled={!isFieldEditable}
+                  unit="ml/kg/hr"/>
+                <YNRow label="14. Dialysis/CRRT" value={renalData.dialysis_crrt}
                   onChange={v=>setRenal("dialysis_crrt",v)} disabled={!isFieldEditable}/>
               </div>
             </SectionCard>
 
-            {/* ════ THERMOREGULATION ════ */}
+            {/* ════ 4.3 THERMOREGULATION ════ */}
             <SectionCard iconEmoji="🌡️" title="4.3 Thermoregulation"
               answered={thermoAnswered} total={thermoTotal} defaultOpen={true}>
               <div className="rcn-yn-list">
@@ -1257,29 +1546,29 @@ export default function MetabRenalVascEyeLog() {
               </div>
             </SectionCard>
 
-            {/* ════ VASCULAR ACCESS ════ */}
+            {/* ════ 4.4 VASCULAR ACCESS ════ */}
             <SectionCard iconEmoji="🩺" title="4.4 Vascular Access"
               answered={vascAnswered} total={vascTotal} defaultOpen={true}>
               <div className="rcn-yn-list">
-                <YNRow label="16. PICC In Situ"           value={vascData.picc_in_situ}         onChange={v=>setVasc("picc_in_situ",v)}         disabled={!isFieldEditable}/>
-                <YNRow label="17. UVC In Situ"            value={vascData.uvc_in_situ}          onChange={v=>setVasc("uvc_in_situ",v)}          disabled={!isFieldEditable}/>
-                <YNRow label="18. UAC In Situ"            value={vascData.uac_in_situ}          onChange={v=>setVasc("uac_in_situ",v)}          disabled={!isFieldEditable}/>
+                <YNRow label="16. PICC in situ"           value={vascData.picc_in_situ}         onChange={v=>setVasc("picc_in_situ",v)}         disabled={!isFieldEditable}/>
+                <YNRow label="17. UVC in situ"            value={vascData.uvc_in_situ}          onChange={v=>setVasc("uvc_in_situ",v)}          disabled={!isFieldEditable}/>
+                <YNRow label="18. UAC in situ"            value={vascData.uac_in_situ}          onChange={v=>setVasc("uac_in_situ",v)}          disabled={!isFieldEditable}/>
                 <YNRow label="19. Peripheral IV"          value={vascData.peripheral_iv}        onChange={v=>setVasc("peripheral_iv",v)}        disabled={!isFieldEditable}/>
-                <YNRow label="20. Peripheral Arterial"    value={vascData.peripheral_arterial}  onChange={v=>setVasc("peripheral_arterial",v)}  disabled={!isFieldEditable}/>
-                <YNRow label="21. Extravasation Injury"   value={vascData.extravasation_injury} onChange={v=>setVasc("extravasation_injury",v)} disabled={!isFieldEditable}/>
-                <YNRow label="22. Line Complication"      value={vascData.line_complication}    onChange={v=>setVasc("line_complication",v)}    disabled={!isFieldEditable}/>
+                <YNRow label="20. Peripheral arterial"    value={vascData.peripheral_arterial}  onChange={v=>setVasc("peripheral_arterial",v)}  disabled={!isFieldEditable}/>
+                <YNRow label="21. Extravasation injury"   value={vascData.extravasation_injury} onChange={v=>setVasc("extravasation_injury",v)} disabled={!isFieldEditable}/>
+                <YNRow label="22. Line complication"      value={vascData.line_complication}    onChange={v=>setVasc("line_complication",v)}    disabled={!isFieldEditable}/>
               </div>
             </SectionCard>
 
-            {/* ════ OPHTHALMOLOGY ════ */}
-            <SectionCard iconEmoji="👁️" title="4.5 Ophthalmology (ROP)"
+            {/* ════ 4.5 OPHTHALMOLOGY ════ */}
+            <SectionCard iconEmoji="👁️" title="4.5 Ophthalmology"
               answered={eyeAnswered} total={eyeTotal} defaultOpen={true}>
               <div className="rcn-yn-list">
-                <YNRow label="23. ROP Screening Due" value={eyeData.rop_screening_due}
+                <YNRow label="23. ROP screening due" value={eyeData.rop_screening_due}
                   onChange={v=>setEye("rop_screening_due",v)} disabled={!isFieldEditable}/>
-                <YNRow label="24. ROP Screened"      value={eyeData.rop_screened}
+                <YNRow label="24. ROP screened"      value={eyeData.rop_screened}
                   onChange={v=>setEye("rop_screened",v)}      disabled={!isFieldEditable}/>
-                <YNRow label="25. ROP Detected"      value={eyeData.rop_detected}
+                <YNRow label="25. ROP detected"      value={eyeData.rop_detected}
                   onChange={v => {
                     setEye("rop_detected", v);
                     if (v !== true)
@@ -1289,7 +1578,7 @@ export default function MetabRenalVascEyeLog() {
 
               {ropYes && (
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">ROP Stage</div>
+                  <div className="rcn-subsection-title">Optional detail (not on paper CRF)</div>
                   <StageCards
                     options={["Stage 1","Stage 2","Stage 3","Stage 4","Stage 5"]}
                     value={eyeData.rop_stage}
@@ -1304,20 +1593,23 @@ export default function MetabRenalVascEyeLog() {
               )}
             </SectionCard>
 
-            {/* ════ LOCATION & OUTCOME ════ */}
-            <SectionCard iconEmoji="📍" title="4.6 / 4.7 Location & Outcome"
-              answered={tailAnswered} total={tailTotal} defaultOpen={true}>
-              <div className="rcn-subsection" style={{marginTop:0}}>
-                <div className="rcn-subsection-title">4.6 Location</div>
-                <PillSingle
-                  options={["DR","NICU","Step-down/Nursery","KMC-N","Other"]}
-                  value={tailData.location}
-                  onChange={v => setTail("location", v)}
-                  disabled={!isFieldEditable}
-                />
-              </div>
+            {/* ════ 4.6 LOCATION ════ */}
+            <SectionCard iconEmoji="📍" title="4.6 Location"
+              answered={ans(tailData.location) ? 1 : 0} total={1} defaultOpen={true}>
+              <PillSingle
+                options={["DR","NICU","Step-down/Nursery","KMC-N","Other"]}
+                value={tailData.location}
+                onChange={v => setTail("location", v)}
+                disabled={!isFieldEditable}
+              />
+            </SectionCard>
+
+            {/* ════ 4.7 SURVIVED THE DAY ════ */}
+            <SectionCard iconEmoji="✅" title="4.7 Survived the Day"
+              answered={tailData.survived_the_day === true || tailData.survived_the_day === false ? 1 : 0}
+              total={1} defaultOpen={true}>
               <div className="rcn-yn-list">
-                <YNRow label="4.7 Survived the Day" value={tailData.survived_the_day}
+                <YNRow label="Survived the day" value={tailData.survived_the_day}
                   onChange={v=>setTail("survived_the_day",v)} disabled={!isFieldEditable}/>
               </div>
             </SectionCard>
