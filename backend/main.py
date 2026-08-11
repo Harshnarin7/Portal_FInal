@@ -471,9 +471,12 @@ def get_screenings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 200,
 ):
-    limit = min(limit, 100)
+    # Mobile + webforms share this list. Default was 50 which hid older
+    # patients on both clients; cap at 500 to keep bulk exports bounded.
+    limit = min(max(limit, 1), 500)
+    skip = max(skip, 0)
     rows = (
         get_accessible_screening_query(db, current_user)
         .order_by(Screening.created_at.desc())

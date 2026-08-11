@@ -135,19 +135,19 @@ function AppContent() {
               </NavLink>
 
               <NavLink
-  to="/form-a"
-  className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
-  onClick={() => {
-    localStorage.removeItem("current_screening_id");
-    localStorage.removeItem("current_enrollment_id");
-    localStorage.removeItem("enrollment_locked");
-    localStorage.removeItem("enrollment_lock_reason");
-    window.dispatchEvent(new Event("storage"));
-    window.location.href = "/form-a";
-  }}
->
-  <Plus size={16} /> <span>New Entry</span>
-</NavLink>
+                to="/form-a"
+                className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
+                onClick={() => {
+                  localStorage.removeItem("current_screening_id");
+                  localStorage.removeItem("current_enrollment_id");
+                  localStorage.removeItem("enrollment_locked");
+                  localStorage.removeItem("enrollment_lock_reason");
+                  window.dispatchEvent(new Event("storage"));
+                  window.location.href = "/form-a";
+                }}
+              >
+                <Plus size={16} /> <span>New Entry</span>
+              </NavLink>
 
               <NavLink
                 to="/entries"

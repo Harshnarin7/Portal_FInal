@@ -282,6 +282,11 @@ class ParticipantPIIOut(ParticipantPIICreate):
         from_attributes = True
 
 
+class ParticipantPIIBatchRequest(BaseModel):
+    """Bulk PII lookup for patient lists (mobile + webforms)."""
+    screening_ids: List[str] = []
+
+
 # ==========================================================
 # FORM A — SCREENING SCHEMAS
 # ==========================================================

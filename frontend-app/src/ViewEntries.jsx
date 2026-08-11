@@ -308,7 +308,7 @@ export default function ViewEntries() {
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/screenings/");
+      const res = await api.get("/screenings/?limit=200");
       setEntries(res.data);
     } catch (err) {
       console.error("Error fetching entries:", err);

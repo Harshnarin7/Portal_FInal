@@ -13,7 +13,7 @@ const ViewScreenings = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await api.get("/screenings/");
+        const res = await api.get("/screenings/?limit=200");
         setScreenings(res.data);
       } catch (error) {
         console.error("Error fetching screenings:", error);
