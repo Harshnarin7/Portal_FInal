@@ -1730,12 +1730,6 @@ def get_ops_summary(
         if len(activities) >= 8:
             break
 
-    arms = [
-        {"name": "30% O₂", "value": 0, "color": "#3b82f6"},
-        {"name": "60% O₂", "value": 0, "color": "#0E7C7B"},
-        {"name": "90% O₂", "value": 0, "color": "#E8A020"},
-    ]
-
     return {
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "target": 700,
@@ -1752,8 +1746,6 @@ def get_ops_summary(
         },
         "by_site": by_site,
         "monthly": monthly,
-        "arms": arms,
-        "arms_note": "Trial arm allocation is blinded and not exposed in live ops data.",
         "form_completion": form_completion,
         "tasks": tasks,
         "saes": sae_rows[:20],

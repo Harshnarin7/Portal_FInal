@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar,
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   ResponsiveContainer
 } from "recharts";
@@ -215,7 +215,6 @@ export default function Dashboard() {
     q: s.screened ? Math.round((s.enrolled / s.screened) * 100) : 0,
   }));
   const monthly = ops?.monthly || [];
-  const armData = ops?.arms || [];
   const formComp = (ops?.form_completion || []).map(f => [f.label, f.pct ?? 0, pctColor(f.pct ?? 0)]);
   const tasks = (ops?.tasks || []).map(t => ({
     title: t.title,
@@ -462,13 +461,6 @@ If data is zero or missing, say so — do not invent figures.`;
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-                  {!armData.every(a => !a.value) && armData.map(a => (
-                    <div key={a.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: a.color, display: "inline-block" }} />
-                      <span style={{ fontSize: 11, color: "#475569", fontWeight: 600 }}>{a.name}</span>
-                      <span style={{ fontSize: 14, color: "#0b1c30", fontWeight: 800 }}>{a.value}</span>
-                    </div>
-                  ))}
                   <div style={{ fontSize: 32, fontWeight: 800, color: C.tL }}>{pct}%</div>
                 </div>
               </div>
@@ -479,63 +471,28 @@ If data is zero or missing, say so — do not invent figures.`;
             </Crd>
 
             {/* Charts row */}
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 14, marginBottom: 14 }}>
-              <Crd>
-                <SH icon={P.trend} title="Monthly Enrollment Trend" sub="All 6 sites combined" />
-                {monthly.length === 0 ? (
-                  <div style={{ height: 180, displayContent: "center", textAlign: "center", color: C.slate, fontSize: 12 }}>No enrolment trend in live data yet</div>
-                ) : (
-                <ResponsiveContainer width="100%" height={180}>
-                  <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={C.teal} stopOpacity={0.35} />
-                        <stop offset="95%" stopColor={C.teal} stopOpacity={0}    />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#e2e8f0" />
-                    <XAxis dataKey="m" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
-                    <YAxis width={28} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
-                    <Tooltip content={<TT />} />
-                    <Area type="monotone" dataKey="n" name="Enrolled" stroke={C.tL} strokeWidth={2} fill="url(#ag)" dot={{ r: 3, fill: C.tL, strokeWidth: 0 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-                )}
-              </Crd>
-              <Crd>
-                <SH icon={P.zap} title="Trial Arms" sub="Balance check" />
-                {armData.every(a => !a.value) ? (
-                  <div style={{ height: 130, display: "grid", placeItems: "center", textAlign: "center", padding: "0 12px" }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 650, color: "#0b1c30", marginBottom: 6 }}>Arms blinded</div>
-                      <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.45 }}>
-                        {ops?.arms_note || "Allocation is not shown in live ops data."}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                <ResponsiveContainer width="100%" height={130}>
-                  <PieChart>
-                    <Pie data={armData} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={3}>
-                      {armData.map((a, i) => <Cell key={i} fill={a.color} />)}
-                    </Pie>
-                    <Tooltip content={<TT />} />
-                  </PieChart>
-                </ResponsiveContainer>
-                )}
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
-                  {armData.map(a => (
-                    <div key={a.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: a.color, display: "inline-block" }} />
-                        <span style={{ fontSize: 11, color: "#64748b" }}>{a.name}</span>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: "#0b1c30" }}>{a.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </Crd>
-            </div>
+            <Crd style={{ marginBottom: 14 }}>
+              <SH icon={P.trend} title="Monthly Enrollment Trend" sub="All 6 sites combined" />
+              {monthly.length === 0 ? (
+                <div style={{ height: 180, displayContent: "center", textAlign: "center", color: C.slate, fontSize: 12 }}>No enrolment trend in live data yet</div>
+              ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={C.teal} stopOpacity={0.35} />
+                      <stop offset="95%" stopColor={C.teal} stopOpacity={0}    />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#e2e8f0" />
+                  <XAxis dataKey="m" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
+                  <YAxis width={28} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
+                  <Tooltip content={<TT />} />
+                  <Area type="monotone" dataKey="n" name="Enrolled" stroke={C.tL} strokeWidth={2} fill="url(#ag)" dot={{ r: 3, fill: C.tL, strokeWidth: 0 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+              )}
+            </Crd>
 
             {/* Site bar + activity */}
             <div className="db-grid-2" style={{ marginBottom: 14 }}>
