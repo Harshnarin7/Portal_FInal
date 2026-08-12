@@ -18,12 +18,31 @@ import logging
 import os
 
 import boto3
+from botocore.config import Config
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.types import String, TypeDecorator
 
 logger = logging.getLogger(__name__)
 
 _fernet = None
+
+# Fernet keys are exactly 32 raw bytes (AES-128 + HMAC-SHA256 halves) — not
+# a range, an exact requirement. The DEK comes from `aws kms generate-data-key
+# --key-spec AES_256`; if that's ever re-run with a different --key-spec by
+# mistake, fail with a clear message here rather than a confusing low-level
+# error the first time a PII field is touched.
+_FERNET_KEY_LEN = 32
+
+# boto3's KMS client defaults to 60s connect/read timeouts with up to 5 total
+# attempts (legacy retry mode) — worst case, a slow/unresponsive KMS could
+# hang the request thread for minutes on the first PII read after a worker
+# restart (the only time this runs; the client is cached in _fernet after).
+# Bound it so a KMS problem fails fast with a clear error instead of hanging.
+_KMS_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=10,
+    retries={"mode": "standard", "total_max_attempts": 3},
+)
 
 # Fernet's minimum token length for ANY plaintext (even "") is 100 base64
 # chars: 1 version byte + 8 timestamp + 16 IV + 16 ciphertext (min one
@@ -65,8 +84,19 @@ def _get_fernet() -> Fernet:
                 "`aws kms generate-data-key` and store the ciphertext blob."
             )
         ciphertext_blob = base64.b64decode(encrypted_dek_b64)
-        kms = boto3.client("kms", region_name=os.environ.get("AWS_REGION", "ap-south-1"))
+        kms = boto3.client(
+            "kms",
+            region_name=os.environ.get("AWS_REGION", "ap-south-1"),
+            config=_KMS_CONFIG,
+        )
         dek = kms.decrypt(CiphertextBlob=ciphertext_blob)["Plaintext"]
+        if len(dek) != _FERNET_KEY_LEN:
+            raise RuntimeError(
+                f"Decrypted PII data-encryption-key is {len(dek)} bytes, "
+                f"expected exactly {_FERNET_KEY_LEN} (Fernet/AES-256 requires "
+                "this exactly, not a range). Regenerate PII_ENCRYPTED_DEK via "
+                "`aws kms generate-data-key --key-spec AES_256`."
+            )
         _fernet = Fernet(base64.urlsafe_b64encode(dek))
     return _fernet
 

@@ -1,7 +1,11 @@
 """Idempotent PostgreSQL schema patches for existing deployments."""
 
+import logging
+
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 
 SCREENING_COLUMN_PATCHES = [
@@ -266,10 +270,22 @@ def apply_schema_patches(engine: Engine) -> None:
     call list means every addition edits the *same* lines, guaranteeing a
     merge conflict on every sync. To add a new patch: just define a new
     `SOMETHING_PATCHES = [...]` list anywhere in this file — nothing else
-    needs to change. Groups run in alphabetical-by-name order, which is
-    safe because every statement here is idempotent (IF NOT EXISTS /
-    CREATE TABLE IF NOT EXISTS) and none depend on columns added by another
-    group in the same run.
+    needs to change. Groups run in alphabetical-by-name order and cross-group
+    ordering is not relied on (no group depends on a column/table added by
+    another group in the same run).
+
+    Each group runs in its own transaction, not one transaction for the
+    whole function. Most statements here are self-guarding (ADD COLUMN IF
+    NOT EXISTS / CREATE TABLE IF NOT EXISTS) and can't fail under normal
+    conditions, but not all of them can be written that way — Postgres has
+    no IF EXISTS form for ALTER COLUMN ... TYPE, for instance. A single
+    shared transaction means one such statement failing (e.g. against a
+    table that doesn't exist yet on a fresh/rebuilt DB) would silently roll
+    back every other group's already-applied patches too, and main.py's
+    caller only logs a warning on failure — the backend would then start
+    with a mostly unpatched schema instead of just missing the one group
+    that actually failed. Isolating transactions per group means a bad
+    group only costs that group; everything else still applies.
     """
     if engine.dialect.name != "postgresql":
         return
@@ -278,10 +294,13 @@ def apply_schema_patches(engine: Engine) -> None:
         for name, value in globals().items()
         if name.endswith("_PATCHES") and isinstance(value, list)
     }
-    with engine.begin() as conn:
-        for name in sorted(patch_groups):
-            for stmt in patch_groups[name]:
-                conn.execute(text(stmt))
+    for name in sorted(patch_groups):
+        try:
+            with engine.begin() as conn:
+                for stmt in patch_groups[name]:
+                    conn.execute(text(stmt))
+        except Exception:
+            logger.exception("Schema patch group %s failed; other groups still applied", name)
 
 # New fields added post-July-15 deploy — found missing in production 2026-07-19
 # (caused 500 errors on Form D load, Form B NICU fields, Helper 3 day logs)
@@ -836,12 +855,36 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
 # 2026-08-09: participant_pii fields are now Fernet-encrypted at rest
 # (see backend/crypto.py). Ciphertext is longer than plaintext, so the
 # 4 columns that were capped at VARCHAR(15) for phone numbers need
-# widening — safe/idempotent to re-run (no-op once already unbounded).
+# widening. Postgres has no "IF EXISTS" form for ALTER COLUMN ... TYPE, so
+# unlike every other patch group in this file this can't be written as a
+# plain unconditional statement — guarded via a DO block that checks
+# information_schema first, so it's a genuine no-op (not just harmless
+# to re-run, but literally does nothing) if participant_pii or the
+# specific column doesn't exist yet, or if the column is already
+# unbounded. Kept as one DO block per column set rather than 4 separate
+# statements so a single ACCESS EXCLUSIVE-lock pass covers all 4.
 PARTICIPANT_PII_WIDEN_PATCHES = [
-    "ALTER TABLE participant_pii ALTER COLUMN mother_contact TYPE VARCHAR",
-    "ALTER TABLE participant_pii ALTER COLUMN husband_contact TYPE VARCHAR",
-    "ALTER TABLE participant_pii ALTER COLUMN contact_mother TYPE VARCHAR",
-    "ALTER TABLE participant_pii ALTER COLUMN contact_husband TYPE VARCHAR",
+    """
+    DO $$
+    DECLARE col text;
+    BEGIN
+        FOREACH col IN ARRAY ARRAY[
+            'mother_contact', 'husband_contact',
+            'contact_mother', 'contact_husband'
+        ] LOOP
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'participant_pii'
+                  AND column_name = col
+                  AND character_maximum_length IS NOT NULL
+            ) THEN
+                EXECUTE format(
+                    'ALTER TABLE participant_pii ALTER COLUMN %I TYPE VARCHAR', col
+                );
+            END IF;
+        END LOOP;
+    END $$;
+    """,
 ]
 
 # Form F / H (Cranial USG) — completion footer fields, added for CRF alignment

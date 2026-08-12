@@ -1215,29 +1215,27 @@ def get_maternal_details(
     record_dict = {col.name: getattr(record, col.name) for col in record.__table__.columns}
 
     # Rejoin all PII fields (address, email, and individual address components)
+    PII_REJOIN_FIELDS = ("address", "email_address", "house", "city", "district", "state", "pincode", "landmark")
     try:
         pii_row = db.execute(
-            text("""
-                SELECT address, email_address, house, city, district,
-                       state, pincode, landmark
+            text(f"""
+                SELECT {", ".join(PII_REJOIN_FIELDS)}
                 FROM participant_pii
                 WHERE enrollment_id = :enrollment_id
             """),
             {"enrollment_id": enrollment_id}
-        ).fetchone()
+        ).mappings().fetchone()
 
         if pii_row:
-            # Raw SQL bypasses the ORM's EncryptedString type, so these
-            # need an explicit decrypt (see crypto.py — falls back to the
-            # value unchanged if it's still a legacy plaintext row).
-            if pii_row[0]: record_dict["address"]       = decrypt_value(pii_row[0])
-            if pii_row[1]: record_dict["email_address"] = decrypt_value(pii_row[1])
-            if pii_row[2]: record_dict["house"]         = decrypt_value(pii_row[2])
-            if pii_row[3]: record_dict["city"]          = decrypt_value(pii_row[3])
-            if pii_row[4]: record_dict["district"]      = decrypt_value(pii_row[4])
-            if pii_row[5]: record_dict["state"]         = decrypt_value(pii_row[5])
-            if pii_row[6]: record_dict["pincode"]       = decrypt_value(pii_row[6])
-            if pii_row[7]: record_dict["landmark"]      = decrypt_value(pii_row[7])
+            # Raw SQL bypasses the ORM's EncryptedString type, so these need
+            # an explicit decrypt (see crypto.py — falls back to the value
+            # unchanged if it's still a legacy plaintext row). Named access
+            # via .mappings() rather than positional pii_row[N] indices, so
+            # a future edit to the SELECT column order can't silently
+            # assign one PII field's value to a different field's name.
+            for field in PII_REJOIN_FIELDS:
+                if pii_row[field]:
+                    record_dict[field] = decrypt_value(pii_row[field])
     except Exception as e:
         logger.warning("Could not rejoin PII fields from participant_pii: %s", e)
 
