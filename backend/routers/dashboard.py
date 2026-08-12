@@ -18,10 +18,16 @@ endpoint.
 
 import csv
 import io
+import json
+import logging
+import os
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -30,6 +36,7 @@ from deps import get_current_user, is_superadmin, is_global
 from models import User
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+logger = logging.getLogger(__name__)
 
 ALL_SITES = ["PGIMER", "GMCH", "GMCH-A", "AMC", "AFMC", "IOG"]
 GRACE_DAYS = 28
@@ -398,7 +405,6 @@ def get_consort_flow(
     global_view = is_global(current_user)
 
     if format == "csv" and not is_superadmin(current_user):
-        from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="CSV export is superadmin-only")
 
     sites = ALL_SITES if global_view else [current_user.site_name] if current_user.site_name else []
@@ -1760,3 +1766,122 @@ def get_ops_summary(
             for a in activities[:5]
         ],
     }
+
+
+# ============================================================
+# SECTION 7 — AI INSIGHTS
+# POST /dashboard/ai-insights
+#
+# Proxies chat messages to the Anthropic API. This MUST stay server-side:
+# the frontend previously called api.anthropic.com directly from the
+# browser, which can never work (Anthropic doesn't allow direct browser
+# calls, and there was no API key on the request anyway) and would be a
+# credential-leak risk if "fixed" by embedding a key in the JS bundle.
+# The API key lives only in this server's .env (ANTHROPIC_API_KEY),
+# read fresh on each request so a rotated key takes effect without a
+# backend restart.
+# ============================================================
+
+ANTHROPIC_MODEL = "claude-sonnet-5"
+
+
+class AIInsightMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AIInsightRequest(BaseModel):
+    message: str
+    history: list[AIInsightMessage] = []
+
+
+@router.post("/ai-insights")
+def post_ai_insight(
+    body: AIInsightRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI Insights is not configured on this server (missing ANTHROPIC_API_KEY)",
+        )
+
+    # Reuse the same live figures the rest of the dashboard shows, computed
+    # fresh from the DB — never trust arm/outcome numbers from the client.
+    ops = get_ops_summary(db=db, current_user=current_user)
+    kpis = ops.get("kpis", {})
+    by_site = ops.get("by_site", [])
+    form_completion = ops.get("form_completion", [])
+    safety = ops.get("safety", {})
+    mort = safety.get("mortality", {}) or {}
+    morb = safety.get("morbidities", {}) or {}
+
+    target = ops.get("target") or 0
+    enrolled = kpis.get("enrolled", 0) or 0
+    pct = round(100 * enrolled / target) if target else 0
+
+    site_line = ", ".join(
+        f"{s.get('site')}(sc{s.get('screened', 0)},en{s.get('enrolled', 0)})" for s in by_site
+    ) or "none"
+    form_line = "; ".join(
+        f"{f.get('label')}: {f.get('pct') or 0}%" for f in form_completion
+    ) or "n/a"
+
+    system_prompt = f"""You are an AI assistant embedded in the PORTAL clinical trial dashboard.
+PORTAL is a multi-centre neonatal RCT comparing FiO₂ levels (30%, 60%, 90%) for preterm infants <32 weeks.
+
+Use ONLY this live snapshot (do not invent counts):
+- Screened: {kpis.get('screened', 0)}, Enrolled (randomised): {enrolled} / {target} ({pct}%)
+- Screen failures: {kpis.get('screen_failures', 0)}
+- Open SAEs: {kpis.get('open_saes', 0)}
+- Pending form actions: {kpis.get('pending_forms', 0)}
+- Sites: {site_line}
+- Form completeness: {form_line}
+- Mortality in-hospital: {mort.get('in_hospital', {}).get('n', 0)} ({mort.get('in_hospital', {}).get('pct', 0)}%)
+- BPD: {morb.get('bpd', {}).get('n', 0)} ({morb.get('bpd', {}).get('pct', 0)}%), NEC: {morb.get('nec', {}).get('n', 0)}, ROP treated: {morb.get('rop_tx', {}).get('n', 0)}, Severe IVH: {morb.get('ivh_severe', {}).get('n', 0)}
+- Arm allocation counts are blinded / not available in live ops data.
+
+Be clinically precise, concise (2-4 sentences unless more is needed), and actionable.
+If data is zero or missing, say so — do not invent figures."""
+
+    messages = [{"role": m.role, "content": m.content} for m in body.history]
+    messages.append({"role": "user", "content": body.message})
+
+    payload = json.dumps({
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 1000,
+        "system": system_prompt,
+        "messages": messages,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        logger.error("AI Insights: Anthropic API returned %s: %s", e.code, detail)
+        raise HTTPException(status_code=502, detail="AI Insights is temporarily unavailable")
+    except Exception as e:
+        logger.error("AI Insights: request to Anthropic failed: %s", e)
+        raise HTTPException(status_code=502, detail="AI Insights is temporarily unavailable")
+
+    reply = "".join(
+        block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
+    ) or "Unable to generate a response."
+
+    return {"reply": reply}

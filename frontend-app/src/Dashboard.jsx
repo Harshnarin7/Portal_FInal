@@ -257,55 +257,30 @@ export default function Dashboard() {
   }, [aiMessages, aiLoading]);
 
   // ── AI: send message ───────────────────────────────────
+  // The live trial-context system prompt is built server-side (from a
+  // fresh DB read, not client-supplied numbers) in POST /dashboard/ai-insights
+  // — see backend/routers/dashboard.py Section 7. The Anthropic API key
+  // never reaches the browser.
   const sendAI = useCallback(async (overrideQ) => {
     const q = (overrideQ || aiInput).trim();
     if (!q || aiLoading) return;
     setAiInput("");
 
     const userMsg = { role: "user", content: q };
+    const priorHistory = aiMessages.map(m => ({ role: m.role, content: m.content }));
     setAiMessages(prev => [...prev, userMsg]);
     setAiLoading(true);
 
-    // Build a concise trial-context system prompt from live data
-    const siteLine = siteRows.map(s => `${s.site}(sc${s.sc},en${s.en})`).join(", ") || "none";
-    const formLine = formComp.map(([l, p]) => `${l}: ${p}%`).join("; ") || "n/a";
-    const systemPrompt = `You are an AI assistant embedded in the PORTAL clinical trial dashboard.
-PORTAL is a multi-centre neonatal RCT comparing FiO₂ levels (30%, 60%, 90%) for preterm infants <32 weeks.
-
-Use ONLY this live snapshot (do not invent counts):
-- Screened: ${total}, Enrolled (randomised): ${enrolled} / ${target} (${pct}%)
-- Screen failures: ${failures}
-- Open SAEs: ${openSaes}
-- Pending form actions: ${pendingForms}
-- Sites: ${siteLine}
-- Form completeness: ${formLine}
-- Mortality in-hospital: ${mort?.in_hospital?.n ?? 0} (${mort?.in_hospital?.pct ?? 0}%)
-- BPD: ${morb?.bpd?.n ?? 0} (${morb?.bpd?.pct ?? 0}%), NEC: ${morb?.nec?.n ?? 0}, ROP treated: ${morb?.rop_tx?.n ?? 0}, Severe IVH: ${morb?.ivh_severe?.n ?? 0}
-- Arm allocation counts are blinded / not available in live ops data.
-
-Be clinically precise, concise (2–4 sentences unless more is needed), and actionable.
-If data is zero or missing, say so — do not invent figures.`;
-
     try {
-      const history = [...(aiMessages), userMsg];
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: systemPrompt,
-          messages: history.map(m => ({ role: m.role, content: m.content })),
-        }),
-      });
-      const data = await resp.json();
-      const reply = data.content?.filter(b => b.type === "text").map(b => b.text).join("") || "Unable to generate a response.";
+      const resp = await api.post("/dashboard/ai-insights", { message: q, history: priorHistory });
+      const reply = resp.data?.reply || "Unable to generate a response.";
       setAiMessages(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch {
-      setAiMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again." }]);
+    } catch (err) {
+      const msg = err.response?.data?.detail || "Connection error. Please try again.";
+      setAiMessages(prev => [...prev, { role: "assistant", content: msg }]);
     }
     setAiLoading(false);
-  }, [aiInput, aiLoading, aiMessages, enrolled, failures, pct, total, target, openSaes, pendingForms, logGaps, eligible, siteRows, formComp, mort, morb]);
+  }, [aiInput, aiLoading, aiMessages]);
 
   // ── User info ──────────────────────────────────────────
   const roleLabel = RL_MAP[user?.role] || user?.role || "User";
