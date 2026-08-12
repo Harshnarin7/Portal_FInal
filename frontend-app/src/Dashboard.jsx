@@ -267,7 +267,9 @@ export default function Dashboard() {
     setAiInput("");
 
     const userMsg = { role: "user", content: q };
-    const priorHistory = aiMessages.map(m => ({ role: m.role, content: m.content }));
+    // Exclude prior error messages from replayed history — they were never a
+    // real assistant turn, and FastAPI 422 details aren't always strings.
+    const priorHistory = aiMessages.filter(m => !m.isError).map(m => ({ role: m.role, content: m.content }));
     setAiMessages(prev => [...prev, userMsg]);
     setAiLoading(true);
 
@@ -276,8 +278,9 @@ export default function Dashboard() {
       const reply = resp.data?.reply || "Unable to generate a response.";
       setAiMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
-      const msg = err.response?.data?.detail || "Connection error. Please try again.";
-      setAiMessages(prev => [...prev, { role: "assistant", content: msg }]);
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === "string" ? detail : "Connection error. Please try again.";
+      setAiMessages(prev => [...prev, { role: "assistant", content: msg, isError: true }]);
     }
     setAiLoading(false);
   }, [aiInput, aiLoading, aiMessages]);

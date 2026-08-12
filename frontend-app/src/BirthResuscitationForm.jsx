@@ -731,7 +731,7 @@ export default function BirthResuscitationForm() {
       time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
-      blender_letter:      fd.blender_letter || null,
+      blender_letter:      fd.randomised === "Yes" ? (fd.blender_letter || null) : null,
       randomisation_date:  fd.randomisation_date
         ? String(fd.randomisation_date).slice(0, 10) : null,
       enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
