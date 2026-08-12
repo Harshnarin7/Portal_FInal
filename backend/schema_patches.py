@@ -257,53 +257,31 @@ USERS_COLUMN_PATCHES = [
 
 
 def apply_schema_patches(engine: Engine) -> None:
+    """Applies every `*_PATCHES` list defined at module level.
+
+    Patch groups are auto-discovered (via globals(), at call time — so
+    definition order in the file doesn't matter) rather than called out
+    individually here. This is deliberate: with two people (admin + Harsh)
+    both adding patch lists to this file independently, a hand-maintained
+    call list means every addition edits the *same* lines, guaranteeing a
+    merge conflict on every sync. To add a new patch: just define a new
+    `SOMETHING_PATCHES = [...]` list anywhere in this file — nothing else
+    needs to change. Groups run in alphabetical-by-name order, which is
+    safe because every statement here is idempotent (IF NOT EXISTS /
+    CREATE TABLE IF NOT EXISTS) and none depend on columns added by another
+    group in the same run.
+    """
     if engine.dialect.name != "postgresql":
         return
+    patch_groups = {
+        name: value
+        for name, value in globals().items()
+        if name.endswith("_PATCHES") and isinstance(value, list)
+    }
     with engine.begin() as conn:
-        for stmt in SCREENING_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in COMPOSITE_OUTCOME_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in BIRTH_RESUSCITATION_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in POSTNATAL_DAY1_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in RESP_CV_NEURO_DAY_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in NICU_ADMISSION_DAY1_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in NICU_ADMISSION_UNIQUE_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in METAB_RENAL_VASC_EYE_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in MINIMAL_MONITORING_TABLE_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in USERS_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in MATERNAL_DETAILS_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in POSTNATAL_DAY1_COLUMN_PATCHES_V2:
-            conn.execute(text(stmt))
-        for stmt in NICU_ADMISSION_COLUMN_PATCHES_V2:
-            conn.execute(text(stmt))
-        for stmt in INFECT_GI_HEMA_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in NEONATAL_MORBIDITIES_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in STUDY_OUTCOMES_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in CRANIAL_USG_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in ROP_SCREENING_COLUMN_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in EXTERNAL_HOSPITAL_TABLE_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in SAE_REPORT_TABLE_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in ADVERSE_EVENTS_TABLE_PATCHES:
-            conn.execute(text(stmt))
-        for stmt in SAE_LIST_TABLE_PATCHES:
-            conn.execute(text(stmt))
+        for name in sorted(patch_groups):
+            for stmt in patch_groups[name]:
+                conn.execute(text(stmt))
 
 # New fields added post-July-15 deploy — found missing in production 2026-07-19
 # (caused 500 errors on Form D load, Form B NICU fields, Helper 3 day logs)
@@ -319,7 +297,7 @@ MATERNAL_DETAILS_COLUMN_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hyperthyroidism BOOLEAN DEFAULT FALSE",
 ]
 
-POSTNATAL_DAY1_COLUMN_PATCHES_V2 = [
+POSTNATAL_DAY1_V2_COLUMN_PATCHES = [
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS lisa_catheter_type VARCHAR",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS lisa_catheter_other VARCHAR",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS device_type_other VARCHAR",
@@ -332,7 +310,7 @@ POSTNATAL_DAY1_COLUMN_PATCHES_V2 = [
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_time VARCHAR",
 ]
 
-NICU_ADMISSION_COLUMN_PATCHES_V2 = [
+NICU_ADMISSION_V2_COLUMN_PATCHES = [
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS temp_dr DOUBLE PRECISION",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_cpap DOUBLE PRECISION",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_pip DOUBLE PRECISION",
@@ -853,6 +831,19 @@ STUDY_OUTCOMES_COLUMN_PATCHES = [
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS mortality_after_discharge_age_days DOUBLE PRECISION",
     "ALTER TABLE study_outcomes ADD COLUMN IF NOT EXISTS crf_additional_notes JSON",
 ]
+# total new columns: 82
+
+# 2026-08-09: participant_pii fields are now Fernet-encrypted at rest
+# (see backend/crypto.py). Ciphertext is longer than plaintext, so the
+# 4 columns that were capped at VARCHAR(15) for phone numbers need
+# widening — safe/idempotent to re-run (no-op once already unbounded).
+PARTICIPANT_PII_WIDEN_PATCHES = [
+    "ALTER TABLE participant_pii ALTER COLUMN mother_contact TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN husband_contact TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN contact_mother TYPE VARCHAR",
+    "ALTER TABLE participant_pii ALTER COLUMN contact_husband TYPE VARCHAR",
+]
+
 # Form F / H (Cranial USG) — completion footer fields, added for CRF alignment
 CRANIAL_USG_COLUMN_PATCHES = [
     "ALTER TABLE cranial_usg_records ADD COLUMN IF NOT EXISTS completed_by VARCHAR",
@@ -1036,3 +1027,12 @@ SAE_LIST_TABLE_PATCHES = [
 ]
 
 # total new columns: 92
+
+# 2026-08-12: which physical blender (A/B/C/D) was used for a birth — needed
+# to identify the stratum for per-blender allocation-sequence monitoring
+# (see models.py comment on BirthResuscitation.blender_letter for why this
+# isn't an unblinding risk). No manual call needed here — apply_schema_patches()
+# auto-discovers this list by its _PATCHES suffix.
+BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_letter VARCHAR",
+]
