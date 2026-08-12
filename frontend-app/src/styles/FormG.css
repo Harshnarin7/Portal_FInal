@@ -1,13 +1,489 @@
 /* ============================================================
-   FormG.css — Study Outcomes
-   Import: import "./FormG.css"; in FormG.jsx
-   Also requires: global.css + FormComponents.css + Tables.css
+   FormG.css — Retinopathy of Prematurity (ROP) Screening (Form G)
+   PORTAL Trial — Clinical navy/slate design (matches Form F)
    ============================================================ */
 
-/* Progress steps */
-.progress-header { margin: 20px 0 10px 0; }
-.progress-text { font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 8px; }
-.progress-steps { display: flex; gap: 10px; flex-wrap: wrap; }
-.progress-step { padding: 8px 16px; border-radius: 20px; background: #e5e7eb; font-size: 14px; font-weight: 600; color: #374151; }
-.progress-step.active { background: #4f46e5; color: white; }
-.progress-step.completed { background: #22c55e; color: white; }
+/* ══ DESIGN TOKENS ═════════════════════════════════════════ */
+.rop-page {
+  --rop-navy:        #0F4C81;
+  --rop-navy-mid:    #1558A0;
+  --rop-navy-light:  #2171C7;
+  --rop-navy-pale:   #EFF6FF;
+  --rop-navy-faint:  #F7FAFF;
+  --rop-teal:        #0E7C86;
+  --rop-teal-pale:   #E6F6F7;
+  --rop-success:     #059669;
+  --rop-success-pale:#ECFDF5;
+  --rop-warning:     #D97706;
+  --rop-warning-pale:#FFFBEB;
+  --rop-danger:      #DC2626;
+  --rop-danger-pale: #FEF2F2;
+  --rop-deep-red:    #7F1D1D;
+  --rop-deep-red-pale:#FBE9E9;
+  --rop-bg:          #F1F5F9;
+  --rop-surface:     #F8FAFC;
+  --rop-white:       #ffffff;
+  --rop-border:      #E2E8F0;
+  --rop-border-mid:  #CBD5E1;
+  --rop-shadow-sm:   0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+  --rop-shadow:      0 2px 10px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04);
+  --rop-shadow-lg:   0 8px 28px rgba(15,23,42,0.10), 0 2px 8px rgba(15,23,42,0.05);
+  --rop-radius-sm:   8px;
+  --rop-radius:      11px;
+  --rop-radius-lg:   14px;
+  --rop-t1:          #0F172A;
+  --rop-t2:          #1E293B;
+  --rop-t3:          #475569;
+  --rop-t4:          #64748B;
+  --rop-t5:          #94A3B8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--rop-bg);
+  min-height: 100vh;
+  padding-bottom: 100px;
+  color: var(--rop-t1);
+}
+
+/* ══ PATIENT CONTEXT BAR ═══════════════════════════════════ */
+.rop-context-bar {
+  background: linear-gradient(135deg, #0F4C81 0%, #14507F 55%, #0E7C86 100%);
+  padding: 0 28px; min-height: 64px;
+  display: flex; align-items: stretch; flex-wrap: wrap;
+  box-shadow: 0 3px 14px rgba(15,23,42,.18);
+}
+.rop-context-trial {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 24px 12px 0; border-right: 1px solid rgba(255,255,255,.15); flex-shrink: 0;
+}
+.rop-context-trial-icon {
+  width: 32px; height: 32px; border-radius: 9px;
+  background: rgba(255,255,255,.16);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,.22);
+}
+.rop-context-trial-info { display: flex; flex-direction: column; gap: 1px; }
+.rop-context-name {
+  font-size: 9px; font-weight: 800; color: rgba(255,255,255,.55);
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.rop-context-sub { font-size: 13px; font-weight: 700; color: #fff; }
+.rop-context-fields {
+  display: flex; align-items: stretch; flex: 1;
+  overflow-x: auto; scrollbar-width: none;
+}
+.rop-context-fields::-webkit-scrollbar { display: none; }
+.rop-context-field {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 10px 20px; border-right: 1px solid rgba(255,255,255,.12);
+  flex: 1; min-width: 100px;
+}
+.rop-context-field--last { border-right: none; }
+.rop-context-field-label {
+  font-size: 9px; font-weight: 700; color: rgba(255,255,255,.5);
+  letter-spacing: .08em; text-transform: uppercase; margin-bottom: 3px; white-space: nowrap;
+}
+.rop-context-field-value {
+  font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap;
+}
+
+/* Form G G1 matrix needs a wider canvas than other CRFs */
+.form-layout-content:has(.rop-page),
+.form-layout-container:has(.rop-page) {
+  max-width: 1520px;
+  overflow-x: auto;
+}
+.form-layout-main:has(.rop-page) {
+  overflow-x: auto;
+}
+
+/* ══ PAGE BODY ══════════════════════════════════════════════ */
+.rop-page {
+  width: 100%;
+  min-width: 0;
+}
+.rop-body {
+  max-width: none;
+  width: 100%;
+  margin: 0 auto;
+  padding: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+/* ══ GENERIC CARD ══════════════════════════════════════════ */
+.rop-card {
+  background: var(--rop-white);
+  border: 1px solid var(--rop-border);
+  border-radius: var(--rop-radius-lg);
+  box-shadow: var(--rop-shadow);
+  overflow: hidden;
+}
+.rop-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--rop-border);
+  background: var(--rop-surface);
+}
+.rop-card-header-left { display: flex; align-items: center; gap: 12px; }
+.rop-card-icon {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--rop-navy-pale);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--rop-navy); flex-shrink: 0;
+}
+.rop-card-title { font-size: 14px; font-weight: 700; color: var(--rop-t1); margin: 0; }
+.rop-card-sub { font-size: 11.5px; color: var(--rop-t4); margin: 2px 0 0; }
+.rop-card-body { padding: 18px 22px; }
+.rop-section-heading { font-size: 14px; font-weight: 700; color: var(--rop-t1); margin: 8px 0 -6px; }
+
+/* ══ ELIGIBILITY / GUIDELINE CARDS ═════════════════════════ */
+.rop-guideline-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  padding: 18px 22px;
+}
+.rop-guideline-card {
+  background: var(--rop-surface); border: 1px solid var(--rop-border);
+  border-radius: var(--rop-radius); padding: 14px 16px;
+}
+.rop-guideline-card h4 {
+  margin: 0 0 8px; font-size: 11.5px; font-weight: 800; color: var(--rop-navy);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.rop-guideline-card ul { margin: 0 0 8px; padding-left: 18px; }
+.rop-guideline-card li { font-size: 12.5px; color: var(--rop-t2); line-height: 1.6; }
+.rop-guideline-card p { font-size: 12.5px; color: var(--rop-t2); margin: 4px 0; }
+.rop-guideline-sub { font-size: 11.5px; color: var(--rop-t4); margin-top: 6px !important; }
+
+/* ══ G1 SCREENING TABLE ════════════════════════════════════
+   Scoped under .rop-page so legacy ScreeningForm/Tables.css
+   .rop-table rules cannot crush date/name columns. */
+.rop-page .rop-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #94A3B8 transparent;
+}
+.rop-page .rop-table-wrap::-webkit-scrollbar { height: 8px; }
+.rop-page .rop-table-wrap::-webkit-scrollbar-thumb {
+  background: #94A3B8; border-radius: 8px;
+}
+.rop-page .rop-table {
+  width: 100% !important;
+  min-width: 1120px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  table-layout: fixed !important;
+  font-size: 12px !important;
+}
+.rop-page .rop-col-num { width: 34px; }
+.rop-page .rop-col-date { width: 142px; }
+.rop-page .rop-col-dol { width: 52px; }
+.rop-page .rop-col-pma { width: 64px; }
+.rop-page .rop-col-method { width: 92px; }
+.rop-page .rop-col-stage { width: 68px; }
+.rop-page .rop-col-zone { width: 78px; }
+.rop-page .rop-col-plus { width: 84px; }
+.rop-page .rop-col-review { width: 108px; }
+.rop-page .rop-col-name { width: 128px; }
+
+.rop-page .rop-table thead th {
+  text-align: center;
+  padding: 8px 3px;
+  background: #F1F5F9 !important;
+  color: #475569 !important;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  border: none !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+  border-right: 1px solid #E2E8F0 !important;
+  white-space: nowrap;
+  vertical-align: middle;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.rop-page .rop-table thead tr:first-child th[rowspan="2"] {
+  vertical-align: middle;
+}
+.rop-page .rop-table thead th:last-child { border-right: none !important; }
+.rop-page .rop-th-re {
+  background: #DBEAFE !important;
+  color: #0F4C81 !important;
+  border-top: none !important;
+}
+.rop-page .rop-th-le {
+  background: #E2E8F0 !important;
+  color: #334155 !important;
+  border-top: none !important;
+}
+.rop-page .rop-table tbody td {
+  padding: 5px 3px !important;
+  border: none !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+  border-right: 1px solid #E2E8F0 !important;
+  text-align: center;
+  vertical-align: middle;
+  background: #fff !important;
+  overflow: visible !important;
+}
+.rop-page .rop-table tbody td:last-child {
+  border-right: none !important;
+  background: #fff !important;
+  font-weight: 400 !important;
+}
+.rop-page .rop-table tbody tr:last-child td { border-bottom: none !important; }
+.rop-page .rop-table tbody tr:nth-child(even) td { background: #fff !important; }
+.rop-page .rop-table tbody tr:hover td { background: #F8FBFF !important; }
+.rop-page .rop-table-num {
+  font-weight: 800;
+  color: #0F4C81;
+  font-size: 12px;
+}
+
+.rop-page .rop-table input,
+.rop-page .rop-table select {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 6px 5px !important;
+  border: 1.5px solid #CBD5E1 !important;
+  border-radius: 7px !important;
+  font-size: 12px !important;
+  font-family: inherit;
+  color: #0F172A;
+  background: #fff !important;
+  line-height: 1.2;
+  height: 34px !important;
+}
+.rop-page .rop-table input.rop-in-date {
+  padding: 4px 4px !important;
+  text-align: left !important;
+  font-size: 11.5px !important;
+}
+.rop-page .rop-table input.rop-in-xs {
+  padding: 6px 2px !important;
+  text-align: center !important;
+  font-weight: 700;
+  color: #0F4C81;
+  background: #F8FAFC !important;
+}
+.rop-page .rop-table input.rop-in-text {
+  text-align: left !important;
+  padding-left: 8px !important;
+}
+.rop-page .rop-table select.rop-in-select {
+  text-align: left !important;
+  padding-right: 16px !important;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #64748B 50%),
+    linear-gradient(135deg, #64748B 50%, transparent 50%) !important;
+  background-position:
+    calc(100% - 11px) 14px,
+    calc(100% - 6px) 14px !important;
+  background-size: 5px 5px, 5px 5px !important;
+  background-repeat: no-repeat !important;
+}
+.rop-page .rop-table input:focus,
+.rop-page .rop-table select:focus {
+  outline: none;
+  border-color: #0F4C81 !important;
+  box-shadow: 0 0 0 2px rgba(15, 76, 129, 0.14);
+}
+.rop-page .rop-table input[readonly] {
+  background: #F1F5F9 !important;
+  color: #0F4C81;
+  font-weight: 700;
+  cursor: default;
+}
+.rop-page .rop-table-hint {
+  padding: 8px 16px 12px;
+  font-size: 11px;
+  color: #94A3B8;
+  text-align: right;
+}
+
+/* ══ ICROP / FOLLOW-UP REFERENCE CARDS ═════════════════════ */
+.rop-icrop-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+  padding: 4px 22px 20px;
+}
+.rop-icrop-card {
+  background: var(--rop-surface); border: 1px solid var(--rop-border);
+  border-radius: var(--rop-radius); padding: 13px 15px;
+}
+.rop-icrop-card h5 {
+  margin: 0 0 9px; font-size: 10.5px; font-weight: 800; color: var(--rop-t3);
+  text-transform: uppercase; letter-spacing: .05em;
+  padding-bottom: 8px; border-bottom: 1px solid var(--rop-border);
+}
+.rop-icrop-card p { font-size: 11.5px; color: var(--rop-t2); line-height: 1.6; margin: 5px 0; }
+.rop-icrop-card ul { margin: 0; padding-left: 16px; }
+.rop-icrop-card li { font-size: 11.5px; color: var(--rop-t2); line-height: 1.65; }
+.rop-icrop-card--follow { grid-column: span 1; }
+
+/* ══ EYE SUMMARY PANELS (G2) ═══════════════════════════════ */
+.rop-eye-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  padding: 18px 22px;
+  align-items: start;
+}
+.rop-eye-panel {
+  border: 1px solid var(--rop-border); border-radius: var(--rop-radius-lg);
+  background: var(--rop-white); box-shadow: var(--rop-shadow);
+  padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 14px;
+}
+.rop-eye-panel--right { border-top: 3px solid var(--rop-navy); }
+.rop-eye-panel--left  { border-top: 3px solid var(--rop-t4); }
+.rop-eye-badge {
+  display: inline-flex; align-self: flex-start; font-size: 10px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; padding: 4px 11px; border-radius: 6px;
+}
+.rop-eye-badge--right { background: var(--rop-navy-pale); color: var(--rop-navy); }
+.rop-eye-badge--left  { background: var(--rop-surface); color: var(--rop-t3); border: 1px solid var(--rop-border); }
+
+.rop-field-block { display: flex; flex-direction: column; gap: 8px; }
+.rop-field-label {
+  font-size: 11px; font-weight: 700; color: var(--rop-t2);
+}
+.rop-field-label .rop-req { color: var(--rop-danger); }
+
+/* Stage pill segmented group */
+.rop-stage-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.rop-stage-pill {
+  flex: 1 1 auto; min-width: 34px; text-align: center;
+  padding: 7px 4px; border-radius: 7px; border: 1.5px solid var(--rop-border-mid);
+  background: #fff; font-size: 11.5px; font-weight: 700; color: var(--rop-t3);
+  cursor: pointer; transition: all .13s;
+}
+.rop-stage-pill:hover { border-color: var(--rop-navy); color: var(--rop-navy); }
+.rop-stage-pill.is-on { background: var(--rop-navy); border-color: var(--rop-navy); color: #fff; }
+.rop-stage-pill--none.is-on { background: var(--rop-t4); border-color: var(--rop-t4); }
+.rop-stage-pill--severe.is-on { background: var(--rop-danger); border-color: var(--rop-danger); }
+
+/* Zone pill group */
+.rop-zone-pills { display: flex; gap: 6px; }
+.rop-zone-pill {
+  flex: 1; text-align: center; padding: 7px 6px; border-radius: 7px;
+  border: 1.5px solid var(--rop-border-mid); background: #fff;
+  font-size: 11.5px; font-weight: 700; color: var(--rop-t3); cursor: pointer; transition: all .13s;
+}
+.rop-zone-pill:hover { border-color: var(--rop-teal); color: var(--rop-teal); }
+.rop-zone-pill.is-on { background: var(--rop-teal); border-color: var(--rop-teal); color: #fff; }
+
+/* Yes/No toggle */
+.rop-yn { display: inline-flex; border-radius: var(--rop-radius-sm); overflow: hidden; border: 1.5px solid var(--rop-border-mid); }
+.rop-yn-btn {
+  padding: 7px 18px; font-size: 12px; font-weight: 700;
+  background: #fff; border: none; cursor: pointer; transition: all .13s; color: var(--rop-t4);
+}
+.rop-yn-btn + .rop-yn-btn { border-left: 1.5px solid var(--rop-border-mid); }
+.rop-yn-btn.is-yes { background: var(--rop-success) !important; color: #fff !important; }
+.rop-yn-btn.is-no { background: var(--rop-danger) !important; color: #fff !important; }
+.rop-yn-btn:hover:not(:disabled) { background: var(--rop-surface); }
+.rop-yn-btn:disabled { cursor: default; opacity: .55; }
+.rop-field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* Treatment sub-block, revealed only when Treatment Required = Yes */
+.rop-treatment-block {
+  border-top: 1px dashed var(--rop-border); padding-top: 12px; margin-top: 2px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.rop-treatment-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rop-checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rop-checkbox-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1.5px solid var(--rop-border-mid); border-radius: var(--rop-radius-sm);
+  cursor: pointer; transition: all .13s; background: #fff;
+  font-size: 11.5px; font-weight: 600; color: var(--rop-t3);
+}
+.rop-checkbox-item:hover { border-color: var(--rop-navy); color: var(--rop-navy); background: var(--rop-navy-faint); }
+.rop-checkbox-item--on { border-color: var(--rop-navy); background: var(--rop-navy-pale); color: var(--rop-navy); }
+.rop-checkbox-item input { accent-color: var(--rop-navy); width: 14px; height: 14px; flex-shrink: 0; }
+
+/* ══ FORM INPUTS (generic) ═════════════════════════════════ */
+.rop-field { display: flex; flex-direction: column; gap: 6px; }
+.rop-label {
+  font-size: 10px; font-weight: 700; color: var(--rop-t4);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.rop-input, .rop-select, .rop-textarea {
+  padding: 9px 12px; border: 1.5px solid var(--rop-border-mid);
+  border-radius: var(--rop-radius-sm);
+  font-size: 13px; font-weight: 500; color: var(--rop-t1); background: #fff;
+  transition: border-color .15s, box-shadow .15s; width: 100%; box-sizing: border-box;
+  font-family: inherit;
+}
+.rop-input:focus, .rop-select:focus, .rop-textarea:focus {
+  outline: none; border-color: var(--rop-navy);
+  box-shadow: 0 0 0 3px rgba(15,76,129,.1);
+}
+.rop-input[readonly], .rop-input:disabled { background: var(--rop-surface); color: var(--rop-t3); cursor: not-allowed; font-weight: 700; }
+.rop-auto-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 9px; font-weight: 800; letter-spacing: .04em;
+  color: #0F4C81; background: #EFF6FF; border-radius: 4px; vertical-align: middle;
+}
+.rop-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* ══ SUMMARY / COMPOSITE CARDS ═════════════════════════════ */
+.rop-summary-row { display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; }
+.rop-summary-item {
+  background: var(--rop-surface); border: 1px solid var(--rop-border);
+  border-radius: var(--rop-radius); padding: 14px 16px;
+}
+.rop-composite-card {
+  background: var(--rop-white); border: 1px solid var(--rop-border);
+  border-radius: var(--rop-radius-lg); box-shadow: var(--rop-shadow);
+  padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.rop-composite-left { display: flex; align-items: center; gap: 14px; }
+.rop-composite-icon { color: var(--rop-navy); flex-shrink: 0; }
+.rop-composite-title { font-size: 13.5px; font-weight: 700; color: var(--rop-t1); margin: 0 0 2px; }
+.rop-composite-desc { font-size: 11.5px; color: var(--rop-t4); margin: 0; }
+.rop-composite-badge {
+  font-size: 12px; font-weight: 800; padding: 6px 18px; border-radius: 999px;
+  border: 1.5px solid var(--rop-border-mid); background: var(--rop-surface); color: var(--rop-t4);
+}
+.rop-composite-badge--yes { background: var(--rop-deep-red-pale); border-color: #E5B4B4; color: var(--rop-deep-red); }
+.rop-composite-badge--no { background: var(--rop-success-pale); border-color: #BBF7D0; color: var(--rop-success); }
+
+/* ══ COMPLETION FOOTER ═════════════════════════════════════ */
+.rop-completion-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;
+  padding: 18px 22px 22px;
+}
+
+/* ══ MESSAGE ═══════════════════════════════════════════════ */
+.rop-message {
+  margin: 0 22px 18px; padding: 11px 15px; border-radius: var(--rop-radius-sm);
+  font-size: 13px; font-weight: 600;
+}
+.rop-message--success { background: #DCFCE7; color: #15803D; border: 1px solid #BBF7D0; }
+.rop-message--error   { background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA; }
+
+/* ══ RESPONSIVE ════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+  .rop-body { padding: 18px 18px 0; }
+  .rop-icrop-grid { grid-template-columns: 1fr; }
+  .rop-guideline-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+  .rop-eye-grid { grid-template-columns: 1fr; }
+  .rop-treatment-row2 { grid-template-columns: 1fr; }
+  .rop-checkbox-grid { grid-template-columns: 1fr; }
+  .rop-row2 { grid-template-columns: 1fr; }
+  .rop-completion-grid { grid-template-columns: 1fr; }
+  .rop-context-bar { padding: 10px 16px; }
+}

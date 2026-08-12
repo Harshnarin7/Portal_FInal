@@ -11,7 +11,7 @@ import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
 import {
-  ArrowLeft, ArrowRight, Save, Home,
+  ArrowLeft, ArrowRight, Save, Home, Pencil,
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -112,7 +112,7 @@ const REFUSAL_REASONS        = ["Fear of adverse effects","Family pressure","Not
 const NOT_APPROACHED_REASONS = ["Nurse on leave","Parent not available","Missed screening","Other"];
 
 /* ════════════════════════════════════════════
-   SCREENING FORM — CRF v1.22
+   SCREENING FORM — CRF Eligibility Assessment
 ════════════════════════════════════════════ */
 export default function ScreeningForm() {
   const navigate = useNavigate();
@@ -163,7 +163,8 @@ export default function ScreeningForm() {
      format that could block a legitimate entry. */
   const idFieldRule = (site, field) => {
     if (field === "maternal_uid") {
-      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
+      // PGIMER Chandigarh CR numbers are 12 digits (site-confirmed).
+      if (site === "PGIMER") return { pattern: /^\d{12}$/, hint: "Must be exactly 12 digits", charFilter: /[^0-9]/g, maxLen: 12, required: true };
       if (site === "AMC")    return { pattern: /^\d+\/\d{4}$/, hint: "Must be in serial/year format, e.g. 123/2026", charFilter: /[^0-9/]/g, maxLen: 15, required: true };
       return null;
     }
@@ -240,16 +241,28 @@ export default function ScreeningForm() {
       const notApprList = d.reason_not_approached
         ? d.reason_not_approached.split(",").map(s=>s.trim()).filter(Boolean) : [];
 
+      /* Drop any identity keys from the clinical payload so a future API
+         change can't overwrite the PII-store values into the wrong boxes. */
+      const {
+        mother_first_name: _mf, mother_surname: _ms,
+        husband_first_name: _hf, husband_surname: _hs,
+        maternal_uid: _mu, hospital_admission_number: _han,
+        mother_contact: _mc, husband_contact: _hc,
+        ...clinical
+      } = d || {};
+
       setFormData(() => ({
-        ...BLANK_FORM, ...d,
-        mother_first_name:         pii.mother_first_name         || d.mother_first_name         || "",
-        mother_surname:            pii.mother_surname            || d.mother_surname            || "",
-        husband_first_name:        pii.husband_first_name        || d.husband_first_name        || "",
-        husband_surname:           pii.husband_surname           || d.husband_surname           || "",
-        maternal_uid:              pii.maternal_uid              || d.maternal_uid              || "",
-        hospital_admission_number: pii.hospital_admission_number || d.hospital_admission_number || "",
-        mother_contact:            pii.mother_contact            || d.mother_contact            || "",
-        husband_contact:           pii.husband_contact           || d.husband_contact           || "",
+        ...BLANK_FORM, ...clinical,
+        /* Identity fields come ONLY from participant_pii. Strip autosave
+           "DRAFT" placeholders so they never reappear as real names. */
+        mother_first_name:         (pii.mother_first_name && pii.mother_first_name !== "DRAFT") ? pii.mother_first_name : "",
+        mother_surname:            pii.mother_surname || "",
+        husband_first_name:        (pii.husband_first_name && pii.husband_first_name !== "DRAFT") ? pii.husband_first_name : "",
+        husband_surname:           pii.husband_surname || "",
+        maternal_uid:              pii.maternal_uid || "",
+        hospital_admission_number: pii.hospital_admission_number || "",
+        mother_contact:            pii.mother_contact || "",
+        husband_contact:           pii.husband_contact || "",
         /* gestation_known/ga_source are now persisted explicitly on the
            backend (see migrations/0002_gestation_known_column.sql), so
            reload no longer needs to guess. The fallback heuristic below
@@ -263,6 +276,10 @@ export default function ScreeningForm() {
         ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         edd_date:           d.expected_delivery_date || "",
         lmp_date:           d.lmp_date || "",
+        /* Restore auto-GA for the "gestation not known" path so field 8
+           shows immediately on reload (also recomputed live from EDD). */
+        auto_ga_weeks:      d.gestation_method ? "" : (d.gestation_weeks ?? ""),
+        auto_ga_days:       d.gestation_method ? "" : (d.gestation_days ?? ""),
         /* A4 exclusion fields — inline ternary avoids const-in-object error.
            (d.exclusion_present != null) means record was saved before → unanswered = "No".
            If never saved → "" so toggles show as unanswered.                              */
@@ -423,11 +440,13 @@ export default function ScreeningForm() {
      value into the field). */
   useEffect(() => {
     if (!isSiteLocked) return;
-    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return; // don't clobber who actually screened an existing record
+    if (screeningId && screeningId !== "undefined" && screeningId !== "null") return;
     if (formData.screened_by) return;
     if (!user?.full_name || !nurses.length) return;
-    if (!nurses.includes(user.full_name)) return;
-    setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: user.full_name });
+    const target = String(user.full_name).trim().toLowerCase();
+    const match = nurses.find(n => String(n).trim().toLowerCase() === target);
+    if (!match) return;
+    setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: match });
   }, [nurses, isSiteLocked, user, screeningId, formData.screened_by]);
 
   /* ─── LMP → EDD auto-calc ── */
@@ -435,45 +454,103 @@ export default function ScreeningForm() {
     if (!formData.lmp_date || !dataLoaded) return;
     if (formData.edd_date) return;
     const edd = parseDateOnly(formData.lmp_date);
+    if (!edd) return;
     edd.setDate(edd.getDate() + 280);
     setFormData(p => ({ ...p, edd_date: toDateOnlyValue(edd) }));
   }, [formData.lmp_date, dataLoaded]); // eslint-disable-line
 
-  /* ─── EDD → GA auto-calc (only when gestation_known=No) ── */
+  /* GA from EDD — timezone-safe local-date math (do NOT use new Date("YYYY-MM-DD")). */
+  const computeAutoGaFromEdd = (eddDateStr) => {
+    if (!eddDateStr) return null;
+    const edd = parseDateOnly(String(eddDateStr).slice(0, 10));
+    if (!edd) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysUntilEdd = Math.round((edd.getTime() - today.getTime()) / 86400000);
+    const gestDays = 280 - daysUntilEdd;
+    if (Number.isNaN(gestDays)) return null;
+    return {
+      weeks: Math.max(0, Math.floor(gestDays / 7)),
+      days: Math.max(0, ((gestDays % 7) + 7) % 7),
+    };
+  };
+
+  /* Keep auto_ga_* in sync for save/eligibility, but display derives from EDD directly
+     so the banner never stays blank when EDD is already visible. */
   useEffect(() => {
     if (!formData.edd_date || !dataLoaded || formData.gestation_known === "Yes") return;
-    const diff = Math.floor(280 - (new Date(formData.edd_date) - new Date()) / 86400000);
-    setFormData(p => ({ ...p, auto_ga_weeks: Math.max(0, Math.floor(diff/7)), auto_ga_days: Math.max(0, diff%7) }));
+    const ga = computeAutoGaFromEdd(formData.edd_date);
+    if (!ga) return;
+    setFormData(p => {
+      if (p.auto_ga_weeks === ga.weeks && p.auto_ga_days === ga.days) return p;
+      return { ...p, auto_ga_weeks: ga.weeks, auto_ga_days: ga.days };
+    });
   }, [formData.edd_date, formData.gestation_known, dataLoaded]); // eslint-disable-line
 
   /* ─── Derived flags ── */
+  const derivedAutoGa = (formData.gestation_known === "No" && formData.ga_source !== "Neither" && formData.edd_date)
+    ? computeAutoGaFromEdd(formData.edd_date)
+    : null;
+
   const getEligibilityStatus = () => {
     let weeks = null, days = 0;
     if (formData.gestation_known === "Yes") {
-      if (!formData.best_ga_weeks) return null;
+      if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
       weeks = Number(formData.best_ga_weeks); days = Number(formData.best_ga_days||0);
     } else if (formData.gestation_known === "No" && formData.ga_source !== "Neither" && formData.edd_date) {
-      if (formData.auto_ga_weeks === "" || formData.auto_ga_weeks === null) return null;
-      weeks = Number(formData.auto_ga_weeks); days = Number(formData.auto_ga_days||0);
+      if (!derivedAutoGa) return null;
+      weeks = derivedAutoGa.weeks; days = derivedAutoGa.days;
     }
     if (weeks === null || isNaN(weeks)) return null;
     const t = weeks * 7 + days;
-    if (t < 24*7) return "low";
-    if (t > 31*7+6) return "high";
+    /* Eligible window: 25w0d – 31w6d inclusive */
+    if (t < 25 * 7) return "low";
+    if (t > 31 * 7 + 6) return "high";
     return "eligible";
   };
   const eligibilityStatus     = getEligibilityStatus();
   const gaNotDeterminable     = formData.gestation_known === "No" && formData.ga_source === "Neither";
   const isNotEligible         = eligibilityStatus === "high" || eligibilityStatus === "low";
   const endParticipation      = gaNotDeterminable || isNotEligible;
+
+  /* Lock Form B+ when GA is outside 25w0d–31w6d (or undeterminable).
+     Form A stays available so nurses can correct the record. */
+  useEffect(() => {
+    if (!dataLoaded) return;
+    if (isNotEligible || gaNotDeterminable) {
+      localStorage.setItem("enrollment_locked", "true");
+      localStorage.setItem(
+        "enrollment_lock_reason",
+        gaNotDeterminable ? "ga_unknown" : "ga_out_of_range"
+      );
+      window.dispatchEvent(new Event("storage"));
+    } else if (eligibilityStatus === "eligible") {
+      /* Clear only a GA lock — do not clear a consent refusal lock */
+      const reason = localStorage.getItem("enrollment_lock_reason");
+      if (reason === "ga_out_of_range" || reason === "ga_unknown") {
+        localStorage.removeItem("enrollment_lock_reason");
+        /* Consent may still require lock; Sidebar re-evaluates from API */
+        if (formData.consent_given === "Yes" || formData.consent_given === "Trial run" || !formData.consent_given) {
+          localStorage.removeItem("enrollment_locked");
+          window.dispatchEvent(new Event("storage"));
+        }
+      }
+    }
+  }, [dataLoaded, isNotEligible, gaNotDeterminable, eligibilityStatus, formData.consent_given]);
+
   const gestationPathComplete = formData.gestation_known === "Yes" ||
     (formData.gestation_known === "No" && !!formData.edd_date && formData.ga_source !== "Neither");
   const anyExclusionYes = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
     .some(k => formData[k] === "Yes");
   const allExclusionAnswered = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
     .every(k => formData[k] === "Yes" || formData[k] === "No");
-  const displayWeeks = formData.gestation_known === "Yes" ? formData.best_ga_weeks : formData.auto_ga_weeks;
-  const displayDays  = formData.gestation_known === "Yes" ? (formData.best_ga_days||0) : (formData.auto_ga_days||0);
+  const displayWeeks = formData.gestation_known === "Yes"
+    ? formData.best_ga_weeks
+    : (derivedAutoGa ? derivedAutoGa.weeks : formData.auto_ga_weeks);
+  const displayDays  = formData.gestation_known === "Yes"
+    ? (formData.best_ga_days||0)
+    : (derivedAutoGa ? derivedAutoGa.days : (formData.auto_ga_days||0));
+  const hasDisplayGa = displayWeeks !== "" && displayWeeks !== null && displayWeeks !== undefined && !Number.isNaN(Number(displayWeeks));
 
   /* ─── Field-level change handler ── */
   const set = (patch) => setFormData(p => ({ ...p, ...patch }));
@@ -482,9 +559,17 @@ export default function ScreeningForm() {
     const { name, value } = e.target;
     const newErrors = { ...errors };
 
-    /* Name fields: letters only */
+    /* Name fields: allow letters (any language), spaces, apostrophe, hyphen, period.
+       The old /[^a-zA-Z ]/ filter stripped Indian-script and accented names to "" —
+       so Husband's First Name looked filled but stayed empty → required popup. */
     if (["screened_by","mother_first_name","mother_surname","husband_first_name","husband_surname"].includes(name)) {
-      set({ [name]: value.replace(/[^a-zA-Z ]/g, "") }); return;
+      const cleaned = value.replace(/[^\p{L}\s.'-]/gu, "");
+      set({ [name]: cleaned });
+      if (cleaned.trim()) {
+        setErrors(prev => ({ ...prev, [name]: "" }));
+        setFieldTouched(prev => ({ ...prev, [name]: true }));
+      }
+      return;
     }
     if (name === "site_name")          { set({ site_name:value, site_id:SITE_ID_MAP[value]||"", screened_by:"" }); return; }
     if (name === "gestation_known")    { set({ gestation_known:value, ga_source:"", lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"", best_ga_weeks:"", best_ga_days:"", gestation_method:"" }); return; }
@@ -501,16 +586,18 @@ export default function ScreeningForm() {
       return;
     }
     if (name === "maternal_uid") {
-      // Site-specific formats (confirmed 2026-08-01):
-      //   PGIMER: exactly 10 digits, numeric only
+      // Site-specific formats:
+      //   PGIMER: exactly 12 digits, numeric only
       //   AMC:    serial/year, e.g. "123/2026"
-      //   GMCH / GMCH-A / IOG: no strict digit format specified — kept as
-      //   free alphanumeric (required-non-empty only) rather than guessing
-      //   a pattern that could block legitimate entries.
+      //   GMCH / GMCH-A / IOG: free alphanumeric (required-non-empty)
       const rule = idFieldRule(formData.site_name, "maternal_uid");
       const filtered = rule ? value.replace(rule.charFilter, "") : value.replace(/[^a-zA-Z0-9/]/g, "");
       const capped = rule ? filtered.slice(0, rule.maxLen) : filtered;
       set({ maternal_uid: capped });
+      if (capped.trim()) {
+        const ok = !rule || rule.pattern.test(capped.trim());
+        setErrors(prev => ({ ...prev, maternal_uid: ok ? "" : (rule?.hint || "") }));
+      }
       return;
     }
     if (name === "hospital_admission_number") {
@@ -530,7 +617,7 @@ export default function ScreeningForm() {
     /* GA range validation */
     if (name === "best_ga_weeks") {
       const n = parseInt(value);
-      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be 25–31 weeks" : "";
+      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be between 10 and 45 weeks" : "";
       setErrors(newErrors);
     }
     if (name === "best_ga_days") {
@@ -598,10 +685,10 @@ export default function ScreeningForm() {
 
     if (!formData.screening_datetime)    add("Screening Date & Time (A2)",        "screening_datetime");
     if (!formData.site_name)             add("Site (A2)",                          "site_name");
-    if (!formData.screened_by)           add("Screened By (A2)",                   "screened_by");
-    if (!formData.mother_first_name)     add("Mother's First Name (A3)",           "mother_first_name");
-    if (!formData.husband_first_name)    add("Husband's First Name (A3)",          "husband_first_name");
-    if (!formData.maternal_uid)          add("Maternal UID / CR Number (A3)",      "maternal_uid");
+    if (!formData.screened_by?.trim())   add("Screened By (A2)",                   "screened_by");
+    if (!formData.mother_first_name?.trim())  add("Mother's First Name (A3)",     "mother_first_name");
+    if (!formData.husband_first_name?.trim()) add("Husband's First Name (A3)",    "husband_first_name");
+    if (!formData.maternal_uid?.trim())  add("Maternal UID / CR Number (A3)",      "maternal_uid");
     else {
       const uidRule = idFieldRule(formData.site_name, "maternal_uid");
       if (uidRule && !uidRule.pattern.test(formData.maternal_uid.trim())) {
@@ -682,25 +769,9 @@ export default function ScreeningForm() {
   };
 
   /* ─── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
-  // FIX: gestational age (weeks/days) for the "gestation not known" (EDD/LMP)
-  // path was being read from fd.auto_ga_weeks/auto_ga_days — state fields
-  // populated by a chained pair of useEffects (LMP -> edd_date, then
-  // edd_date -> auto_ga_weeks/days). Autosave runs on its own 10-second
-  // timer with no awareness of whether that two-step calculation has
-  // actually finished, so a save landing in the gap would find
-  // auto_ga_weeks still empty and silently fall back to 0 via
-  // `parseInt(...) || 0` — permanently writing an incorrect "0 weeks, 0
-  // days" to the database with no way for anyone to notice or correct it
-  // afterward. Recomputing directly from fd.edd_date here (the same math
-  // the effect uses) makes the save always correct regardless of whether
-  // the state effect has caught up yet.
-  const computeAutoGaFromEdd = (eddDateStr) => {
-    if (!eddDateStr) return null;
-    const diff = Math.floor(280 - (new Date(eddDateStr) - new Date()) / 86400000);
-    if (Number.isNaN(diff)) return null;
-    return { weeks: Math.max(0, Math.floor(diff / 7)), days: Math.max(0, diff % 7) };
-  };
-
+  // Gestational age for the "gestation not known" path is recomputed from
+  // fd.edd_date at save time so autosave never writes 0w 0d while waiting
+  // for the EDD→auto_ga_* effect to catch up.
   const buildPayloadFrom = (fd, useDraftFallbacks, exclYes) => {
     const exclusionParts = [];
     if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
@@ -709,6 +780,8 @@ export default function ScreeningForm() {
     if (fd.insufficient_time     === "Yes") exclusionParts.push("Insufficient time");
     if (fd.iufd                  === "Yes") exclusionParts.push("IUFD");
 
+    const autoGa = fd.gestation_known === "No" ? computeAutoGaFromEdd(fd.edd_date) : null;
+
     return {
       screening_id:              fd.screening_id    || undefined,
       screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? toDateTimeLocalValue(new Date()) : null),
@@ -716,22 +789,22 @@ export default function ScreeningForm() {
       site_id:                   fd.site_id          || (useDraftFallbacks ? "00"    : null),
       screened_by:               fd.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
       mother_first_name:         fd.mother_first_name || (useDraftFallbacks ? "DRAFT" : fd.mother_first_name),
-      mother_surname:            fd.mother_surname   || null,
+      mother_surname:            fd.mother_surname ?? "",
       husband_first_name:        fd.husband_first_name || (useDraftFallbacks ? "DRAFT" : fd.husband_first_name),
-      husband_surname:           fd.husband_surname  || null,
-      maternal_uid:              fd.maternal_uid     || null,
-      hospital_admission_number: fd.hospital_admission_number || null,
-      mother_contact:            fd.mother_contact   || null,
-      husband_contact:           fd.husband_contact  || null,
+      husband_surname:           fd.husband_surname ?? "",
+      maternal_uid:              fd.maternal_uid ?? "",
+      hospital_admission_number: fd.hospital_admission_number ?? "",
+      mother_contact:            fd.mother_contact ?? "",
+      husband_contact:           fd.husband_contact ?? "",
       gestation_known:           fd.gestation_known || null,
       gestation_weeks:
         fd.gestation_known === "Yes"
           ? (parseInt(fd.best_ga_weeks) || 0)
-          : (computeAutoGaFromEdd(fd.edd_date)?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
+          : (autoGa?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
       gestation_days:
         fd.gestation_known === "Yes"
           ? (parseInt(fd.best_ga_days) || 0)
-          : (computeAutoGaFromEdd(fd.edd_date)?.days ?? (parseInt(fd.auto_ga_days) || 0)),
+          : (autoGa?.days ?? (parseInt(fd.auto_ga_days) || 0)),
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date         || null,
       expected_delivery_date:    fd.edd_date ? String(fd.edd_date).slice(0, 10) : null,
@@ -903,10 +976,26 @@ export default function ScreeningForm() {
   };
 
   const handleNext = async () => {
+    if (endParticipation) {
+      localStorage.setItem("enrollment_locked", "true");
+      localStorage.setItem(
+        "enrollment_lock_reason",
+        gaNotDeterminable ? "ga_unknown" : "ga_out_of_range"
+      );
+      window.dispatchEvent(new Event("storage"));
+      setConsentMessage(
+        gaNotDeterminable
+          ? "Gestational age cannot be determined — other forms stay locked. End participation."
+          : "Gestational age is outside the eligibility window (25w0d–31w6d) — other forms stay locked. End participation."
+      );
+      setShowConsentModal(true);
+      return;
+    }
     const ok = await saveForm();
     if (!ok) return;
     if (formData.consent_given !== "Yes" && formData.consent_given !== "Trial run") {
       localStorage.setItem("enrollment_locked","true");
+      localStorage.setItem("enrollment_lock_reason", "consent");
       window.dispatchEvent(new Event("storage"));
       const why = { No:"consent was refused.", "Not approached":"consent was not taken." };
       setConsentMessage(`Screening completed. Participant cannot be enrolled because ${why[formData.consent_given]||"of consent status."}`);
@@ -914,6 +1003,7 @@ export default function ScreeningForm() {
       return;
     }
     localStorage.removeItem("enrollment_locked");
+    localStorage.removeItem("enrollment_lock_reason");
     window.dispatchEvent(new Event("storage"));
     markFormCompleted("form_a");
     navigate(`/form-b/${localStorage.getItem("current_screening_id")}`);
@@ -938,9 +1028,14 @@ export default function ScreeningForm() {
       )}
 
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot" />
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -954,7 +1049,7 @@ export default function ScreeningForm() {
               <div className="form-header-title-area">
                 <div className="form-breadcrumb"><Home size={12}/> FORM A</div>
                 <h2 className="form-main-title">Screening Form</h2>
-                <p className="form-main-subtitle">Eligibility Assessment · Fill for all pregnant women &lt;32 weeks gestation at admission</p>
+                <p className="form-main-subtitle">Eligibility Assessment · Fill for pregnant women 25 weeks 0 days to 31 weeks 6 days at admission</p>
               </div>
               <div className="form-header-meta-area">
                 {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
@@ -973,13 +1068,13 @@ export default function ScreeningForm() {
             </div>
 
             {/* ══════════════════════════════════════
-                A1 — GESTATION ASSESSMENT
+                A1 — SCREENING
             ══════════════════════════════════════ */}
             <div className="form-section card-section">
               <div className="form-section-header">
                 <div className="section-title-left">
                   <Calendar size={15} className="section-header-icon"/>
-                  <h3>A1 · Gestation Assessment</h3>
+                  <h3>A1 · Screening</h3>
                 </div>
                 {eligibilityStatus === "eligible" && <span className="badge-eligible">✓ Eligible</span>}
                 {(eligibilityStatus === "high" || eligibilityStatus === "low") && <span className="badge-not-eligible">✗ Not Eligible</span>}
@@ -989,31 +1084,29 @@ export default function ScreeningForm() {
                 {/* Row 1: Gestation known? — half width */}
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>1. Gestation in weeks clearly mentioned?<span className="required">*</span></label>
+                    <label>1. Gestation in weeks clearly mentioned<span className="required">*</span></label>
                     <select name="gestation_known" value={formData.gestation_known} onChange={handleChange} disabled={!isFieldEditable}>
                       <option value="">-- Select --</option>
                       <option value="Yes">Yes</option>
                       <option value="No">No</option>
                     </select>
                   </div>
-                  {/* right cell intentionally empty — keeps dropdown at half width */}
                   <div/>
                 </div>
 
                 {/* ── Path A: Gestation KNOWN ── */}
                 {formData.gestation_known === "Yes" && (<>
-                  {/* Row 2: GA weeks + days + method */}
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label>2a. Best estimate GA — Weeks<span className="required">*</span></label>
+                      <label>2. Best estimate gestational age — Weeks<span className="required">*</span></label>
                       <input type="number" name="best_ga_weeks" value={formData.best_ga_weeks}
-                        onChange={handleChange} min="10" max="45" placeholder="e.g. 28"
+                        onChange={handleChange} min="10" max="45" placeholder="weeks"
                         disabled={!isFieldEditable}
                         className={errors.best_ga_weeks ? "input-error" : ""}/>
                       {errors.best_ga_weeks && <div className="field-error">{errors.best_ga_weeks}</div>}
                     </div>
                     <div className="form-group">
-                      <label>2b. Best estimate GA — Days<span className="required">*</span></label>
+                      <label>Days<span className="required">*</span></label>
                       <input type="number" name="best_ga_days" value={formData.best_ga_days}
                         onChange={handleChange} min="0" max="6" placeholder="0–6"
                         disabled={!isFieldEditable}
@@ -1025,46 +1118,31 @@ export default function ScreeningForm() {
                       <select name="gestation_method" value={formData.gestation_method} onChange={handleChange} disabled={!isFieldEditable}>
                         <option value="">-- Select --</option>
                         <option value="LMP">LMP</option>
-                        <option value="Early USG">Early USG (&lt;24 weeks)</option>
+                        <option value="Early USG">Early USG (&lt;24w)</option>
                         <option value="Fundal Height">Fundal height</option>
                         <option value="Unknown">Method not known</option>
                       </select>
                     </div>
                   </div>
 
-                  {/* Row 3 (method=LMP): LMP date + auto EDD */}
+                  {/* Q3 LMP date when method = LMP */}
                   {formData.gestation_method === "LMP" && (
                     <div className="form-grid-3">
                       <div className="form-group">
-                        <label>3a. LMP Date<span className="required">*</span></label>
+                        <label>3. LMP date<span className="required">*</span></label>
                         <DatePicker
                           selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
                           onChange={d => set({ lmp_date: d ? toDateOnlyValue(d) : "", edd_date:"" })}
-                          dateFormat="dd-MM-yyyy" placeholderText="Select LMP date"
+                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
                           maxDate={today}
                           readOnly={!isFieldEditable}/>
                       </div>
                       <div className="form-group">
-                        <label>4. Expected Delivery Date <span className="field-note">(auto-calculated from LMP)</span></label>
+                        <label>EDD <span className="field-note">(auto-calculated from LMP)</span></label>
                         <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
                           readOnly className="readonly-input" placeholder="—"/>
                       </div>
                       <div/>
-                    </div>
-                  )}
-
-                  {/* Row 3 (method≠LMP): optional EDD entry */}
-                  {formData.gestation_method && formData.gestation_method !== "LMP" && (
-                    <div className="form-grid-3">
-                      <div className="form-group">
-                        <label>4. Expected Delivery Date <span className="field-note">(optional)</span></label>
-                        <DatePicker
-                          selected={formData.edd_date ? parseDateOnly(formData.edd_date) : null}
-                          onChange={d => set({ edd_date: d ? toDateOnlyValue(d) : "" })}
-                          dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
-                          readOnly={!isFieldEditable}/>
-                      </div>
-                      <div/><div/>
                     </div>
                   )}
                 </>)}
@@ -1073,7 +1151,7 @@ export default function ScreeningForm() {
                 {formData.gestation_known === "No" && (<>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>5. If No, is any of the following known?<span className="required">*</span></label>
+                      <label>4. If No, is any of the following known?<span className="required">*</span></label>
                       <select name="ga_source" value={formData.ga_source||""} onChange={handleChange} disabled={!isFieldEditable}>
                         <option value="">-- Select --</option>
                         <option value="LMP">LMP</option>
@@ -1087,51 +1165,62 @@ export default function ScreeningForm() {
                   {formData.ga_source === "LMP" && (
                     <div className="form-grid-3">
                       <div className="form-group">
-                        <label>6. If LMP known, LMP:<span className="required">*</span></label>
+                        <label>5. If LMP known, LMP<span className="required">*</span></label>
                         <DatePicker
                           selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
                           onChange={d => set({ lmp_date: d ? toDateOnlyValue(d) : "", edd_date:"" })}
-                          dateFormat="dd-MM-yyyy" placeholderText="Select LMP date"
+                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
                           maxDate={today}
                           readOnly={!isFieldEditable}/>
                       </div>
                       <div className="form-group">
-                        <label>EDD <span className="field-note">(auto-calculated from LMP)</span></label>
+                        <label>EDD <span className="field-note">(auto-calculated in app)</span></label>
                         <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
                           readOnly className="readonly-input" placeholder="—"/>
                       </div>
-                      <div/>
+                      <div className="form-group">
+                        <label>7. Calculated gestational age</label>
+                        <input
+                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
+                          readOnly className="readonly-input" placeholder="—"/>
+                      </div>
                     </div>
                   )}
 
                   {formData.ga_source === "EDD" && (
                     <div className="form-grid-3">
                       <div className="form-group">
-                        <label>7. If LMP not known, EDD:<span className="required">*</span></label>
+                        <label>6. If LMP not known, EDD<span className="required">*</span></label>
                         <DatePicker
                           selected={formData.edd_date ? parseDateOnly(formData.edd_date) : null}
                           onChange={d => set({ edd_date: d ? toDateOnlyValue(d) : "" })}
-                          dateFormat="dd-MM-yyyy" placeholderText="Select EDD"
+                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
                           readOnly={!isFieldEditable}/>
                       </div>
-                      <div/><div/>
+                      <div className="form-group">
+                        <label>7. Calculated gestational age</label>
+                        <input
+                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
+                          readOnly className="readonly-input" placeholder="—"/>
+                      </div>
+                      <div/>
                     </div>
                   )}
                 </>)}
 
                 {/* GA result banner + alerts */}
-                {displayWeeks !== "" && displayWeeks !== null && !gaNotDeterminable && (
+                {hasDisplayGa && !gaNotDeterminable && (
                   <div className="gestation-info-banner">
                     <Info size={15} className="banner-info-icon"/>
                     <span className="banner-text">
-                      8. Calculated gestational age: <strong>{displayWeeks}w {displayDays}d</strong> —
+                      7. Calculated gestational age: <strong>{displayWeeks}w {displayDays}d</strong> —
                       participant is <strong>{eligibilityStatus === "eligible" ? "eligible" : "not eligible"}</strong> for the study.
                     </span>
                   </div>
                 )}
                 {gaNotDeterminable && <div className="alert-danger">❌ Gestational age cannot be determined — end participation.</div>}
-                {eligibilityStatus === "high" && <div className="alert-danger">❌ Gestational age ≥32 weeks — cannot proceed.</div>}
-                {eligibilityStatus === "low"  && <div className="alert-danger">❌ Gestational age &lt;24 weeks — not eligible for study.</div>}
+                {eligibilityStatus === "high" && <div className="alert-danger">❌ Gestational age ≥32 weeks — outside eligibility window (25w0d–31w6d). Cannot proceed.</div>}
+                {eligibilityStatus === "low"  && <div className="alert-danger">❌ Gestational age &lt;25 weeks — outside eligibility window (25w0d–31w6d). Cannot proceed.</div>}
 
               </div>
             </div>
@@ -1154,32 +1243,25 @@ export default function ScreeningForm() {
                   {/* Row 1: Screening ID | Site | Site ID */}
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label>9. Screening ID</label>
+                      <label>8. Screening ID <span className="field-note">(auto filled)</span></label>
                       <input type="text" name="screening_id" value={formData.screening_id||""}
-                        placeholder="01-0001" maxLength={7} readOnly={!isFieldEditable}
-                        onChange={e => {
-                          if (!isFieldEditable) return;
-                          let v = e.target.value.replace(/[^0-9-]/g,"");
-                          if (v.length === 2 && !v.includes("-")) v += "-";
-                          const pts = v.split("-");
-                          if (pts.length > 2 || pts[0].length > 2 || (pts[1]&&pts[1].length > 4)) return;
-                          set({ screening_id: v });
-                        }}/>
+                        placeholder="01-0001" maxLength={7} readOnly
+                        className="readonly-input"/>
                     </div>
                     <div className="form-group">
-                      <label>10. Site<span className="required">*</span></label>
+                      <label>9. Site<span className="required">*</span></label>
                       <select name="site_name" value={formData.site_name||""} onChange={handleChange} disabled={!isFieldEditable || isSiteLocked}>
                         <option value="">-- Select Site --</option>
-                        <option value="PGIMER">PGIMER Chandigarh</option>
-                        <option value="GMCH">GMCH Chandigarh</option>
-                        <option value="IOG">IOG Chennai</option>
-                        <option value="AFMC">AFMC Pune</option>
-                        <option value="GMCH-A">GMCH Aurangabad</option>
-                        <option value="AMC">AMC Dibrugarh</option>
+                        <option value="PGIMER">PGIMER</option>
+                        <option value="GMCH">GMCH</option>
+                        <option value="IOG">IOG</option>
+                        <option value="AFMC">AFMC</option>
+                        <option value="GMCH-A">GMCH-A</option>
+                        <option value="AMC">AMC</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label>11. Site ID</label>
+                      <label>10. Site ID <span className="field-note">(auto filled)</span></label>
                       <input value={formData.site_id||""} readOnly className="readonly-input"/>
                     </div>
                   </div>
@@ -1187,18 +1269,18 @@ export default function ScreeningForm() {
                   {/* Row 2: Screening Date & Time | Screened By */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>12. Screening Date &amp; Time<span className="required">*</span></label>
+                      <label>11. Screening Date &amp; Time<span className="required">*</span></label>
                       <DatePicker
                         selected={formData.screening_datetime ? new Date(formData.screening_datetime) : null}
                         onChange={d => set({ screening_datetime: d ? toDateTimeLocalValue(d) : "" })}
                         showTimeSelect timeFormat="HH:mm" timeIntervals={1}
                         dateFormat="dd-MM-yyyy · HH:mm"
                         maxDate={today}
-                        placeholderText="Select date and time"
+                        placeholderText="DD/MM/YY ; HH:MM"
                         readOnly={!isFieldEditable}/>
                     </div>
                     <div className="form-group">
-                      <label>13. Screened by (First name)<span className="required">*</span></label>
+                      <label>12. Screened by (First name)<span className="required">*</span></label>
                       <select name="screened_by" value={formData.screened_by||""} onChange={handleChange}
                         disabled={!isFieldEditable || !formData.site_name}>
                         <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
@@ -1239,59 +1321,64 @@ export default function ScreeningForm() {
                   {/* Row 1: Mother first + surname */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>14a. Mother's First Name<span className="required">*</span></label>
+                      <label>13. Mother's Name — First<span className="required">*</span></label>
                       <input name="mother_first_name" value={formData.mother_first_name||""}
                         onChange={handleChange} onBlur={handleBlur}
-                        placeholder="First name only" disabled={!isFieldEditable}
+                        placeholder="First name" disabled={!isFieldEditable}
+                        autoComplete="given-name"
                         className={fieldTouched.mother_first_name && errors.mother_first_name ? "input-error" : ""}/>
                       {fieldTouched.mother_first_name && errors.mother_first_name && <div className="field-error">{errors.mother_first_name}</div>}
                     </div>
                     <div className="form-group">
-                      <label>14b. Mother's Surname</label>
+                      <label>Surname</label>
                       <input name="mother_surname" value={formData.mother_surname||""}
-                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}/>
+                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}
+                        autoComplete="family-name"/>
                     </div>
                   </div>
 
                   {/* Row 2: Husband first + surname */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>15a. Husband's First Name<span className="required">*</span></label>
+                      <label>14. Husband's Name — First<span className="required">*</span></label>
                       <input name="husband_first_name" value={formData.husband_first_name||""}
                         onChange={handleChange} onBlur={handleBlur}
-                        placeholder="First name only" disabled={!isFieldEditable}
+                        placeholder="First name" disabled={!isFieldEditable}
+                        autoComplete="off"
                         className={fieldTouched.husband_first_name && errors.husband_first_name ? "input-error" : ""}/>
                       {fieldTouched.husband_first_name && errors.husband_first_name && <div className="field-error">{errors.husband_first_name}</div>}
                     </div>
                     <div className="form-group">
-                      <label>15b. Husband's Surname</label>
+                      <label>Surname</label>
                       <input name="husband_surname" value={formData.husband_surname||""}
-                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}/>
+                        onChange={handleChange} placeholder="Surname" disabled={!isFieldEditable}
+                        autoComplete="off"/>
                     </div>
                   </div>
 
                   {/* Row 3: Maternal UID + Hospital admission */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>16. Maternal UID (CR number)<span className="required">*</span></label>
+                      <label>15. Maternal UID (CR number)<span className="required">*</span></label>
                       <input name="maternal_uid" value={formData.maternal_uid||""}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        maxLength={15}
+                        maxLength={formData.site_name === "PGIMER" ? 12 : 15}
                         inputMode={formData.site_name === "PGIMER" ? "numeric" : "text"}
                         placeholder={
-                          formData.site_name === "PGIMER" ? "10-digit CR number" :
+                          formData.site_name === "PGIMER" ? "12-digit CR number" :
                           formData.site_name === "AMC"      ? "e.g. 123/2026" :
                           formData.site_name === "GMCH"    ? "CR number" :
                           formData.site_name === "IOG"         ? "CR number (auto from UID)" :
                           "CR / UID number"
                         }
                         disabled={!isFieldEditable}
+                        autoComplete="off"
                         className={errors.maternal_uid ? "input-error" : ""}/>
                       {errors.maternal_uid && <div className="field-error">{errors.maternal_uid}</div>}
                     </div>
                     <div className="form-group">
-                      <label>17. Hospital Admission Number{formData.site_name === "PGIMER" && <span className="required">*</span>}</label>
+                      <label>16. Hospital Admission Number{formData.site_name === "PGIMER" && <span className="required">*</span>}</label>
                       <input name="hospital_admission_number" value={formData.hospital_admission_number||""}
                         maxLength={15}
                         inputMode={["PGIMER","GMCH-A","GMCH","IOG"].includes(formData.site_name) ? "numeric" : "text"}
@@ -1314,7 +1401,7 @@ export default function ScreeningForm() {
                   {/* Row 4: Mother mobile + Husband mobile */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>18a. Mobile Number — Mother<span className="required">*</span></label>
+                      <label>17. Mobile Number — Mother<span className="required">*</span></label>
                       <input type="text" name="mother_contact" value={formData.mother_contact||""}
                         maxLength={10} inputMode="numeric" placeholder="10-digit mobile"
                         disabled={!isFieldEditable}
@@ -1323,7 +1410,7 @@ export default function ScreeningForm() {
                       {errors.mother_contact && <div className="field-error">{errors.mother_contact}</div>}
                     </div>
                     <div className="form-group">
-                      <label>18b. Mobile Number — Husband<span className="required">*</span></label>
+                      <label>Husband<span className="required">*</span></label>
                       <input type="text" name="husband_contact" value={formData.husband_contact||""}
                         maxLength={10} inputMode="numeric" placeholder="10-digit mobile"
                         disabled={!isFieldEditable}
@@ -1349,13 +1436,13 @@ export default function ScreeningForm() {
                 <div className="form-section-body">
 
                   {/* 1. Structural anomaly */}
-                  <YesNoToggle label="19. Major structural anomalies or genetic abnormality (suspected/proven)"
+                  <YesNoToggle label="18. Major structural anomalies or genetic abnormality (suspected/proven)"
                     name="exclusion_anomaly" value={formData.exclusion_anomaly} onChange={handleChange} disabled={!isFieldEditable}/>
                   {formData.exclusion_anomaly === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>19a. If yes, specify structural anomaly<span className="required">*</span></label>
+                          <label>If yes, specify<span className="required">*</span></label>
                           <input name="exclusion_anomaly_details" value={formData.exclusion_anomaly_details||""}
                             onChange={handleChange} placeholder="Describe the anomaly" disabled={!isFieldEditable}/>
                         </div>
@@ -1365,13 +1452,13 @@ export default function ScreeningForm() {
                   )}
 
                   {/* 2. Fetal Hydrops */}
-                  <YesNoToggle label="20. Fetal Hydrops"
+                  <YesNoToggle label="19. Fetal Hydrops"
                     name="fetal_hydrops" value={formData.fetal_hydrops} onChange={handleChange} disabled={!isFieldEditable}/>
                   {formData.fetal_hydrops === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>21. If yes, select fetal hydrops type<span className="required">*</span></label>
+                          <label>20. If yes<span className="required">*</span></label>
                           <select name="fetal_hydrops_type" value={formData.fetal_hydrops_type||""} onChange={handleChange} disabled={!isFieldEditable}>
                             <option value="">-- Select type --</option>
                             <option>Immune</option>
@@ -1385,11 +1472,11 @@ export default function ScreeningForm() {
                   )}
 
                   {/* 3. Decision to forego resuscitation */}
-                  <YesNoToggle label="22. Decision to forego resuscitation"
+                  <YesNoToggle label="21. Decision to forego resuscitation"
                     name="decision_forego_resus" value={formData.decision_forego_resus} onChange={handleChange} disabled={!isFieldEditable}/>
                   {formData.decision_forego_resus === "Yes" && (
                     <div className="followup-box">
-                      <label className="followup-label">23. If yes, reason (select all that apply)<span className="required">*</span></label>
+                      <label className="followup-label">22. If yes (select all that apply)<span className="required">*</span></label>
                         <MultiCheckbox
                           options={FOREGO_REASONS}
                           dataField="decision_forego_resus"
@@ -1402,15 +1489,15 @@ export default function ScreeningForm() {
                   )}
 
                   {/* 4. Insufficient time */}
-                  <YesNoToggle label="24. Insufficient time for consent / randomization before birth"
+                  <YesNoToggle label="23. Insufficient time for consent"
                     name="insufficient_time" value={formData.insufficient_time} onChange={handleChange} disabled={!isFieldEditable}/>
                   {formData.insufficient_time === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>25. If yes, specify reason<span className="required">*</span></label>
+                          <label>24. If yes, specify<span className="required">*</span></label>
                           <input name="insufficient_time_reason" value={formData.insufficient_time_reason||""}
-                            onChange={handleChange} placeholder="Reason for insufficient time" disabled={!isFieldEditable}/>
+                            onChange={handleChange} placeholder="Specify reason" disabled={!isFieldEditable}/>
                         </div>
                         <div/>
                       </div>
@@ -1418,7 +1505,7 @@ export default function ScreeningForm() {
                   )}
 
                   {/* 5. IUFD */}
-                  <YesNoToggle label="26. Intrauterine Fetal Death (IUFD)"
+                  <YesNoToggle label="25. IUFD"
                     name="iufd" value={formData.iufd} onChange={handleChange} disabled={!isFieldEditable}/>
 
                   {anyExclusionYes && (
@@ -1437,7 +1524,7 @@ export default function ScreeningForm() {
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        All Clear — Proceed to Consent
+                        All options No — Proceed for consent
                       </span>
                     </div>
                   )}
@@ -1454,15 +1541,15 @@ export default function ScreeningForm() {
                   <div className="form-section-header">
                     <div className="section-title-left">
                       <CheckSquare size={15} className="section-header-icon"/>
-                      <h3>A5 · Consent</h3>
+                      <h3>A5 · Proceed for Consent</h3>
                     </div>
                   </div>
                   <div className="form-section-body">
 
-                    {/* 27. Consent — half width */}
+                    {/* 26. Consent — half width */}
                     <div className="form-grid-2">
                       <div className="form-group">
-                        <label>27. Consent<span className="required">*</span></label>
+                        <label>26. Consent<span className="required">*</span></label>
                         <select name="consent_given" value={formData.consent_given||""} onChange={handleChange} disabled={!isFieldEditable}>
                           <option value="">-- Select --</option>
                           <option value="Yes">Yes</option>
@@ -1474,12 +1561,11 @@ export default function ScreeningForm() {
                       <div/>
                     </div>
 
-                    {/* 28 + 31: Obtained from | Obtained by nurse — shown for Yes / No / Trial run */}
-                    {(formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") && (<>
-
+                    {/* 27. Obtained from — Yes / No / Trial run */}
+                    {(formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") && (
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>28. Consent obtained from<span className="required">*</span></label>
+                          <label>27. Consent obtained from<span className="required">*</span></label>
                           <select name="relationship_to_participant"
                             value={formData.relationship_to_participant||""} onChange={handleChange} disabled={!isFieldEditable}>
                             <option value="">-- Select --</option>
@@ -1489,29 +1575,19 @@ export default function ScreeningForm() {
                           </select>
                           {formData.relationship_to_participant === "Other" && (
                             <input name="relationship_other" value={formData.relationship_other||""}
-                              onChange={handleChange} placeholder="e.g. Father, Guardian"
+                              onChange={handleChange} placeholder="Specify"
                               disabled={!isFieldEditable}
                               style={{marginTop:8}}/>
                           )}
                         </div>
-                        <div className="form-group">
-                          <label>31. Consent obtained by (nurse)<span className="required">*</span></label>
-                          <select name="consent_taken_by" value={formData.consent_taken_by||""}
-                            onChange={handleChange} disabled={!isFieldEditable || !formData.site_name}>
-                            <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
-                            {formData.consent_taken_by && !nurses.includes(formData.consent_taken_by) &&
-                              <option value={formData.consent_taken_by}>{formData.consent_taken_by}</option>}
-                            {nurses.map(n => <option key={n} value={n}>{n}</option>)}
-                          </select>
-                        </div>
+                        <div/>
                       </div>
+                    )}
 
-                    </>)}
-
-                    {/* 29. Reason for refusal (if No) */}
+                    {/* 28. Reason for refusal (if No) */}
                     {formData.consent_given === "No" && (
                       <div className="followup-box">
-                        <label className="followup-label">29. If no, reason for consent refusal (select all that apply)<span className="required">*</span></label>
+                        <label className="followup-label">28. If no, reason for consent refusal (select all that apply)<span className="required">*</span></label>
                         <MultiCheckbox
                           options={REFUSAL_REASONS}
                           dataField="reason_for_consent_refusal_list"
@@ -1523,10 +1599,10 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
-                    {/* 30. Reason not approached (if Not approached) */}
+                    {/* 29. Reason not approached (if Not approached) */}
                     {formData.consent_given === "Not approached" && (
                       <div className="followup-box">
-                        <label className="followup-label">30. If not approached, reason (select all that apply)<span className="required">*</span></label>
+                        <label className="followup-label">29. If not approached, reason (select all that apply)<span className="required">*</span></label>
                         <MultiCheckbox
                           options={NOT_APPROACHED_REASONS}
                           dataField="reason_not_approached_list"
@@ -1538,11 +1614,35 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
-                    {/* 32. Video PIS shown — always shown whenever consent_given has any value */}
-                    {formData.consent_given && (
+                    {/* 30. Consent obtained by + 31. Video PIS */}
+                    {(formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") && (
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>32. Video PIS shown?<span className="required">*</span></label>
+                          <label>30. Consent obtained by (First name)<span className="required">*</span></label>
+                          <select name="consent_taken_by" value={formData.consent_taken_by||""}
+                            onChange={handleChange} disabled={!isFieldEditable || !formData.site_name}>
+                            <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
+                            {formData.consent_taken_by && !nurses.includes(formData.consent_taken_by) &&
+                              <option value={formData.consent_taken_by}>{formData.consent_taken_by}</option>}
+                            {nurses.map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label>31. Video PIS shown<span className="required">*</span></label>
+                          <select name="video_pis_shown" value={formData.video_pis_shown||""} onChange={handleChange} disabled={!isFieldEditable}>
+                            <option value="">-- Select --</option>
+                            <option value="Yes">Yes</option>
+                            <option value="No">No</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Video PIS also for Not approached */}
+                    {formData.consent_given === "Not approached" && (
+                      <div className="form-grid-2">
+                        <div className="form-group">
+                          <label>31. Video PIS shown<span className="required">*</span></label>
                           <select name="video_pis_shown" value={formData.video_pis_shown||""} onChange={handleChange} disabled={!isFieldEditable}>
                             <option value="">-- Select --</option>
                             <option value="Yes">Yes</option>
@@ -1559,8 +1659,15 @@ export default function ScreeningForm() {
 
             </>)}
 
-            {/* ── NOTES BOX ── */}
-            <NotesBox formKey={`form_a_${formData.screening_id || "new"}`} />
+            {/* ── NOTES BOX ──
+                Prefer URL screeningId so we don't briefly key notes under
+                `form_a_new` while formData is still loading (that wipe bug
+                cleared notes when returning from Form B). */}
+            <NotesBox formKey={`form_a_${(
+              (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
+              || formData.screening_id
+              || "new"
+            )}`} />
 
             {message && <div className={`form-message${message.startsWith("✅") ? " msg-success" : message.startsWith("⚠️") ? " msg-warn" : " msg-error"}`}>{message}</div>}
 
@@ -1636,7 +1743,9 @@ export default function ScreeningForm() {
             <div className="progress-segment"/>
           </div>
         </div>
-        <button type="button" className="btn btn-primary" onClick={handleNext} disabled={!isSaved}>
+        <button type="button" className="btn btn-primary" onClick={handleNext}
+          disabled={!isSaved || endParticipation}
+          title={endParticipation ? "Gestational age outside eligibility — Form B locked" : undefined}>
           Birth &amp; Resuscitation <ArrowRight size={15}/>
         </button>
       </div>
@@ -1737,6 +1846,9 @@ export default function ScreeningForm() {
           </div>
         </div>
       )}
+
+      {/* Print report lives outside #root via portal — required for window.print() */}
+      <PrintSummary formData={formData} />
     </>
   );
 }

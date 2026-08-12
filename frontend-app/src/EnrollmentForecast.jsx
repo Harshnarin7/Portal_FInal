@@ -216,33 +216,33 @@ export default function EnrollmentForecast() {
       <div className="ef-chart-wrap">
         <ResponsiveContainer width="100%" height={400}>
           <ComposedChart data={chartData} margin={{ top: 16, right: 48, left: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a4a" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="date"
               tickFormatter={fmtMonthYear}
-              tick={{ fill: "#7a9bbb", fontSize: 11 }}
+              tick={{ fill: "#64748b", fontSize: 11 }}
               interval="preserveStartEnd"
               minTickGap={60}
             />
             <YAxis
               domain={[0, targetN + Math.ceil(targetN * 0.05)]}
-              tick={{ fill: "#7a9bbb", fontSize: 11 }}
+              tick={{ fill: "#64748b", fontSize: 11 }}
               width={40}
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend
-              wrapperStyle={{ color: "#8ba3bb", fontSize: 12, paddingTop: 8 }}
+              wrapperStyle={{ color: "#4a5568", fontSize: 12, paddingTop: 8 }}
             />
             <ReferenceLine
               y={targetN}
-              stroke="#f59e0b"
+              stroke="#b45309"
               strokeDasharray="5 3"
-              label={{ value: `N = ${targetN}`, fill: "#f59e0b", fontSize: 11, position: "right" }}
+              label={{ value: `N = ${targetN}`, fill: "#b45309", fontSize: 11, position: "right" }}
             />
             <Line
               dataKey="ideal"
               name="Ideal trajectory"
-              stroke="#475569"
+              stroke="#94a3b8"
               strokeDasharray="8 4"
               strokeWidth={2}
               dot={false}
@@ -251,9 +251,9 @@ export default function EnrollmentForecast() {
             <Line
               dataKey="actual"
               name="Actual enrolment"
-              stroke="#22d3ee"
+              stroke="#0e7c7b"
               strokeWidth={2.5}
-              dot={{ r: 4, fill: "#22d3ee", strokeWidth: 0 }}
+              dot={{ r: 4, fill: "#0e7c7b", strokeWidth: 0 }}
               activeDot={{ r: 6 }}
               connectNulls
             />

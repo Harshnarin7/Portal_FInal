@@ -87,7 +87,7 @@ const SH = ({ icon, title, sub, right }) => (
         <Ic d={icon} s={14} c={C.tL} />
       </div>
       <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{title}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#0b1c30" }}>{title}</div>
         {sub && <div style={{ fontSize: 11, color: C.slate }}>{sub}</div>}
       </div>
     </div>
@@ -102,7 +102,7 @@ const Crd = ({ children, style, accent }) => (
 const TT = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#0d1f36", border: "1px solid rgba(255,255,255,.09)", borderRadius: 8, padding: "8px 12px", fontSize: 11 }}>
+    <div style={{ background: "#ffffff", border: "1px solid #d5e4f0", borderRadius: 8, padding: "8px 12px", fontSize: 11 }}>
       <p style={{ color: C.slate, marginBottom: 3 }}>{label}</p>
       {payload.map((p, i) => (
         <p key={i} style={{ color: p.color || C.tL, fontWeight: 700 }}>{p.name}: {p.value}</p>
@@ -118,69 +118,9 @@ const LiveDot = () => (
   </span>
 );
 
-// ─────────────────────────────────────────────────────────
-// Static / seed data (overridden by live API where available)
-// ─────────────────────────────────────────────────────────
-const SEED_MONTH = [
-  { m: "Jan", n: 8 }, { m: "Feb", n: 12 }, { m: "Mar", n: 19 },
-  { m: "Apr", n: 28 }, { m: "May", n: 34 }, { m: "Jun", n: 42 },
-];
-const SEED_SITES = [
-  { site: "PGIMER",  sc: 88, en: 42, tg: 120, q: 96 },
-  { site: "GMCH-C",  sc: 64, en: 31, tg: 100, q: 94 },
-  { site: "IOG",     sc: 97, en: 38, tg: 110, q: 91 },
-  { site: "Chengal", sc: 38, en: 18, tg: 80,  q: 88 },
-  { site: "GMCH-A",  sc: 40, en: 15, tg: 80,  q: 85 },
-  { site: "AMC",     sc: 19, en: 7,  tg: 60,  q: 82 },
-];
-const ARM_DATA = [
-  { name: "30% O₂", value: 52, color: C.blue  },
-  { name: "60% O₂", value: 49, color: C.teal  },
-  { name: "90% O₂", value: 50, color: C.amber },
-];
-const QUALITY_DATA = [
-  { d: "Mon", q: 94 }, { d: "Tue", q: 91 }, { d: "Wed", q: 96 },
-  { d: "Thu", q: 89 }, { d: "Fri", q: 97 }, { d: "Sat", q: 93 }, { d: "Sun", q: 88 },
-];
-const FORM_COMP = [
-  ["Form A — Screening",    100, C.green ],
-  ["Form B — Birth Resus",   98, C.green ],
-  ["Form C — Maternal",      94, C.tL    ],
-  ["Form D — Day 1",         91, C.tL    ],
-  ["Form E — NICU",          89, C.amber ],
-  ["Helper 2 (Resp-CV)",     76, C.amber ],
-  ["Helper 3 (Infect-GI)",   71, C.orange],
-  ["Helper 4 (Metab)",       68, C.red   ],
-  ["Form F — CrUSG",         82, C.amber ],
-  ["Form I — Outcomes",      44, C.red   ],
-];
-const QUERIES = [
-  { id: "Q-041", site: "PGIMER",  field: "FiO₂ at exit value",     age: "3d", sev: "high" },
-  { id: "Q-042", site: "IOG",     field: "Cord clamp time",         age: "1d", sev: "med"  },
-  { id: "Q-043", site: "GMCH-C",  field: "BW outlier >4500g",       age: "5h", sev: "high" },
-  { id: "Q-044", site: "AMC",     field: "SpO₂ at 5min missing",    age: "2d", sev: "med"  },
-  { id: "Q-045", site: "Chengal", field: "Consent date after DOB",  age: "6h", sev: "high" },
-];
-const SAES = [
-  { id: "SAE-001", site: "PGIMER",  type: "Severe IVH Grade III",    status: "overdue",  pri: "HIGH" },
-  { id: "SAE-002", site: "GMCH-C",  type: "NEC Stage IIIB",          status: "pending",  pri: "HIGH" },
-  { id: "SAE-003", site: "IOG",     type: "Pulmonary Hemorrhage",     status: "complete", pri: "MED"  },
-];
-const SEED_ACTIVITIES = [
-  { col: C.green,  txt: "New enrollment — PGIMER-0089",   t: "5m"  },
-  { col: C.amber,  txt: "Form D pending — IOG-0031",       t: "12m" },
-  { col: C.red,    txt: "SAE reported — GMCH-C-0044",      t: "1h"  },
-  { col: C.tL,     txt: "Data query resolved — AMC-0011",  t: "2h"  },
-  { col: C.blue,   txt: "Form B submitted — Chengal-0027", t: "3h"  },
-];
-const TASK_SECTIONS = [
-  { title: "Pending Forms",       col: C.amber,  items: ["Form D — IOG-0031 (Day 1)", "Form E — PGIMER-0089 (NICU Admit)", "Helper Form 2 — GMCH-0044 (Day 3)", "Form B — Chengal-0027"] },
-  { title: "Follow-ups Due",      col: C.blue,   items: ["36w PMA — AMC-0011 (Tomorrow)", "40w PMA — IOG-0022 (2 days)", "44w PMA — PGIMER-0061 (This week)"] },
-  { title: "Missing Data",        col: C.red,    items: ["FiO₂ AUC Day 4 — IOG-0031", "Cranial USG Day 7 — GMCH-0044", "Helper Form 3 Day 5 — AMC-0011"] },
-  { title: "SAE Reviews",         col: C.orange, items: ["SAE-001 PGIMER — Pending PI approval", "SAE-002 GMCH — New, unreviewed"] },
-  { title: "Today's Discharges",  col: C.green,  items: ["PGIMER-0071 — Discharged today", "IOG-0055 — Planned discharge"] },
-  { title: "Protocol Deviations", col: C.purple, items: ["DEV-003 PGIMER — Cord clamp timing", "Under review by monitor"] },
-];
+// Live-data helpers (no mock/seed numbers)
+const pctColor = (p) => (p >= 90 ? C.green : p >= 70 ? C.tL : p >= 50 ? C.amber : C.red);
+const TASK_COLORS = { consented_no_form_b: C.amber, randomised_no_form_c: C.blue, randomised_no_form_i: C.red, few_day_logs: C.orange };
 const QUICK_AI_QUESTIONS = [
   "What's the current trial status?",
   "Any safety signals to watch?",
@@ -202,7 +142,7 @@ const RL_COL = {
   scientist: C.blue, nurse: C.green, deo: C.amber, monitor: C.orange,
 };
 
-const TARGET = 700;
+const DEFAULT_TARGET = 700;
 const TABS = ["overview", "recruitment", "patients", "tasks", "safety", "data", "ai-insights"];
 
 // ══════════════════════════════════════════════════════════
@@ -212,10 +152,11 @@ export default function Dashboard() {
   const nav = useNavigate();
   const { user } = useAuth();
 
-  // ── Data state ─────────────────────────────────────────
+  // ── Data state (live only) ─────────────────────────────
   const [screenings,   setScreenings]   = useState([]);
+  const [ops,          setOps]          = useState(null);
   const [loading,      setLoading]      = useState(true);
-  const [activities,   setActivities]   = useState(SEED_ACTIVITIES);
+  const [loadError,    setLoadError]    = useState(null);
 
   // ── UI state ───────────────────────────────────────────
   const [tab,          setTab]          = useState("overview");
@@ -236,35 +177,64 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
-  // ── Live activity feed simulation (replace with WebSocket/SSE in production) ──
-  useEffect(() => {
-    const liveEvents = [
-      { col: C.tL,     txt: "SpO₂ log updated — PGIMER-0089"   },
-      { col: C.green,  txt: "Form E submitted — IOG-0038"       },
-      { col: C.blue,   txt: "FiO₂ AUC calculated — GMCH-0031"  },
-      { col: C.amber,  txt: "CrUSG booked — Chengal-0019"       },
-      { col: C.purple, txt: "Protocol query resolved — AMC-0011"},
-    ];
-    const t = setInterval(() => {
-      const evt = liveEvents[Math.floor(Math.random() * liveEvents.length)];
-      setActivities(prev => [{ ...evt, t: "just now" }, ...prev.slice(0, 4)]);
-    }, 15_000);
-    return () => clearInterval(t);
+  const loadLive = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [opsRes, scrRes] = await Promise.all([
+        api.get("/dashboard/ops-summary"),
+        api.get("/screenings/", { params: { limit: 100 } }),
+      ]);
+      setOps(opsRes.data);
+      setScreenings(Array.isArray(scrRes.data) ? scrRes.data : []);
+    } catch (err) {
+      setLoadError(err.response?.data?.detail || "Failed to load live dashboard data");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // ── Load screenings from backend ───────────────────────
-  useEffect(() => {
-    api.get("/screenings/")
-      .then(r => setScreenings(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { loadLive(); }, [loadLive]);
 
-  // ── Derived KPIs ───────────────────────────────────────
-  const total    = screenings.length;
-  const enrolled = screenings.filter(d => d.enrollment_id).length;
-  const failures = screenings.filter(d => d.screening_status === "Screen Failure").length;
-  const pct      = Math.round((enrolled / TARGET) * 100);
+  // ── Derived KPIs from live ops-summary ─────────────────
+  const kpis = ops?.kpis || {};
+  const target = ops?.target || DEFAULT_TARGET;
+  const total = kpis.screened ?? 0;
+  const enrolled = kpis.enrolled ?? 0;
+  const failures = kpis.screen_failures ?? 0;
+  const openSaes = kpis.open_saes ?? 0;
+  const pendingForms = kpis.pending_forms ?? 0;
+  const logGaps = kpis.log_gaps ?? 0;
+  const eligible = kpis.eligible ?? 0;
+  const pct = target ? Math.round((enrolled / target) * 100) : 0;
+  const siteRows = (ops?.by_site || []).map(s => ({
+    site: s.site,
+    sc: s.screened,
+    en: s.enrolled,
+    tg: target,
+    q: s.screened ? Math.round((s.enrolled / s.screened) * 100) : 0,
+  }));
+  const monthly = ops?.monthly || [];
+  const armData = ops?.arms || [];
+  const formComp = (ops?.form_completion || []).map(f => [f.label, f.pct ?? 0, pctColor(f.pct ?? 0)]);
+  const tasks = (ops?.tasks || []).map(t => ({
+    title: t.title,
+    col: TASK_COLORS[t.key] || C.amber,
+    items: t.items || [],
+    count: t.count || 0,
+  }));
+  const saes = (ops?.saes || []).map(s => ({
+    id: s.id,
+    site: s.site,
+    type: s.diagnosis,
+    status: s.open ? (s.ongoing ? "overdue" : "pending") : "complete",
+    pri: (s.severity || "").toLowerCase() === "severe" ? "HIGH" : "MED",
+  }));
+  const activities = ops?.activities || [];
+  const notifications = ops?.notifications || [];
+  const safety = ops?.safety || {};
+  const mort = safety.mortality || {};
+  const morb = safety.morbidities || {};
 
   const filtered = screenings.filter(d =>
     !search ||
@@ -298,22 +268,24 @@ export default function Dashboard() {
     setAiLoading(true);
 
     // Build a concise trial-context system prompt from live data
+    const siteLine = siteRows.map(s => `${s.site}(sc${s.sc},en${s.en})`).join(", ") || "none";
+    const formLine = formComp.map(([l, p]) => `${l}: ${p}%`).join("; ") || "n/a";
     const systemPrompt = `You are an AI assistant embedded in the PORTAL clinical trial dashboard.
 PORTAL is a multi-centre neonatal RCT comparing FiO₂ levels (30%, 60%, 90%) for preterm infants <32 weeks.
 
-Current trial snapshot:
-- Screened: ${total || 346}, Enrolled: ${enrolled || 151} / ${TARGET} target (${pct}%)
-- Screen failures: ${failures || 18}
-- Arms: 30%O₂=52, 60%O₂=49, 90%O₂=50 (balance looks good)
-- Sites: PGIMER(sc88,en42,q96%), GMCH-C(sc64,en31,q94%), IOG(sc97,en38,q91%), Chengal(sc38,en18,q88%), GMCH-A(sc40,en15,q85%), AMC(sc19,en7,q82%)
-- Open SAEs: 2 (SAE-001 PGIMER IVH Grade III overdue, SAE-002 GMCH-C NEC Stage IIIB pending)
-- Safety: Mortality 3(2%), BPD 28(18.5%), ROP 9(6%), NEC 5(3.3%), Brain injury 7(4.6%)
-- Pending forms: 14, Data queries: 5, Protocol deviations: 1
-- Form completeness: Form I (Outcomes) only 44% — biggest gap
-- Estimated completion: December 2027
+Use ONLY this live snapshot (do not invent counts):
+- Screened: ${total}, Enrolled (randomised): ${enrolled} / ${target} (${pct}%)
+- Screen failures: ${failures}
+- Open SAEs: ${openSaes}
+- Pending form actions: ${pendingForms}
+- Sites: ${siteLine}
+- Form completeness: ${formLine}
+- Mortality in-hospital: ${mort?.in_hospital?.n ?? 0} (${mort?.in_hospital?.pct ?? 0}%)
+- BPD: ${morb?.bpd?.n ?? 0} (${morb?.bpd?.pct ?? 0}%), NEC: ${morb?.nec?.n ?? 0}, ROP treated: ${morb?.rop_tx?.n ?? 0}, Severe IVH: ${morb?.ivh_severe?.n ?? 0}
+- Arm allocation counts are blinded / not available in live ops data.
 
 Be clinically precise, concise (2–4 sentences unless more is needed), and actionable.
-Highlight any safety signals or operational risks proactively.`;
+If data is zero or missing, say so — do not invent figures.`;
 
     try {
       const history = [...(aiMessages), userMsg];
@@ -334,25 +306,26 @@ Highlight any safety signals or operational risks proactively.`;
       setAiMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again." }]);
     }
     setAiLoading(false);
-  }, [aiInput, aiLoading, aiMessages, enrolled, failures, pct, total]);
+  }, [aiInput, aiLoading, aiMessages, enrolled, failures, pct, total, target, openSaes, pendingForms, logGaps, eligible, siteRows, formComp, mort, morb]);
 
   // ── User info ──────────────────────────────────────────
   const roleLabel = RL_MAP[user?.role] || user?.role || "User";
   const roleColor = RL_COL[user?.role] || C.slate;
 
-  const NOTIFS = [
-    { type: "warn",  msg: "3 forms overdue — GMCH Chandigarh",   time: "5m ago"  },
-    { type: "info",  msg: "New enrollment: PGIMER-0089",          time: "12m ago" },
-    { type: "error", msg: "SAE pending PI review",                time: "1h ago"  },
-    { type: "ok",    msg: "Data query resolved",                  time: "2h ago"  },
-    { type: "warn",  msg: "FiO₂ AUC missing Day 4 — IOG-0031",   time: "3h ago"  },
-  ];
+  const NOTIFS = notifications;
   const NOTIF_COL = { warn: C.amber, info: C.blue, error: C.red, ok: C.green };
 
   if (loading) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: 14, color: C.slate }}>
       <div className="db-spinner" />
-      <p style={{ fontSize: 13, fontWeight: 500 }}>Loading PORTAL Dashboard…</p>
+      <p style={{ fontSize: 13, fontWeight: 500 }}>Loading live PORTAL data…</p>
+    </div>
+  );
+
+  if (loadError && !ops) return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: 14, color: C.red }}>
+      <p style={{ fontSize: 13, fontWeight: 600 }}>{loadError}</p>
+      <button className="db-qa-btn db-qa-primary" onClick={loadLive}>Retry</button>
     </div>
   );
 
@@ -368,7 +341,7 @@ Highlight any safety signals or operational risks proactively.`;
           </div>
           <LiveDot />
           <div className="db-search">
-            <Ic d={P.search} s={13} c="#3d4f63" />
+            <Ic d={P.search} s={13} c="#64748b" />
             <input placeholder="Search patient, site, ID…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
@@ -377,26 +350,44 @@ Highlight any safety signals or operational risks proactively.`;
             {now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} IST
           </div>
           {/* Notification bell */}
-          <div style={{ position: "relative" }}>
-            <button className="db-icon-btn" onClick={() => setNotifOpen(o => !o)}>
+          <div className="db-notif-wrap">
+            <button
+              type="button"
+              className="db-icon-btn"
+              aria-label="Notifications"
+              aria-expanded={notifOpen}
+              onClick={() => setNotifOpen(o => !o)}
+            >
               <Ic d={P.bell} s={14} c="#64748b" />
-              <span className="db-notif-dot">3</span>
+              {NOTIFS.length > 0 && <span className="db-notif-dot">{NOTIFS.length}</span>}
             </button>
             {notifOpen && (
-              <div className="db-notif-panel">
-                <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,.07)", fontSize: 12, fontWeight: 700, color: "#fff" }}>
-                  Notifications
-                </div>
-                {NOTIFS.map((n, i) => (
-                  <div key={i} className="db-notif-item">
-                    <span className="db-notif-badge" style={{ background: NOTIF_COL[n.type] }} />
-                    <div>
-                      <p style={{ fontSize: 12, color: "rgba(255,255,255,.8)", lineHeight: 1.4 }}>{n.msg}</p>
-                      <p style={{ fontSize: 10, color: C.slate }}>{n.time}</p>
-                    </div>
+              <>
+                <div className="db-notif-backdrop" onClick={() => setNotifOpen(false)} />
+                <div className="db-notif-panel" role="dialog" aria-label="Notifications">
+                  <div className="db-notif-panel-head">
+                    <span>Notifications</span>
+                    <span className="db-notif-panel-count">{NOTIFS.length} recent</span>
                   </div>
-                ))}
-              </div>
+                  <div className="db-notif-panel-body">
+                    {NOTIFS.length === 0 ? (
+                      <div className="db-notif-item">
+                        <div>
+                          <p className="db-notif-msg" style={{ color: C.slate, fontWeight: 500 }}>No recent live updates</p>
+                        </div>
+                      </div>
+                    ) : NOTIFS.map((n, i) => (
+                      <div key={i} className="db-notif-item">
+                        <span className="db-notif-badge" style={{ background: NOTIF_COL[n.type] || C.slate }} />
+                        <div>
+                          <p className="db-notif-msg">{n.msg}</p>
+                          <p className="db-notif-time">{n.time}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
           </div>
           {/* User chip */}
@@ -425,7 +416,7 @@ Highlight any safety signals or operational risks proactively.`;
           <button className="db-qa-btn db-qa-primary" onClick={() => setTab("ai-insights")}>
             <Ic d={P.star} s={11} c={C.tL} /> Ask AI
           </button>
-          <button className="db-qa-btn">
+          <button className="db-qa-btn" onClick={loadLive}>
             <Ic d={P.refresh} s={11} c={C.slate} /> Refresh
           </button>
         </div>
@@ -440,14 +431,14 @@ Highlight any safety signals or operational risks proactively.`;
             {/* KPI row */}
             <div className="db-kpi-row">
               {[
-                { l: "Screened",       v: total    || 346, col: C.blue,   ic: P.users,  tr: "+12%", up: true  },
-                { l: "Enrolled",       v: enrolled || 151, col: C.green,  ic: P.check,  tr: "+8%",  up: true  },
-                { l: "Screen Failures",v: failures || 18,  col: C.red,    ic: P.alert,  tr: "-3%",  up: false },
-                { l: "Target",         v: TARGET,          col: C.teal,   ic: P.target, tr: "700",  up: true  },
-                { l: "Open SAEs",      v: 2,               col: C.orange, ic: P.shield, tr: "+1",   up: false },
-                { l: "Pending Forms",  v: 14,              col: C.amber,  ic: P.clip,   tr: "-6",   up: true  },
-                { l: "Data Queries",   v: 5,               col: C.purple, ic: P.zap,    tr: "-2",   up: true  },
-                { l: "Follow-ups Done",v: 31,              col: C.tL,     ic: P.act,    tr: "+4",   up: true  },
+                { l: "Screened",        v: total,         col: C.blue,   ic: P.users  },
+                { l: "Enrolled",        v: enrolled,      col: C.green,  ic: P.check  },
+                { l: "Screen Failures", v: failures,      col: C.red,    ic: P.alert  },
+                { l: "Eligible",        v: eligible,      col: C.purple, ic: P.zap    },
+                { l: "Open SAEs",       v: openSaes,      col: C.orange, ic: P.shield },
+                { l: "Pending Forms",   v: pendingForms,  col: C.amber,  ic: P.clip   },
+                { l: "Log Gaps",        v: logGaps,       col: C.orange, ic: P.file   },
+                { l: "Consented",       v: kpis.consented ?? 0, col: C.tL, ic: P.act  },
               ].map(k => (
                 <Crd key={k.l} accent={k.col}>
                   <div className="db-kpi-icon" style={{ background: `${k.col}18` }}>
@@ -456,7 +447,6 @@ Highlight any safety signals or operational risks proactively.`;
                   <div className="db-kpi-body">
                     <div className="db-kpi-val">{k.v}</div>
                     <div className="db-kpi-label">{k.l}</div>
-                    <Trend v={k.tr} up={k.up} />
                   </div>
                 </Crd>
               ))}
@@ -467,65 +457,80 @@ Highlight any safety signals or operational risks proactively.`;
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 11, color: C.slate, marginBottom: 3 }}>Overall Recruitment Progress</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: "#fff", lineHeight: 1 }}>
-                    {enrolled || 151} <span style={{ fontSize: 14, color: C.slate, fontWeight: 400 }}>/ {TARGET} enrolled</span>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: "#0b1c30", lineHeight: 1 }}>
+                    {enrolled} <span style={{ fontSize: 14, color: C.slate, fontWeight: 400 }}>/ {target} enrolled</span>
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-                  {ARM_DATA.map(a => (
+                  {!armData.every(a => !a.value) && armData.map(a => (
                     <div key={a.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: a.color, display: "inline-block" }} />
-                      <span style={{ fontSize: 11, color: "rgba(255,255,255,.65)", fontWeight: 600 }}>{a.name}</span>
-                      <span style={{ fontSize: 14, color: "#fff", fontWeight: 800 }}>{a.value}</span>
+                      <span style={{ fontSize: 11, color: "#475569", fontWeight: 600 }}>{a.name}</span>
+                      <span style={{ fontSize: 14, color: "#0b1c30", fontWeight: 800 }}>{a.value}</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: 32, fontWeight: 800, color: C.tL }}>{pct || 22}%</div>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: C.tL }}>{pct}%</div>
                 </div>
               </div>
-              <div style={{ background: "rgba(255,255,255,.06)", borderRadius: 999, height: 8, overflow: "hidden" }}>
-                <div style={{ width: `${pct || 22}%`, height: "100%", borderRadius: 999, background: `linear-gradient(90deg,${C.teal},${C.tL})`, transition: "width 1.2s ease" }} />
+              <div style={{ background: "#e0f2fe", borderRadius: 999, height: 8, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: `linear-gradient(90deg,${C.teal},${C.tL})`, transition: "width 1.2s ease" }} />
               </div>
-              <div style={{ fontSize: 10, color: C.slate, marginTop: 8, textAlign: "right" }}>Est. completion: December 2027</div>
+              <div style={{ fontSize: 10, color: C.slate, marginTop: 8, textAlign: "right" }}>Live randomised enrollments only — no projected date</div>
             </Crd>
 
             {/* Charts row */}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 14, marginBottom: 14 }}>
               <Crd>
                 <SH icon={P.trend} title="Monthly Enrollment Trend" sub="All 6 sites combined" />
+                {monthly.length === 0 ? (
+                  <div style={{ height: 180, displayContent: "center", textAlign: "center", color: C.slate, fontSize: 12 }}>No enrolment trend in live data yet</div>
+                ) : (
                 <ResponsiveContainer width="100%" height={180}>
-                  <AreaChart data={SEED_MONTH} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%"  stopColor={C.teal} stopOpacity={0.35} />
                         <stop offset="95%" stopColor={C.teal} stopOpacity={0}    />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="m" stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 10 }} />
-                    <YAxis width={28} stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 10 }} />
+                    <CartesianGrid stroke="#e2e8f0" />
+                    <XAxis dataKey="m" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
+                    <YAxis width={28} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
                     <Tooltip content={<TT />} />
                     <Area type="monotone" dataKey="n" name="Enrolled" stroke={C.tL} strokeWidth={2} fill="url(#ag)" dot={{ r: 3, fill: C.tL, strokeWidth: 0 }} />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </Crd>
               <Crd>
                 <SH icon={P.zap} title="Trial Arms" sub="Balance check" />
+                {armData.every(a => !a.value) ? (
+                  <div style={{ height: 130, display: "grid", placeItems: "center", textAlign: "center", padding: "0 12px" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 650, color: "#0b1c30", marginBottom: 6 }}>Arms blinded</div>
+                      <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.45 }}>
+                        {ops?.arms_note || "Allocation is not shown in live ops data."}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height={130}>
                   <PieChart>
-                    <Pie data={ARM_DATA} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={3}>
-                      {ARM_DATA.map((a, i) => <Cell key={i} fill={a.color} />)}
+                    <Pie data={armData} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={3}>
+                      {armData.map((a, i) => <Cell key={i} fill={a.color} />)}
                     </Pie>
                     <Tooltip content={<TT />} />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
-                  {ARM_DATA.map(a => (
+                  {armData.map(a => (
                     <div key={a.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ width: 6, height: 6, borderRadius: "50%", background: a.color, display: "inline-block" }} />
-                        <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)" }}>{a.name}</span>
+                        <span style={{ fontSize: 11, color: "#64748b" }}>{a.name}</span>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>{a.value}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#0b1c30" }}>{a.value}</span>
                     </div>
                   ))}
                 </div>
@@ -537,12 +542,12 @@ Highlight any safety signals or operational risks proactively.`;
               <Crd>
                 <SH icon={P.map} title="Site Performance" sub="Screened vs Enrolled" />
                 <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={SEED_SITES} barGap={3} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="site" stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 9 }} />
-                    <YAxis width={28} stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 9 }} />
+                  <BarChart data={siteRows} barGap={3} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#e2e8f0" />
+                    <XAxis dataKey="site" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 9 }} />
+                    <YAxis width={28} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 9 }} />
                     <Tooltip content={<TT />} />
-                    <Bar dataKey="sc" name="Screened" fill="#1e3a5f" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="sc" name="Screened" fill="#7dd3fc" radius={[3, 3, 0, 0]} />
                     <Bar dataKey="en" name="Enrolled" fill={C.teal}  radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -550,11 +555,12 @@ Highlight any safety signals or operational risks proactively.`;
               <Crd>
                 <SH icon={P.act} title="Live Activity Feed" right={<LiveDot />} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {activities.length === 0 && <div style={{ fontSize: 12, color: C.slate }}>No recent live activity</div>}
                   {activities.map((a, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", transition: ".3s" }}>
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: "#f8fcff", border: "1px solid #e8f1f8", transition: ".3s" }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: a.col, marginTop: 5, flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: 12, color: "rgba(255,255,255,.8)", lineHeight: 1.4 }}>{a.txt}</p>
+                        <p style={{ fontSize: 12, color: "#334155", lineHeight: 1.4 }}>{a.txt}</p>
                         <p style={{ fontSize: 10, color: C.slate }}>{a.t} ago</p>
                       </div>
                     </div>
@@ -573,20 +579,20 @@ Highlight any safety signals or operational risks proactively.`;
                       <tr><th>#</th><th>Site</th><th>Screened</th><th>Enrolled</th><th>Retention</th><th>Quality</th><th>Status</th></tr>
                     </thead>
                     <tbody>
-                      {[...SEED_SITES].sort((a, b) => b.en - a.en).map((s, i) => (
+                      {siteRows.map((s, i) => (
                         <tr key={s.site}>
                           <td>
-                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: i === 0 ? C.amber : i === 1 ? "#64748b" : "rgba(255,255,255,0.05)", color: i < 2 ? "#fff" : "#64748b", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
+                            <span style={{ width: 20, height: 20, borderRadius: "50%", background: i === 0 ? C.amber : i === 1 ? "#64748b" : "#e0f2fe", color: i < 2 ? "#fff" : "#64748b", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
                           </td>
-                          <td style={{ fontWeight: 700, color: "#fff", fontSize: 12 }}>{s.site}</td>
+                          <td style={{ fontWeight: 700, color: "#0b1c30", fontSize: 12 }}>{s.site}</td>
                           <td>{s.sc}</td>
                           <td style={{ fontWeight: 700, color: C.tL }}>{s.en}</td>
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                              <div style={{ width: 48, background: "rgba(255,255,255,.06)", borderRadius: 999, height: 4 }}>
-                                <div style={{ width: `${Math.round(s.en / s.sc * 100)}%`, height: "100%", borderRadius: 999, background: C.green }} />
+                              <div style={{ width: 48, background: "#e0f2fe", borderRadius: 999, height: 4 }}>
+                                <div style={{ width: `${(s.sc ? Math.round(s.en / s.sc * 100) : 0)}%`, height: "100%", borderRadius: 999, background: C.green }} />
                               </div>
-                              <span style={{ fontSize: 10, color: "#64748b" }}>{Math.round(s.en / s.sc * 100)}%</span>
+                              <span style={{ fontSize: 10, color: "#64748b" }}>{(s.sc ? Math.round(s.en / s.sc * 100) : 0)}%</span>
                             </div>
                           </td>
                           <td style={{ color: s.q > 90 ? C.green : C.amber, fontWeight: 700, fontSize: 12 }}>{s.q}%</td>
@@ -598,12 +604,12 @@ Highlight any safety signals or operational risks proactively.`;
                 </div>
               </Crd>
               <Crd>
-                <SH icon={P.shield} title="Data Quality" sub="7-day rolling avg" />
+                <SH icon={P.shield} title="Form Completeness" sub="Live % by form" />
                 <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={QUALITY_DATA} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="d" stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 10 }} />
-                    <YAxis width={28} domain={[80, 100]} stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 10 }} />
+                  <LineChart data={formComp.map(([label, p]) => ({ d: label.replace(/^Form | — .*$/g,'').slice(0,8), q: p }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#e2e8f0" />
+                    <XAxis dataKey="d" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
+                    <YAxis width={28} domain={[0, 100]} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 10 }} />
                     <Tooltip content={<TT />} />
                     <Line type="monotone" dataKey="q" name="Quality %" stroke={C.green} strokeWidth={2} dot={{ r: 3, fill: C.green, strokeWidth: 0 }} />
                   </LineChart>
@@ -617,7 +623,7 @@ Highlight any safety signals or operational risks proactively.`;
         {tab === "recruitment" && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 14 }}>
-              {[["Target", TARGET, C.teal], ["Enrolled", enrolled || 151, C.green], ["Remaining", TARGET - (enrolled || 151), C.amber], ["Progress", `${pct || 22}%`, C.blue]].map(([l, v, c]) => (
+              {[["Target", target, C.teal], ["Enrolled", enrolled || 151, C.green], ["Remaining", Math.max(target - enrolled, 0), C.amber], ["Progress", `${pct}%`, C.blue]].map(([l, v, c]) => (
                 <Crd key={l} accent={c}>
                   <div style={{ fontSize: 32, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div>
                   <div style={{ fontSize: 12, color: C.slate, marginTop: 5 }}>{l}</div>
@@ -627,15 +633,15 @@ Highlight any safety signals or operational risks proactively.`;
             <Crd style={{ marginBottom: 14 }}>
               <SH icon={P.bar} title="Site-wise Enrollment vs Target" />
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {SEED_SITES.map(s => {
-                  const p = Math.round(s.en / s.tg * 100);
+                {siteRows.map(s => {
+                  const p = s.tg ? Math.round(s.en / s.tg * 100) : 0;
                   return (
                     <div key={s.site}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.8)" }}>{s.site}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{s.site}</span>
                         <span style={{ fontSize: 11, color: C.slate }}>{s.en} / {s.tg} ({p}%)</span>
                       </div>
-                      <div style={{ background: "rgba(255,255,255,.06)", borderRadius: 999, height: 7 }}>
+                      <div style={{ background: "#e0f2fe", borderRadius: 999, height: 7 }}>
                         <div style={{ width: `${p}%`, height: "100%", borderRadius: 999, background: p >= 70 ? C.green : p >= 40 ? C.teal : C.amber, transition: "width 1s" }} />
                       </div>
                     </div>
@@ -646,10 +652,10 @@ Highlight any safety signals or operational risks proactively.`;
             <Crd>
               <SH icon={P.trend} title="Enrollment Velocity" sub="Monthly new enrollments" />
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={SEED_MONTH} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="rgba(255,255,255,0.04)" />
-                  <XAxis dataKey="m" stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 11 }} />
-                  <YAxis width={28} stroke="#2a3848" tick={{ fill: "#3d4f63", fontSize: 11 }} />
+                <BarChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" />
+                  <XAxis dataKey="m" stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 11 }} />
+                  <YAxis width={28} stroke="#cbd5e1" tick={{ fill: "#64748b", fontSize: 11 }} />
                   <Tooltip content={<TT />} />
                   <Bar dataKey="n" name="Enrolled" fill={C.teal} radius={[5, 5, 0, 0]} />
                 </BarChart>
@@ -663,7 +669,7 @@ Highlight any safety signals or operational risks proactively.`;
           <>
             <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center" }}>
               <div className="db-search" style={{ flex: 1, maxWidth: "100%" }}>
-                <Ic d={P.search} s={13} c="#3d4f63" />
+                <Ic d={P.search} s={13} c="#64748b" />
                 <input placeholder="Search enrollment ID, site, status…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             </div>
@@ -708,14 +714,16 @@ Highlight any safety signals or operational risks proactively.`;
         {/* ════ TASKS ════ */}
         {tab === "tasks" && (
           <div className="db-grid-2">
-            {TASK_SECTIONS.map(sec => (
+            {(tasks.length ? tasks : [{ title: "No pending actions", col: C.slate, items: [], count: 0 }]).map(sec => (
               <Crd key={sec.title} accent={sec.col}>
-                <SH icon={P.clip} title={sec.title} sub={`${sec.items.length} items`} />
+                <SH icon={P.clip} title={sec.title} sub={`${sec.count ?? sec.items.length} items`} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {sec.items.map((item, i) => (
-                    <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "9px 10px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: `1px solid ${sec.col}18` }}>
+                  {sec.items.length === 0 ? (
+                    <div style={{ fontSize: 12, color: C.slate, padding: "8px 0" }}>No live items in this category</div>
+                  ) : sec.items.map((item, i) => (
+                    <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "9px 10px", borderRadius: 8, background: "#f8fcff", border: `1px solid ${sec.col}18` }}>
                       <span style={{ width: 6, height: 6, borderRadius: "50%", background: sec.col, marginTop: 5, flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, color: "rgba(255,255,255,.78)", lineHeight: 1.45 }}>{item}</span>
+                      <span style={{ fontSize: 12, color: "#334155", lineHeight: 1.45 }}>{item}</span>
                     </div>
                   ))}
                 </div>
@@ -729,11 +737,11 @@ Highlight any safety signals or operational risks proactively.`;
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 14 }}>
               {[
-                ["Mortality",    3,  C.red,    "2.0%"],
-                ["BPD",         28,  C.orange, "18.5%"],
-                ["ROP Treated",  9,  C.amber,  "6.0%"],
-                ["NEC ≥IIA",     5,  C.purple, "3.3%"],
-                ["Brain Injury", 7,  C.red,    "4.6%"],
+                ["Mortality (in-hosp)", mort?.in_hospital?.n ?? 0, C.red,    `${mort?.in_hospital?.pct ?? 0}%`],
+                ["BPD",                 morb?.bpd?.n ?? 0,         C.orange, `${morb?.bpd?.pct ?? 0}%`],
+                ["ROP Treated",         morb?.rop_tx?.n ?? 0,      C.amber,  `${morb?.rop_tx?.pct ?? 0}%`],
+                ["NEC",                 morb?.nec?.n ?? 0,         C.purple, `${morb?.nec?.pct ?? 0}%`],
+                ["Severe IVH",          morb?.ivh_severe?.n ?? 0,  C.red,    `${morb?.ivh_severe?.pct ?? 0}%`],
               ].map(([l, v, c, p]) => (
                 <Crd key={l} accent={c}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -749,10 +757,11 @@ Highlight any safety signals or operational risks proactively.`;
             <div className="db-grid-2">
               <Crd accent={C.red}>
                 <SH icon={P.shield} title="SAE Command Centre" />
-                {SAES.map(s => (
-                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 11, borderRadius: 9, background: "rgba(255,255,255,0.03)", border: `1px solid ${s.status === "overdue" ? "rgba(239,68,68,.2)" : "rgba(255,255,255,.06)"}`, marginBottom: 8 }}>
+                {saes.length === 0 && <div style={{ fontSize: 12, color: C.slate, padding: "8px 0" }}>No SAE reports in live data</div>}
+                {saes.map(s => (
+                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 11, borderRadius: 9, background: "#f8fcff", border: `1px solid ${s.status === "overdue" ? "rgba(239,68,68,.2)" : "#d5e4f0"}`, marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{s.id} · {s.site}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0b1c30" }}>{s.id} · {s.site}</div>
                       <div style={{ fontSize: 11, color: C.slate }}>{s.type}</div>
                     </div>
                     <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
@@ -763,18 +772,18 @@ Highlight any safety signals or operational risks proactively.`;
                 ))}
               </Crd>
               <Crd accent={C.purple}>
-                <SH icon={P.eye} title="Composite Outcomes" sub="Primary and secondary" />
+                <SH icon={P.eye} title="Live Safety Snapshot" sub="From study outcomes / morbidities" />
                 {[
-                  ["Death or BPD at 44w PMA",              29, C.red,    "19.2%"],
-                  ["Death/BPD/ROP/NEC/Brain Injury",        41, C.orange, "27.2%"],
-                  ["Abnormal MRI (25% subset)",              8, C.purple, "21.1%"],
+                  ["In-hospital mortality", mort?.in_hospital?.n ?? 0, C.red,    `${mort?.in_hospital?.pct ?? 0}%`],
+                  ["BPD",                   morb?.bpd?.n ?? 0,         C.orange, `${morb?.bpd?.pct ?? 0}%`],
+                  ["NEC",                   morb?.nec?.n ?? 0,         C.purple, `${morb?.nec?.pct ?? 0}%`],
                 ].map(([l, v, c, p]) => (
-                  <div key={l} style={{ padding: 12, borderRadius: 9, marginBottom: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                  <div key={l} style={{ padding: 12, borderRadius: 9, marginBottom: 9, background: "#f8fcff", border: "1px solid #d5e4f0" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                      <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)", maxWidth: "72%", lineHeight: 1.35 }}>{l}</span>
+                      <span style={{ fontSize: 11, color: "#475569", maxWidth: "72%", lineHeight: 1.35 }}>{l}</span>
                       <span style={{ fontSize: 18, fontWeight: 800, color: c }}>{v}</span>
                     </div>
-                    <div style={{ background: "rgba(255,255,255,.06)", borderRadius: 999, height: 4 }}>
+                    <div style={{ background: "#e0f2fe", borderRadius: 999, height: 4 }}>
                       <div style={{ width: p, height: "100%", background: c, borderRadius: 999 }} />
                     </div>
                   </div>
@@ -790,10 +799,10 @@ Highlight any safety signals or operational risks proactively.`;
             <Crd>
               <SH icon={P.clip} title="Form Completeness" sub="All forms by type" />
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                {FORM_COMP.map(([f, p, c]) => (
+                {(formComp.length ? formComp : []).map(([f, p, c]) => (
                   <div key={f}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, color: "rgba(255,255,255,.72)" }}>{f}</span>
+                      <span style={{ fontSize: 11, color: "#475569" }}>{f}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: c }}>{p}%</span>
                     </div>
                     <div style={{ background: "rgba(255,255,255,.05)", borderRadius: 999, height: 5 }}>
@@ -804,20 +813,18 @@ Highlight any safety signals or operational risks proactively.`;
               </div>
             </Crd>
             <Crd>
-              <SH icon={P.alert} title="Open Queries" sub="Requiring action" />
-              {QUERIES.map(q => (
-                <div key={q.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, marginBottom: 7, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              <SH icon={P.alert} title="Open Actions" sub="From live data-quality checks" />
+              {tasks.every(t => (t.count || 0) === 0) ? (
+                <div style={{ fontSize: 12, color: C.slate, padding: "12px 0" }}>No open action items in live data</div>
+              ) : tasks.filter(t => (t.count || 0) > 0).map(t => (
+                <div key={t.title} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, marginBottom: 7, background: "#f8fcff", border: "1px solid #d5e4f0" }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.tL }}>{q.id}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,.8)" }}>{q.field}</div>
-                    <div style={{ fontSize: 10, color: C.slate }}>{q.site} · {q.age} old</div>
+                    <div style={{ fontSize: 12, color: "#334155" }}>{t.title}</div>
+                    <div style={{ fontSize: 10, color: C.slate }}>{(t.items || []).slice(0, 2).join(" · ") || "—"}</div>
                   </div>
-                  <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 4, background: q.sev === "high" ? "rgba(239,68,68,.15)" : "rgba(232,160,32,.15)", color: q.sev === "high" ? C.red : C.amber, textTransform: "uppercase", letterSpacing: "0.05em" }}>{q.sev}</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: t.col }}>{t.count}</span>
                 </div>
               ))}
-              <button className="db-qa-btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}>
-                View all queries →
-              </button>
             </Crd>
           </div>
         )}

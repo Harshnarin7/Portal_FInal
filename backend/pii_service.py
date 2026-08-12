@@ -75,10 +75,17 @@ def can_view_pii_for_site(user, site_name: str | None) -> bool:
 
 
 def _merge(existing: ParticipantPII | None, **fields: Any) -> dict[str, Any]:
+    """Merge incoming PII fields onto an existing row.
+
+    Empty string means "clear this field" (so a wrongly saved value can be
+    corrected). ``None`` means "leave whatever is already stored".
+    """
     out = {}
     for key, value in fields.items():
         if value is not None and value != "":
             out[key] = value
+        elif value == "":
+            out[key] = None
         elif existing is not None:
             current = getattr(existing, key, None)
             if current is not None:
@@ -133,7 +140,21 @@ def upsert_participant_pii(
 
 
 def extract_screening_pii(data: dict) -> dict:
-    return {k: data.get(k) for k in SCREENING_PII_FIELDS if data.get(k) is not None}
+    """Pull Form A identity fields out of a screening payload.
+
+    Empty strings are kept so optional fields (e.g. mother_surname) can be
+    explicitly cleared on update. ``None`` is omitted so partial updates
+    don't wipe unrelated PII columns.
+    """
+    out = {}
+    for k in SCREENING_PII_FIELDS:
+        if k not in data:
+            continue
+        val = data[k]
+        if val is None:
+            continue
+        out[k] = val
+    return out
 
 
 def clear_screening_pii_columns(screening: Screening) -> None:

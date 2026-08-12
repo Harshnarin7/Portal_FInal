@@ -1,7 +1,7 @@
 // src/components/PrintSummary.jsx
 // Uses ReactDOM.createPortal to render OUTSIDE #root
 // so @media print can hide #root and show only this report.
-import React from "react";
+import React, { useEffect } from "react";
 import ReactDOM from "react-dom";
 import "./PrintSummary.css";
 
@@ -75,8 +75,8 @@ function PrintReport({ formData = {} }) {
 
   const methodLabels = {
     LMP: "LMP (Last Menstrual Period)",
-    "Early USG": "Early USG (<24 weeks)",
-    "Fundal Height": "Fundal Height",
+    "Early USG": "Early USG (<24w)",
+    "Fundal Height": "Fundal height",
     Unknown: "Method not known",
   };
 
@@ -274,6 +274,11 @@ function PrintReport({ formData = {} }) {
    touching the report at all.
 ─────────────────────────────────────────────────────────── */
 export default function PrintSummary({ formData }) {
+  useEffect(() => {
+    document.body.classList.add("has-print-summary");
+    return () => document.body.classList.remove("has-print-summary");
+  }, []);
+
   // Create/find the portal target on body
   let portalEl = document.getElementById("print-portal");
   if (!portalEl) {

@@ -26,6 +26,7 @@ import FiO2AUC from "./FiO2AUC";
 import RespCVNeuroLog from "./RespCVNeuroLog";
 import InfectGIHemaLog from "./InfectGIHemaLog";
 import MetabRenalVascEyeLog from "./MetabRenalVascEyeLog";
+import MinimalMonitoringLog from "./MinimalMonitoringLog";
 
 import FormY_SAE from "./FormY_SAE";
 import AdverseEventsForm from "./AdverseEventsForm";
@@ -37,6 +38,7 @@ import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
 import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
 import Login from "./Login";
+import ChangePassword from "./ChangePassword";
 import LandingPage from "./LandingPage";
 import ManageStaff from "./ManageStaff";
 
@@ -55,6 +57,8 @@ function AppContent() {
 
   const isLandingPage = location.pathname === "/";
   const isLoginPage   = location.pathname === "/login";
+  const isChangePasswordPage = location.pathname === "/change-password";
+  const isAuthChromePage = isLoginPage || isChangePasswordPage;
 
   const isFormPage =
     location.pathname.includes("/form-") ||
@@ -62,21 +66,22 @@ function AppContent() {
     location.pathname.includes("/vs6-1") ||
     location.pathname.includes("/infect-") ||
     location.pathname.includes("/metab-") ||
+    location.pathname.includes("/minimal-monitoring") ||
     location.pathname.includes("/adverse-") ||
     location.pathname.includes("/sae-");
 
   return (
     <div className={`app-container ${isFormPage ? "form-page-layout" : ""}`}>
 
-      {/* ===== HEADER — hidden on landing page and form pages only ===== */}
-      {!isFormPage && !isLandingPage && (
+      {/* ===== HEADER — hidden on landing, login, password change, forms ===== */}
+      {!isFormPage && !isLandingPage && !isAuthChromePage && (
         <header className="app-header">
           <div className="header-inner">
 
             {/* LEFT — PORTAL logo */}
             <div className="header-logo-panel">
               <div className="header-logo-box">
-                <img src="/portal-logo.png" alt="PORTAL Trial Logo" className="header-logo-img" />
+                <img src="/logo.png" alt="PORTAL Trial Logo" className="header-logo-img" />
               </div>
               <span className="header-logo-label">PORTAL</span>
             </div>
@@ -100,7 +105,7 @@ function AppContent() {
             {/* RIGHT — ICMR logo */}
             <div className="header-logo-panel">
               <div className="header-logo-box">
-                <img src="/icmr-logo.svg" alt="ICMR Logo" className="header-logo-img" />
+                <img src="/icmr-logo.jpg" alt="ICMR Logo" className="header-logo-img" />
               </div>
               <span className="header-logo-label">ICMR</span>
             </div>
@@ -118,8 +123,8 @@ function AppContent() {
         </header>
       )}
 
-        {/* ===== NAVBAR — hidden on landing page and login page ===== */}
-        {token && !isFormPage && !isLandingPage && !isLoginPage && (
+        {/* ===== NAVBAR — hidden on landing / login / password change ===== */}
+        {token && !isFormPage && !isLandingPage && !isAuthChromePage && (
           <nav className="nav-bar">
             <div className="nav-links">
               <NavLink
@@ -130,18 +135,19 @@ function AppContent() {
               </NavLink>
 
               <NavLink
-  to="/form-a"
-  className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
-  onClick={() => {
-    localStorage.removeItem("current_screening_id");
-    localStorage.removeItem("current_enrollment_id");
-    localStorage.removeItem("enrollment_locked");
-    window.dispatchEvent(new Event("storage"));
-    window.location.href = "/form-a";
-  }}
->
-  <Plus size={16} /> <span>New Entry</span>
-</NavLink>
+                to="/form-a"
+                className={({ isActive }) => `nav-btn ${isActive ? "active" : ""}`}
+                onClick={() => {
+                  localStorage.removeItem("current_screening_id");
+                  localStorage.removeItem("current_enrollment_id");
+                  localStorage.removeItem("enrollment_locked");
+                  localStorage.removeItem("enrollment_lock_reason");
+                  window.dispatchEvent(new Event("storage"));
+                  window.location.href = "/form-a";
+                }}
+              >
+                <Plus size={16} /> <span>New Entry</span>
+              </NavLink>
 
               <NavLink
                 to="/entries"
@@ -179,6 +185,7 @@ function AppContent() {
         <PatientProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/change-password" element={<ChangePassword />} />
             <Route
               path="*"
               element={
@@ -209,6 +216,7 @@ function AppContent() {
                       <Route path="/vs6-1/:enrollmentId?" element={<ProtectedRoute><FormLayout currentForm="vs6_1"><RespCVNeuroLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/infect-gi-hema-log/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="infect_gi_hema"><InfectGIHemaLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/metab-renal-vasc-eye-log/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="metab_renal_vasc_eye"><MetabRenalVascEyeLog /></FormLayout></ProtectedRoute>} />
+                      <Route path="/minimal-monitoring/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="minimal_monitoring"><MinimalMonitoringLog /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-y-sae/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_y_sae"><FormY_SAE /></FormLayout></ProtectedRoute>} />
                       <Route path="/adverse-events/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="adverse_events"><AdverseEventsForm /></FormLayout></ProtectedRoute>} />
                       <Route path="/sae-list/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="sae_list"><SeriousAdverseEventsList /></FormLayout></ProtectedRoute>} />
@@ -221,7 +229,7 @@ function AppContent() {
         </PatientProvider>
 
         {/* ===== FOOTER ===== */}
-        {!isFormPage && !isLandingPage && (
+        {!isFormPage && !isLandingPage && !isAuthChromePage && (
           <footer className="app-footer">
             <p>© 2025 PORTAL Trial | Developed for Clinical Research Data Entry</p>
           </footer>

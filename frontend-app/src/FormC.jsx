@@ -13,7 +13,7 @@ import OfflineBanner from "./components/OfflineBanner";
 import FormNavBar    from "./components/FormNavBar";
 import FormModals    from "./components/FormModals";
 import useFormSession from "./hooks/useFormSession";
-import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap } from "lucide-react";
+import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap, Pencil } from "lucide-react";
 
 const STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
@@ -141,11 +141,12 @@ export default function FormC() {
     // C2 Obstetric History
     gravida: "", parity: "", abortions: "", live: "", still: "",
     booked: "", anc_visits: "", pregnancy_supervision: "",
-    multiple: "No", lmp: "", edd: "",
+    multiple: "No", multiple_other: "", lmp: "", edd: "",
     conception: "", artificial_type: "", artificial_other: "",
-    // C4 Antenatal Treatment
+    // C2 Antenatal Treatment
     antenatal_steroids: "", steroid_drug: "", steroid_doses: "",
-    lddi_known: "", lddi_hours: "", steroid_courses: "",
+    steroid_courses_status: "", steroid_courses: "",
+    lddi_known: "", lddi_hours: "",
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
     mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
@@ -206,18 +207,51 @@ export default function FormC() {
     else              set({ pregnancy_supervision: "Supervised" });
   }, [formData.anc_visits]);
 
-  /* ── Auto-calc MgSO4 gestation ── */
+  /* ── Auto-calc MgSO4 gestation at administration ──
+     GA (days) = 280 − (EDD − adminDate) using calendar days only.
+     DatePicker values can carry a wall-clock time; comparing those with
+     midnight EDD via Math.floor(ms/86400000) drifts by ±1 day — normalize
+     both to local calendar dates first (same approach as Form A GA). */
   useEffect(() => {
-    if (!formData.mgso4_date || !formData.edd) return;
-    const mg = new Date(formData.mgso4_date);
-    const eddDate = formData.edd;
-    if (!(mg instanceof Date) || !(eddDate instanceof Date)) return;
-    if (isNaN(mg.getTime()) || isNaN(eddDate.getTime())) return;
-    const diffDays = Math.floor((eddDate.getTime() - mg.getTime()) / (1000*60*60*24));
-    const adminGA  = 280 - diffDays;
-    if (adminGA < 0) return;
-    set({ mgso4_gestation_weeks: Math.floor(adminGA/7), mgso4_gestation_days: adminGA%7 });
-  }, [formData.mgso4_date, formData.edd]);
+    const toLocalDay = (value) => {
+      if (!value) return null;
+      if (value instanceof Date && !isNaN(value.getTime())) {
+        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+      }
+      return parseDateOnly(String(value).slice(0, 10));
+    };
+
+    const admin = toLocalDay(formData.mgso4_date);
+    if (!admin) {
+      if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
+        set({ mgso4_gestation_weeks: "", mgso4_gestation_days: "" });
+      }
+      return;
+    }
+
+    const edd = toLocalDay(formData.edd);
+    const lmp = toLocalDay(formData.lmp);
+    let gestDays = null;
+    if (edd) {
+      const daysUntilEdd = Math.round((edd.getTime() - admin.getTime()) / 86400000);
+      gestDays = 280 - daysUntilEdd;
+    } else if (lmp) {
+      gestDays = Math.round((admin.getTime() - lmp.getTime()) / 86400000);
+    }
+
+    if (gestDays == null || gestDays < 0 || gestDays > 314) {
+      if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
+        set({ mgso4_gestation_weeks: "", mgso4_gestation_days: "" });
+      }
+      return;
+    }
+
+    const weeks = Math.floor(gestDays / 7);
+    const days = gestDays % 7;
+    if (formData.mgso4_gestation_weeks !== weeks || formData.mgso4_gestation_days !== days) {
+      set({ mgso4_gestation_weeks: weeks, mgso4_gestation_days: days });
+    }
+  }, [formData.mgso4_date, formData.edd, formData.lmp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Auto-calc Triple I from infection fields ── */
   useEffect(() => {
@@ -302,7 +336,10 @@ export default function FormC() {
             antenatal_steroids: formCData.antenatal_steroids ?? prev.antenatal_steroids,
             steroid_drug: formCData.steroid_drug ?? prev.steroid_drug,
             steroid_doses: formCData.steroid_doses != null ? String(formCData.steroid_doses) : prev.steroid_doses,
+            steroid_courses_status: formCData.steroid_courses_status
+              ?? (formCData.steroid_courses != null && formCData.steroid_courses !== "" ? "Complete" : prev.steroid_courses_status),
             steroid_courses: formCData.steroid_courses != null ? String(formCData.steroid_courses) : prev.steroid_courses,
+            multiple_other: formCData.multiple_other ?? prev.multiple_other,
             lddi_known: formCData.lddi_known ?? (formCData.lddi_hours != null ? "Known" : prev.lddi_known),
             lddi_hours: formCData.lddi_hours ?? prev.lddi_hours,
             antenatal_mgso4: formCData.antenatal_mgso4 ?? prev.antenatal_mgso4,
@@ -312,8 +349,10 @@ export default function FormC() {
             hepatitis: formCData.hepatitis ?? false, heart_disease: formCData.heart_disease ?? false,
             renal_disease: formCData.renal_disease ?? false, vdrl_positive: formCData.vdrl_positive ?? false,
             seizure_disorder: formCData.seizure_disorder ?? false, asthma: formCData.asthma ?? false,
-            hiv: formCData.hiv ?? false, hypothyroidism: formCData.thyroid ?? false,
-            hyperthyroidism: false, tb: formCData.tb ?? false, malaria: formCData.malaria ?? false,
+            hiv: formCData.hiv ?? false,
+            hypothyroidism: formCData.hypothyroidism ?? formCData.thyroid ?? false,
+            hyperthyroidism: formCData.hyperthyroidism ?? false,
+            tb: formCData.tb ?? false, malaria: formCData.malaria ?? false,
             severe_anemia: formCData.severe_anemia ?? false,
             other_medical_disorder: formCData.other_medical_disorder ?? prev.other_medical_disorder,
             other_medical_checkbox: !!formCData.other_medical_disorder,
@@ -321,6 +360,7 @@ export default function FormC() {
               formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
               formCData.renal_disease || formCData.vdrl_positive || formCData.seizure_disorder ||
               formCData.asthma || formCData.hiv || formCData.thyroid ||
+              formCData.hypothyroidism || formCData.hyperthyroidism ||
               formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
             ),
             hdp: formCData.hdp ?? prev.hdp, hdp_type: formCData.hdp_type ?? prev.hdp_type,
@@ -333,7 +373,14 @@ export default function FormC() {
             placental_type: formCData.placental_type ?? prev.placental_type,
             placental_other: formCData.placental_other ?? prev.placental_other,
             retroplacental_collection: formCData.retroplacental_collection ?? prev.retroplacental_collection,
-            aph: formCData.aph ?? prev.aph, aph_type: formCData.aph_type ?? prev.aph_type,
+            aph: formCData.aph ?? prev.aph,
+            aph_type: ({
+              "Placental Abruption": "Abruption",
+              "Abruption": "Abruption",
+              "Vasa Previa": "Previa",
+              "Previa": "Previa",
+              "Other": "Other",
+            })[formCData.aph_type] ?? formCData.aph_type ?? prev.aph_type,
             aph_other: formCData.aph_other ?? prev.aph_other,
             isoimmunization: formCData.isoimmunization ?? prev.isoimmunization,
             pprom: formCData.pprom ?? prev.pprom, pprom_duration: formCData.pprom_duration ?? prev.pprom_duration,
@@ -392,15 +439,17 @@ export default function FormC() {
       case "abortions": return (value===""||value===undefined) ? "Required" : "";
       case "live": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
       case "still": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
-      case "booked": return value ? "" : "Required";
+      case "booked": return ""; /* not on updated CRF */
       case "anc_visits": return (value===""||value===null) ? "Required" : "";
       case "conception": return value ? "" : "Required";
       case "artificial_type": return (d.conception==="Artificial"&&!value) ? "Required" : "";
       case "artificial_other": return (d.artificial_type==="Other"&&!value?.trim()) ? "Required" : "";
+      case "multiple_other": return (d.multiple==="Other"&&!value?.trim()) ? "Required" : "";
       case "antenatal_steroids": return value ? "" : "Required";
       case "steroid_drug": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
       case "steroid_doses": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
-      case "steroid_courses": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
+      case "steroid_courses_status": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
+      case "steroid_courses": return (d.antenatal_steroids==="Yes"&&d.steroid_courses_status==="Complete"&&!value) ? "Required" : "";
       case "lddi_known": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
       case "lddi_hours": if (d.lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
       case "antenatal_mgso4": return value ? "" : "Required";
@@ -441,7 +490,7 @@ export default function FormC() {
       case "fetal_bradycardia": return value ? "" : "Required";
       case "fetal_tachycardia_intrapartum": return value ? "" : "Required";
       case "prolonged_labor": return value ? "" : "Required";
-      case "duration_rom": if (d.pprom!=="Yes") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hrs"; return "";
+      case "duration_rom": return ""; /* not on updated CRF */
       case "cord_accident": return value ? "" : "Required";
       case "cord_accident_type": return (d.cord_accident==="Yes"&&!value) ? "Required" : "";
       case "uterotonic": return value ? "" : "Required";
@@ -480,9 +529,7 @@ export default function FormC() {
     setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
   };
 
-  /* Steroid Drug — multi-select: Beta only, Dexa only, both Beta+Dexa,
-     or "Not known" alone. Picking "Not known" clears Beta/Dexa; picking
-     Beta/Dexa clears "Not known". */
+  /* Steroid Drug / Doses — multi-select. "Not known" is exclusive for drug. */
   const handleSteroidDrugToggle = (name, clicked) => {
     const current = String(formData[name] || "").split(",").map(s => s.trim()).filter(Boolean);
     let next;
@@ -492,6 +539,17 @@ export default function FormC() {
       const base = current.filter(v => v !== "Not known");
       next = base.includes(clicked) ? base.filter(v => v !== clicked) : [...base, clicked];
     }
+    const value = next.join(",");
+    set({ [name]: value });
+    touchField(name);
+    setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
+  };
+
+  const handleSteroidDosesToggle = (name, clicked) => {
+    const current = String(formData[name] || "").split(",").map(s => s.trim()).filter(Boolean);
+    const next = current.includes(clicked)
+      ? current.filter(v => v !== clicked)
+      : [...current, clicked].sort();
     const value = next.join(",");
     set({ [name]: value });
     touchField(name);
@@ -530,21 +588,23 @@ export default function FormC() {
     if (data.parity!==""&&data.gravida!==""&&Number(data.parity)>Number(data.gravida))
       e.parity = "Cannot exceed Gravida";
 
-    if (!data.booked) e.booked = "Required";
     if (data.anc_visits===""||data.anc_visits===null) e.anc_visits = "Required";
     if (!data.conception) e.conception = "Required";
     if (data.conception==="Artificial") {
       if (!data.artificial_type) e.artificial_type = "Required";
       if (data.artificial_type==="Other"&&!data.artificial_other?.trim()) e.artificial_other = "Required";
     }
+    if (data.multiple==="Other"&&!data.multiple_other?.trim()) e.multiple_other = "Required";
 
     // C2 — Antenatal treatment
     if (!data.antenatal_steroids) e.antenatal_steroids = "Required";
     if (data.antenatal_steroids==="Yes") {
-      if (!data.steroid_drug)    e.steroid_drug    = "Required";
-      if (!data.steroid_doses)   e.steroid_doses   = "Required";
-      if (!data.steroid_courses) e.steroid_courses = "Required";
-      if (!data.lddi_known)      e.lddi_known      = "Required";
+      if (!data.steroid_drug) e.steroid_drug = "Required";
+      if (!data.steroid_doses) e.steroid_doses = "Required";
+      if (!data.steroid_courses_status) e.steroid_courses_status = "Required";
+      if (data.steroid_courses_status==="Complete"&&!data.steroid_courses)
+        e.steroid_courses = "Required";
+      if (!data.lddi_known) e.lddi_known = "Required";
       if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null))
         e.lddi_hours = "Required";
     }
@@ -606,9 +666,6 @@ export default function FormC() {
     if (!data.fetal_bradycardia) e.fetal_bradycardia = "Required";
     if (!data.fetal_tachycardia_intrapartum) e.fetal_tachycardia_intrapartum = "Required";
     if (!data.prolonged_labor) e.prolonged_labor = "Required";
-    // duration_rom only required when pPROM = Yes (ROM = Rupture of Membranes)
-    if (data.pprom==="Yes"&&(data.duration_rom===""||data.duration_rom===null))
-      e.duration_rom = "Duration of ROM required when pPROM = Yes";
     if (!data.cord_accident) e.cord_accident = "Required";
     if (data.cord_accident==="Yes"&&!data.cord_accident_type) e.cord_accident_type = "Required";
     if (!data.uterotonic) e.uterotonic = "Required";
@@ -633,6 +690,7 @@ export default function FormC() {
     abortions: formData.abortions || null, live: formData.live || null, still: formData.still || null,
     anc_visits: formData.anc_visits || null, booked: formData.booked || null,
     multiple: formData.multiple || null,
+    multiple_other: formData.multiple_other || null,
     lmp: formData.lmp ? toDateOnlyValue(formData.lmp) : null,
     edd: formData.edd ? toDateOnlyValue(formData.edd) : null,
     conception: formData.conception || null,
@@ -641,7 +699,8 @@ export default function FormC() {
     antenatal_steroids: formData.antenatal_steroids || null,
     steroid_drug: formData.steroid_drug || null,
     steroid_doses: formData.steroid_doses || null,
-    steroid_courses: formData.steroid_courses || null,
+    steroid_courses_status: formData.steroid_courses_status || null,
+    steroid_courses: formData.steroid_courses_status === "Complete" ? (formData.steroid_courses || null) : null,
     lddi_known: formData.lddi_known || null,
     lddi_hours: formData.lddi_hours || null,
     antenatal_mgso4: formData.antenatal_mgso4 || null,
@@ -655,6 +714,8 @@ export default function FormC() {
     seizure_disorder: formData.seizure_disorder||false, asthma: formData.asthma||false,
     hiv: formData.hiv||false,
     thyroid: (formData.hypothyroidism||formData.hyperthyroidism)||false,
+    hypothyroidism: formData.hypothyroidism||false,
+    hyperthyroidism: formData.hyperthyroidism||false,
     tb: formData.tb||false, malaria: formData.malaria||false, severe_anemia: formData.severe_anemia||false,
     other_medical_disorder: formData.other_medical_disorder||null,
     hdp: formData.hdp||null, hdp_type: formData.hdp_type||null,
@@ -721,7 +782,16 @@ export default function FormC() {
     }
   }, [formData, isFormCLoaded, buildPayload, markFormCompleted, session]); // eslint-disable-line
 
-  const handleNext     = async () => { const ok = await saveForm(); if (ok) navigate(`/form-d/${formData.enrollment_id}`); };
+  const handleNext = async () => {
+    const ok = await saveForm();
+    if (ok) {
+      if (localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+        setMessage("✅ Form C saved. Forms D and later are locked — PPV was not required.");
+        return;
+      }
+      navigate(`/form-d/${formData.enrollment_id}`);
+    }
+  };
   // FIX: navigate(-1) relied on browser history, which lands on whatever
   // page happened to be previous in this tab's history — not necessarily
   // Form B. Navigate to the actual Form B route (using this enrollment's
@@ -741,12 +811,12 @@ export default function FormC() {
   const ce = {
     c1: ["mother_age","house","city","state","landmark","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c2: ["house","city","state","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
-    c3: ["gravida","parity","abortions","live","still","booked","anc_visits","conception","artificial_type"].filter(f => touched[f]&&errors[f]).length,
-    c4: ["antenatal_steroids","steroid_drug","steroid_doses","steroid_courses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
+    c3: ["gravida","parity","abortions","live","still","anc_visits","conception","artificial_type","artificial_other","multiple","multiple_other"].filter(f => touched[f]&&errors[f]).length,
+    c4: ["antenatal_steroids","steroid_drug","steroid_doses","steroid_courses_status","steroid_courses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
     c5: ["medical_disorders","other_medical_disorder"].filter(f => touched[f]&&errors[f]).length,
     c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
     c7: ["pprom","pprom_duration","preterm_labor","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
-    c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","duration_rom","cord_accident","cord_accident_type","uterotonic","uterotonic_timing"].filter(f => touched[f]&&errors[f]).length,
+    c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","cord_accident","cord_accident_type","uterotonic","uterotonic_timing"].filter(f => touched[f]&&errors[f]).length,
   };
 
   if (!enrollmentId) return (
@@ -773,9 +843,14 @@ export default function FormC() {
       <OfflineBanner isOnline={session.isOnline} offlineQueue={session.offlineQueue} />
 
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot"/>
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -835,25 +910,25 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>House No. / Flat / C/O<span className="required">*</span></label>
+                    <label>House No / Street<span className="required">*</span></label>
                     <input name="house" value={formData.house||""} onChange={handleChange} onBlur={handleBlur}
-                      placeholder="House No / Flat / C/O"
+                      placeholder="House No / Street"
                       readOnly={!isFieldEditable} className={E("house")?"input-error":""}/>
                     <FieldError msg={E("house")}/>
                   </div>
                   <div className="form-group">
-                    <label>Village / VPO / City / Tehsil<span className="required">*</span></label>
+                    <label>Village / VPO<span className="required">*</span></label>
                     <input name="city" value={formData.city||""} onChange={handleChange} onBlur={handleBlur}
-                      placeholder="Village / VPO / City / Tehsil"
+                      placeholder="Village / VPO"
                       readOnly={!isFieldEditable} className={E("city")?"input-error":""}/>
                     <FieldError msg={E("city")}/>
                   </div>
                 </div>
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>Police Station / District <span className="field-note">(optional)</span></label>
+                    <label>City / Tehsil · Police station / District <span className="field-note">(optional)</span></label>
                     <input name="district" value={formData.district||""} onChange={handleChange}
-                      placeholder="Police Station / District"
+                      placeholder="City / Tehsil / Police station / District"
                       readOnly={!isFieldEditable}/>
                   </div>
                   <div className="form-group">
@@ -866,26 +941,14 @@ export default function FormC() {
                     <FieldError msg={E("state")}/>
                   </div>
                   <div className="form-group">
-                    <label>PIN Code <span className="field-note">(optional)</span></label>
-                    <input name="pincode" value={formData.pincode||""}
-                      readOnly={!isFieldEditable} className={E("pincode")?"input-error":""}
-                      placeholder="6-digit PIN" inputMode="numeric"
-                      onBlur={handleBlur}
-                      onChange={ev => {
-                        const v = ev.target.value.replace(/\D/g,"");
-                        if (v.length<=6) { set({pincode:v}); touchField("pincode"); setErrors(p=>({...p,pincode:validateField("pincode",v,formData)})); }
-                      }}/>
-                    <FieldError msg={E("pincode")}/>
-                  </div>
-                </div>
-                <div className="form-grid-2">
-                  <div className="form-group">
                     <label>Nearest Landmark<span className="required">*</span></label>
                     <input name="landmark" value={formData.landmark||""} onChange={handleChange} onBlur={handleBlur}
                       placeholder="Nearest landmark"
                       readOnly={!isFieldEditable} className={E("landmark")?"input-error":""}/>
                     <FieldError msg={E("landmark")}/>
                   </div>
+                </div>
+                <div className="form-grid-2">
                   <div className="form-group">
                     <label>4. Email Address <span className="field-note">(optional)</span></label>
                     <input type="email" name="email_address" value={formData.email_address||""}
@@ -893,6 +956,7 @@ export default function FormC() {
                       readOnly={!isFieldEditable} className={E("email_address")?"input-error":""}/>
                     <FieldError msg={E("email_address")}/>
                   </div>
+                  <div/>
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
@@ -924,8 +988,8 @@ export default function FormC() {
                     {name:"gravida",  label:"6. Gravida",      min:1, max:15},
                     {name:"parity",   label:"7. Parity",       min:0, max:15},
                     {name:"abortions",label:"8. Abortions",    min:0, max:15},
-                    {name:"live",     label:"9. Live Births",  min:0, max:15},
-                    {name:"still",    label:"10. Still Births",min:0, max:10},
+                    {name:"live",     label:"9. Live",  min:0, max:15},
+                    {name:"still",    label:"10. Still",min:0, max:10},
                   ].map(({name,label,min,max}) => (
                     <div className="form-group" key={name}>
                       <label>{label}<span className="required">*</span></label>
@@ -945,13 +1009,7 @@ export default function FormC() {
                   ))}
                 </div>
 
-                <div className="form-grid-3">
-                  <div className="form-group">
-                    <label>Booking Status<span className="required">*</span></label>
-                    <Toggle name="booked" value={formData.booked}
-                      options={["Booked","Unbooked","Not known"]}
-                      onChange={handleToggle} disabled={!isFieldEditable} error={E("booked")}/>
-                  </div>
+                <div className="form-grid-2">
                   <div className="form-group">
                     <label>11. ANC Visits<span className="required">*</span></label>
                     <input type="text" name="anc_visits" value={formData.anc_visits||""}
@@ -962,9 +1020,9 @@ export default function FormC() {
                     <FieldError msg={E("anc_visits")}/>
                   </div>
                   <div className="form-group">
-                    <label>12. Pregnancy Supervision <span className="field-note">(auto)</span></label>
+                    <label>12. Pregnancy <span className="field-note">(auto)</span></label>
                     <input name="pregnancy_supervision" value={formData.pregnancy_supervision||""}
-                      readOnly className="readonly-input" placeholder="Calculated from ANC visits"/>
+                      readOnly className="readonly-input" placeholder="Supervised / Unsupervised / Inadequately supervised"/>
                   </div>
                 </div>
 
@@ -981,10 +1039,17 @@ export default function FormC() {
                   </div>
                   {formData.multiple!=="No" && (
                     <div className="form-group">
-                      <label>14. If yes, type<span className="required">*</span></label>
+                      <label>14. If yes<span className="required">*</span></label>
                       <Toggle name="multiple" value={formData.multiple}
                         options={["Twin","Triplet","Quad","Other"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("multiple")}/>
+                      {formData.multiple==="Other" && (
+                        <input name="multiple_other" value={formData.multiple_other||""}
+                          onChange={handleChange} onBlur={handleBlur}
+                          placeholder="Specify *" style={{marginTop:8}}
+                          readOnly={!isFieldEditable} className={E("multiple_other")?"input-error":""}/>
+                      )}
+                      <FieldError msg={E("multiple_other")}/>
                     </div>
                   )}
                 </div>
@@ -1003,9 +1068,9 @@ export default function FormC() {
                       dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY" className="form-input"/>
                   </div>
                   <div className="form-group">
-                    <label>17. Conception Type<span className="required">*</span></label>
+                    <label>17. Conception<span className="required">*</span></label>
                     <Toggle name="conception" value={formData.conception}
-                      options={[{label:"Spontaneous",value:"Spontaneous"},{label:"Assisted",value:"Artificial"}]}
+                      options={[{label:"Spontaneous",value:"Spontaneous"},{label:"Assisted method",value:"Artificial"}]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("conception")}/>
                   </div>
                 </div>
@@ -1056,29 +1121,44 @@ export default function FormC() {
                   <div className="followup-box">
                     <div className="form-grid-2">
                       <div className="form-group">
-                        <label>20. Drug<span className="required">*</span></label>
+                        <label>20. If yes, drug <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
                         <MultiToggle name="steroid_drug" value={formData.steroid_drug}
                           options={["Betamethasone","Dexamethasone","Not known"]}
                           onToggle={handleSteroidDrugToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
                       </div>
                       <div className="form-group">
-                        <label>21. No. of Doses<span className="required">*</span></label>
-                        <Toggle name="steroid_doses" value={String(formData.steroid_doses)}
-                          options={["1","2","3","4"].map(v=>({label:v,value:v}))}
-                          onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_doses")}/>
+                        <label>21. No of Doses <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
+                        <MultiToggle name="steroid_doses" value={String(formData.steroid_doses)}
+                          options={["1","2","3","4"]}
+                          onToggle={handleSteroidDosesToggle} disabled={!isFieldEditable} error={E("steroid_doses")}/>
                       </div>
                     </div>
-                    {/* 22–23: LDDI */}
                     <div className="form-grid-2" style={{marginTop:12}}>
                       <div className="form-group">
-                        <label>22. LDDI<span className="required">*</span></label>
+                        <label>22. Courses<span className="required">*</span></label>
+                        <Toggle name="steroid_courses_status" value={formData.steroid_courses_status}
+                          options={["Complete","Incomplete"]}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_courses_status")}/>
+                      </div>
+                      {formData.steroid_courses_status==="Complete" && (
+                        <div className="form-group">
+                          <label>23. Number of courses<span className="required">*</span></label>
+                          <Toggle name="steroid_courses" value={String(formData.steroid_courses)}
+                            options={["1","2","3","4"].map(v=>({label:v,value:v}))}
+                            onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_courses")}/>
+                        </div>
+                      )}
+                    </div>
+                    <div className="form-grid-2" style={{marginTop:12}}>
+                      <div className="form-group">
+                        <label>24. LDDI<span className="required">*</span></label>
                         <Toggle name="lddi_known" value={formData.lddi_known}
                           options={["Known","Not known"]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("lddi_known")}/>
                       </div>
                       {formData.lddi_known==="Known" && (
                         <div className="form-group">
-                          <label>23. If known: hrs<span className="required">*</span></label>
+                          <label>25. If known: hrs<span className="required">*</span></label>
                           <input type="number" name="lddi_hours" value={formData.lddi_hours||""}
                             onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
                             readOnly={!isFieldEditable} className={E("lddi_hours")?"input-error":""}/>
@@ -1086,23 +1166,13 @@ export default function FormC() {
                         </div>
                       )}
                     </div>
-                    {/* 24: Number of Courses */}
-                    <div className="form-grid-2" style={{marginTop:12}}>
-                      <div className="form-group">
-                        <label>24. Number of Courses<span className="required">*</span></label>
-                        <Toggle name="steroid_courses" value={String(formData.steroid_courses)}
-                          options={["1","2","3","4"].map(v=>({label:v,value:v}))}
-                          onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_courses")}/>
-                      </div>
-                      <div/>
-                    </div>
                   </div>
                 )}
 
-                {/* 25–27: MgSO4 */}
+                {/* 26–28: MgSO4 */}
                 <div className="form-grid-2" style={{marginTop:8}}>
                   <div className="form-group">
-                    <label>25. Antenatal MgSO₄<span className="required">*</span></label>
+                    <label>26. Antenatal MgSO₄<span className="required">*</span></label>
                     <Toggle name="antenatal_mgso4" value={formData.antenatal_mgso4}
                       options={["Yes","No","Not known"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("antenatal_mgso4")}/>
@@ -1112,27 +1182,36 @@ export default function FormC() {
 
                 {formData.antenatal_mgso4==="Yes" && (
                   <div className="followup-box">
-                    <div className="form-grid-3">
+                    <div className="form-grid-2">
                       <div className="form-group">
-                        <label>26. Date of Administration<span className="required">*</span></label>
+                        <label>27. Date of administration<span className="required">*</span></label>
                         <DatePicker
-                          selected={formData.mgso4_date ? new Date(formData.mgso4_date) : null}
-                          onChange={date => { set({mgso4_date:date}); touchField("mgso4_date"); setErrors(p=>({...p,mgso4_date:validateField("mgso4_date",date,formData)})); }}
+                          selected={formData.mgso4_date
+                            ? (formData.mgso4_date instanceof Date
+                                ? formData.mgso4_date
+                                : parseDateOnly(String(formData.mgso4_date).slice(0, 10)))
+                            : null}
+                          onChange={date => {
+                            const day = date
+                              ? new Date(date.getFullYear(), date.getMonth(), date.getDate())
+                              : "";
+                            set({ mgso4_date: day });
+                            touchField("mgso4_date");
+                            setErrors(p => ({ ...p, mgso4_date: validateField("mgso4_date", day, formData) }));
+                          }}
                           dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY"
                           className={E("mgso4_date")?"input-error":""}
                           readOnly={!isFieldEditable}/>
                         <FieldError msg={E("mgso4_date")}/>
                       </div>
                       <div className="form-group">
-                        <label>27. Gestation at admin <span className="field-note">(auto)</span></label>
-                        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                          <input value={formData.mgso4_gestation_weeks||""} readOnly className="readonly-input" placeholder="wks" style={{width:70}}/>
-                          <span style={{fontSize:12,color:"#6b7280"}}>wks</span>
-                          <input value={formData.mgso4_gestation_days||""} readOnly className="readonly-input" placeholder="days" style={{width:60}}/>
-                          <span style={{fontSize:12,color:"#6b7280"}}>days</span>
-                        </div>
+                        <label>28. Gestation at administration <span className="field-note">(auto from EDD)</span></label>
+                        <input value={formData.mgso4_gestation_weeks!==""&&formData.mgso4_gestation_weeks!=null
+                          ? `${formData.mgso4_gestation_weeks}w ${formData.mgso4_gestation_days ?? 0}d`
+                          : ""}
+                          readOnly className="readonly-input"
+                          placeholder={!formData.edd && !formData.lmp ? "Needs EDD/LMP from Form A" : "auto"}/>
                       </div>
-                      <div/>
                     </div>
                   </div>
                 )}
@@ -1140,13 +1219,13 @@ export default function FormC() {
             </div>
 
             {/* ══════════════════════════════════════
-                C3 — MATERNAL MEDICAL DISORDERS (28)
+                C3 — MATERNAL MEDICAL DISORDERS (29)
             ══════════════════════════════════════ */}
             <div className={`form-section card-section${ce.c5>0?" card-has-errors":""}`}>
               <SectionHeader label="C3 · Maternal Medical Disorders" num="C3" icon={Shield} errCount={ce.c5}/>
               <div className="form-section-body">
                 <div className="form-group-label" style={{marginBottom:8,fontSize:13,fontWeight:600,color:"#374151"}}>
-                  28. Any known medical disorder: <span className="required">*</span> <span style={{fontSize:11,fontWeight:400,color:"#6b7280"}}>(select all that apply)</span>
+                  29. Any known medical disorder: <span className="required">*</span> <span style={{fontSize:11,fontWeight:400,color:"#6b7280"}}>(select all that apply)</span>
                 </div>
                 {E("medical_disorders") && (
                   <div className="alert-danger" style={{marginBottom:12}}>⚠️ {E("medical_disorders")}</div>
@@ -1208,24 +1287,24 @@ export default function FormC() {
             </div>
 
             {/* ══════════════════════════════════════
-                C4 — OBSTETRIC PROBLEMS (29–42)
+                C4 — OBSTETRIC PROBLEMS (30–43)
             ══════════════════════════════════════ */}
             <div className={`form-section card-section${ce.c6>0?" card-has-errors":""}`}>
               <SectionHeader label="C4 · Obstetric Problems" num="C4" icon={Activity} errCount={ce.c6}/>
               <div className="form-section-body">
 
-                {/* 29–30: HDP */}
+                {/* 30–31: HDP */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">HDP (Hypertensive Disorders of Pregnancy)</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>29. HDP<span className="required">*</span></label>
+                      <label>30. HDP<span className="required">*</span></label>
                       <Toggle name="hdp" value={formData.hdp} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("hdp")}/>
                     </div>
                     {formData.hdp==="Yes" && (
                       <div className="form-group">
-                        <label>30. If yes, type<span className="required">*</span></label>
+                        <label>31. If yes, Type<span className="required">*</span></label>
                         <Toggle name="hdp_type" value={formData.hdp_type}
                           options={["Gest HTN","PE","Severe PE","Eclampsia"]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("hdp_type")}/>
@@ -1234,12 +1313,12 @@ export default function FormC() {
                   </div>
                 </div>
 
-                {/* 31–32: GDM */}
+                {/* 32–33: GDM */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">GDM / Liquor</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>31. GDM<span className="required">*</span></label>
+                      <label>32. GDM<span className="required">*</span></label>
                       <Toggle name="gdm" value={formData.gdm} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("gdm")}/>
                     </div>
@@ -1247,9 +1326,9 @@ export default function FormC() {
                   </div>
                   {formData.gdm==="Yes" && (
                     <div className="followup-box">
-                      <label className="followup-label">32. If yes, Rx <span className="required">*</span> <span style={{fontSize:11,fontWeight:400,color:"#6b7280"}}>(multiple allowed)</span></label>
+                      <label className="followup-label">33. If yes, Rx <span className="required">*</span> <span style={{fontSize:11,fontWeight:400,color:"#6b7280"}}>(multiple allowed)</span></label>
                       <div className="rx-horizontal-group">
-                        {[{label:"MNT",value:"MNT"},{label:"Insulin",value:"Insulin"},{label:"Oral Anti-Diabetic",value:"Oral"}].map(item => (
+                        {[{label:"MNT",value:"MNT"},{label:"Insulin",value:"Insulin"},{label:"oral anti-diabetic drugs",value:"Oral"}].map(item => (
                           <button key={item.value} type="button"
                             className={`rx-horizontal-btn${formData.gdm_rx.includes(item.value)?" active":""}`}
                             onClick={() => isFieldEditable&&handleGdmRxChange(item.value)}>
@@ -1262,7 +1341,7 @@ export default function FormC() {
                   )}
                   <div className="form-grid-2" style={{marginTop:12}}>
                     <div className="form-group">
-                      <label>33. Liquor<span className="required">*</span></label>
+                      <label>34. Liquor<span className="required">*</span></label>
                       <Toggle name="liquor" value={formData.liquor}
                         options={["Normal","Absent/Oligo","Poly","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("liquor")}/>
@@ -1271,18 +1350,18 @@ export default function FormC() {
                   </div>
                 </div>
 
-                {/* 34–35: FGR */}
+                {/* 35–36: FGR */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">FGR</div>
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label>34. FGR<span className="required">*</span></label>
+                      <label>35. FGR<span className="required">*</span></label>
                       <Toggle name="fgr" value={formData.fgr} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("fgr")}/>
                     </div>
                     {formData.fgr==="Yes" && (
                       <div className="form-group">
-                        <label>35. Centile<span className="required">*</span></label>
+                        <label>36. If yes, Centile<span className="required">*</span></label>
                         <input type="number" name="fgr_centile" value={formData.fgr_centile||""}
                           onChange={handleChange} onBlur={handleBlur} min="1" max="100" placeholder="1–100"
                           readOnly={!isFieldEditable} className={E("fgr_centile")?"input-error":""}/>
@@ -1293,11 +1372,11 @@ export default function FormC() {
                   </div>
                 </div>
 
-                {/* 36: Doppler */}
+                {/* 37: Doppler */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Doppler</div>
                   <div className="form-group">
-                    <label>36. Doppler<span className="required">*</span></label>
+                    <label>37. Doppler<span className="required">*</span></label>
                     <Toggle name="doppler" value={formData.doppler}
                       options={["Normal","AEDF","REDF","Not done","Not known","Other"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("doppler")}/>
@@ -1315,19 +1394,19 @@ export default function FormC() {
                   )}
                 </div>
 
-                {/* 37–39: Placental */}
+                {/* 38–40: Placental */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Placental Abnormalities</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>37. Placental Abnormality<span className="required">*</span></label>
+                      <label>38. Placental abnormality<span className="required">*</span></label>
                       <Toggle name="placental_abnormality" value={formData.placental_abnormality}
                         options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("placental_abnormality")}/>
                     </div>
                     {formData.placental_abnormality==="Yes" && (
                       <div className="form-group">
-                        <label>38. If yes, type<span className="required">*</span></label>
+                        <label>39. If yes, Type<span className="required">*</span></label>
                         <Toggle name="placental_type" value={formData.placental_type}
                           options={["Previa","Accreta","Others"]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("placental_type")}/>
@@ -1347,7 +1426,7 @@ export default function FormC() {
                   )}
                   <div className="form-grid-2" style={{marginTop:12}}>
                     <div className="form-group">
-                      <label>39. Retroplacental Collection<span className="required">*</span></label>
+                      <label>40. Retroplacental collection<span className="required">*</span></label>
                       <Toggle name="retroplacental_collection" value={formData.retroplacental_collection}
                         options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("retroplacental_collection")}/>
@@ -1356,20 +1435,20 @@ export default function FormC() {
                   </div>
                 </div>
 
-                {/* 40–41: APH */}
+                {/* 41–42: APH */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">APH</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>40. APH<span className="required">*</span></label>
+                      <label>41. APH<span className="required">*</span></label>
                       <Toggle name="aph" value={formData.aph} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("aph")}/>
                     </div>
                     {formData.aph==="Yes" && (
                       <div className="form-group">
-                        <label>41. If yes, type<span className="required">*</span></label>
+                        <label>42. If Yes<span className="required">*</span></label>
                         <Toggle name="aph_type" value={formData.aph_type}
-                          options={[{label:"Abruption",value:"Placental Abruption"},{label:"Previa",value:"Vasa Previa"},{label:"Other",value:"Other"}]}
+                          options={[{label:"Abruption",value:"Abruption"},{label:"Previa",value:"Previa"},{label:"Others",value:"Other"}]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("aph_type")}/>
                       </div>
                     )}
@@ -1387,12 +1466,12 @@ export default function FormC() {
                   )}
                 </div>
 
-                {/* 42: Isoimmunization */}
+                {/* 43: Isoimmunization */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Isoimmunization</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>42. Isoimmunization<span className="required">*</span></label>
+                      <label>43. Isoimmunization<span className="required">*</span></label>
                       <Toggle name="isoimmunization" value={formData.isoimmunization}
                         options={["Yes","No"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("isoimmunization")}/>
@@ -1405,19 +1484,19 @@ export default function FormC() {
             </div>
 
             {/* ══════════════════════════════════════
-                C5 — EVIDENCE OF INFECTION (43–54)
+                C5 — EVIDENCE OF INFECTION (44–55)
             ══════════════════════════════════════ */}
             <div className={`form-section card-section${ce.c7>0?" card-has-errors":""}`}>
               <SectionHeader label="C5 · Evidence of Infection" num="C5" icon={AlertTriangle} errCount={ce.c7}/>
               <div className="form-section-body">
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>43. pPROM<span className="required">*</span></label>
+                    <label>44. pPROM<span className="required">*</span></label>
                     <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}/>
                     {formData.pprom==="Yes" && (
                       <div style={{marginTop:8}}>
-                        <label style={{fontSize:12,fontWeight:600,color:"#374151"}}>44. Duration (hrs)<span className="required">*</span></label>
+                        <label style={{fontSize:12,fontWeight:600,color:"#374151"}}>45. Duration (hrs)<span className="required">*</span></label>
                         <input type="number" name="pprom_duration" value={formData.pprom_duration||""}
                           onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
                           readOnly={!isFieldEditable} className={E("pprom_duration")?"input-error":""}/>
@@ -1426,7 +1505,7 @@ export default function FormC() {
                     )}
                   </div>
                   <div className="form-group">
-                    <label>45. Preterm Labor<span className="required">*</span></label>
+                    <label>46. Preterm Labor<span className="required">*</span></label>
                     <Toggle name="preterm_labor" value={formData.preterm_labor}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("preterm_labor")}/>
@@ -1435,13 +1514,13 @@ export default function FormC() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>46. Maternal Fever (≥39℃ or 38–39℃ ×2)<span className="required">*</span></label>
+                    <label>47. Maternal Fever (≥39℃ or 38–39℃ ×2)<span className="required">*</span></label>
                     <Toggle name="maternal_fever" value={formData.maternal_fever}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_fever")}/>
                   </div>
                   <div className="form-group">
-                    <label>47. Baseline Fetal Tachycardia (&gt;160 bpm)<span className="required">*</span></label>
+                    <label>48. Baseline Fetal Tachycardia (&gt;160 bpm)<span className="required">*</span></label>
                     <Toggle name="fetal_tachycardia" value={formData.fetal_tachycardia}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("fetal_tachycardia")}/>
@@ -1450,13 +1529,13 @@ export default function FormC() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>48. Maternal TLC &gt;15000/mm³<span className="required">*</span></label>
+                    <label>49. Maternal TLC &gt;15000/mm³<span className="required">*</span></label>
                     <Toggle name="maternal_tlc_high" value={formData.maternal_tlc_high}
                       options={["Yes","No","Not done"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_tlc_high")}/>
                   </div>
                   <div className="form-group">
-                    <label>49. Maternal Tachycardia<span className="required">*</span></label>
+                    <label>50. Maternal Tachycardia<span className="required">*</span></label>
                     <Toggle name="maternal_tachycardia" value={formData.maternal_tachycardia}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_tachycardia")}/>
@@ -1465,14 +1544,14 @@ export default function FormC() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>50. Maternal Abdominal Tenderness<span className="required">*</span></label>
+                    <label>51. Maternal Abdominal Tenderness<span className="required">*</span></label>
                     <Toggle name="maternal_abdominal_tenderness" value={formData.maternal_abdominal_tenderness}
                       options={["Yes","No"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_abdominal_tenderness")}/>
                   </div>
-                  {/* Field 51: Triple I — auto-calculated from fields 46-50, 52-54 */}
+                  {/* Field 52: Triple I — auto-calculated from infection signs */}
                   <div className="form-group">
-                    <label>51. Triple "I" (Intra-uterine Inflammation/Infection) <span className="field-note">(auto filled)</span></label>
+                    <label>52. Intrauterine Inflammation or Infection or both (triple ‘I’) <span className="field-note">(auto filled)</span></label>
                     <input
                       value={
                         [formData.maternal_fever, formData.fetal_tachycardia,
@@ -1492,13 +1571,13 @@ export default function FormC() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>52. Foul-Smelling Liquor<span className="required">*</span></label>
+                    <label>53. Foul-Smelling Liquor<span className="required">*</span></label>
                     <Toggle name="foul_smelling_liquor" value={formData.foul_smelling_liquor}
                       options={["Yes","No","Not known"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("foul_smelling_liquor")}/>
                   </div>
                   <div className="form-group">
-                    <label>53. Maternal UTI<span className="required">*</span></label>
+                    <label>54. Maternal UTI<span className="required">*</span></label>
                     <Toggle name="maternal_uti" value={formData.maternal_uti}
                       options={["Yes","No","Not known"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_uti")}/>
@@ -1507,7 +1586,7 @@ export default function FormC() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>54. Maternal Diarrhea<span className="required">*</span></label>
+                    <label>55. Maternal Diarrhea<span className="required">*</span></label>
                     <Toggle name="maternal_diarrhea" value={formData.maternal_diarrhea}
                       options={["Yes","No","Not known"]} onChange={handleToggle}
                       disabled={!isFieldEditable} error={E("maternal_diarrhea")}/>
@@ -1519,7 +1598,7 @@ export default function FormC() {
             </div>
 
             {/* ══════════════════════════════════════
-                C6 — INTRAPARTUM EVENTS (55–63)
+                C6 — INTRAPARTUM EVENTS (56–65)
             ══════════════════════════════════════ */}
             <div className={`form-section card-section${ce.c8>0?" card-has-errors":""}`}>
               <SectionHeader label="C6 · Intrapartum Events" num="C6" icon={Zap} errCount={ce.c8}/>
@@ -1529,12 +1608,12 @@ export default function FormC() {
                   <div className="obstetric-subcard__title">Fetal Monitoring &amp; Labor</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>55. MSL<span className="required">*</span></label>
+                      <label>56. MSL<span className="required">*</span></label>
                       <Toggle name="msl" value={formData.msl} options={["Yes","No"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("msl")}/>
                     </div>
                     <div className="form-group">
-                      <label>56. Non-reactive NST<span className="required">*</span></label>
+                      <label>57. Non-reactive NST<span className="required">*</span></label>
                       <Toggle name="non_reactive_nst" value={formData.non_reactive_nst}
                         options={["Yes","No","Not done"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("non_reactive_nst")}/>
@@ -1542,28 +1621,17 @@ export default function FormC() {
                   </div>
                   <div className="form-grid-2" style={{marginTop:12}}>
                     <div className="form-group">
-                      <label>57. Reduced Fetal Movements<span className="required">*</span></label>
+                      <label>58. Reduced FM<span className="required">*</span></label>
                       <Toggle name="reduced_fm" value={formData.reduced_fm}
                         options={["Yes","No","Not done"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("reduced_fm")}/>
                     </div>
                     <div className="form-group">
-                      <label>58. Prolonged Labor<span className="required">*</span></label>
+                      <label>59. Prolonged Labor<span className="required">*</span></label>
                       <Toggle name="prolonged_labor" value={formData.prolonged_labor}
                         options={["Yes","No","Not known"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("prolonged_labor")}/>
                     </div>
-                  </div>
-                  <div className="form-grid-2" style={{marginTop:12}}>
-                    <div className="form-group">
-                      <label>Duration of ROM (hrs) <span className="field-note">(required if pPROM = Yes)</span></label>
-                      <input type="number" name="duration_rom" value={formData.duration_rom||""}
-                        onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99"
-                        readOnly={!isFieldEditable} className={E("duration_rom")?"input-error":""}
-                        onInput={ev=>{ if(ev.target.value.length>2) ev.target.value=ev.target.value.slice(0,2); }}/>
-                      <FieldError msg={E("duration_rom")}/>
-                    </div>
-                    <div/>
                   </div>
                 </div>
 
@@ -1571,14 +1639,14 @@ export default function FormC() {
                   <div className="obstetric-subcard__title">Cord</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>59. Cord Accident<span className="required">*</span></label>
+                      <label>60. Cord Accident<span className="required">*</span></label>
                       <Toggle name="cord_accident" value={formData.cord_accident}
                         options={["Yes","No"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("cord_accident")}/>
                     </div>
                     {formData.cord_accident==="Yes" && (
                       <div className="form-group">
-                        <label>60. If yes, type<span className="required">*</span></label>
+                        <label>61. If yes, type<span className="required">*</span></label>
                         <Toggle name="cord_accident_type" value={formData.cord_accident_type}
                           options={["Cord around neck","True cord knot","Cord prolapse"]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("cord_accident_type")}/>
@@ -1591,13 +1659,13 @@ export default function FormC() {
                   <div className="obstetric-subcard__title">Fetal Heart Rate</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>61. Fetal Bradycardia (&lt;110 bpm)<span className="required">*</span></label>
+                      <label>62. Fetal Bradycardia (&lt;110)<span className="required">*</span></label>
                       <Toggle name="fetal_bradycardia" value={formData.fetal_bradycardia}
                         options={["Yes","No","Not known"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("fetal_bradycardia")}/>
                     </div>
                     <div className="form-group">
-                      <label>62. Fetal Tachycardia (&gt;160 bpm)<span className="required">*</span></label>
+                      <label>63. Fetal Tachycardia (&gt;160)<span className="required">*</span></label>
                       <Toggle name="fetal_tachycardia_intrapartum" value={formData.fetal_tachycardia_intrapartum}
                         options={["Yes","No","Not known"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("fetal_tachycardia_intrapartum")}/>
@@ -1609,16 +1677,16 @@ export default function FormC() {
                   <div className="obstetric-subcard__title">Intrapartum Pharmacology</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>63. Uterotonic<span className="required">*</span></label>
+                      <label>64. Uterotonic<span className="required">*</span></label>
                       <Toggle name="uterotonic" value={formData.uterotonic}
                         options={["Yes","No","Not known"]} onChange={handleToggle}
                         disabled={!isFieldEditable} error={E("uterotonic")}/>
                     </div>
                     {formData.uterotonic==="Yes" && (
                       <div className="form-group">
-                        <label>If yes, timing<span className="required">*</span></label>
+                        <label>65. If Yes<span className="required">*</span></label>
                         <Toggle name="uterotonic_timing" value={formData.uterotonic_timing}
-                          options={["Before cord clamp","After cord clamp"]}
+                          options={[{label:"Before",value:"Before cord clamp"},{label:"After cord clamp",value:"After cord clamp"}]}
                           onChange={handleToggle} disabled={!isFieldEditable} error={E("uterotonic_timing")}/>
                       </div>
                     )}
@@ -1647,7 +1715,7 @@ export default function FormC() {
         onSaveDraft={session.saveDraft}
         onNext={handleNext}
         backLabel="Birth & Resuscitation"
-        nextLabel="Postnatal Day 1"
+        nextLabel={localStorage.getItem("enrollment_lock_reason") === "no_ppv" ? "Finish (A–C only)" : "Postnatal Day 1"}
         step={3} totalSteps={17}
         isSaved={isSaved}
       />

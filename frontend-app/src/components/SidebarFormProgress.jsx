@@ -14,7 +14,7 @@ const FORMS = [
   { key: "form_g", label: "Form G – ROP Screening" },
   { key: "form_h", label: "Form H – Morbidities" },
   { key: "form_i", label: "Form I – Outcomes" },
-  { key: "form_j", label: "Form J – Composite Outcome" },
+  { key: "form_j", label: "Form J – External Hospital Outcomes" },
 
   /* Helper forms */
   { key: "fio2_auc", label: "FiO₂ AUC" },

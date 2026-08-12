@@ -303,6 +303,7 @@ class MaternalDetails(Base):
     booked = Column(String)
     anc_visits = Column(String)
     multiple = Column(String)
+    multiple_other = Column(String)
 
     lmp = Column(String)
     edd = Column(String)
@@ -313,6 +314,7 @@ class MaternalDetails(Base):
     antenatal_steroids = Column(String)
     steroid_drug = Column(String)
     steroid_doses = Column(String)
+    steroid_courses_status = Column(String)
     steroid_courses = Column(String)
     lddi_known = Column(String)
     lddi_hours = Column(String)
@@ -333,6 +335,8 @@ class MaternalDetails(Base):
     asthma = Column(Boolean, default=False)
     hiv = Column(Boolean, default=False)
     thyroid = Column(Boolean, default=False)
+    hypothyroidism = Column(Boolean, default=False)
+    hyperthyroidism = Column(Boolean, default=False)
     tb = Column(Boolean, default=False)
     malaria = Column(Boolean, default=False)
     severe_anemia = Column(Boolean, default=False)
@@ -439,6 +443,7 @@ class PostnatalDay1(Base):
     premedication_other = Column(String, nullable=True)
     lisa_catheter = Column(String, nullable=True)
     lisa_catheter_type = Column(String, nullable=True)
+    lisa_catheter_other = Column(String, nullable=True)
     device_assistance = Column(Boolean, nullable=True)
     device_type = Column(String, nullable=True)
     device_type_other = Column(String, nullable=True)
@@ -809,10 +814,19 @@ class NeonatalMorbidities(Base):
     pda_bounding_pulse = Column(Boolean)
     pda_clinical = Column(Boolean)
     pda_courses = Column(Integer)
+    # New (item 130): cumulative dose (mg/kg) for the medical Rx agent —
+    # no field for this existed.
+    pda_cumulative_dose = Column(Float)
     pda_echo = Column(Boolean)
     pda_hyperactive_precordium = Column(Boolean)
     pda_ibu = Column(Boolean)
     pda_indo = Column(Boolean)
+    # New (item 131): "Intervention Rx" as a single Ligation/Device
+    # closure/None choice — replaces the old pda_ligation boolean, which
+    # is left in place untouched (not deleted) to avoid any data loss.
+    pda_intervention_rx = Column(String)
+    # New (item 133): age at device closure, if that was the intervention.
+    pda_device_closure_age = Column(Integer)
     pda_la_ao = Column(Float)
     pda_ligation_age = Column(Integer)
     pda_lpa_velocity = Column(Float)
@@ -877,6 +891,12 @@ class NeonatalMorbidities(Base):
     aki_stage3 = Column(Boolean)
 
     # ---------------- OPHTHALMOLOGY / ROP (H8) — extended ----------------
+    # Legacy single-eye fields (rop_arop, rop_plus, rop_stage1-5, rop_zone1-3,
+    # rop_treatment, rop_laser/anti_vegf/vitrectomy/other, rop_bilateral,
+    # rop_comment, rop_method_ido/retcam) are kept as-is — never dropped —
+    # so no historical data is lost. The CRF actually records Right and Left
+    # eyes independently (like IVH's H1.1), which the *_right/*_left columns
+    # below now capture; the UI no longer writes to the legacy columns.
     rop = Column(String)
     rop_anti_vegf = Column(Boolean)
     rop_arop = Column(String)
@@ -885,12 +905,14 @@ class NeonatalMorbidities(Base):
     rop_diagnosis_date = Column(Date)
     rop_first_screen_date = Column(Date)
     rop_laser = Column(Boolean)
+    rop_method = Column(String)
     rop_method_ido = Column(Boolean)
     rop_method_retcam = Column(Boolean)
     rop_other = Column(Boolean)
     rop_other_text = Column(String)
     rop_plus = Column(String)
     rop_screened = Column(String)
+    rop_side = Column(String)
     rop_stage1 = Column(Boolean)
     rop_stage2 = Column(Boolean)
     rop_stage3 = Column(Boolean)
@@ -901,6 +923,28 @@ class NeonatalMorbidities(Base):
     rop_zone1 = Column(Boolean)
     rop_zone2 = Column(Boolean)
     rop_zone3 = Column(Boolean)
+    # H8.1 fields 185-190 (Right eye)
+    rop_stage_right = Column(String)
+    rop_plus_right = Column(String)
+    rop_zone_right = Column(String)
+    rop_arop_right = Column(String)
+    rop_treatment_right = Column(String)
+    rop_laser_right = Column(Boolean)
+    rop_anti_vegf_right = Column(Boolean)
+    rop_vitrectomy_right = Column(Boolean)
+    rop_other_right = Column(Boolean)
+    rop_other_text_right = Column(String)
+    # H8.1 fields 191-196 (Left eye)
+    rop_stage_left = Column(String)
+    rop_plus_left = Column(String)
+    rop_zone_left = Column(String)
+    rop_arop_left = Column(String)
+    rop_treatment_left = Column(String)
+    rop_laser_left = Column(Boolean)
+    rop_anti_vegf_left = Column(Boolean)
+    rop_vitrectomy_left = Column(Boolean)
+    rop_other_left = Column(Boolean)
+    rop_other_text_left = Column(String)
 
     # ---------------- THERMOREGULATION (H8) — extended ----------------
     hyperthermia = Column(String)
@@ -938,6 +982,7 @@ class NeonatalMorbidities(Base):
     line_comp_infection = Column(Boolean)
     line_comp_none = Column(Boolean)
     line_comp_thrombosis = Column(Boolean)
+    line_comp_phlebitis = Column(Boolean)
     peripheral_arterial = Column(String)
     peripheral_venous = Column(String)
     picc = Column(String)
@@ -1064,6 +1109,7 @@ class StudyOutcomes(Base):
     # ---------------- I.3 Assessment at 36 weeks PMA ----------------
     encounter36_method = Column(String)  # 22
     encounter36_other = Column(String)  # 23
+    encounter36_other_text = Column(String)  # 23 Others specify
     death36 = Column(Boolean)  # 24
     death36_cause = Column(Text)  # 25
     death36_date = Column(Date)  # 26
@@ -1090,6 +1136,7 @@ class StudyOutcomes(Base):
     # ---------------- I.4 Assessment at 40 weeks PMA ----------------
     encounter40_method = Column(String)  # 42
     encounter40_other = Column(String)  # 43
+    encounter40_other_text = Column(String)  # 43 Others specify
     death40 = Column(Boolean)  # 44
     death40_cause = Column(Text)  # 45
     death40_date = Column(Date)  # 46
@@ -1110,6 +1157,7 @@ class StudyOutcomes(Base):
     # ---------------- I.5 Assessment at 44 weeks PMA ----------------
     encounter44_method = Column(String)  # 59
     encounter44_other = Column(String)  # 60
+    encounter44_other_text = Column(String)  # 60 Others specify
     death44 = Column(Boolean)  # 61
     death44_cause = Column(Text)  # 62
     death44_date = Column(Date)  # 63
@@ -1137,6 +1185,9 @@ class StudyOutcomes(Base):
     mortality_after_discharge_date = Column(Date)  # 85
     mortality_after_discharge_time = Column(String)  # 86
     mortality_after_discharge_age_days = Column(Float)  # 87
+
+    # Free-text Additional information column notes keyed by CRF field number
+    crf_additional_notes = Column(JSON, nullable=True)
 
 
 class CranialUltrasound(Base):
@@ -1218,23 +1269,35 @@ class ROPScreening(Base):
     ]
     """
 
-    # Worst disease summary
+    # Worst disease summary — RIGHT EYE (CRF items 1-8)
     worst_stage = Column(String, nullable=True)
     worst_zone = Column(String, nullable=True)
     plus_disease = Column(Boolean, nullable=True)
     a_rop = Column(Boolean, nullable=True)
 
-    # Treatment
+    # Treatment — RIGHT EYE
     treatment_required = Column(Boolean, nullable=True)
-    treatment_type = Column(JSON)  # ["Laser", "Anti-VEGF"]
+    treatment_type = Column(JSON)  # ["Laser", "Anti-VEGF", "Vitrectomy", "Combination"]
     anti_vegf_agent = Column(String, nullable=True)
     treatment_re_date = Column(Date, nullable=True)
-    treatment_le_date = Column(Date, nullable=True)
-    bilateral_treatment = Column(Boolean, nullable=True)
-    pma_at_treatment = Column(String, nullable=True)
+    pma_at_treatment_re = Column(String, nullable=True)
 
-    # Outcome
+    # Worst disease summary — LEFT EYE (CRF items 9-16), independent of RIGHT
+    worst_stage_le = Column(String, nullable=True)
+    worst_zone_le = Column(String, nullable=True)
+    plus_disease_le = Column(Boolean, nullable=True)
+    a_rop_le = Column(Boolean, nullable=True)
+
+    # Treatment — LEFT EYE
+    treatment_required_le = Column(Boolean, nullable=True)
+    treatment_type_le = Column(JSON)  # ["Laser", "Anti-VEGF", "Vitrectomy", "Combination"]
+    anti_vegf_agent_le = Column(String, nullable=True)
+    treatment_le_date = Column(Date, nullable=True)
+    pma_at_treatment_le = Column(String, nullable=True)
+
+    # Outcome (CRF items 17-20)
     outcome = Column(String, nullable=True)
+    outcome_other_text = Column(String, nullable=True)
     final_screening_date = Column(Date, nullable=True)
     pma_discharge = Column(String, nullable=True)
     rop_treatment_composite = Column(Boolean, nullable=True)
@@ -1379,6 +1442,91 @@ class CompositeOutcome(Base):
 
     created_at = Column(DateTime, default=utcnow)
 
+
+# ==========================================================
+# FORM J — STUDY OUTCOMES ASSESSMENT (EXTERNAL HOSPITAL)
+# One row per enrollment × assessment week (36 / 40 / 44)
+# ==========================================================
+
+class ExternalHospitalAssessment(Base):
+    __tablename__ = "external_hospital_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "enrollment_id",
+            "assessment_weeks",
+            name="uq_external_hospital_enrollment_week",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    assessment_weeks = Column(Integer, nullable=False)  # free entry (e.g. 36 / 40 / 44)
+
+    mother_name = Column(String, nullable=True)
+    dob = Column(Date, nullable=True)
+
+    # 3. Death due to any cause by ____ weeks
+    death = Column(Boolean, nullable=True)
+    death_cause = Column(String, nullable=True)
+    death_date = Column(Date, nullable=True)
+    death_time = Column(String, nullable=True)  # HH:MM 24h
+    death_age_days = Column(Integer, nullable=True)
+
+    # 4. Respiratory support at 36 weeks PMA
+    resp_support = Column(Boolean, nullable=True)
+    resp_support_date = Column(Date, nullable=True)
+    resp_mode = Column(String, nullable=True)  # nasal_cannula | cpap_nippv | imv
+    flow_rate = Column(Float, nullable=True)
+    fio2 = Column(Float, nullable=True)
+    radiographic_lung = Column(Boolean, nullable=True)
+
+    # 5. NEC
+    nec = Column(Boolean, nullable=True)
+    nec_stage = Column(String, nullable=True)
+    nec_date = Column(Date, nullable=True)
+    nec_surgery = Column(Boolean, nullable=True)
+
+    # 6. Brain injury — RIGHT / LEFT
+    ivh_right = Column(String, nullable=True)
+    ivh_right_date = Column(Date, nullable=True)
+    ivh_left = Column(String, nullable=True)
+    ivh_left_date = Column(Date, nullable=True)
+    cpvl_right = Column(String, nullable=True)
+    cpvl_right_date = Column(Date, nullable=True)
+    cpvl_left = Column(String, nullable=True)
+    cpvl_left_date = Column(Date, nullable=True)
+
+    # 7. ROP — RIGHT / LEFT eye
+    rop_right = Column(String, nullable=True)
+    plus_right = Column(Boolean, nullable=True)
+    arop_right = Column(Boolean, nullable=True)
+    zone_right = Column(String, nullable=True)
+    treat_right = Column(Boolean, nullable=True)
+    treat_date_right = Column(Date, nullable=True)
+
+    rop_left = Column(String, nullable=True)
+    plus_left = Column(Boolean, nullable=True)
+    arop_left = Column(Boolean, nullable=True)
+    zone_left = Column(String, nullable=True)
+    treat_left = Column(Boolean, nullable=True)
+    treat_date_left = Column(Date, nullable=True)
+
+    # 8. Sepsis
+    sepsis = Column(Boolean, nullable=True)
+    sepsis_episodes = Column(Integer, nullable=True)
+
+    # 9. MRI
+    mri_done = Column(Boolean, nullable=True)
+
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    hospital = Column(String, nullable=True)
+    completion_date = Column(Date, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 # ==========================================================
 # HELPER FORM — FiO2 LOGGING (AUC CALCULATION)
 # ==========================================================
@@ -1481,33 +1629,33 @@ class SAEReport(Base):
     # I. Event Identification
     study_id = Column(String, nullable=True)
     enrollment_id = Column(String, index=True, nullable=False)
-    report_type = Column(String, nullable=False)  # Initial / Follow-up / Final
-    report_date = Column(String, nullable=False)
+    report_type = Column(String, nullable=True)  # Initial / Follow-up / Final
+    report_date = Column(String, nullable=True)
 
     # II. Event Description
-    diagnosis = Column(String, nullable=False)
-    onset_datetime = Column(String, nullable=False)
+    diagnosis = Column(String, nullable=True)
+    onset_datetime = Column(String, nullable=True)
     end_datetime = Column(String, nullable=True)
     ongoing = Column(Boolean, default=False)
 
     # III. Seriousness criteria (multiple)
-    seriousness = Column(JSON, nullable=False)  # list of criteria
+    seriousness = Column(JSON, nullable=True)  # list of criteria
 
     # IV–VII
-    severity = Column(String, nullable=False)
-    causality = Column(String, nullable=False)
-    action_taken = Column(String, nullable=False)
-    outcome = Column(String, nullable=False)
+    severity = Column(String, nullable=True)
+    causality = Column(String, nullable=True)
+    action_taken = Column(String, nullable=True)
+    outcome = Column(String, nullable=True)
     date_of_death = Column(String, nullable=True)
 
     # VIII. Narrative
-    narrative = Column(String, nullable=False)
+    narrative = Column(String, nullable=True)
 
     # IX. Reporter
-    reporter_name = Column(String, nullable=False)
-    reporter_designation = Column(String, nullable=False)
+    reporter_name = Column(String, nullable=True)
+    reporter_designation = Column(String, nullable=True)
     reporter_contact = Column(String, nullable=True)
-    reporter_date = Column(String, nullable=False)
+    reporter_date = Column(String, nullable=True)
     reporter_signature = Column(String, nullable=True)
 
     # X. Investigator verification
@@ -1516,7 +1664,8 @@ class SAEReport(Base):
     investigator_date = Column(String, nullable=True)
     site = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow) 
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow) 
 
 class AdverseEvents(Base):
     __tablename__ = "adverse_events"
@@ -1528,7 +1677,7 @@ class AdverseEvents(Base):
     baby_uid = Column(String, nullable=True)
     maternal_uid = Column(String, nullable=True)
 
-    has_adverse_event = Column(Boolean, nullable=False)
+    has_adverse_event = Column(Boolean, nullable=True)
 
     events = Column(JSON, nullable=True)  # list of AE rows
 
@@ -1536,7 +1685,8 @@ class AdverseEvents(Base):
     designation = Column(String, nullable=True)
     completion_date = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow)  
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)  
 
 class SAEList(Base):
     __tablename__ = "sae_list"
@@ -1544,13 +1694,14 @@ class SAEList(Base):
     id = Column(Integer, primary_key=True, index=True)
     enrollment_id = Column(String, index=True, nullable=False)
 
-    rows = Column(JSON, nullable=False)
+    rows = Column(JSON, nullable=True)
 
-    completed_by = Column(String)
-    designation = Column(String)
-    completion_date = Column(String)
+    completed_by = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    completion_date = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=utcnow)         
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)         
 
 class RespiratoryLog(Base):
     __tablename__ = "respiratory_logs"
@@ -1744,11 +1895,17 @@ class MetabRenalVascEyeDayLog(Base):
     hypoglycemia_rx        = Column(Boolean, nullable=True)                      # 3
     highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >180    #4
     insulin                = Column(Boolean, nullable=True)  # Hyperglycemia Rx  #5
-    metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6
-    sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7
-    potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8
-    ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9
+    metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6 (derived from ph_readings_json)
+    sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7 (summary: most recent)
+    potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8 (summary: most recent)
+    ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9 (summary: most recent)
     osteopenia_suspected   = Column(Boolean, nullable=True)                      # 10
+
+    # Multi-entry reading payloads (Helper-5-style "+ Add values")
+    ph_readings_json         = Column(Text, nullable=True)  # [{id,date,time,ph}, ...]
+    sodium_readings_json     = Column(Text, nullable=True)  # [{id,date,time,value}, ...]
+    potassium_readings_json  = Column(Text, nullable=True)
+    calcium_readings_json    = Column(Text, nullable=True)
 
     # Legacy — superseded by the numbered fields above
     hypoglycemia           = Column(Boolean, nullable=True)
@@ -1757,13 +1914,18 @@ class MetabRenalVascEyeDayLog(Base):
     dyselectrolytemia_type = Column(String,  nullable=True)  # "Na,K,Ca"
 
     # ── 4.2 RENAL (items 11-14) ───────────────────────────────
-    aki_stage              = Column(String,  nullable=True)  # AKI / KDIGO stage #11
-    creatinine             = Column(Float,   nullable=True)  # mg/dL             #12
-    urine_output_total     = Column(String,  nullable=True)  # 8am-2pm+2pm-8pm+8pm-8am #13
+    # #11 Yes/No lives in aki_suspected; aki_stage holds KDIGO stage when Yes
+    aki_suspected          = Column(Boolean, nullable=True)  # #11 AKI suspected
+    aki_stage              = Column(String,  nullable=True)  # KDIGO Stage 1/2/3 (when #11 Yes)
+    creatinine             = Column(Float,   nullable=True)  # legacy numeric mg/dL
+    creatinine_value       = Column(String,  nullable=True)  # #12 numeric | "Not Tested" | "Awaited"
+    urine_output_8am_2pm   = Column(Float,   nullable=True)  # #13 window
+    urine_output_2pm_8pm   = Column(Float,   nullable=True)
+    urine_output_8pm_8am   = Column(Float,   nullable=True)
+    urine_output_total     = Column(String,  nullable=True)  # #13 summary (sum of windows)
     dialysis_crrt          = Column(Boolean, nullable=True)                      # 14
 
-    # Legacy — superseded by aki_stage / urine_output_total above
-    aki_suspected          = Column(Boolean, nullable=True)
+    # Legacy — superseded by urine window columns / creatinine_value above
     aki_kdigo_stage        = Column(String,  nullable=True)  # "Stage 1/2/3"
     urine_output_low       = Column(Boolean, nullable=True)
 
@@ -1816,6 +1978,87 @@ class MetabRenalVascEyeDayLog(Base):
         ),
     )
  
+
+class MinimalMonitoringDayLog(Base):
+    __tablename__ = "minimal_monitoring_day_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    enrollment_id = Column(String, index=True, nullable=False)
+    # Kept for backward compatibility; form is keyed by (enrollment_id, record_date).
+    nicu_day      = Column(Integer, nullable=True, index=True)
+
+    record_date = Column(String, nullable=True)
+    shift       = Column(String, nullable=True)
+
+    axillary_temp = Column(Float, nullable=True)
+    sbp           = Column(Float, nullable=True)
+    dbp           = Column(Float, nullable=True)
+    map_value     = Column(Float, nullable=True)
+    fluid_bolus_given = Column(String, nullable=True)
+    vasoactive_drugs  = Column(String, nullable=True)
+    vasoactive_dose   = Column(String, nullable=True)
+    vasoactive_unit   = Column(String, nullable=True)
+    pda_agent         = Column(String, nullable=True)
+    pda_dose          = Column(String, nullable=True)
+
+    respiratory_time = Column(String, nullable=True)
+    respiratory_modes = Column(String, nullable=True)
+    max_map_cpap = Column(Float, nullable=True)
+    max_fio2     = Column(Float, nullable=True)
+    ph           = Column(Float, nullable=True)
+    pao2         = Column(Float, nullable=True)
+    paco2        = Column(Float, nullable=True)
+    apnea_episodes = Column(Integer, nullable=True)
+    desaturation_episodes = Column(Integer, nullable=True)
+    severe_desaturation_episodes = Column(Integer, nullable=True)
+    postnatal_steroids = Column(String, nullable=True)
+    steroid_dose = Column(String, nullable=True)
+
+    glucose = Column(Float, nullable=True)
+    alp     = Column(Float, nullable=True)
+    total_calcium = Column(Float, nullable=True)
+    phosphorus = Column(Float, nullable=True)
+    electrolyte_abnormality = Column(Boolean, nullable=True)
+    electrolytes = Column(String, nullable=True)
+    hypo_hyper = Column(String, nullable=True)
+    symptomatic_status = Column(String, nullable=True)
+    symptomatic_detail = Column(String, nullable=True)
+
+    cumulative_feed_volume = Column(Float, nullable=True)
+    direct_bilirubin = Column(Float, nullable=True)
+
+    imaging_date = Column(String, nullable=True)
+    ventriculomegaly_severity = Column(String, nullable=True)
+    vi = Column(Float, nullable=True)
+    ahw = Column(Float, nullable=True)
+    tod = Column(Float, nullable=True)
+    aca_ri = Column(Float, nullable=True)
+    mca_ri = Column(Float, nullable=True)
+
+    transfusion_products = Column(String, nullable=True)
+    transfusion_count = Column(Integer, nullable=True)
+    prbc_volume = Column(Float, nullable=True)
+
+    # Multi-entry block payloads (CRF "+ button to add values") + steroid Other text
+    entries_json = Column(Text, nullable=True)
+    steroid_other = Column(String, nullable=True)
+    apnea_shift = Column(String, nullable=True)
+    feed_shift = Column(String, nullable=True)
+
+    submission_status = Column(String, nullable=True, default="empty")
+    saved_at          = Column(DateTime, nullable=True)
+    saved_by          = Column(String, nullable=True)
+    submitted_at      = Column(DateTime, nullable=True)
+    submitted_by      = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    # Unique (enrollment_id, record_date) is enforced by partial index in schema_patches
+    # (uq_minimal_monitoring_enrollment_date). Legacy uq_minimal_monitoring_enrollment_day
+    # may still exist on older DBs.
+
+
 # ============================================================================
 # FORM H — CranialUSGRecord MODEL
 # Add this class to models.py
@@ -1861,6 +2104,11 @@ class CranialUSGRecord(Base):
     saved_by          = Column(String,   nullable=True)
     submitted_at      = Column(String,   nullable=True)
     submitted_by      = Column(String,   nullable=True)
+
+    # ── Completion footer ─────────────────────────────────────
+    completed_by      = Column(String,   nullable=True)
+    designation       = Column(String,   nullable=True)
+    completion_date   = Column(String,   nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

@@ -12,6 +12,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .form-layout-content {
@@ -21,8 +23,19 @@
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
+/* Tablet landscape / narrow desktop — less side padding, room for fields */
+@media (max-width: 1280px) {
+  .form-layout-content {
+    padding: 28px 24px 110px;
+    max-width: 100%;
+  }
+}
+
+/* Tablet — sidebar overlays; content uses full width */
 @media (max-width: 1024px) {
   .form-layout-root {
     flex-direction: column !important;
@@ -32,6 +45,50 @@
     width: 100%;
   }
   .form-layout-content {
-    padding: 20px 16px 100px;
+    padding: 16px 16px 120px;
+  }
+}
+
+/* Tablet portrait / large phone */
+@media (max-width: 900px) {
+  .form-layout-content {
+    padding: 16px 12px 130px;
+  }
+}
+
+@media (max-width: 480px) {
+  .form-layout-content {
+    padding: 12px 10px 140px;
+  }
+}
+
+/* Alternate FormLayout (components/FormLayout.jsx) */
+.form-layout-container {
+  margin-left: var(--sidebar-width, 280px);
+  min-width: 0;
+  max-width: 100%;
+  width: auto;
+  box-sizing: border-box;
+  padding: 24px 24px 100px;
+  overflow-x: hidden;
+}
+
+@media (max-width: 1280px) {
+  .form-layout-container {
+    padding: 20px 16px 110px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .form-layout-container {
+    margin-left: 0 !important;
+    width: 100%;
+    padding: 16px 12px 120px;
+  }
+}
+
+@media (max-width: 900px) {
+  .form-layout-container {
+    padding: 12px 10px 130px;
   }
 }

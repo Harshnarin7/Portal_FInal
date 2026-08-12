@@ -1,0 +1,255 @@
+/* ============================================================
+   FormL.css — Blender Data & Study Summary
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+.form-l-page {
+  --fl-accent: #0284c7;
+  --fl-accent-deep: #0369a1;
+  --fl-header-bg: #e8f4fc;
+  --fl-ink: #0f172a;
+  --fl-muted: #64748b;
+  --fl-border: #e2e8f0;
+  --fl-font: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 100px;
+  font-family: var(--fl-font);
+  color: var(--fl-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.form-l-page .form-main-title,
+.form-l-page .form-main-subtitle,
+.form-l-page .form-breadcrumb,
+.form-l-page button,
+.form-l-page input,
+.form-l-page select,
+.form-l-page label,
+.form-l-page h3 {
+  font-family: var(--fl-font);
+}
+
+.fl-card {
+  background: #fff;
+  border: 1px solid var(--fl-border);
+  border-radius: 14px;
+  margin-bottom: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.fl-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--fl-header-bg);
+  border-bottom: 1px solid #d6eaf8;
+}
+
+.fl-sec-icon { color: var(--fl-accent-deep); flex-shrink: 0; }
+.fl-sec-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: #dbeafe;
+  color: var(--fl-accent-deep);
+  font-size: 12px;
+  font-weight: 800;
+}
+.fl-card-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--fl-accent-deep);
+  letter-spacing: -0.02em;
+}
+
+.fl-card-body { padding: 18px 20px 20px; }
+
+.form-l-page .form-group { margin-bottom: 0; }
+.form-l-page .form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.fl-input,
+.form-l-page .form-group input,
+.form-l-page .form-group select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.fl-input:focus,
+.form-l-page .form-group input:focus,
+.form-l-page .form-group select:focus {
+  outline: none;
+  border-color: var(--fl-accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.14);
+}
+.form-l-page .form-group input[readonly] {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.fl-num { max-width: 96px; }
+.fl-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fl-inline span {
+  font-size: 13px;
+  color: var(--fl-muted);
+  font-weight: 600;
+}
+
+.fl-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.fl-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 800px) {
+  .fl-grid-2, .fl-grid-3 { grid-template-columns: 1fr; }
+}
+
+.fl-note {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-left: 4px solid var(--fl-accent);
+  border-radius: 10px;
+  color: #0369a1;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.fl-yn {
+  display: inline-flex;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid #d1d5db;
+  background: #fff;
+  flex-shrink: 0;
+}
+.fl-yn button {
+  width: 56px;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.fl-yn button.yes.active { background: #10b981; color: #fff; }
+.fl-yn button.no.active { background: #ef4444; color: #fff; }
+.fl-yn button.na.active { background: #64748b; color: #fff; }
+.fl-yn.with-na button { width: 52px; }
+
+.fl-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+.fl-outcome:last-child { margin-bottom: 0; }
+.fl-outcome-label {
+  flex: 1 1 280px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fl-ink);
+  line-height: 1.45;
+}
+.fl-outcome-sub {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fl-accent-deep);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+
+.fl-minute-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+.fl-minute-cell {
+  background: #f8fbff;
+  border: 1px solid #e2eef8;
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.fl-minute-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--fl-accent-deep);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+.fl-minute-cell input {
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--fl-font);
+  box-sizing: border-box;
+}
+.fl-minute-cell input:focus {
+  outline: none;
+  border-color: var(--fl-accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.14);
+}
+.fl-minute-unit {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fl-muted);
+}
+
+.fl-save-msg {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #047857;
+}
+
+.form-l-page .react-datepicker-wrapper,
+.form-l-page .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}

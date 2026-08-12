@@ -1,3 +1,5 @@
+/* ClinicalQuality / Baseline / Safety — soft sky accents */
+
 .cq-root {
   display: flex;
   flex-direction: column;
@@ -5,16 +7,16 @@
 }
 
 .cq-state {
-  color: #7a8fb0;
+  color: #4a5568;
   padding: 40px;
   text-align: center;
 }
-.cq-error { color: #e05c5c; }
+.cq-error { color: #ba1a1a; }
 
 .cq-panel-title {
-  color: #4db8a0;
+  color: #0e7c7b;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   letter-spacing: 0.08em;
   margin-bottom: 12px;
   text-transform: uppercase;
@@ -22,6 +24,12 @@
 
 .cq-table-wrap {
   overflow-x: auto;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcff 100%);
+  border: 1px solid #d5e4f0;
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(2, 132, 199, 0.05);
 }
 
 .cq-table {
@@ -32,11 +40,11 @@
 }
 
 .cq-table th {
-  background: #0f1e35;
-  border-bottom: 1px solid #1e2d4a;
-  color: #7a8fb0;
+  background: linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 100%);
+  border-bottom: 1px solid #bae6fd;
+  color: #0369a1;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 750;
   padding: 8px 12px;
   text-align: center;
   white-space: nowrap;
@@ -48,34 +56,39 @@
 }
 
 .cq-n {
-  color: #4a6080;
+  color: #64748b;
   font-size: 10px;
   font-weight: 400;
 }
 
 .cq-table td {
-  border-bottom: 1px solid #0f1e35;
-  color: #c5d5e8;
+  border-bottom: 1px solid #e8f1f8;
+  color: #334155;
   padding: 7px 12px;
 }
 
+.cq-table tr:nth-child(even) td {
+  background: rgba(224, 242, 254, 0.35);
+}
+
 .cq-metric-label {
-  color: #e0eaf5;
+  color: #0b1c30;
   font-size: 12px;
 }
 
 .cq-val {
-  color: #c5d5e8;
+  color: #0e7c7b;
   font-size: 12px;
+  font-weight: 650;
   text-align: center;
 }
 
 .cq-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: #e6f7f6;
 }
 
 .cq-timestamp {
-  color: #4a6080;
+  color: #64748b;
   font-size: 11px;
   margin-top: 4px;
   text-align: right;

@@ -1,0 +1,282 @@
+/* ============================================================
+   MinimalMonitoring.css
+   Helper Form 5 — Minimal Monitoring
+   Lettered sub-blocks, numbered items, multi-entry (+ Add values)
+   ============================================================ */
+
+.mml-card-subtitle {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #94A3B8;
+}
+
+.mml-subblock {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mml-subblock + .mml-subblock {
+  margin-top: 8px;
+}
+
+.mml-subblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px dashed #E2E8F0;
+}
+
+.mml-subblock-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(135deg, #0F4C81, #1A5F9E);
+  border-radius: 7px;
+  padding: 4px 10px;
+  box-shadow: 0 2px 6px rgba(15, 76, 129, 0.22);
+  white-space: nowrap;
+}
+
+.mml-item-num {
+  display: inline-block;
+  color: #0F4C81;
+  font-weight: 800;
+  margin-right: 2px;
+}
+
+.mml-pills-compact .rcn-pill {
+  padding: 6px 14px;
+  font-size: 12.5px;
+}
+
+/* ── Multi-entry card ── */
+.mml-entry {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mml-entry + .mml-entry {
+  margin-top: 4px;
+}
+
+.mml-entry-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mml-entry-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mml-entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #E0F2FE;
+  color: #0369A1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mml-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mml-date-input,
+.mml-time-input {
+  width: auto !important;
+  min-width: 140px;
+  padding: 8px 10px !important;
+  font-size: 13px !important;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.mml-time-input {
+  min-width: 110px;
+}
+
+.mml-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
+  background: #FEF2F2;
+  color: #DC2626;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mml-remove-btn:hover {
+  background: #FEE2E2;
+}
+
+.mml-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1.5px dashed #94A3B8;
+  background: transparent;
+  color: #0F4C81;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.mml-add-btn:hover {
+  background: #F0F9FF;
+  border-color: #0F4C81;
+}
+
+@media (max-width: 720px) {
+  .mml-subblock-head,
+  .mml-entry-head,
+  .mml-entry-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .mml-date-input,
+  .mml-time-input {
+    width: 100% !important;
+  }
+}
+
+/* ── Quick-nav rail (Form I pattern) ── */
+.mml-quicknav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 16px 24px 8px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.mml-quicknav button {
+  width: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1.5px solid #E2E8F0;
+  background: #F8FAFC;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.mml-quicknav button:hover {
+  border-color: #0F4C81;
+  color: #0F4C81;
+  background: #fff;
+}
+.mml-quicknav button.mml-quicknav-done {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: #ECFDF5;
+  color: #047857;
+}
+.mml-quicknav-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mml-quicknav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(15, 76, 129, 0.1);
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mml-quicknav-done .mml-quicknav-badge {
+  background: rgba(16, 185, 129, 0.18);
+}
+
+.mml-sheet-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0F4C81;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+  padding: 7px 12px;
+  display: inline-block;
+}
+
+.mml-section-card {
+  scroll-margin-top: 72px;
+}
+
+.rcn-status-banner--late {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+.rcn-status-banner--late svg { color: #D97706; flex-shrink: 0; }
+
+@media (max-width: 720px) {
+  .mml-quicknav {
+    position: static;
+    margin: 12px 16px 8px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mml-quicknav::-webkit-scrollbar { display: none; }
+}

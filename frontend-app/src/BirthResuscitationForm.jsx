@@ -8,9 +8,11 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
+import PrintSummaryB from "./components/PrintSummaryB";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
-  ArrowLeft, ArrowRight, Save, Home, User, Baby,
+  ArrowLeft, ArrowRight, Save, Home, User, Baby, Pencil,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
   Clock,
 } from "lucide-react";
@@ -114,28 +116,37 @@ function ModernTimeInput({ hour, minute, second, onChange, disabled = false }) {
 // so toggle buttons here showed NO visual feedback whatsoever for which
 // option was selected: no background highlight, no active text color,
 // nothing. Now identical to ScreeningForm.jsx's working version.
-function YesNoToggle({ label, name, value, onChange, disabled = false }) {
+function YesNoToggle({
+  label, name, value, onChange, disabled = false,
+  yesLabel = "YES", noLabel = "NO",
+}) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val } });
   };
   // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
   const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
+  const wide = yesLabel !== "YES" || noLabel !== "NO";
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
       <span className="yes-no-label">{label}</span>
-      <div className={`yes-no-buttons yn-pos-${pos}`}>
+      <div className={`yes-no-buttons yn-pos-${pos}${wide ? " yn-wide" : ""}`}>
         <div className="yn-thumb" aria-hidden="true" />
         <button type="button"
           className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`}
-          onClick={() => fire("Yes")} disabled={disabled}>YES</button>
+          onClick={() => fire("Yes")} disabled={disabled}>{yesLabel}</button>
         <button type="button"
           className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`}
-          onClick={() => fire("No")} disabled={disabled}>NO</button>
+          onClick={() => fire("No")} disabled={disabled}>{noLabel}</button>
       </div>
     </div>
   );
 }
+
+/* CRF v1.25+ delivery indications (select all that apply) */
+const CRF_INDICATIONS = [
+  "pPROM", "PTL", "APH", "Placenta Previa", "PIH", "PE/Imminent Eclampsia", "Other",
+];
 
 const padDur = n => String(n).padStart(2, "0");
 const parseDurationParts = (value, mode) => {
@@ -341,6 +352,9 @@ export default function BirthResuscitationForm() {
   const isFormBLoadedRef = useRef(false);
   const autoSaveRef = useRef(null);
   const offlineQueueRef = useRef(false);
+  /* True only after GET /birth-resuscitation succeeded — so autosave knows
+     whether to PUT an existing row or POST a new one. */
+  const hasBirthRecordRef = useRef(false);
   const isFieldEditable = !isSaved || isEditing;
   const isPgiSite = siteName === "PGIMER";
   const requiredMark = <span className="required">*</span>;
@@ -387,8 +401,8 @@ export default function BirthResuscitationForm() {
     indication_for_delivery:[], indication_for_delivery_other:"",
     indication_edf_detail:"", fetal_indication_detail:"", obstetric_indication_detail:"",
     maternal_complication:"",
-    /* B3 */
-    poor_resp_efforts:"", poor_muscle_tone:"", hr_above_100:"",
+    /* B3 — hr_below_100 is CRF Q21 (HR < 100); stored inverted as hr_above_100 */
+    poor_resp_efforts:"", poor_muscle_tone:"", hr_below_100:"",
     initial_steps:"", required_resuscitation:"",
     randomised:"", randomisation_date:"", strata:"",
     enrollment_reason_not_randomized:"", enrollment_reason_not_randomized_other:"",
@@ -408,17 +422,16 @@ export default function BirthResuscitationForm() {
     cord_clamp_timestamp:"", cord_clamp_time:"",
     time_to_respiration:"",
     spo2_5min:"", time_to_spo2_80:"",
-    /* B7 */
+    /* B6 */
     cord_blood_done:"", cord_blood_within_1hr:"", cord_blood_source:"",
     cord_ph:"", cord_sbe:"", cord_pco2:"",
     resus_failure:"",
     spo2_exit_trial_gas:"", total_resus_time:"",
     reason_exit_trial_gas:"", reason_exit_trial_gas_other:"",
     blender_stopped:"", blender_stopped_description:"",
-    /* intervention table */
+    /* B5 intervention table — Oxygen, CPAP, Apgar only (CRF 48–50) */
     interventions:{
-      oxygen:{}, ventilation:{}, chest_compression:{},
-      intubation:{}, medication:{}, fluid_bolus:{}, cpap:{}, apgar:{},
+      oxygen:{}, cpap:{}, apgar:{},
     },
   };
   const [formData, setFormData] = useState(BLANK);
@@ -507,6 +520,42 @@ export default function BirthResuscitationForm() {
     const randD = randomisationGA % 7;
     set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
   }, [formData.date_of_birth, formData.screening_datetime, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
+
+  /* ── Intrauterine growth centile (auto, INTERGROWTH-21st Very Preterm) ──
+     Uses GA at randomization (= GA at birth) + birth weight + gender against
+     the official INTERGROWTH-21st Very Preterm birthweight reference
+     (Villar et al. Lancet 2016) to auto-fill field 14. Only covers 24+0-32+6
+     weeks and Male/Female — outside that (later GA, or DSD) the field is
+     left for manual entry, since this specific chart doesn't apply.
+     Tracks the last value it auto-set so a nurse's own manual override is
+     never silently clobbered on a later re-render. */
+  const lastAutoCentileRef = useRef(null);
+  useEffect(() => {
+    const weeks = Number(formData.gestation_rand_weeks);
+    const days  = Number(formData.gestation_rand_days);
+    const weightKg = Number(formData.birth_weight) / 1000;
+    const result = classifyVeryPretermCentile(weightKg, weeks, days, formData.gender);
+    const current = formData.intrauterine_centile;
+    const wasUntouchedOrAuto = current === "" || current === lastAutoCentileRef.current;
+
+    if (!result) {
+      // FIX: out of chart range (or missing inputs) — previously this just
+      // returned and left whatever number was auto-filled earlier sitting
+      // in the field, which looks like a valid answer even though the GA
+      // has since moved outside 24+0-32+6 weeks (e.g. after correcting
+      // Date of Birth). Clear it, but only if it's a value WE auto-set —
+      // never touch something the nurse typed in manually.
+      if (wasUntouchedOrAuto && current !== "") set({ intrauterine_centile: "" });
+      lastAutoCentileRef.current = null;
+      return;
+    }
+
+    const autoValue = String(result.lowerPoint);
+    if (wasUntouchedOrAuto && current !== autoValue) {
+      set({ intrauterine_centile: autoValue });
+    }
+    lastAutoCentileRef.current = autoValue;
+  }, [formData.gestation_rand_weeks, formData.gestation_rand_days, formData.birth_weight, formData.gender]); // eslint-disable-line
 
   /* ── Strata — auto-derived from Gestation at Randomization ──
      Strata buckets exist purely to split the two eligible GA bands (24–27+6
@@ -599,8 +648,14 @@ export default function BirthResuscitationForm() {
     if(n<=3)return"apgar-red"; if(n<=6)return"apgar-yellow"; return"apgar-green";
   };
 
-  const handleIntv = (type,time,val) =>
-    setFormData(p=>({...p,interventions:{...p.interventions,[type]:{...p.interventions[type],[time]:val}}}));
+  const handleIntv = (type, time, val) =>
+    setFormData(p => ({
+      ...p,
+      interventions: {
+        ...p.interventions,
+        [type]: { ...(p.interventions?.[type] || {}), [time]: val },
+      },
+    }));
 
    /* ── Shared payload builder (used by saveForm, saveDraft, autoSave) ──
       Drafts and auto-saves are just unvalidated saves: empty fields are sent
@@ -640,10 +695,14 @@ export default function BirthResuscitationForm() {
       maternal_complication: fd.maternal_complication || null,
       poor_resp_efforts:   yn(fd.poor_resp_efforts),
       poor_muscle_tone:    yn(fd.poor_muscle_tone),
-      hr_above_100:        yn(fd.hr_above_100),
+      /* CRF asks HR < 100; DB column remains hr_above_100 (inverted). */
+      hr_above_100:        fd.hr_below_100 === "Yes" ? false
+                          : fd.hr_below_100 === "No" ? true
+                          : null,
       initial_steps:       yn(fd.initial_steps),
       required_resuscitation: yn(fd.required_resuscitation),
-      ppv_required:        yn(fd.ppv_required),
+      /* Q23 Required implies PPV (Q29 details) — store as true on that path */
+      ppv_required:        fd.required_resuscitation === "Yes" ? true : yn(fd.ppv_required),
       device_ppv:          fd.device_ppv || null,
       sib_peep_with:       fd.sib_peep_with || null,
       sib_peep_cmh2o:      optionalNum(fd.sib_peep_cmh2o),
@@ -689,7 +748,11 @@ export default function BirthResuscitationForm() {
         ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
       blender_stopped:     yn(fd.blender_stopped),
       blender_stopped_description: fd.blender_stopped_description || null,
-      interventions:       fd.interventions || {},
+      interventions:       {
+        oxygen: fd.interventions?.oxygen || {},
+        cpap: fd.interventions?.cpap || {},
+        apgar: fd.interventions?.apgar || {},
+      },
     };
   }, []);
 
@@ -737,19 +800,13 @@ export default function BirthResuscitationForm() {
       add("B2. LSCS Type", "lscs_type");
     if(!(formData.indication_for_delivery||[]).length)
       add("B2. Indication for Delivery", "indication_for_delivery");
-    if((formData.indication_for_delivery||[]).includes("Absent/Reversed EDF") && !formData.indication_edf_detail)
-      add("B2. Absent/Reversed EDF Details", "indication_edf_detail");
-    if((formData.indication_for_delivery||[]).includes("Fetal indication") && !formData.fetal_indication_detail)
-      add("B2. Fetal Indication Details", "fetal_indication_detail");
-    if((formData.indication_for_delivery||[]).includes("Obstetric indication") && !formData.obstetric_indication_detail)
-      add("B2. Obstetric Indication Details", "obstetric_indication_detail");
     if((formData.indication_for_delivery||[]).includes("Other") && !formData.indication_for_delivery_other)
       add("B2. Other Delivery Indication", "indication_for_delivery_other");
     if(!formData.poor_resp_efforts)  add("B3. Respiratory Effort",    "poor_resp_efforts");
     if(!formData.poor_muscle_tone)   add("B3. Muscle Tone",           "poor_muscle_tone");
-    if(!formData.hr_above_100)       add("B3. Heart Rate >100",       "hr_above_100");
+    if(!formData.hr_below_100)       add("B3. HR < 100",              "hr_below_100");
     if(!formData.initial_steps)      add("B3. Initial Steps",         "initial_steps");
-    if(!formData.required_resuscitation) add("B3. Resuscitation beyond initial steps?", "required_resuscitation");
+    if(!formData.required_resuscitation) add("B3. Does baby require ventilation (PPV)?", "required_resuscitation");
     if(formData.required_resuscitation==="Yes"){
       if(!formData.randomised)       add("B3. Randomised?",           "randomised");
       if(formData.randomised==="Yes"){
@@ -762,18 +819,17 @@ export default function BirthResuscitationForm() {
       if(formData.randomised==="No" && formData.enrollment_reason_not_randomized==="Other" && !formData.enrollment_reason_not_randomized_other)
         add("B3. Other Reason Not Randomized", "enrollment_reason_not_randomized_other");
       if(formData.randomised!=="No"){
-      if(!formData.ppv_required)    add("B4. PPV",                    "ppv_required");
-      if(formData.ppv_required==="Yes" && !formData.device_ppv)
+      if(!formData.device_ppv)
         add("B4. PPV Device", "device_ppv");
-      if(formData.ppv_required==="Yes" && !formData.interface_used)
+      if(!formData.interface_used)
         add("B4. PPV Interface", "interface_used");
-      if(formData.ppv_required==="Yes" && !formData.ppv_duration)
+      if(!formData.ppv_duration)
         add("B4. PPV Duration", "ppv_duration");
-      if(formData.ppv_required==="Yes" && ["Self-inflating bag","Both"].includes(formData.device_ppv) && !formData.sib_peep_with)
+      if(["Self-inflating bag","Both"].includes(formData.device_ppv) && !formData.sib_peep_with)
         add("B4. SIB PEEP Valve", "sib_peep_with");
       if(formData.sib_peep_with==="Yes" && !formData.sib_peep_cmh2o)
         add("B4. SIB PEEP Value", "sib_peep_cmh2o");
-      if(formData.ppv_required==="Yes" && ["T-piece","Both"].includes(formData.device_ppv)){
+      if(["T-piece","Both"].includes(formData.device_ppv)){
         if(!formData.tpiece_pip) add("B4. T-piece PIP", "tpiece_pip");
         if(!formData.tpiece_peep) add("B4. T-piece PEEP", "tpiece_peep");
         if(!formData.tpiece_flow) add("B4. T-piece Flow", "tpiece_flow");
@@ -787,10 +843,6 @@ export default function BirthResuscitationForm() {
         add("B4. Epinephrine Dilution", "adrenaline_dilution");
       if(formData.adrenaline==="Yes" && !formData.adrenaline_route)
         add("B4. Epinephrine Route", "adrenaline_route");
-      if(formData.adrenaline==="Yes" && !formData.med_doses)
-        add("B4. Epinephrine Doses", "med_doses");
-      if(formData.adrenaline==="Yes" && !formData.adrenaline_cumulative)
-        add("B4. Epinephrine Cumulative Dose", "adrenaline_cumulative");
       if(!formData.fluid_bolus)     add("B4. Fluid Bolus",            "fluid_bolus");
       if(formData.fluid_bolus==="Yes" && !formData.fluid_bolus_doses)
         add("B4. Fluid Bolus Doses", "fluid_bolus_doses");
@@ -816,7 +868,7 @@ export default function BirthResuscitationForm() {
         if(formData.cord_sbe==="") add("B6. Cord Blood SBE", "cord_sbe");
         if(formData.cord_pco2==="") add("B6. Cord Blood pCO2", "cord_pco2");
       }
-      if(formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="No" && !formData.resus_failure)
+      if(!formData.resus_failure)
         add("B6. Resuscitation Failure",  "resus_failure");
       if(!formData.reason_exit_trial_gas) add("B6. Reason for Exit",  "reason_exit_trial_gas");
       if(formData.reason_exit_trial_gas==="Other" && !formData.reason_exit_trial_gas_other)
@@ -842,16 +894,22 @@ export default function BirthResuscitationForm() {
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
     const payload = buildPayload();
     try {
-      const existingId = getStoredId("current_enrollment_id");
+      const existingId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+      if (!existingId) {
+        setMessage("❌ Enrollment ID is required before saving.");
+        return false;
+      }
+      const body = { ...payload, enrollment_id: existingId };
 
-      const res = existingId
-        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
-        : await api.post("/birth-resuscitation/", payload);
+      const res = hasBirthRecordRef.current
+        ? await api.put(`/birth-resuscitation/${existingId}`, body)
+        : await api.post("/birth-resuscitation/", body);
 
       const eid = res.data.enrollment_id;
       const sid = res.data.screening_id;
       setStoredId("current_enrollment_id", eid);
       if (sid) setStoredId("current_screening_id", sid);
+      hasBirthRecordRef.current = true;
       window.dispatchEvent(new Event("storage"));
 
       setIsFormBLoaded(true);
@@ -883,18 +941,23 @@ export default function BirthResuscitationForm() {
   /* ── Save Draft — no validation, saves whatever is filled ── */
   const saveDraft = async () => {
     const payload = buildPayload();
+    const existingId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+    if (!existingId) {
+      setMessage("❌ Enter Enrollment ID before saving a draft.");
+      return;
+    }
+    const body = { ...payload, enrollment_id: existingId };
 
     try {
-      const existingId = getStoredId("current_enrollment_id");
-
-      const res = existingId
-        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
-        : await api.post("/birth-resuscitation/", payload);
+      const res = hasBirthRecordRef.current
+        ? await api.put(`/birth-resuscitation/${existingId}`, body)
+        : await api.post("/birth-resuscitation/", body);
 
       const eid = res.data.enrollment_id;
       const sid = res.data.screening_id;
       setStoredId("current_enrollment_id", eid);
       if (sid) setStoredId("current_screening_id", sid);
+      hasBirthRecordRef.current = true;
       window.dispatchEvent(new Event("storage"));
 
       setShowDraftModal(true);
@@ -919,10 +982,15 @@ export default function BirthResuscitationForm() {
   /* ── Auto-save every 10 seconds (silent, no modals, no validation) ── */
   const autoSave = useCallback(async () => {
     const fd = formDataRef.current;
-    const existingId = getStoredId("current_enrollment_id");
+    if (!fd || !isFormBLoadedRef.current) return;
 
-    /* Don't create a new DB row until both baby_uid AND enrollment_id are entered */
-    if (!existingId && (!fd.baby_uid || !fd.enrollment_id)) return;
+    const storedId = getStoredId("current_enrollment_id");
+    const eid = (storedId || fd.enrollment_id || "").trim();
+
+    /* Need an enrollment ID before creating/updating a Form B row.
+       Also wait for baby_uid on first create so we don't insert empty shells. */
+    if (!eid) return;
+    if (!hasBirthRecordRef.current && !fd.baby_uid) return;
 
     if (!navigator.onLine) {
       setOfflineQueue(true);
@@ -931,16 +999,37 @@ export default function BirthResuscitationForm() {
 
     setAutoSaveStatus("saving");
     try {
-      const payload = buildPayloadFrom(fd);
+      const payload = {
+        ...buildPayloadFrom(fd),
+        enrollment_id: eid,
+        screening_id: fd.screening_id || getStoredId("current_screening_id") || null,
+      };
 
-      const res = existingId
-        ? await api.put(`/birth-resuscitation/${existingId}`, payload)
-        : await api.post("/birth-resuscitation/", payload);
+      let res;
+      if (hasBirthRecordRef.current) {
+        res = await api.put(`/birth-resuscitation/${eid}`, payload);
+      } else {
+        /* No row yet — POST. create_birth_resuscitation upserts if the
+           enrollment_id already exists, so this is safe to retry. */
+        try {
+          res = await api.post("/birth-resuscitation/", payload);
+        } catch (postErr) {
+          /* Race: another tab/save created the row — fall back to PUT */
+          if (postErr?.response?.status === 409 || postErr?.response?.status === 400) {
+            res = await api.put(`/birth-resuscitation/${eid}`, payload);
+          } else {
+            throw postErr;
+          }
+        }
+        hasBirthRecordRef.current = true;
+      }
 
-      const newEid = res.data.enrollment_id;
+      const newEid = res.data.enrollment_id || eid;
       const sid = res.data.screening_id;
       setStoredId("current_enrollment_id", newEid);
       if (sid) setStoredId("current_screening_id", sid);
+      /* Do not setConfirmedEnrollmentId here — that re-triggers the birth
+         GET and can overwrite fields the nurse typed after this save. */
       window.dispatchEvent(new Event("storage"));
 
       setAutoSaveStatus("saved");
@@ -949,7 +1038,7 @@ export default function BirthResuscitationForm() {
       setOfflineQueue(false);
       setTimeout(() => setAutoSaveStatus("idle"), 2500);
     } catch (err) {
-      console.error("Birth resuscitation auto-save error:", err.message);
+      console.error("Birth resuscitation auto-save error:", err?.response?.data || err.message);
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
@@ -961,9 +1050,11 @@ export default function BirthResuscitationForm() {
   useEffect(() => {
     if (!isFormBLoaded) return;
     clearInterval(autoSaveTimer.current);
-    autoSaveTimer.current = setInterval(autoSave, 10000);
+    autoSaveTimer.current = setInterval(() => {
+      autoSaveRef.current?.();
+    }, 10000);
     return () => clearInterval(autoSaveTimer.current);
-  }, [autoSave, isFormBLoaded]);
+  }, [isFormBLoaded]);
 
   /* ── Next ── */
   const handleNext = async () => {
@@ -981,6 +1072,7 @@ export default function BirthResuscitationForm() {
   useEffect(()=>{
     if(!confirmedEnrollmentId) return;
     const eid = confirmedEnrollmentId;
+    hasBirthRecordRef.current = false;
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;
@@ -997,26 +1089,18 @@ export default function BirthResuscitationForm() {
           reasonExit = "Other";
         }
         setFormData(p=>({...p,...dSafe,
-          // FIX: gestation_weeks/gestation_days/gestation_rand_weeks/
-          // gestation_rand_days are ALSO null-or-stale on this endpoint for
-          // the same reason contact_mother etc. were excluded above.
-          // gestation_weeks/days can be null (or, before the Form A fix,
-          // a leftover 0/0) here until Form B has been saved at least once
-          // with real values, and gestation_rand_weeks/days are computed
-          // client-side (see the auto-calc effect below) — this table's
-          // stored copy of them can easily be stale. Blindly spreading `d`
-          // was wiping out the values already loaded from the Form A
-          // screening fetch (and the client-side randomisation calc) with
-          // nulls — or, just as bad, with a stale 0 — on every page load,
-          // leaving fields 11 and 12 blank or stuck even though correct
-          // data existed. 0 weeks is never a real value clinically, so it's
-          // treated the same as missing here (truthy check, not `!= null`)
-          // — otherwise a stale 0 saved on this record before Form A's
-          // fix would keep silently overriding the corrected value on
-          // every load. Only trust `d`'s copy when it's actually non-zero;
-          // otherwise keep whatever is already in state.
-          gestation_weeks:      d.gestation_weeks      || p.gestation_weeks,
-          gestation_days:       d.gestation_weeks      ? (d.gestation_days      ?? p.gestation_days)      : p.gestation_days,
+          // FIX: GET /birth-resuscitation overlays Form D NBS GA onto
+          // gestation_weeks when NBS differs by >2 weeks — that is for
+          // forms AFTER Form D only. Form B must keep the original birth/
+          // screening GA (exposed as original_gestation_*), otherwise
+          // reopening Form B shows NBS values and autosave can permanently
+          // overwrite the Form B record.
+          gestation_weeks:      (d.original_gestation_weeks != null && d.original_gestation_weeks !== ""
+                                  ? d.original_gestation_weeks
+                                  : d.gestation_weeks) || p.gestation_weeks,
+          gestation_days:       (d.original_gestation_weeks != null && d.original_gestation_weeks !== ""
+                                  ? (d.original_gestation_days ?? 0)
+                                  : (d.gestation_weeks ? (d.gestation_days ?? p.gestation_days) : p.gestation_days)),
           gestation_rand_weeks: d.gestation_rand_weeks || p.gestation_rand_weeks,
           gestation_rand_days:  d.gestation_rand_weeks ? (d.gestation_rand_days ?? p.gestation_rand_days) : p.gestation_rand_days,
           date_of_birth: d.date_of_birth ? String(d.date_of_birth).slice(0, 10) : p.date_of_birth,
@@ -1026,7 +1110,8 @@ export default function BirthResuscitationForm() {
           reason_exit_trial_gas_other: reasonExitOther,
           poor_resp_efforts: d.poor_resp_efforts===true?"Yes":d.poor_resp_efforts===false?"No":"",
           poor_muscle_tone:  d.poor_muscle_tone===true?"Yes":d.poor_muscle_tone===false?"No":"",
-          hr_above_100:      d.hr_above_100===true?"Yes":d.hr_above_100===false?"No":"",
+          /* Invert: DB hr_above_100 ↔ CRF "HR < 100" */
+          hr_below_100:      d.hr_above_100===true?"No":d.hr_above_100===false?"Yes":"",
           initial_steps:     d.initial_steps===true?"Yes":d.initial_steps===false?"No":"",
           required_resuscitation: d.required_resuscitation===true?"Yes":d.required_resuscitation===false?"No":"",
           ppv_required:      d.ppv_required===true?"Yes":d.ppv_required===false?"No":"",
@@ -1039,7 +1124,11 @@ export default function BirthResuscitationForm() {
           resus_failure:     d.resus_failure===true?"Yes":d.resus_failure===false?"No":"",
           cord_blood_done:   d.cord_blood_done===true?"Yes":d.cord_blood_done===false?"No":"",
           cord_blood_within_1hr: d.cord_blood_within_1hr===true?"Yes":d.cord_blood_within_1hr===false?"No":"",
-          interventions:     d.interventions || p.interventions,
+          interventions:     {
+            oxygen: d.interventions?.oxygen || {},
+            cpap: d.interventions?.cpap || {},
+            apgar: d.interventions?.apgar || {},
+          },
           indication_for_delivery: typeof d.indication_for_delivery==="string"
             ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.indication_for_delivery || []),
@@ -1047,16 +1136,37 @@ export default function BirthResuscitationForm() {
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
         }));
+        if (d.required_resuscitation === false) {
+          localStorage.setItem("enrollment_locked", "true");
+          localStorage.setItem("enrollment_lock_reason", "no_ppv");
+          window.dispatchEvent(new Event("storage"));
+        } else if (d.required_resuscitation === true
+                   && localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+          localStorage.removeItem("enrollment_locked");
+          localStorage.removeItem("enrollment_lock_reason");
+          window.dispatchEvent(new Event("storage"));
+        }
+        hasBirthRecordRef.current = true;
+        isInitialRender.current = true;
         setIsFormBLoaded(true); setIsSaved(true);
       }).catch(err => {
+        /* 404 = brand-new Form B for this enrollment — still enable autosave */
         if (err?.response?.status !== 404) {
           setMessage("⚠️ Could not load saved Form B data — please refresh the page.");
         }
+        hasBirthRecordRef.current = false;
+        isInitialRender.current = true;
+        setIsFormBLoaded(true);
       });
   },[confirmedEnrollmentId]);
 
   useEffect(()=>{
     if(!screeningId) return;
+    /* Reset load/autosave state when switching patients */
+    setIsFormBLoaded(false);
+    hasBirthRecordRef.current = false;
+    isInitialRender.current = true;
+
     let cancelled = false;
     const fetch=async()=>{
       try {
@@ -1082,6 +1192,7 @@ export default function BirthResuscitationForm() {
           screening_datetime: d.screening_datetime||"",
           contact_mother:  pii.mother_contact||pii.contact_mother||"",
           contact_husband: pii.husband_contact||pii.contact_husband||"",
+          ...(d.enrollment_id ? { enrollment_id: d.enrollment_id } : {}),
         });
         setSiteName(d.site_name || "");
 
@@ -1095,11 +1206,24 @@ export default function BirthResuscitationForm() {
         if (d.enrollment_id) {
           setStoredId("current_enrollment_id", d.enrollment_id);
           setConfirmedEnrollmentId(d.enrollment_id);
+          /* Birth-load effect will set isFormBLoaded when GET finishes */
         } else {
           localStorage.removeItem("current_enrollment_id");
           setConfirmedEnrollmentId(null);
+          hasBirthRecordRef.current = false;
+          isInitialRender.current = true;
+          /* No enrollment yet — enable autosave so it can POST once the
+             nurse enters enrollment_id + baby_uid */
+          setIsFormBLoaded(true);
         }
-      }catch(e){console.error(e);}
+      }catch(e){
+        console.error(e);
+        if (!cancelled) {
+          hasBirthRecordRef.current = false;
+          isInitialRender.current = true;
+          setIsFormBLoaded(true);
+        }
+      }
     };
     fetch();
     return () => { cancelled = true; };
@@ -1117,9 +1241,14 @@ export default function BirthResuscitationForm() {
         </div>
       )}
       {isSaved && isEditing && (
-        <div className="editing-mode-banner">
-          <span className="editing-mode-dot"/>
-          Editing mode — unsaved changes will be lost if you navigate away
+        <div className="editing-mode-banner" role="status">
+          <span className="editing-mode-icon" aria-hidden="true">
+            <Pencil size={14} strokeWidth={2.25} />
+          </span>
+          <div className="editing-mode-copy">
+            <span className="editing-mode-label">Editing mode</span>
+            <span className="editing-mode-hint">Unsaved changes will be lost if you navigate away</span>
+          </div>
         </div>
       )}
 
@@ -1132,7 +1261,7 @@ export default function BirthResuscitationForm() {
               <div className="form-header-title-area">
                 <div className="form-breadcrumb"><Home size={12}/> FORM B</div>
                 <h2 className="form-main-title">Birth &amp; Resuscitation</h2>
-                <p className="form-main-subtitle">Complete for all consented PORTAL Trial participants · CRF v1.22</p>
+                <p className="form-main-subtitle">Fill for all consented subjects · CRF Birth &amp; Resuscitation</p>
               </div>
               <div className="form-header-meta-area">
                 {isSaved && (
@@ -1312,12 +1441,37 @@ export default function BirthResuscitationForm() {
 
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>14. Intrauterine Growth Status (centile)</label>
+                    <label>14. Intrauterine Growth Status (centile, auto)</label>
                     <input type="text" name="intrauterine_centile"
                       value={formData.intrauterine_centile||""}
                       inputMode="decimal" placeholder="0–100"
                       onChange={e=>{const v=e.target.value;if(/^\d{0,3}(\.\d{0,2})?$/.test(v)&&(v===""||Number(v)<=100))set({intrauterine_centile:v});}}
                       readOnly={!isFieldEditable}/>
+                    <div className="ig-centile-hint">
+                      {(() => {
+                        const weeks = Number(formData.gestation_rand_weeks);
+                        const days  = Number(formData.gestation_rand_days);
+                        const weightKg = Number(formData.birth_weight) / 1000;
+                        const r = classifyVeryPretermCentile(weightKg, weeks, days, formData.gender);
+                        if (r) {
+                          const cols = ["3rd","5th","10th","50th","90th","95th","97th"];
+                          return (
+                            <>
+                              <div>Auto (INTERGROWTH-21st Very Preterm) — {r.label}</div>
+                              <div className="ig-centile-ref-row">
+                                {cols.map((c, i) => (
+                                  <span key={c} className="ig-centile-ref-cell">
+                                    <span className="ig-centile-ref-label">{c}</span>
+                                    <span className="ig-centile-ref-value">{r.row[i].toFixed(2)}kg</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        }
+                        return "Auto-fills once GA at randomization, birth weight and gender (Male/Female) are entered — covers 24+0–32+6 weeks only";
+                      })()}
+                    </div>
                   </div>
                   <div className="form-group">
                     <label>15. Delivery Mode{requiredMark}</label>
@@ -1354,9 +1508,9 @@ export default function BirthResuscitationForm() {
 
                 {/* Field 18: Indication — multi-select per CRF */}
                 <div className="form-group">
-                  <label>18. Indication for Delivery{requiredMark} <span className="field-note">(select all that apply)</span></label>
+                  <label>18. Indication{requiredMark} <span className="field-note">(select all that apply)</span></label>
                   <div className="multi-checkbox-group">
-                    {["pPROM","PTL","Absent/Reversed EDF","Fetal indication","Obstetric indication","Other"].map(opt => (
+                    {CRF_INDICATIONS.map(opt => (
                       <label key={opt} className={`multi-check-item${!isFieldEditable?" disabled":""}${(formData.indication_for_delivery||[]).includes(opt)?" checked":""}`}>
                         <input type="checkbox"
                           checked={(formData.indication_for_delivery||[]).includes(opt)}
@@ -1370,27 +1524,6 @@ export default function BirthResuscitationForm() {
                       </label>
                     ))}
                   </div>
-                  {(formData.indication_for_delivery||[]).includes("Absent/Reversed EDF") && (
-                    <div className="multi-check-other-row">
-                      <input type="text" className="multi-check-other-input" name="indication_edf_detail" value={formData.indication_edf_detail||""}
-                        onChange={handleChange} placeholder="Specify Absent/Reversed EDF details *"
-                        readOnly={!isFieldEditable}/>
-                    </div>
-                  )}
-                  {(formData.indication_for_delivery||[]).includes("Fetal indication") && (
-                    <div className="multi-check-other-row">
-                      <input type="text" className="multi-check-other-input" name="fetal_indication_detail" value={formData.fetal_indication_detail||""}
-                        onChange={handleChange} placeholder="Specify fetal indication *"
-                        readOnly={!isFieldEditable}/>
-                    </div>
-                  )}
-                  {(formData.indication_for_delivery||[]).includes("Obstetric indication") && (
-                    <div className="multi-check-other-row">
-                      <input type="text" className="multi-check-other-input" name="obstetric_indication_detail" value={formData.obstetric_indication_detail||""}
-                        onChange={handleChange} placeholder="Specify obstetric indication *"
-                        readOnly={!isFieldEditable}/>
-                    </div>
-                  )}
                   {(formData.indication_for_delivery||[]).includes("Other") && (
                     <div className="multi-check-other-row">
                       <input type="text" className="multi-check-other-input" name="indication_for_delivery_other"
@@ -1416,25 +1549,36 @@ export default function BirthResuscitationForm() {
               </div>
               <div className="form-section-body">
 
-                <YesNoToggle label={<>19. Respiratory Effort — Absent/Poor? (No = Normal){requiredMark}</>}
+                <YesNoToggle label={<>19. Respiratory effort{requiredMark}</>}
                   name="poor_resp_efforts" value={formData.poor_resp_efforts}
+                  yesLabel="Absent/poor" noLabel="Normal"
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label={<>20. Muscle Tone — Limp/Poor? (No = Normal){requiredMark}</>}
+                <YesNoToggle label={<>20. Muscle tone{requiredMark}</>}
                   name="poor_muscle_tone" value={formData.poor_muscle_tone}
+                  yesLabel="Limp/poor" noLabel="Normal"
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label={<>21. Heart Rate &gt; 100{requiredMark}</>}
-                  name="hr_above_100" value={formData.hr_above_100||""}
+                <YesNoToggle label={<>21. HR &lt; 100{requiredMark}</>}
+                  name="hr_below_100" value={formData.hr_below_100||""}
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label={<>22. Initial Steps Required (Warm, Dry, Stimulate, Suction){requiredMark}</>}
+                <YesNoToggle label={<>22. Initial steps{requiredMark}</>}
                   name="initial_steps" value={formData.initial_steps}
+                  yesLabel="Required" noLabel="Not required"
                   onChange={handleChange} disabled={!isFieldEditable}/>
-                <YesNoToggle label={<>23. Does baby require ventilation (PPV){requiredMark}</>}
+                <YesNoToggle label={<>23. Does baby require ventilation (PPV)?{requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
+                  yesLabel="Required" noLabel="Not required"
                   onChange={e=>{
                     handleChange(e);
                     if(e.target.value==="No"){
                       localStorage.setItem("enrollment_locked","true");
+                      localStorage.setItem("enrollment_lock_reason", "no_ppv");
                       window.dispatchEvent(new Event("storage"));
+                    } else if (e.target.value === "Yes") {
+                      if (localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+                        localStorage.removeItem("enrollment_locked");
+                        localStorage.removeItem("enrollment_lock_reason");
+                        window.dispatchEvent(new Event("storage"));
+                      }
                     }
                   }}
                   disabled={!isFieldEditable}/>
@@ -1442,8 +1586,8 @@ export default function BirthResuscitationForm() {
                 {formData.required_resuscitation==="No" && (
                   <div className="alert-danger">
                     <AlertTriangle size={16}/>
-                    Resuscitation beyond initial steps not required — participation ends here.
-                    Save Form B and submit. No further forms required.
+                    Resuscitation (PPV) not required — Forms D and later stay locked.
+                    Complete Forms A–C only, then stop.
                   </div>
                 )}
 
@@ -1528,113 +1672,104 @@ export default function BirthResuscitationForm() {
                 <div className="form-section-header">
                   <div className="section-title-left">
                     <Activity size={15} className="section-header-icon"/>
-                    <h3>B4 · Resuscitation Interventions</h3>
+                    <h3>B4 · Resuscitation Details</h3>
                   </div>
                 </div>
                 <div className="form-section-body">
 
-                  {/* 29. PPV */}
-                  <YesNoToggle label={<>29. PPV (Positive Pressure Ventilation) Required{requiredMark}</>}
-                    name="ppv_required" value={formData.ppv_required}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({device_ppv:"",sib_peep_with:"",sib_peep_cmh2o:"",tpiece_pip:"",tpiece_peep:"",tpiece_flow:"",interface_used:"",ppv_duration:""});}}
-                    disabled={!isFieldEditable}/>
-                  {formData.ppv_required==="Yes" && (
-                    <div className="followup-box">
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>Device used{requiredMark}</label>
-                          <select name="device_ppv" value={formData.device_ppv||""}
-                            disabled={!isFieldEditable}
-                            onChange={e=>{handleChange(e);set({sib_peep_with:"",sib_peep_cmh2o:"",tpiece_pip:"",tpiece_peep:"",tpiece_flow:""});}}>
-                            <option value="">-- Select --</option>
-                            <option value="T-piece">T-piece resuscitator</option>
-                            <option value="Self-inflating bag">Self-inflating bag (SIB)</option>
-                            <option value="Both">Both</option>
-                          </select>
-                        </div>
-                        <div/>
+                  {/* 29. PPV device details (Q23 Required → B4 path) */}
+                  <div className="followup-box" style={{marginTop:0}}>
+                    <span className="followup-label">29. PPV (Ventilation)</span>
+                    <div className="form-grid-2">
+                      <div className="form-group">
+                        <label>Device used{requiredMark}</label>
+                        <select name="device_ppv" value={formData.device_ppv||""}
+                          disabled={!isFieldEditable}
+                          onChange={e=>{handleChange(e);set({sib_peep_with:"",sib_peep_cmh2o:"",tpiece_pip:"",tpiece_peep:"",tpiece_flow:""});}}>
+                          <option value="">-- Select --</option>
+                          <option value="T-piece">T-piece resuscitator</option>
+                          <option value="Self-inflating bag">Self-inflating bag (SIB)</option>
+                          <option value="Both">Both</option>
+                        </select>
                       </div>
-                      {(formData.device_ppv==="Self-inflating bag"||formData.device_ppv==="Both") && (
-                        <div className="followup-box">
-                          <div className="form-grid-3">
+                      <div/>
+                    </div>
+                    {(formData.device_ppv==="Self-inflating bag"||formData.device_ppv==="Both") && (
+                      <div className="followup-box">
+                        <div className="form-grid-3">
+                          <div className="form-group">
+                            <label>29a. If SIB{requiredMark}</label>
+                            <select name="sib_peep_with" value={formData.sib_peep_with||""}
+                              disabled={!isFieldEditable} onChange={handleChange}>
+                              <option value="">-- Select --</option>
+                              <option value="Yes">With PEEP valve</option>
+                              <option value="No">Without PEEP valve</option>
+                            </select>
+                          </div>
+                          {formData.sib_peep_with==="Yes" && (
                             <div className="form-group">
-                              <label>29a. SIB — With PEEP valve?{requiredMark}</label>
-                              <select name="sib_peep_with" value={formData.sib_peep_with||""}
-                                disabled={!isFieldEditable} onChange={handleChange}>
-                                <option value="">-- Select --</option>
-                                <option value="Yes">Yes</option>
-                                <option value="No">No</option>
-                              </select>
+                              <label>PEEP (cm H₂O){requiredMark}</label>
+                              <input type="text" name="sib_peep_cmh2o" value={formData.sib_peep_cmh2o||""}
+                                inputMode="numeric" maxLength={3} placeholder="cm H₂O" readOnly={!isFieldEditable}
+                                onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({sib_peep_cmh2o:e.target.value});}}/>
                             </div>
-                            {formData.sib_peep_with==="Yes" && (
-                              <div className="form-group">
-                                <label>PEEP value (cmH₂O){requiredMark}</label>
-                                <input type="text" name="sib_peep_cmh2o" value={formData.sib_peep_cmh2o||""}
-                                  inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
-                                  onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({sib_peep_cmh2o:e.target.value});}}/>
-                              </div>
-                            )}
-                            <div/>
+                          )}
+                          <div/>
+                        </div>
+                      </div>
+                    )}
+                    {(formData.device_ppv==="T-piece"||formData.device_ppv==="Both") && (
+                      <div className="followup-box">
+                        <div className="form-grid-3">
+                          <div className="form-group">
+                            <label>29b. If T-piece — PIP (cm H₂O){requiredMark}</label>
+                            <input type="text" name="tpiece_pip" value={formData.tpiece_pip||""}
+                              inputMode="numeric" maxLength={3} placeholder="cm H₂O" readOnly={!isFieldEditable}
+                              onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_pip:e.target.value});}}/>
+                          </div>
+                          <div className="form-group">
+                            <label>PEEP (cm H₂O){requiredMark}</label>
+                            <input type="text" name="tpiece_peep" value={formData.tpiece_peep||""}
+                              inputMode="numeric" maxLength={3} placeholder="cm H₂O" readOnly={!isFieldEditable}
+                              onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_peep:e.target.value});}}/>
+                          </div>
+                          <div className="form-group">
+                            <label>Flow rate (L/min){requiredMark}</label>
+                            <input type="text" name="tpiece_flow" value={formData.tpiece_flow||""}
+                              inputMode="numeric" maxLength={3} placeholder="L/min" readOnly={!isFieldEditable}
+                              onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_flow:e.target.value});}}/>
                           </div>
                         </div>
-                      )}
-                      {(formData.device_ppv==="T-piece"||formData.device_ppv==="Both") && (
-                        <div className="followup-box">
-                          <div className="form-grid-3">
-                            <div className="form-group">
-                              <label>29b. T-piece PIP (cmH₂O){requiredMark}</label>
-                              <input type="text" name="tpiece_pip" value={formData.tpiece_pip||""}
-                                inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
-                                onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_pip:e.target.value});}}/>
-                            </div>
-                            <div className="form-group">
-                              <label>PEEP (cmH₂O){requiredMark}</label>
-                              <input type="text" name="tpiece_peep" value={formData.tpiece_peep||""}
-                                inputMode="numeric" maxLength={3} placeholder="cmH₂O" readOnly={!isFieldEditable}
-                                onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_peep:e.target.value});}}/>
-                            </div>
-                            <div className="form-group">
-                              <label>Flow Rate (L/min){requiredMark}</label>
-                              <input type="text" name="tpiece_flow" value={formData.tpiece_flow||""}
-                                inputMode="numeric" maxLength={3} placeholder="L/min" readOnly={!isFieldEditable}
-                                onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({tpiece_flow:e.target.value});}}/>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>30. Interface{requiredMark}</label>
-                          <select name="interface_used" value={formData.interface_used||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="Mask">Mask</option>
-                            <option value="LMA">LMA</option>
-                            <option value="Mask + LMA">Mask + LMA</option>
-                            <option value="Endotracheal tube">Endotracheal tube</option>
-                          </select>
-                        </div>
-                        <div/>
                       </div>
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>31. Duration of PPV (sec){requiredMark} <span className="field-note">from PORTAL timer</span></label>
-                          <input type="text" name="ppv_duration" value={formData.ppv_duration||""}
-                            inputMode="numeric" maxLength={4} placeholder="seconds" readOnly={!isFieldEditable}
-                            onChange={e=>{if(/^\d{0,4}$/.test(e.target.value))set({ppv_duration:e.target.value});}}/>
-                        </div>
-                        <div/>
+                    )}
+                    <div className="form-grid-2">
+                      <div className="form-group">
+                        <label>30. Interface{requiredMark}</label>
+                        <select name="interface_used" value={formData.interface_used||""}
+                          disabled={!isFieldEditable} onChange={handleChange}>
+                          <option value="">-- Select --</option>
+                          <option value="Mask">Mask</option>
+                          <option value="LMA">LMA</option>
+                          <option value="Mask + LMA">Mask + LMA</option>
+                          <option value="Endotracheal tube">Endotracheal tube</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>31. Duration of PPV (sec){requiredMark} <span className="field-note">from APGAR timer</span></label>
+                        <input type="text" name="ppv_duration" value={formData.ppv_duration||""}
+                          inputMode="numeric" maxLength={4} placeholder="seconds" readOnly={!isFieldEditable}
+                          onChange={e=>{if(/^\d{0,4}$/.test(e.target.value))set({ppv_duration:e.target.value});}}/>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* 32. Intubation */}
-                  <YesNoToggle label={<>32. Endotracheal Intubation{requiredMark}</>}
+                  <YesNoToggle label={<>32. Endotracheal intubation{requiredMark}</>}
                     name="intubation" value={formData.intubation}
                     onChange={handleChange} disabled={!isFieldEditable}/>
 
                   {/* 33–34. Chest compressions */}
-                  <YesNoToggle label={<>33. Chest Compressions{requiredMark}</>}
+                  <YesNoToggle label={<>33. Chest compressions{requiredMark}</>}
                     name="chest_compression" value={formData.chest_compression}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({cc_duration:""}); }}
                     disabled={!isFieldEditable}/>
@@ -1642,7 +1777,7 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>34. Duration of CC (sec){requiredMark} <span className="field-note">from PORTAL timer</span></label>
+                          <label>34. Duration of CC (sec){requiredMark} <span className="field-note">from APGAR timer</span></label>
                           <input type="text" name="cc_duration" value={formData.cc_duration||""}
                             inputMode="numeric" maxLength={4} placeholder="seconds" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,4}$/.test(e.target.value))set({cc_duration:e.target.value});}}/>
@@ -1653,9 +1788,9 @@ export default function BirthResuscitationForm() {
                   )}
 
                   {/* 35–37. Epinephrine */}
-                  <YesNoToggle label={<>35. Epinephrine (Adrenaline){requiredMark}</>}
+                  <YesNoToggle label={<>35. Epinephrine{requiredMark}</>}
                     name="adrenaline" value={formData.adrenaline}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:"",med_doses:"",adrenaline_cumulative:""}); }}
+                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:""}); }}
                     disabled={!isFieldEditable}/>
                   {formData.adrenaline==="Yes" && (
                     <div className="followup-box">
@@ -1680,25 +1815,11 @@ export default function BirthResuscitationForm() {
                           </select>
                         </div>
                       </div>
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>39. Number of Doses{requiredMark}</label>
-                          <input type="text" name="med_doses" value={formData.med_doses||""}
-                            inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
-                            onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({med_doses:e.target.value});}}/>
-                        </div>
-                        <div className="form-group">
-                          <label>40. Cumulative Dose (ml/mg){requiredMark}</label>
-                          <input type="text" name="adrenaline_cumulative" value={formData.adrenaline_cumulative||""}
-                            inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
-                            onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({adrenaline_cumulative:e.target.value});}}/>
-                        </div>
-                      </div>
                     </div>
                   )}
 
-                  {/* 41–43. Fluid bolus */}
-                  <YesNoToggle label={<>41. Fluid Bolus{requiredMark}</>}
+                  {/* 38–40. Fluid bolus */}
+                  <YesNoToggle label={<>38. Fluid bolus{requiredMark}</>}
                     name="fluid_bolus" value={formData.fluid_bolus}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({fluid_bolus_doses:"",fluid_bolus_cumulative:""});}}
                     disabled={!isFieldEditable}/>
@@ -1706,13 +1827,13 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>42. Number of Doses{requiredMark}</label>
+                          <label>39. Doses{requiredMark}</label>
                           <input type="text" name="fluid_bolus_doses" value={formData.fluid_bolus_doses||""}
                             inputMode="numeric" maxLength={2} placeholder="doses" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d{0,2}$/.test(e.target.value))set({fluid_bolus_doses:e.target.value});}}/>
                         </div>
                         <div className="form-group">
-                          <label>43. Cumulative Volume/Dose (ml/mg){requiredMark}</label>
+                          <label>40. Cumulative (ml/mg){requiredMark}</label>
                           <input type="text" name="fluid_bolus_cumulative" value={formData.fluid_bolus_cumulative||""}
                             inputMode="decimal" placeholder="ml/mg" readOnly={!isFieldEditable}
                             onChange={e=>{if(/^\d*\.?\d{0,2}$/.test(e.target.value))set({fluid_bolus_cumulative:e.target.value});}}/>
@@ -1721,8 +1842,8 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 44–47. Placental transfusion */}
-                  <YesNoToggle label={<>44. Placental Transfusion{requiredMark}</>}
+                  {/* 41–44. Placental transfusion */}
+                  <YesNoToggle label={<>41. Placental transfusion{requiredMark}</>}
                     name="placental_transfusion" value={formData.placental_transfusion}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({transfusion_method:"",cord_clamp_time:"",cord_clamp_timestamp:""});}}
                     disabled={!isFieldEditable}/>
@@ -1730,16 +1851,16 @@ export default function BirthResuscitationForm() {
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>45. Method{requiredMark}</label>
+                          <label>42. Method{requiredMark}</label>
                           <select name="transfusion_method" value={formData.transfusion_method||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
-                            <option value="Deferred clamping">Deferred cord clamping (DCC)</option>
-                            <option value="Intact cord milking">Intact cord milking (ICM)</option>
+                            <option value="Deferred clamping">Deferred clamping</option>
+                            <option value="Intact cord milking">Intact cord milking</option>
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>46. Cord clamped at (HH:MM:SS){requiredMark}</label>
+                          <label>43. Cord clamped at (HH:MM:SS){requiredMark}</label>
                           <ModernTimeInput
                             hour={getTimePart("cord_clamp_timestamp","h")}
                             minute={getTimePart("cord_clamp_timestamp","m")}
@@ -1750,7 +1871,7 @@ export default function BirthResuscitationForm() {
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>47. Cord clamping time from birth (sec) <span className="field-note">auto-filled or enter directly</span></label>
+                          <label>44. Cord clamping time from birth (sec) <span className="field-note">auto-filled or enter directly</span></label>
                           <input type="text" name="cord_clamp_time" value={formData.cord_clamp_time||""}
                             inputMode="numeric" maxLength={3} placeholder="0–300" readOnly={!isFieldEditable}
                             className={errors.cord_clamp_time?"input-error":""}
@@ -1762,10 +1883,10 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* Timings */}
+                  {/* Timings 45–47 */}
                   <div className="form-grid-2" style={{marginTop:16}}>
                     <div className="form-group">
-                      <label>48. Time to Spontaneous Respiratory Efforts (HH:MM:SS)</label>
+                      <label>45. Time to spontaneous respiratory efforts (HH:MM:SS)</label>
                       <DurationField mode="hms" name="time_to_respiration"
                         value={formData.time_to_respiration}
                         disabled={!isFieldEditable}
@@ -1773,7 +1894,7 @@ export default function BirthResuscitationForm() {
                         onChange={v => set({ time_to_respiration: v })}/>
                     </div>
                     <div className="form-group">
-                      <label>49. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>46. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <input type="text" name="spo2_5min" value={formData.spo2_5min||""}
                         inputMode="numeric" maxLength={3} placeholder="0–100"
                         readOnly={!isFieldEditable}
@@ -1782,7 +1903,7 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>50. Time to SpO₂ &gt; 80% (MM:SS) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>47. Time to SpO₂ &gt; 80% (MM:SS) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <DurationField mode="ms" name="time_to_spo2_80"
                         value={formData.time_to_spo2_80}
                         disabled={!isFieldEditable}
@@ -1802,7 +1923,7 @@ export default function BirthResuscitationForm() {
                 <div className="form-section-header">
                   <div className="section-title-left">
                     <BarChart2 size={15} className="section-header-icon"/>
-                    <h3>B5 · Minute-wise Intervention Summary</h3>
+                    <h3>B5 · Intervention</h3>
                   </div>
                 </div>
                 <div className="form-section-body" style={{padding:"14px 0 4px"}}>
@@ -1823,13 +1944,8 @@ export default function BirthResuscitationForm() {
                       </thead>
                       <tbody>
                         {[
-                          {key:"oxygen",         label:"51. Oxygen"},
-                          {key:"ventilation",     label:"52. Ventilation"},
-                          {key:"chest_compression",label:"53. Chest Compression"},
-                          {key:"intubation",      label:"54. Intubation"},
-                          {key:"medication",      label:"55. Medication"},
-                          {key:"fluid_bolus",     label:"53. Fluid Bolus"},
-                          {key:"cpap",            label:"54. CPAP"},
+                          {key:"oxygen", label:"48. Oxygen"},
+                          {key:"cpap",   label:"49. CPAP"},
                         ].map((row,ri)=>(
                           <tr key={row.key} style={{background:ri%2===0?"#fff":"#f9fafb"}}>
                             <td style={{padding:"9px 14px",fontSize:12,fontWeight:600,color:"#374151",
@@ -1847,7 +1963,7 @@ export default function BirthResuscitationForm() {
                         {/* Apgar row */}
                         <tr style={{background:"#fffbeb"}}>
                           <td style={{padding:"9px 14px",fontSize:12,fontWeight:700,color:"#92400e",
-                            borderBottom:"1px solid #fde68a",whiteSpace:"nowrap"}}>55. Apgar Score</td>
+                            borderBottom:"1px solid #fde68a",whiteSpace:"nowrap"}}>50. Apgar score</td>
                           {times.map(t=>(
                             <td key={t} style={{padding:"6px 8px",textAlign:"center",borderBottom:"1px solid #fde68a"}}>
                               <input type="text" inputMode="numeric" maxLength={2} placeholder="0–10"
@@ -1859,18 +1975,6 @@ export default function BirthResuscitationForm() {
                                   border:"1px solid #fde68a",textAlign:"center",fontSize:12,fontWeight:700}}/>
                             </td>
                           ))}
-                        </tr>
-                        {/* Trend */}
-                        <tr style={{background:"#fffbeb"}}>
-                          <td style={{padding:"6px 14px",fontSize:11,fontWeight:600,color:"#92400e",
-                            borderBottom:"1px solid #fde68a"}}>Trend</td>
-                          {times.map((t,i,arr)=>{
-                            const cur=Number(formData.interventions.apgar?.[t]||0);
-                            const prev=Number(formData.interventions.apgar?.[arr[i-1]]||0);
-                            let sym="•";
-                            if(i!==0&&cur){if(cur>prev)sym="⬆️";else if(cur<prev)sym="⬇️";else sym="➡️";}
-                            return<td key={t} style={{textAlign:"center",fontSize:15,borderBottom:"1px solid #fde68a"}}>{sym}</td>;
-                          })}
                         </tr>
                       </tbody>
                     </table>
@@ -1890,25 +1994,24 @@ export default function BirthResuscitationForm() {
                 </div>
                 <div className="form-section-body">
 
-                  {/* 56. Cord Blood
-                      Branching: 56=Yes -> only 59. 56=No -> ask 57.
-                      57=Yes -> 58 + 59. 57=No -> 60 (Resuscitation Failure). */}
-                  <YesNoToggle label={<>56. Cord Blood Analysis Done{requiredMark}</>}
+                  {/* 51. Cord Blood
+                      Branching: 51=Yes -> gases (54). 51=No -> ask 52.
+                      52=Yes -> 53 source + 54 gases. 55 resus failure always. */}
+                  <YesNoToggle label={<>51. Cord blood analysis{requiredMark}</>}
                     name="cord_blood_done" value={formData.cord_blood_done||""}
-                    onChange={e=>{handleChange(e);set({cord_blood_within_1hr:"",cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:"",resus_failure:""});}}
+                    onChange={e=>{handleChange(e);set({cord_blood_within_1hr:"",cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});}}
                     disabled={!isFieldEditable}/>
 
                   {formData.cord_blood_done==="No" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>57. Within 1 hour of birth — sample taken?{requiredMark}</label>
+                          <label>52. If no, within 1 hr of birth sample{requiredMark}</label>
                           <select name="cord_blood_within_1hr" value={formData.cord_blood_within_1hr||""}
                             disabled={!isFieldEditable}
                             onChange={e=>{
                               handleChange(e);
-                              if (e.target.value==="Yes") set({ resus_failure:"" });
-                              else set({cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});
+                              if (e.target.value!=="Yes") set({cord_blood_source:"",cord_ph:"",cord_sbe:"",cord_pco2:""});
                             }}>
                             <option value="">-- Select --</option>
                             <option value="Yes">Yes</option>
@@ -1920,12 +2023,12 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 58. Source — only on the 57=Yes branch */}
+                  {/* 53. Source — when within-1hr sample was taken */}
                   {formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>58. Source{requiredMark}</label>
+                          <label>53. Source{requiredMark}</label>
                           <select name="cord_blood_source" value={formData.cord_blood_source||""}
                             disabled={!isFieldEditable} onChange={handleChange}>
                             <option value="">-- Select --</option>
@@ -1938,12 +2041,12 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 59. pH/SBE/pCO2 — on 56=Yes branch, or the 56=No + 57=Yes branch */}
+                  {/* 54. pH/SBE/pCO2 — any sample path */}
                   {(formData.cord_blood_done==="Yes" || (formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="Yes")) && (
                     <div className="followup-box">
                       <div className="form-grid-3">
                         <div className="form-group">
-                          <label>59. pH{requiredMark}</label>
+                          <label>54. pH{requiredMark}</label>
                           <input type="text" name="cord_ph" value={formData.cord_ph||""}
                             placeholder="6.8-7.8" readOnly={!isFieldEditable}
                             className={errors.cord_ph?"input-error":""}
@@ -1951,13 +2054,13 @@ export default function BirthResuscitationForm() {
                           {errors.cord_ph&&<div className="field-error">{errors.cord_ph}</div>}
                         </div>
                         <div className="form-group">
-                          <label>59. SBE{requiredMark}</label>
+                          <label>54. SBE{requiredMark}</label>
                           <input type="text" name="cord_sbe" value={formData.cord_sbe||""}
                             placeholder="-30 to +30" readOnly={!isFieldEditable}
                             onChange={e=>{const v=e.target.value;if(/^-?\d*\.?\d{0,1}$/.test(v)&&(v===""||v==="-"||(Number(v)>=-30&&Number(v)<=30)))set({cord_sbe:v});}}/>
                         </div>
                         <div className="form-group">
-                          <label>59. pCO2 (mmHg){requiredMark}</label>
+                          <label>54. pCO₂{requiredMark}</label>
                           <input type="text" name="cord_pco2" value={formData.cord_pco2||""}
                             placeholder="10-100" inputMode="decimal" readOnly={!isFieldEditable}
                             onChange={e=>{const v=e.target.value;if(/^\d{0,3}(\.\d{0,1})?$/.test(v)&&(v===""||v==="."||Number(v)<=200))set({cord_pco2:v});}}/>
@@ -1966,23 +2069,20 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 60. Resuscitation Failure — only on the 56=No + 57=No branch */}
-                  {formData.cord_blood_done==="No" && formData.cord_blood_within_1hr==="No" && (
-                    <YesNoToggle label={<>60. Resuscitation Failure{requiredMark}</>}
-                      name="resus_failure" value={formData.resus_failure}
-                      onChange={handleChange} disabled={!isFieldEditable}/>
-                  )}
+                  <YesNoToggle label={<>55. Resuscitation failure{requiredMark}</>}
+                    name="resus_failure" value={formData.resus_failure}
+                    onChange={handleChange} disabled={!isFieldEditable}/>
 
                   <div className="form-grid-2" style={{marginTop:14}}>
                     <div className="form-group">
-                      <label>61. SpO2 at exit from trial gas (%) <span className="field-note">cross-verify with oximeter</span></label>
+                      <label>56. SpO₂ at exit from trial gas (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
                       <input type="text" name="spo2_exit_trial_gas" value={formData.spo2_exit_trial_gas||""}
                         inputMode="numeric" maxLength={3} placeholder="0-100"
                         readOnly={!isFieldEditable}
                         onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=100))set({spo2_exit_trial_gas:v});}}/>
                     </div>
                     <div className="form-group">
-                      <label>62. Total Resuscitation Time (min) <span className="field-note">from PORTAL timer</span></label>
+                      <label>57. Total time (min) <span className="field-note">from APGAR timer</span></label>
                       <input type="text" name="total_resus_time" value={formData.total_resus_time||""}
                         inputMode="numeric" maxLength={3} placeholder="minutes"
                         readOnly={!isFieldEditable}
@@ -1992,7 +2092,7 @@ export default function BirthResuscitationForm() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>63. Reason for Resuscitation Exit{requiredMark}</label>
+                      <label>58. Reason for resuscitation exit{requiredMark}</label>
                       <select name="reason_exit_trial_gas"
                         value={formData.reason_exit_trial_gas||""}
                         disabled={!isFieldEditable} onChange={handleChange}>
@@ -2011,14 +2111,14 @@ export default function BirthResuscitationForm() {
                     <div/>
                   </div>
 
-                  <YesNoToggle label={<>64. Did the PORTAL Blender Stop Suddenly During Use?{requiredMark}</>}
+                  <YesNoToggle label={<>59. Did the PORTAL blender stop suddenly during use?{requiredMark}</>}
                     name="blender_stopped" value={formData.blender_stopped}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({blender_stopped_description:""});}}
                     disabled={!isFieldEditable}/>
                   {formData.blender_stopped==="Yes" && (
                     <div className="followup-box">
                       <div className="form-group">
-                        <label>64. If Yes, Describe{requiredMark}</label>
+                        <label>If yes, describe{requiredMark}</label>
                         <textarea name="blender_stopped_description"
                           value={formData.blender_stopped_description||""}
                           maxLength={1000} rows={3} readOnly={!isFieldEditable}
@@ -2033,7 +2133,11 @@ export default function BirthResuscitationForm() {
             </>)}
 
             {/* Notes */}
-            <NotesBox formKey={`form_b_${formData.screening_id||"new"}`}/>
+            <NotesBox formKey={`form_b_${(
+              (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
+              || formData.screening_id
+              || "new"
+            )}`}/>
 
             {message && (
               <div className={`form-message${message.startsWith("✅")?" msg-success":" msg-error"}`}>
@@ -2158,6 +2262,8 @@ export default function BirthResuscitationForm() {
           </div>
         </div>
       )}
+
+      <PrintSummaryB formData={formData} />
     </>
   );
 }

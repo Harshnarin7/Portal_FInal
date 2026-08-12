@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -17,12 +17,13 @@ import models
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
-    CranialUltrasound, ROPScreening, CompositeOutcome,
+    CranialUltrasound, ROPScreening, CompositeOutcome, ExternalHospitalAssessment,
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
-    MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, CranialUSGRecord, SAEReport, AdverseEvents,
+    MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, MinimalMonitoringDayLog,
+    CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -117,18 +118,18 @@ app.include_router(dashboard_router.router)
 
 @app.on_event("startup")
 def on_startup_migrations():
-    # â”€â”€ DB connectivity check with retry (safe for AWS RDS cold start) â”€â”€
+    #  -  DB connectivity check with retry (safe for AWS RDS cold start)  - 
     import time
     for attempt in range(1, 6):
         try:
             with engine.connect() as conn:
                 db_name = conn.execute(text("SELECT current_database()")).scalar()
-                logger.info("âœ… CONNECTED DB: %s", db_name)
+                logger.info(" -  CONNECTED DB: %s", db_name)
             break
         except Exception as exc:
             logger.warning("DB not ready (attempt %s/5): %s", attempt, exc)
             if attempt == 5:
-                logger.error("âŒ Could not connect to DB after 5 attempts â€” startup continuing anyway")
+                logger.error(" -  Could not connect to DB after 5 attempts  -  startup continuing anyway")
             else:
                 time.sleep(3)
 
@@ -164,7 +165,7 @@ def on_startup_migrations():
         new_accounts = seed_login_users(db)
         if new_accounts:
             logger.info(
-                "Seeded %s login account(s) — temp passwords written to "
+                "Seeded %s login account(s) ? temp passwords written to "
                 "backend/credentials/ on this server, NOT logged. Retrieve "
                 "and delete that file after distributing passwords.",
                 new_accounts,
@@ -216,7 +217,7 @@ ALLOWED_ORIGINS = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
 
-print(f"ðŸ“ CORS Allowed Origins: {ALLOWED_ORIGINS}")
+print(f" - - CORS Allowed Origins: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -234,10 +235,10 @@ app.add_middleware(
 # create-screening payload with zero validation, generating the ID prefix
 # straight from it (see generate_screening_id below). The frontend has its
 # own SITE_ID_MAP (ScreeningForm.jsx) that's SUPPOSED to match this, and
-# does today — but nothing enforced that, so any drift between them (a
+# does today ? but nothing enforced that, so any drift between them (a
 # frontend bug, a stale build, or a legacy user account with a wrong
 # site_name already stored from before naming conventions were settled)
-# could silently produce a screening_id with the WRONG site prefix — e.g. a
+# could silently produce a screening_id with the WRONG site prefix ? e.g. a
 # GMCH screening getting "01-" (PGIMER's prefix) instead of "02-". This is
 # now the single source of truth: create_screening below computes site_id
 # from site_name itself and ignores whatever the client sent for site_id,
@@ -256,14 +257,14 @@ def generate_screening_id(site_id: str, db: Session):
     # Sequential per-site IDs: "<site_id>-0001", "<site_id>-0002", ...
     #
     # FIX: the previous version did `ORDER BY screening_id DESC LIMIT 1` to
-    # find "the highest existing ID" — but screening_id is a text column, so
+    # find "the highest existing ID" ? but screening_id is a text column, so
     # that's a LEXICOGRAPHIC (string) sort, not a numeric one. Any row whose
     # suffix isn't purely digits (e.g. a legacy/test id like
     # "01-20260626-034005-3GUN") can still sort ahead of a plain numeric one
-    # like "01-1000" simply because '2' > '1' as a character — and since
+    # like "01-1000" simply because '2' > '1' as a character ? and since
     # that suffix fails the isdigit() check below, next_number silently fell
     # back to 1, handing out an ID ("01-0001", or whatever number) that
-    # already exists → unique constraint violation on insert.
+    # already exists ? unique constraint violation on insert.
     #
     # Fix: scan every existing id under this site's prefix, parse out only
     # the ones with a purely-numeric suffix, and take the true numeric max
@@ -287,16 +288,20 @@ def generate_screening_id(site_id: str, db: Session):
 def compute_screening_status(data):
     if data.gestation_weeks is None:
         return "Screen Failure"
-    
-    if data.gestation_weeks >= 32:
+
+    weeks = int(data.gestation_weeks)
+    days = int(getattr(data, "gestation_days", None) or 0)
+    total_days = weeks * 7 + days
+    # Eligible window: 25w0d ? 31w6d inclusive
+    if total_days < 25 * 7 or total_days > 31 * 7 + 6:
         return "Screen Failure"
-    
+
     if data.exclusion_present:
         return "Screen Failure"
-    
+
     if data.consent_given == "Yes":
         return "Eligible"
-    
+
     return "Not Eligible"
 
 def get_accessible_screening_query(db: Session, user: User):
@@ -309,7 +314,7 @@ def require_enrollment_access(enrollment_id: str, db: Session, user: User):
     if not enrollment_id or not enrollment_id.strip():
         raise HTTPException(
             status_code=422,
-            detail="enrollment_id is required — this form can't be saved until randomization assigns one.",
+            detail="enrollment_id is required ? this form can't be saved until randomization assigns one.",
         )
     screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
     if screening:
@@ -330,7 +335,7 @@ def site_for_enrollment(db: Session, enrollment_id: str | None) -> str | None:
 def root():
     return {"message": "PORTAL Trial API is running!"}
 
-# Health check endpoint â€” required by AWS ALB, ECS, and Elastic Beanstalk
+# Health check endpoint  -  required by AWS ALB, ECS, and Elastic Beanstalk
 @app.get("/health")
 def health_check():
     try:
@@ -341,7 +346,7 @@ def health_check():
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=503, content={"status": "error", "db": str(exc)})
 
-# Version endpoint â€” reports which git commit is actually running, so
+# Version endpoint  -  reports which git commit is actually running, so
 # deployment status can be checked with `curl https://api.<host>/version`
 # instead of guessing from GitHub history. deploy.sh writes VERSION at
 # deploy time; if it's missing (e.g. local dev, or an older deploy that
@@ -354,7 +359,7 @@ def version_check():
             info = f.read().strip()
         return {"deployed_commit": info or "unknown"}
     except FileNotFoundError:
-        return {"deployed_commit": "unknown", "note": "VERSION file not found â€” deploy.sh may predate this endpoint, or this is a local/dev run"}
+        return {"deployed_commit": "unknown", "note": "VERSION file not found  -  deploy.sh may predate this endpoint, or this is a local/dev run"}
 
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS
@@ -379,7 +384,7 @@ def remove_user(
     current_user: User = Depends(get_current_user),
 ):
     """Superadmin-only. By default this DEACTIVATES the account (is_active=
-    False) rather than deleting the row — the account can no longer log in,
+    False) rather than deleting the row ? the account can no longer log in,
     but historical screenings/forms created under their username still show
     who did what. Pass ?hard_delete=true only if you're certain the account
     never created any records (irreversible, and will break any records
@@ -468,7 +473,7 @@ def admin_reset_password(
 # now live in routers/auth.py (shared by the web portal and the Flutter app).
 
 # ============================================================================
-# FORM A â€” SCREENING ENDPOINTS
+# FORM A  -  SCREENING ENDPOINTS
 # ============================================================================
 
 @app.get("/screenings/", response_model=list[ScreeningClinicalOut])
@@ -477,9 +482,12 @@ def get_screenings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 200,
 ):
-    limit = min(limit, 100)
+    # Mobile + webforms share this list. Default was 50 which hid older
+    # patients on both clients; cap at 500 to keep bulk exports bounded.
+    limit = min(max(limit, 1), 500)
+    skip = max(skip, 0)
     rows = (
         get_accessible_screening_query(db, current_user)
         .order_by(Screening.created_at.desc())
@@ -502,10 +510,10 @@ def get_screening_stats(
     current_user: User = Depends(get_current_user),
 ):
     # Mobile app dashboards (nurse/PI/scientist/DEO/monitor home screens)
-    # call this for their stat cards — it previously didn't exist at all,
+    # call this for their stat cards ? it previously didn't exist at all,
     # so every call silently failed and cards always showed 0/"--".
     # Deliberately a simple {total, enrolled, excluded, pending} shape,
-    # not the full CONSORT box breakdown — same site-scoping as GET
+    # not the full CONSORT box breakdown ? same site-scoping as GET
     # /screenings/ so these numbers always agree with the patient list.
     rows = get_accessible_screening_query(db, current_user).all()
     enrolled = sum(1 for r in rows if r.screening_status == "Eligible" and r.consent_given == "Yes")
@@ -542,7 +550,7 @@ def create_screening(
     ensure_same_site(screening.site_name, current_user)
 
     # FIX: derive site_id from site_name server-side rather than trusting
-    # the client's own site_id field — see CANONICAL_SITE_ID_MAP above for
+    # the client's own site_id field ? see CANONICAL_SITE_ID_MAP above for
     # why. If site_name isn't in the canonical map at all (a genuinely
     # unrecognized site, e.g. a typo an admin made in ManageStaff), reject
     # clearly instead of silently falling back to some default that would
@@ -551,13 +559,13 @@ def create_screening(
     if not canonical_site_id:
         raise HTTPException(
             status_code=422,
-            detail=f"Unrecognized site_name '{screening.site_name}' — cannot determine "
+            detail=f"Unrecognized site_name '{screening.site_name}' ? cannot determine "
                    f"the correct screening ID prefix. Known sites: "
                    f"{', '.join(CANONICAL_SITE_ID_MAP.keys())}.",
         )
     screening.site_id = canonical_site_id
 
-    # Only auto-generated IDs are safe to silently retry with a new number —
+    # Only auto-generated IDs are safe to silently retry with a new number ?
     # if the CLIENT explicitly supplied its own screening_id (e.g. it thinks
     # it already has a server-confirmed one) and that collides, retrying
     # with a different ID would desync the client's own state, so that case
@@ -657,7 +665,7 @@ def create_screening(
                 # This almost always means the record was already created by
                 # an earlier, successful save (e.g. autosave and the manual
                 # Save button both firing, or the client retrying after a
-                # dropped response) — not a genuine conflict. Rather than
+                # dropped response) ? not a genuine conflict. Rather than
                 # failing the nurse's save outright, fall back to updating
                 # the record that already exists with this screening_id.
                 existing = get_accessible_screening_query(db, current_user).filter(
@@ -670,7 +678,7 @@ def create_screening(
                         db=db,
                         current_user=current_user,
                     )
-                # Existing row isn't visible to this user (different site) —
+                # Existing row isn't visible to this user (different site) ?
                 # a real, unrecoverable conflict.
                 logger.error(f"SCREENING ERROR: {e}")
                 raise HTTPException(
@@ -724,7 +732,7 @@ def update_screening(
         update_data = updated_data.model_dump(exclude_unset=True)
         update_data.pop("screening_id", None)
 
-        # FIX: same reasoning as create_screening above — don't trust the
+        # FIX: same reasoning as create_screening above ? don't trust the
         # client's site_id, derive it from site_name server-side so an
         # update can't silently corrupt an existing record's site_id to
         # something inconsistent with its own already-assigned prefix.
@@ -751,8 +759,8 @@ def update_screening(
 
         # FIX: screening_status was only ever computed once, at creation
         # (compute_screening_status() call in create_screening). Every
-        # subsequent update — including the nurse finishing the form after
-        # an early/incomplete autosave — applied field changes but left
+        # subsequent update ? including the nurse finishing the form after
+        # an early/incomplete autosave ? applied field changes but left
         # the ORIGINAL status frozen. A screening whose first autosave fired
         # before gestation_weeks/consent were filled in would get stuck
         # showing "Screen Failure"/"Not Eligible" forever, even once fully
@@ -910,7 +918,7 @@ def get_screening_by_enrollment(
     return entry
 
 # ============================================================================
-# FORM B â€” BIRTH RESUSCITATION ENDPOINTS
+# FORM B  -  BIRTH RESUSCITATION ENDPOINTS
 # ============================================================================
 
 @app.post("/birth-resuscitation/", response_model=BirthResuscitationOut)
@@ -922,7 +930,7 @@ def create_birth_resuscitation(
     # FIX: this endpoint had NO response_model, unlike its own GET/PUT
     # siblings (both use response_model=BirthResuscitationOut). Without one,
     # FastAPI falls back to serializing the raw SQLAlchemy object directly
-    # instead of going through the Pydantic schema — unreliable, and the
+    # instead of going through the Pydantic schema ? unreliable, and the
     # likely cause of the frontend's "Enrollment ID not saved" error: the
     # record really was saved, but res.data.enrollment_id came back
     # missing/malformed from this endpoint's response, so the browser never
@@ -938,7 +946,7 @@ def create_birth_resuscitation(
     )
     # FIX: this had no try/except at all. enrollment_id is typed in by hand
     # on Form B (there's no backend generator for it, unlike screening_id),
-    # and birth_resuscitation.enrollment_id IS unique at the DB level — so a
+    # and birth_resuscitation.enrollment_id IS unique at the DB level ? so a
     # nurse typing an enrollment_id that's already in use used to crash with
     # an unhandled 500 / raw psycopg2 traceback, the exact same failure mode
     # the screening_id bug had. Now it's caught and returned as a clear 409.
@@ -950,13 +958,13 @@ def create_birth_resuscitation(
         )
         if existing:
             # CRITICAL FIX: previously, ANY existing record with this
-            # enrollment_id got overwritten with the incoming data —
+            # enrollment_id got overwritten with the incoming data ?
             # including its screening_id and baby_uid. That's correct
             # ONLY if this is the same save retrying (same screening_id).
             # If a DIFFERENT patient's screening_id shows up here, this is
             # a genuine typo colliding with someone else's enrollment_id,
             # and blindly overwriting silently destroyed the first
-            # patient's entire clinical record with no error to anyone —
+            # patient's entire clinical record with no error to anyone ?
             # confirmed by direct reproduction: Patient A's record
             # (screening_id, baby_uid, all fields) was completely replaced
             # by Patient B's data, with a 200 OK response giving no
@@ -1029,10 +1037,14 @@ def get_birth_resuscitation(
         raise HTTPException(status_code=404, detail="Birth Resuscitation not found")
 
     record_dict = {col.name: getattr(entry, col.name) for col in entry.__table__.columns}
+    # original_gestation_* is always Form B GA (the stored BirthResuscitation values).
+    # Form B UI must bind to original_* -- never to gestation_weeks/days after overlay.
     record_dict["original_gestation_weeks"] = entry.gestation_weeks
     record_dict["original_gestation_days"] = entry.gestation_days
     record_dict["gestation_source"] = "Form B"
 
+    # Optional NBS overlay on gestation_weeks/days is for downstream forms only
+    # (when Form D NBS GA differs from Form B by >14 days). Does not change DB.
     form_d = (
         db.query(PostnatalDay1)
         .filter(PostnatalDay1.enrollment_id == enrollment_id)
@@ -1106,7 +1118,7 @@ def update_birth_resuscitation(
         raise HTTPException(status_code=400, detail=str(e))
 
 # ============================================================================
-# FORM C â€” MATERNAL DETAILS ENDPOINTS
+# FORM C  -  MATERNAL DETAILS ENDPOINTS
 # ============================================================================
 
 @app.post("/maternal-details/", response_model=MaternalDetailsOut)
@@ -1127,12 +1139,12 @@ def create_maternal_details(
     )
 
     # FIX: this endpoint used to always `db.add(...)` a brand new row, with
-    # no check for an existing one — unlike Form D/E's create endpoints,
+    # no check for an existing one ? unlike Form D/E's create endpoints,
     # which both check first. Since maternal_details.enrollment_id also has
     # no unique constraint at the DB level, calling this twice for the same
     # patient (e.g. a network retry, or the frontend's "does this already
     # exist" GET failing so it wrongly falls back to POST) silently created
-    # a second, duplicate row instead of erroring OR updating — the worst
+    # a second, duplicate row instead of erroring OR updating ? the worst
     # kind of bug, because nothing alerts anyone that the data now has two
     # answers. Now it upserts, matching the Form D/E pattern.
     existing = (
@@ -1232,7 +1244,7 @@ def get_maternal_details(
     return record_dict
 
 # ============================================================================
-# FORM D â€” POSTNATAL DAY 1 ENDPOINTS
+# FORM D  -  POSTNATAL DAY 1 ENDPOINTS
 # ============================================================================
 
 @app.post("/postnatal-day1/", response_model=PostnatalDay1Out)
@@ -1285,7 +1297,7 @@ def update_postnatal_day1(
     ).first()
 
     if not record:
-        # No existing record â€” create new one (upsert)
+        # No existing record  -  create new one (upsert)
         payload = split_and_store_pii(
             db,
             data.model_dump(),
@@ -1313,7 +1325,7 @@ def update_postnatal_day1(
     return record
 
 # ============================================================================
-# FORM E â€” NICU ADMISSION ENDPOINTS
+# FORM E  -  NICU ADMISSION ENDPOINTS
 # ============================================================================
 
 @app.post("/nicu-admission/", response_model=NICUAdmissionOut)
@@ -1404,7 +1416,7 @@ def update_nicu_admission(
     return record
 
 
-# â”€â”€ Day 1 Date (shared across RespCVNeuro / InfectGIHema / MetabRenalVascEye logs) â”€â”€
+#  -  Day 1 Date (shared across RespCVNeuro / InfectGIHema / MetabRenalVascEye logs)  - 
 class Day1DateUpdate(BaseModel):
     day1_date: date
 
@@ -1480,7 +1492,7 @@ def update_day1_date(
 
 
 # ============================================================================
-# FORM F â€” NEONATAL MORBIDITIES ENDPOINTS
+# FORM F  -  NEONATAL MORBIDITIES ENDPOINTS
 # ============================================================================
 
 @app.post("/neonatal-morbidities/", response_model=NeonatalMorbiditiesOut)
@@ -1490,19 +1502,12 @@ def create_neonatal_morbidities(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
-    # FIX: this always inserted a new row, with no PUT endpoint to update an
-    # existing one — but FormH.jsx's own load effect explicitly loads
-    # existing data on mount ("prevents data loss on revisit") and its save
-    # handler only ever calls POST. Since Form H is one comprehensive
-    # discharge-summary record per enrollment (filled incrementally across
-    # sessions, not a repeatable-events list like SAE/Adverse Events), every
-    # "Save" after the first created a brand new duplicate row instead of
-    # updating. This existing-record check makes POST safe as a fallback;
-    # the new PUT endpoint below is the primary path once a record exists.
+    # Upsert against the newest row for this enrollment so revisit+save never
+    # writes an older duplicate while the UI loads the latest.
     existing = (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == data.enrollment_id)
-        .order_by(NeonatalMorbidities.id.asc())
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
     if existing:
@@ -1530,11 +1535,11 @@ def update_neonatal_morbidities(
     record = (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
-        .order_by(NeonatalMorbidities.id.asc())
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found — use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found ? use POST to create")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key != "enrollment_id":
@@ -1554,19 +1559,12 @@ def get_neonatal_morbidities(
     return (
         db.query(NeonatalMorbidities)
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
-        # FIX: no ORDER BY at all before — Postgres doesn't guarantee row
-        # order without one, so FormH.jsx's "take rows[rows.length - 1] as
-        # the most recent" logic wasn't actually reliable. Ordering by id
-        # ascending makes that assumption true going forward. (Response
-        # shape kept as a list, not changed to a single object, so any
-        # duplicate rows already created by the POST-only bug above don't
-        # break existing clients — this just makes "last" mean something.)
         .order_by(NeonatalMorbidities.id.asc())
         .all()
     )
 
 # ============================================================================
-# FORM G â€” STUDY OUTCOMES ENDPOINTS
+# FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
 
 @app.post("/study-outcomes/", response_model=StudyOutcomesOut)
@@ -1583,7 +1581,7 @@ def create_study_outcomes(
     existing = (
         db.query(StudyOutcomes)
         .filter(StudyOutcomes.enrollment_id == data.enrollment_id)
-        .order_by(StudyOutcomes.id.asc())
+        .order_by(StudyOutcomes.id.desc())
         .first()
     )
     if existing:
@@ -1634,14 +1632,46 @@ def create_rop_screening(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+
+    existing = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in data.model_dump(exclude_unset=True).items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = ROPScreening(**data.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
 
+
+@app.get("/rop-screening/{enrollment_id}", response_model=ROPScreeningOut)
+def get_rop_screening(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="ROP screening record not found")
+    return record
+
 # ============================================================================
-# FORM J â€” COMPOSITE OUTCOME ENDPOINTS
+# FORM J  -  COMPOSITE OUTCOME ENDPOINTS
 # ============================================================================
 
 @app.post("/composite-outcome/", response_model=CompositeOutcomeOut)
@@ -1676,6 +1706,70 @@ def get_composite_outcome(
         db.query(CompositeOutcome)
         .filter(CompositeOutcome.enrollment_id == enrollment_id)
         .order_by(CompositeOutcome.created_at.desc())
+        .all()
+    )
+
+# ============================================================================
+# FORM J ? EXTERNAL HOSPITAL ASSESSMENT (36 / 40 / 44 weeks)
+# ============================================================================
+
+@app.post("/external-hospital-assessment/", response_model=ExternalHospitalAssessmentOut)
+def upsert_external_hospital_assessment(
+    data: ExternalHospitalAssessmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(data.enrollment_id, db, current_user)
+    if data.assessment_weeks is None or int(data.assessment_weeks) < 1:
+        raise HTTPException(status_code=400, detail="assessment_weeks must be a positive number")
+    weeks = int(data.assessment_weeks)
+
+    allowed = set(ExternalHospitalAssessment.__table__.columns.keys()) - {"id", "created_at", "updated_at"}
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    payload["assessment_weeks"] = weeks
+
+    existing = (
+        db.query(ExternalHospitalAssessment)
+        .filter(
+            ExternalHospitalAssessment.enrollment_id == data.enrollment_id,
+            ExternalHospitalAssessment.assessment_weeks == weeks,
+        )
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key in ("enrollment_id", "assessment_weeks"):
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = ExternalHospitalAssessment(**payload)
+    db.add(record)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(record)
+    return record
+
+
+@app.get(
+    "/external-hospital-assessment/{enrollment_id}",
+    response_model=list[ExternalHospitalAssessmentOut],
+)
+def get_external_hospital_assessments(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    return (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+        .order_by(ExternalHospitalAssessment.assessment_weeks.asc())
         .all()
     )
 
@@ -1859,18 +1953,88 @@ def create_metab_renal_vasc_eye_log(
 # SERIOUS ADVERSE EVENT ENDPOINTS
 # ============================================================================
 
+def _sae_payload(data: SAEReportCreate) -> dict:
+    """Full dump filtered to model columns; normalize list/bool defaults."""
+    allowed = set(SAEReport.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("seriousness") is None:
+        payload["seriousness"] = []
+    if payload.get("ongoing") is None:
+        payload["ongoing"] = False
+    return payload
+
+
 @app.post("/sae-report/", response_model=SAEReportOut)
 def create_sae_report(
     data: SAEReportCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Create a new SAE report (multiple reports allowed per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
-    record = SAEReport(**data.model_dump())
+    payload = _sae_payload(data)
+    record = SAEReport(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
+
+
+@app.get("/sae-report/id/{report_id}", response_model=SAEReportOut)
+def get_sae_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE report not found")
+    require_enrollment_access(record.enrollment_id, db, current_user)
+    return record
+
+
+@app.put("/sae-report/{report_id}", response_model=SAEReportOut)
+def update_sae_report(
+    report_id: int,
+    data: SAEReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Full-field update so cleared values persist (no data loss / stale fields)."""
+    record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE report not found")
+    require_enrollment_access(record.enrollment_id, db, current_user)
+    if data.enrollment_id and data.enrollment_id != record.enrollment_id:
+        require_enrollment_access(data.enrollment_id, db, current_user)
+
+    payload = _sae_payload(data)
+    for key, value in payload.items():
+        if key == "enrollment_id":
+            continue
+        setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/sae-report/{enrollment_id}", response_model=List[SAEReportOut])
+def list_sae_reports(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all SAE reports for an enrollment (newest first)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    return (
+        db.query(SAEReport)
+        .filter(SAEReport.enrollment_id == enrollment_id)
+        .order_by(SAEReport.id.desc())
+        .all()
+    )
 
 @app.post("/adverse-events/", response_model=AdverseEventsOut)
 def create_adverse_events(
@@ -1878,19 +2042,126 @@ def create_adverse_events(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upsert AE form by enrollment_id (one record per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
+
+    allowed = set(AdverseEvents.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    raw = {k: v for k, v in data.model_dump().items() if k in allowed or k in AE_PII_FIELDS}
+    if raw.get("events") is None:
+        raw["events"] = []
+
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        raw,
         AE_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
+    payload = {k: v for k, v in payload.items() if k in allowed}
+
+    existing = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return _ae_out_with_pii(db, existing, current_user)
+
     record = AdverseEvents(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
-    return record
+    return _ae_out_with_pii(db, record, current_user)
+
+
+@app.get("/adverse-events/{enrollment_id}", response_model=Optional[AdverseEventsOut])
+def get_adverse_events(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return saved AE form, or null if not filled yet (not an error)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        return None
+    return _ae_out_with_pii(db, record, current_user)
+
+
+@app.put("/adverse-events/{enrollment_id}", response_model=AdverseEventsOut)
+def update_adverse_events(
+    enrollment_id: str,
+    data: AdverseEventsCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(AdverseEvents)
+        .filter(AdverseEvents.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Adverse Events form not found ? use POST to create")
+
+    allowed = set(AdverseEvents.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "enrollment_id",
+    }
+    raw = {k: v for k, v in data.model_dump().items() if k in allowed or k in AE_PII_FIELDS}
+    if raw.get("events") is None:
+        raw["events"] = []
+    raw["enrollment_id"] = enrollment_id
+
+    payload = split_and_store_pii(
+        db,
+        raw,
+        AE_PII_FIELDS,
+        enrollment_id=enrollment_id,
+        site_name=site_for_enrollment(db, enrollment_id),
+    )
+    payload = {k: v for k, v in payload.items() if k in allowed}
+    for key, value in payload.items():
+        setattr(record, key, value)
+
+    db.commit()
+    db.refresh(record)
+    return _ae_out_with_pii(db, record, current_user)
+
+
+def _ae_out_with_pii(db: Session, record: AdverseEvents, current_user: User) -> dict:
+    """Reattach mother_name / maternal_uid from PII store for UI reload."""
+    data = AdverseEventsOut.model_validate(record).model_dump()
+    try:
+        from pii_service import can_view_pii_for_site
+        site = site_for_enrollment(db, record.enrollment_id)
+        if can_view_pii_for_site(current_user, site):
+            pii = (
+                db.query(ParticipantPII)
+                .filter(ParticipantPII.enrollment_id == record.enrollment_id)
+                .first()
+            )
+            if pii:
+                if not data.get("mother_name"):
+                    name = f"{pii.mother_first_name or ''} {pii.mother_surname or ''}".strip()
+                    if name:
+                        data["mother_name"] = name
+                if not data.get("maternal_uid") and pii.maternal_uid:
+                    data["maternal_uid"] = pii.maternal_uid
+    except Exception:
+        pass
+    return data
 
 @app.post("/sae-list/", response_model=SAEListOut)
 def create_sae_list(
@@ -1898,9 +2169,80 @@ def create_sae_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upsert SAE listing by enrollment_id (one record per enrollment)."""
     require_enrollment_access(data.enrollment_id, db, current_user)
-    record = SAEList(**data.model_dump())
+
+    allowed = set(SAEList.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("rows") is None:
+        payload["rows"] = []
+
+    existing = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == data.enrollment_id)
+        .first()
+    )
+    if existing:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    record = SAEList(**payload)
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/sae-list/{enrollment_id}", response_model=Optional[SAEListOut])
+def get_sae_list(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return saved SAE list, or null if not filled yet."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        return None
+    return record
+
+
+@app.put("/sae-list/{enrollment_id}", response_model=SAEListOut)
+def update_sae_list(
+    enrollment_id: str,
+    data: SAEListCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(SAEList)
+        .filter(SAEList.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="SAE list not found ? use POST to create")
+
+    allowed = set(SAEList.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    if payload.get("rows") is None:
+        payload["rows"] = []
+    for key, value in payload.items():
+        setattr(record, key, value)
+
     db.commit()
     db.refresh(record)
     return record
@@ -2083,12 +2425,14 @@ def get_enrollment_status(
     if not screening:
         raise HTTPException(status_code=404, detail="Enrollment not found")
 
-    form_b = (
+    birth = (
         db.query(BirthResuscitation)
         .filter(BirthResuscitation.enrollment_id == enrollment_id)
         .first()
-        is not None
     )
+    form_b = birth is not None
+    # PPV / resuscitation not required ? stop after Forms A?C
+    no_ppv = form_b and birth.required_resuscitation is False
 
     form_c = (
         db.query(MaternalDetails)
@@ -2104,12 +2448,23 @@ def get_enrollment_status(
         is not None
     )
 
+    form_e = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+        is not None
+    )
+
     if not form_b:
         next_form = "form-b"
     elif not form_c:
         next_form = "form-c"
+    elif no_ppv:
+        next_form = "completed"
     elif not form_d:
         next_form = "form-d"
+    elif not form_e:
+        next_form = "form-e"
     else:
         next_form = "completed"
 
@@ -2120,15 +2475,17 @@ def get_enrollment_status(
         "form_b": form_b,
         "form_c": form_c,
         "form_d": form_d,
+        "form_e": form_e,
+        "no_ppv": no_ppv,
         "next_form": next_form,
     }
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  - 
 # Paste these routes into main.py
 # below the existing FiO2 AUC section
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  - 
 
 # ============================================================================
-# RESP / CV / NEURO DAILY LOG â€” NEW STRUCTURED ENDPOINTS
+# RESP / CV / NEURO DAILY LOG  -  NEW STRUCTURED ENDPOINTS
 # Replaces the old /resp-cv-neuro-log/ blob endpoints
 # ============================================================================
 
@@ -2138,7 +2495,7 @@ def _compute_completion_pct(record) -> int:
     def answered(val):
         return val is not None and val != ""
 
-    # ── RESPIRATORY (items 1-22) ──
+    #  -  RESPIRATORY (items 1-22)  - 
     resp_bool_fields = [
         "respiratory_support", "endotracheal_intubation",       # 1, 2
         "surfactant", "caffeine",                               # 11, 12
@@ -2151,7 +2508,7 @@ def _compute_completion_pct(record) -> int:
     ]
     # #3-7 depend on respiratory support mode / status:
     #  - #4 (MAP/CPAP), #5 (Max FiO2), #6 (Max Gas Flow), #7 (Supplemental O2)
-    #    are only asked when Respiratory support (#1) is Yes — if it's No,
+    #    are only asked when Respiratory support (#1) is Yes ? if it's No,
     #    they're N/A and shouldn't block completion.
     #  - #4b (the second CPAP/MAP field) only applies when CPAP is combined
     #    with a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) on the same day.
@@ -2189,7 +2546,7 @@ def _compute_completion_pct(record) -> int:
     )
     resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 5 + (1 if _dual_cpap_map else 0)  # weight + #3,4,5,6,7,17 (+4b when dual)
 
-    # ── CARDIOVASCULAR (items 23-29) ──
+    #  -  CARDIOVASCULAR (items 23-29)  - 
     cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27
     vasoactive_visible = getattr(record, "vasoactive_support", None) is True
     cv_done = (
@@ -2199,7 +2556,7 @@ def _compute_completion_pct(record) -> int:
     )
     cv_total = len(cv_bool_fields) + 1 + (1 if vasoactive_visible else 0)
 
-    # ── NEUROLOGICAL (items 30-37) ──
+    #  -  NEUROLOGICAL (items 30-37)  - 
     neuro_base = [
         "cranial_usg", "ivh", "cpvl_confirmed", "ventriculomegaly",       # 30-33
         "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich",  # 34-37
@@ -2216,11 +2573,11 @@ def _compute_completion_pct(record) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  GET single day  - 
 
 
-# â”€â”€ GET summary (all days for timeline status indicators) â”€â”€â”€â”€â”€
-# ── GET records (cross-patient list — Helper Form Records page) ──────────────
+#  -  GET summary (all days for timeline status indicators)  - 
+#  -  GET records (cross-patient list ? Helper Form Records page)  - 
 @app.get("/resp-cv-neuro/records", response_model=HelperFormRecordsPage)
 def list_resp_cv_neuro_records(
     request:      Request,
@@ -2236,7 +2593,7 @@ def list_resp_cv_neuro_records(
     """List Helper Form 2 (Resp/CV/Neuro) daily-log records across patients,
     for the day-to-day work queue. 'Today' is derived from date_of_birth +
     (nicu_day - 1), matching the calendar date the form itself computes for
-    each NICU day — not the row's created_at/updated_at, which only reflects
+    each NICU day ? not the row's created_at/updated_at, which only reflects
     when it was last edited."""
     per_page = min(max(per_page, 1), 100)
     page = max(page, 1)
@@ -2348,7 +2705,7 @@ def list_resp_cv_neuro_records(
     return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
 
 
-# ── GET latest update (lightweight polling for "new records" banner) ─────────
+#  -  GET latest update (lightweight polling for "new records" banner)  - 
 @app.get("/resp-cv-neuro/records/latest-update")
 def get_resp_cv_neuro_latest_update(
     db:           Session = Depends(get_db),
@@ -2387,6 +2744,7 @@ def get_resp_cv_neuro_summary(
             "completion_pct":    _compute_completion_pct(r),
             "saved_at":          r.saved_at,
             "submitted_at":      r.submitted_at,
+            "surfactant":        r.surfactant,
         }
         for r in records
     ]
@@ -2412,7 +2770,7 @@ def get_resp_cv_neuro_day(
     return record
 
 
-# â”€â”€ POST create day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  POST create day  - 
 @app.post("/resp-cv-neuro/")
 def create_resp_cv_neuro_day(
     data:         RespCVNeuroDayCreate,
@@ -2421,7 +2779,7 @@ def create_resp_cv_neuro_day(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
-    # Prevent duplicate â€” upsert pattern
+    # Prevent duplicate  -  upsert pattern
     existing = (
         db.query(RespCVNeuroDayLog)
         .filter(
@@ -2446,7 +2804,7 @@ def create_resp_cv_neuro_day(
     return record
 
 
-# â”€â”€ PUT update day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PUT update day  - 
 @app.put("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def update_resp_cv_neuro_day(
     enrollment_id: str,
@@ -2465,7 +2823,7 @@ def update_resp_cv_neuro_day(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
 
     # Block edits on submitted days
     if record.submission_status == "submitted":
@@ -2480,7 +2838,7 @@ def update_resp_cv_neuro_day(
     return record
 
 
-# â”€â”€ PATCH submit day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PATCH submit day  - 
 @app.patch("/resp-cv-neuro/{enrollment_id}/{nicu_day}/submit")
 def submit_resp_cv_neuro_day(
     enrollment_id: str,
@@ -2508,7 +2866,7 @@ def submit_resp_cv_neuro_day(
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 
-# â”€â”€ PATCH discharge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PATCH discharge  - 
 @app.patch("/enrollment/{enrollment_id}/discharge")
 def discharge_enrollment(
     enrollment_id: str,
@@ -2553,7 +2911,7 @@ def discharge_enrollment(
 
     # Since BirthResuscitation has no discharge_date column,
     # we store it in the Screening record's notes or use a
-    # separate approach. For now return success â€” add a
+    # separate approach. For now return success  -  add a
     # discharge_date column to BirthResuscitation if needed.
 
     return {
@@ -2561,16 +2919,16 @@ def discharge_enrollment(
         "discharge_date": data.discharge_date,
         "discharge_day":  data.discharge_day,
     }
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  - 
 # Paste into main.py after the Resp-CV-Neuro routes section
 #
 # Add to main.py imports:
 #   from models import InfectGIHemaDayLog
 #   from schemas import InfectGIHemaDayCreate, InfectGIHemaDaySubmit
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  - 
 
 # ============================================================================
-# INFECT / GI / HEMA DAILY LOG â€” STRUCTURED PER-DAY ENDPOINTS
+# INFECT / GI / HEMA DAILY LOG  -  STRUCTURED PER-DAY ENDPOINTS
 # ============================================================================
 
 def _infect_completion_pct(r) -> int:
@@ -2584,7 +2942,7 @@ def _infect_completion_pct(r) -> int:
             return len(v) > 0
         return True
 
-    # ── INFECTION (Fields 1-9) ──────────────────────────────────
+    #  -  INFECTION (Fields 1-9)  - ?
     # Base fields (always visible): 6 fields
     INF_BASE = ["sepsis_suspected", "antibiotics", "lp_done", "clabsi", "vap"]  # 1,4,5,8,9
     # Sepsis conditional fields: 2 fields (visible when sepsis_suspected = Yes)
@@ -2608,7 +2966,7 @@ def _infect_completion_pct(r) -> int:
         + (sum(1 for k in INF_MENING if ans(getattr(r, k, None))) if meningitis_yes else 0)
     )
 
-    # ── GASTROINTESTINAL (Fields 10-22) ────────────────────────
+    #  -  GASTROINTESTINAL (Fields 10-22)  - 
     # Base fields (always visible): 12 fields
     GI_BASE = [
         "npo", "men", "feed_type",
@@ -2631,7 +2989,7 @@ def _infect_completion_pct(r) -> int:
         + (sum(1 for k in GI_NEC if ans(getattr(r, k, None))) if nec_yes else 0)
     )
 
-    # ── HEMATOLOGY (Fields 23-30) ──────────────────────────────
+    #  -  HEMATOLOGY (Fields 23-30)  - 
     # Base fields (always visible): 7 fields
     HEMA_BASE = [
         "hb_value", "jaundice", "peak_tsb", "exchange_transfusion",
@@ -2653,7 +3011,7 @@ def _infect_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
-# â”€â”€ GET summary (all days â€” for timeline status indicators) â”€â”€â”€
+#  -  GET summary (all days  -  for timeline status indicators)  - 
 # NOTE: this must be declared BEFORE the "/{nicu_day}" route below, otherwise
 # FastAPI matches "summary" against the int path param first and returns 422.
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
@@ -2701,7 +3059,7 @@ def get_infect_gi_hema_summary(
     return result
 
 
-# â”€â”€ GET single day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  GET single day  - 
 @app.get("/infect-gi-hema/{enrollment_id}/{nicu_day}")
 def get_infect_gi_hema_day(
     enrollment_id: str,
@@ -2723,7 +3081,7 @@ def get_infect_gi_hema_day(
     return record
 
 
-# â”€â”€ POST create day (upsert) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  POST create day (upsert)  - 
 @app.post("/infect-gi-hema/")
 def create_infect_gi_hema_day(
     data:         InfectGIHemaDayCreate,
@@ -2755,7 +3113,7 @@ def create_infect_gi_hema_day(
     return record
 
 
-# â”€â”€ PUT update day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PUT update day  - 
 @app.put("/infect-gi-hema/{enrollment_id}/{nicu_day}")
 def update_infect_gi_hema_day(
     enrollment_id: str,
@@ -2774,7 +3132,7 @@ def update_infect_gi_hema_day(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
     if record.submission_status == "submitted":
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
@@ -2787,7 +3145,7 @@ def update_infect_gi_hema_day(
     return record
 
 
-# â”€â”€ PATCH submit day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PATCH submit day  - 
 @app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/submit")
 def submit_infect_gi_hema_day(
     enrollment_id: str,
@@ -2814,57 +3172,104 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 3. ADD TO main.py  (imports + routes)
 #
 # Add to imports:
 #   from models import MetabRenalVascEyeDayLog
 #   from schemas import MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  
 def _metab_completion_pct(r) -> int:
-    """Compute completion % for Helper Form 4 (items 1-25)."""
+    """Compute completion % for Helper Form 4 (items 1-25), with gated fields."""
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
 
-    # ── 4.1 METABOLIC (items 1-10) ──
+    def _is_numeric_high(v):
+        if v is None or v == "" or v in ("Not Tested", "Not High", "Not Low"):
+            return False
+        try:
+            return float(v) > 180
+        except (TypeError, ValueError):
+            return False
+
+    hypo_eps = getattr(r, "hypoglycemia_episodes", None)
+    try:
+        hypo_n = int(float(hypo_eps)) if hypo_eps not in (None, "") else 0
+    except (TypeError, ValueError):
+        hypo_n = 0
+    hypo_rx_needed = hypo_n > 0
+    hyper_rx_needed = _is_numeric_high(getattr(r, "highest_glucose", None))
+
     metab_fields = [
-        "lowest_glucose", "hypoglycemia_episodes", "hypoglycemia_rx",  # 1, 2, 3
-        "highest_glucose", "insulin", "metabolic_acidosis",            # 4, 5, 6
-        "sodium_value", "potassium_value", "ionized_calcium_value",    # 7, 8, 9
-        "osteopenia_suspected",                                        # 10
+        "lowest_glucose", "hypoglycemia_episodes",
+        *(["hypoglycemia_rx"] if hypo_rx_needed else []),
+        "highest_glucose",
+        *(["insulin"] if hyper_rx_needed else []),
+        "metabolic_acidosis",
+        "sodium_value", "potassium_value", "ionized_calcium_value",
+        "osteopenia_suspected",
     ]
     metab_done  = sum(1 for k in metab_fields if ans(getattr(r, k, None)))
     metab_total = len(metab_fields)
 
-    # ── 4.2 RENAL (items 11-14) ──
-    renal_fields = ["aki_stage", "creatinine", "urine_output_total", "dialysis_crrt"]
-    renal_done   = sum(1 for k in renal_fields if ans(getattr(r, k, None)))
-    renal_total  = len(renal_fields)
+    # #11 Yes/No in aki_suspected; stage only when Yes. Creatinine prefers string col.
+    aki_yes = getattr(r, "aki_suspected", None) is True
+    creat = getattr(r, "creatinine_value", None)
+    if not ans(creat):
+        creat = getattr(r, "creatinine", None)
+    renal_fields = [
+        "aki_suspected",
+        *(["aki_stage"] if aki_yes else []),
+    ]
+    renal_done = sum(1 for k in renal_fields if ans(getattr(r, k, None)))
+    renal_done += 1 if ans(creat) else 0
+    renal_done += 1 if (
+        ans(getattr(r, "urine_output_8am_2pm", None))
+        or ans(getattr(r, "urine_output_2pm_8pm", None))
+        or ans(getattr(r, "urine_output_8pm_8am", None))
+        or ans(getattr(r, "urine_output_total", None))
+    ) else 0
+    renal_done += 1 if ans(getattr(r, "dialysis_crrt", None)) else 0
+    renal_total = len(renal_fields) + 3  # creat + urine + dialysis
 
-    # ── 4.3 THERMOREGULATION (item 15) ──
     thermo_fields = ["axillary_temperature"]
     thermo_done   = sum(1 for k in thermo_fields if ans(getattr(r, k, None)))
 
-    # ── 4.4 VASCULAR ACCESS (items 16-22) ──
-    vasc_keys   = ["picc_in_situ","uvc_in_situ","uac_in_situ","peripheral_iv",
-                   "peripheral_arterial","extravasation_injury","line_complication"]
-    vasc_done   = sum(1 for k in vasc_keys if ans(getattr(r, k, None)))
+    extravasation_needed = (
+        getattr(r, "peripheral_iv", None) is True
+        or getattr(r, "peripheral_arterial", None) is True
+    )
+    vasc_keys = [
+        "picc_in_situ", "uvc_in_situ", "uac_in_situ",
+        "peripheral_iv", "peripheral_arterial",
+        *(["extravasation_injury"] if extravasation_needed else []),
+        "line_complication",
+    ]
+    vasc_done = sum(1 for k in vasc_keys if ans(getattr(r, k, None)))
 
-    # ── 4.5 OPHTHALMOLOGY (items 23-25) ──
-    eye_base    = ["rop_screening_due","rop_screened","rop_detected"]
-    eye_rop     = ["rop_stage","plus_disease","rop_treatment"]
-    rop_yes     = getattr(r, "rop_detected", None) is True
-    eye_total   = len(eye_base) + (len(eye_rop) if rop_yes else 0)
-    eye_done    = (sum(1 for k in eye_base if ans(getattr(r, k, None)))
-                 + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0))
+    due = getattr(r, "rop_screening_due", None) is True
+    screened = getattr(r, "rop_screened", None) is True
+    eye_keys = [
+        "rop_screening_due",
+        *(["rop_screened"] if due else []),
+        *(["rop_detected"] if due and screened else []),
+    ]
+    rop_yes = getattr(r, "rop_detected", None) is True
+    eye_rop = ["rop_stage", "plus_disease", "rop_treatment"]
+    eye_total = len(eye_keys) + (len(eye_rop) if rop_yes else 0)
+    eye_done = (
+        sum(1 for k in eye_keys if ans(getattr(r, k, None)))
+        + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0)
+    )
 
-    # ── 4.6 LOCATION / 4.7 SURVIVED THE DAY ──
     tail_fields = ["location", "survived_the_day"]
     tail_done   = sum(1 for k in tail_fields if ans(getattr(r, k, None)))
 
-    total_fields = (metab_total + renal_total + len(thermo_fields) + len(vasc_keys)
-                    + eye_total + len(tail_fields))
-    total_done   = metab_done + renal_done + thermo_done + vasc_done + eye_done + tail_done
+    total_fields = (
+        metab_total + renal_total + len(thermo_fields) + len(vasc_keys)
+        + eye_total + len(tail_fields)
+    )
+    total_done = metab_done + renal_done + thermo_done + vasc_done + eye_done + tail_done
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
  
  
@@ -2897,8 +3302,10 @@ def get_metab_renal_vasc_eye_day(
         MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
         MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
     ).first()
+    # Empty day is normal ? return null (200) so the client can show a blank
+    # sheet without treating "not started yet" as an error.
     if not record:
-        raise HTTPException(status_code=404, detail="No data for this day")
+        return None
     return record
  
  
@@ -2934,7 +3341,7 @@ def update_metab_renal_vasc_eye_day(
         MetabRenalVascEyeDayLog.nicu_day      == nicu_day,
     ).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Record not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
     if record.submission_status == "submitted":
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -2962,8 +3369,124 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+MINIMAL_MONITORING_CORE_FIELDS = [
+    "record_date", "shift",
+]
+
+# Soft progress fields ? filled when values are available (not all required to submit)
+MINIMAL_MONITORING_FIELDS = [
+    "record_date", "shift", "axillary_temp", "sbp", "dbp", "map_value",
+    "fluid_bolus_given", "vasoactive_drugs", "vasoactive_dose",
+    "vasoactive_unit", "pda_agent", "pda_dose", "respiratory_time",
+    "respiratory_modes", "max_map_cpap", "max_fio2", "ph", "pao2",
+    "paco2", "apnea_shift", "apnea_episodes", "desaturation_episodes",
+    "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
+    "glucose", "alp", "total_calcium", "phosphorus",
+    "electrolyte_abnormality", "hypo_hyper",
+    "symptomatic_status", "cumulative_feed_volume", "feed_shift",
+    "direct_bilirubin", "imaging_date", "ventriculomegaly_severity",
+    "vi", "ahw", "tod", "aca_ri", "mca_ri", "transfusion_products",
+    "transfusion_count", "prbc_volume",
+]
+
+
+# Nurse-friendly day boundary (same idea as RespCVNeuroLog's RCN_LATE_GRACE_HOUR):
+# before boundary_hour local time, "today" still means the previous calendar date.
+MML_LATE_GRACE_HOUR = 8
+
+
+def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
+    now = datetime.now()
+    sheet = now.date()
+    if now.hour < max(0, min(23, int(boundary_hour))):
+        sheet = sheet - timedelta(days=1)
+    return sheet.isoformat()
+
+
+def _mml_empty_payload(enrollment_id: str, record_date: str) -> dict:
+    return {
+        "id": None,
+        "enrollment_id": enrollment_id,
+        "nicu_day": None,
+        "record_date": record_date,
+        "submission_status": "empty",
+        "entries_json": None,
+    }
+
+
+@app.get("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
+def get_minimal_monitoring_today(
+    enrollment_id: str,
+    boundary_hour: int = MML_LATE_GRACE_HOUR,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Load today's scratchpad sheet. Does not create a row if none exists."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record_date = _mml_sheet_date(boundary_hour)
+    record = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == record_date,
+        )
+        .first()
+    )
+    if not record:
+        return _mml_empty_payload(enrollment_id, record_date)
+    return record
+
+
+@app.put("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
+def upsert_minimal_monitoring_today(
+    enrollment_id: str,
+    data: MinimalMonitoringDayCreate,
+    boundary_hour: int = MML_LATE_GRACE_HOUR,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert today's scratchpad. Always editable ? no submit/lock gating."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record_date = _mml_sheet_date(boundary_hour)
+    payload = data.model_dump(exclude_unset=True)
+    payload["enrollment_id"] = enrollment_id
+    payload["record_date"] = record_date
+    # Scratchpad is never locked; keep a soft draft marker for older clients.
+    if not payload.get("submission_status") or payload.get("submission_status") == "empty":
+        payload["submission_status"] = "draft"
+    if "saved_at" not in payload or payload.get("saved_at") is None:
+        payload["saved_at"] = datetime.utcnow()
+
+    record = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == record_date,
+        )
+        .first()
+    )
+    if record:
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            if hasattr(record, key):
+                setattr(record, key, value)
+        db.commit()
+        db.refresh(record)
+        return record
+
+    # Only pass columns that exist on the model
+    col_keys = {c.name for c in MinimalMonitoringDayLog.__table__.columns}
+    create_data = {k: v for k, v in payload.items() if k in col_keys}
+    record = MinimalMonitoringDayLog(**create_data)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
 # ============================================================================
-# FORM H â€” CRANIAL USG ENDPOINTS
+# FORM H  -  CRANIAL USG ENDPOINTS
 # Add these to main.py
 #
 # REQUIRED IMPORTS (add to top of main.py):
@@ -2971,7 +3494,7 @@ def submit_metab_renal_vasc_eye_day(
 #   from schemas import CranialUSGCreate, CranialUSGSubmit
 # ============================================================================
 
-# â”€â”€ POST â€” create or upsert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  POST  -  create or upsert  - 
 @app.post("/form-h/")
 def create_form_h(
     data:         CranialUSGCreate,
@@ -3000,7 +3523,7 @@ def create_form_h(
     return record
 
 
-# â”€â”€ GET â€” load by enrollment_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  GET  -  load by enrollment_id  - 
 @app.get("/form-h/{enrollment_id}")
 def get_form_h(
     enrollment_id: str,
@@ -3018,7 +3541,7 @@ def get_form_h(
     return record
 
 
-# â”€â”€ PUT â€” full update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PUT  -  full update  - 
 @app.put("/form-h/{enrollment_id}")
 def update_form_h(
     enrollment_id: str,
@@ -3033,7 +3556,7 @@ def update_form_h(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form H not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Form H not found  -  use POST to create")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key != "enrollment_id":
@@ -3044,7 +3567,7 @@ def update_form_h(
     return record
 
 
-# â”€â”€ PATCH â€” submit and lock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  -  PATCH  -  submit and lock  - 
 @app.patch("/form-h/{enrollment_id}/submit")
 def submit_form_h(
     enrollment_id: str,
@@ -3073,7 +3596,7 @@ def submit_form_h(
 
 
 # ============================================================================
-# FORM K â€” MRI Brain Assessment Endpoints
+# FORM K  -  MRI Brain Assessment Endpoints
 # ============================================================================
 
 @app.post("/form-k", response_model=MRIBrainOut)
@@ -3084,20 +3607,27 @@ def create_form_k(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
+    allowed = set(MRIBrainAssessment.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by",
+    }
+    # Full dump (not exclude_unset) so empty/cleared fields overwrite stale DB values
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+
     existing = (
         db.query(MRIBrainAssessment)
         .filter(MRIBrainAssessment.enrollment_id == data.enrollment_id)
         .first()
     )
     if existing:
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
         db.commit()
         db.refresh(existing)
         return existing
 
-    record = MRIBrainAssessment(**data.model_dump())
+    record = MRIBrainAssessment(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -3135,11 +3665,14 @@ def update_form_k(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form K not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Form K not found ? use POST to create")
 
-    for key, value in data.model_dump(exclude_unset=True).items():
-        if hasattr(record, key) and key != "enrollment_id":
-            setattr(record, key, value)
+    allowed = set(MRIBrainAssessment.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    for key, value in payload.items():
+        setattr(record, key, value)
 
     db.commit()
     db.refresh(record)
@@ -3173,7 +3706,7 @@ def submit_form_k(
 
 
 # ============================================================================
-# FORM L â€” Blender Data & Study Summary Endpoints
+# FORM L  -  Blender Data & Study Summary Endpoints
 # ============================================================================
 
 @app.post("/form-l", response_model=BlenderSummaryOut)
@@ -3184,20 +3717,33 @@ def create_form_l(
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
 
+    allowed = set(BlenderStudySummary.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    # Normalize minute list length to 11 slots
+    mins = payload.get("fio2_per_minute")
+    if mins is None:
+        payload["fio2_per_minute"] = [None] * 11
+    elif isinstance(mins, list):
+        padded = list(mins[:11]) + [None] * max(0, 11 - len(mins))
+        payload["fio2_per_minute"] = padded
+
     existing = (
         db.query(BlenderStudySummary)
         .filter(BlenderStudySummary.enrollment_id == data.enrollment_id)
         .first()
     )
     if existing:
-        for key, value in data.model_dump(exclude_unset=True).items():
-            if hasattr(existing, key):
-                setattr(existing, key, value)
+        for key, value in payload.items():
+            if key == "enrollment_id":
+                continue
+            setattr(existing, key, value)
         db.commit()
         db.refresh(existing)
         return existing
 
-    record = BlenderStudySummary(**data.model_dump())
+    record = BlenderStudySummary(**payload)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -3235,11 +3781,20 @@ def update_form_l(
         .first()
     )
     if not record:
-        raise HTTPException(status_code=404, detail="Form L not found â€” use POST to create")
+        raise HTTPException(status_code=404, detail="Form L not found ? use POST to create")
 
-    for key, value in data.model_dump(exclude_unset=True).items():
-        if hasattr(record, key) and key != "enrollment_id":
-            setattr(record, key, value)
+    allowed = set(BlenderStudySummary.__table__.columns.keys()) - {
+        "id", "created_at", "updated_at", "submitted_at", "submitted_by", "enrollment_id",
+    }
+    payload = {k: v for k, v in data.model_dump().items() if k in allowed}
+    mins = payload.get("fio2_per_minute")
+    if mins is None:
+        payload["fio2_per_minute"] = [None] * 11
+    elif isinstance(mins, list):
+        payload["fio2_per_minute"] = list(mins[:11]) + [None] * max(0, 11 - len(mins))
+
+    for key, value in payload.items():
+        setattr(record, key, value)
 
     db.commit()
     db.refresh(record)

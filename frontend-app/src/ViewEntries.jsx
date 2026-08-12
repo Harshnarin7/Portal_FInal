@@ -24,7 +24,7 @@ const FORM_LABELS = [
   { key: "form_g",              short: "G",   label: "ROP Screening"     },
   { key: "form_h",              short: "H",   label: "Morbidities"       },
   { key: "form_i",              short: "I",   label: "Outcomes"          },
-  { key: "form_j",              short: "J",   label: "Composite Outcome" },
+  { key: "form_j",              short: "J",   label: "External Hospital Outcomes" },
   { key: "fio2_auc",            short: "F2",  label: "FiO₂ AUC"         },
   { key: "vs6_1",               short: "RC",  label: "Resp/CV/Neuro"    },
   { key: "infect_gi_hema",      short: "IG",  label: "Infect/GI/Hema"   },
@@ -51,7 +51,7 @@ const ROUTE_MAP = {
 };
 
 const FILTERS = ["All", "Eligible", "Screen Failure", "Not Eligible", "Pending"];
-const DETAIL_TABS = ["Screening Details", "Gestation", "Consent Info", "Audit History"];
+const DETAIL_TABS = ["Forms", "Screening Details", "Gestation", "Consent Info", "Audit History"];
 const PER_PAGE = 10;
 
 /* ─── Helpers ───────────────────────────────────────────────── */
@@ -65,25 +65,30 @@ function statusKey(status) {
 }
 
 function buildFormProgress(enrollStatus) {
+  // Always count Form A when this row exists in the screening log.
   if (!enrollStatus) return { form_a: true };
   return {
     form_a: true,
-    form_b: enrollStatus.form_b ?? false,
-    form_c: enrollStatus.form_c ?? false,
-    form_d: enrollStatus.form_d ?? false,
+    form_b: !!enrollStatus.form_b,
+    form_c: !!enrollStatus.form_c,
+    form_d: !!enrollStatus.form_d,
+    form_e: !!enrollStatus.form_e,
   };
 }
 
+/** Dots shown in the table (core forms A–J). */
+const VISIBLE_FORMS = FORM_LABELS.slice(0, 10);
+
 function computeForms(formProg) {
-  return FORM_LABELS.map(f => ({
+  return VISIBLE_FORMS.map(f => ({
     ...f,
     status: formProg[f.key] === true ? "completed" : "locked",
   }));
 }
 
 function computeCompletion(formProg) {
-  const done = Object.values(formProg).filter(Boolean).length;
-  return { done, total: FORM_LABELS.length };
+  const done = VISIBLE_FORMS.filter(f => formProg[f.key] === true).length;
+  return { done, total: VISIBLE_FORMS.length };
 }
 
 function getNextAction(entry, enrollStatus) {
@@ -91,10 +96,15 @@ function getNextAction(entry, enrollStatus) {
   if (!s || s === "Pending")      return { label: "Complete Screening", variant: "primary",   key: "form_a" };
   if (s === "Screen Failure")     return { label: "View Screening",     variant: "secondary", key: "form_a" };
   if (s === "Not Eligible")       return { label: "View Screening",     variant: "secondary", key: "form_a" };
-  if (!enrollStatus || !enrollStatus.form_b) return { label: "Start Form B",    variant: "primary",   key: "form_b" };
-  if (!enrollStatus.form_c)                  return { label: "Continue Form C", variant: "primary",   key: "form_c" };
-  if (!enrollStatus.form_d)                  return { label: "Continue Form D", variant: "primary",   key: "form_d" };
-  return { label: "Continue Forms", variant: "primary", key: "form_e" };
+  if (!enrollStatus || !enrollStatus.form_b) return { label: "Start Form B", variant: "primary", key: "form_b" };
+  if (!enrollStatus.form_c)                  return { label: "Open Form C",  variant: "primary", key: "form_c" };
+  /* PPV not required: A–C only — do not push Form D+ */
+  if (enrollStatus.no_ppv) {
+    return { label: "A–C complete (no PPV)", variant: "secondary", key: "form_c" };
+  }
+  if (!enrollStatus.form_d)                  return { label: "Open Form D",  variant: "primary", key: "form_d" };
+  if (!enrollStatus.form_e)                  return { label: "Open Form E",  variant: "primary", key: "form_e" };
+  return { label: "Open Form F", variant: "primary", key: "form_f" };
 }
 
 function buildKPIs(entries) {
@@ -122,11 +132,18 @@ function KPICard({ label, value, icon, color }) {
   );
 }
 
-function ProgressDot({ label, status, title }) {
+function ProgressDot({ label, status, title, onClick }) {
+  const clickable = typeof onClick === "function";
+  const Tag = clickable ? "button" : "span";
   return (
-    <span className={`pdot pdot--${status}`} title={title || label}>
+    <Tag
+      type={clickable ? "button" : undefined}
+      className={`pdot pdot--${status}${clickable ? " pdot--clickable" : ""}`}
+      title={title || label}
+      onClick={clickable ? onClick : undefined}
+    >
       {label}
-    </span>
+    </Tag>
   );
 }
 
@@ -136,8 +153,8 @@ function Badge({ sk, label }) {
 
 function ActionBtn({ label, variant, onClick }) {
   return (
-    <button className={`act-btn act-btn--${variant}`} onClick={onClick}>
-      {label}
+    <button type="button" className={`act-btn act-btn--${variant}`} onClick={onClick} title={label}>
+      <span className="act-btn-label">{label}</span>
       {variant === "danger"     ? <AlertTriangle size={14}/> :
        variant === "secondary"  ? <Filter size={14}/>        :
                                   <ArrowRight size={14}/>}
@@ -146,8 +163,8 @@ function ActionBtn({ label, variant, onClick }) {
 }
 
 /* ─── Expanded detail panel ──────────────────────────────────── */
-function ExpandedPanel({ entry, onEdit, onDelete }) {
-  const [tab, setTab] = useState("Screening Details");
+function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm }) {
+  const [tab, setTab] = useState("Forms");
   const ga = entry.gestation_weeks != null
     ? `${entry.gestation_weeks}w ${entry.gestation_days ?? 0}d`
     : "—";
@@ -158,6 +175,8 @@ function ExpandedPanel({ entry, onEdit, onDelete }) {
       <p className="exp-field-value">{value || "—"}</p>
     </div>
   );
+
+  const completedForms = (forms || []).filter(f => f.status === "completed");
 
   return (
     <div className="exp-panel">
@@ -180,6 +199,44 @@ function ExpandedPanel({ entry, onEdit, onDelete }) {
 
       {/* Content */}
       <div className="exp-body">
+        {tab === "Forms" && (
+          <div className="exp-forms">
+            <p className="exp-forms-hint">
+              Open any completed form to review what was entered earlier (opens read-only; use Edit on the form if changes are needed).
+            </p>
+            {completedForms.length === 0 ? (
+              <p className="exp-empty">No completed forms yet for this participant.</p>
+            ) : (
+              <ul className="exp-forms-list">
+                {(forms || []).map(f => {
+                  const done = f.status === "completed";
+                  return (
+                    <li key={f.key} className={`exp-form-row${done ? " exp-form-row--done" : ""}`}>
+                      <span className={`exp-form-dot exp-form-dot--${done ? "done" : "locked"}`}>
+                        {f.short}
+                      </span>
+                      <div className="exp-form-meta">
+                        <p className="exp-form-name">Form {f.short} · {f.label}</p>
+                        <p className="exp-form-status">{done ? "Completed" : "Not started"}</p>
+                      </div>
+                      {done ? (
+                        <button
+                          type="button"
+                          className="exp-form-view"
+                          onClick={() => onViewForm(f.key)}
+                        >
+                          <Eye size={14}/> View
+                        </button>
+                      ) : (
+                        <span className="exp-form-view exp-form-view--disabled">—</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
         {tab === "Screening Details" && (
           <div className="exp-grid">
             <Field label="Screening ID"    value={entry.screening_id} />
@@ -251,7 +308,7 @@ export default function ViewEntries() {
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/screenings/");
+      const res = await api.get("/screenings/?limit=200");
       setEntries(res.data);
     } catch (err) {
       console.error("Error fetching entries:", err);
@@ -289,11 +346,15 @@ export default function ViewEntries() {
     navigate(`/form-a/${entry.screening_id}`);
   };
 
-  const handleAction = (entry, action) => {
+  const openForm = (entry, formKey) => {
+    if (!formKey || !ROUTE_MAP[formKey]) return;
     if (entry.screening_id) localStorage.setItem("current_screening_id", entry.screening_id);
     if (entry.enrollment_id) localStorage.setItem("current_enrollment_id", entry.enrollment_id);
-    const fn = ROUTE_MAP[action.key];
-    if (fn) navigate(fn(entry.screening_id, entry.enrollment_id));
+    navigate(ROUTE_MAP[formKey](entry.screening_id, entry.enrollment_id));
+  };
+
+  const handleAction = (entry, action) => {
+    openForm(entry, action.key);
   };
 
   /* ── Filter ── */
@@ -447,11 +508,25 @@ export default function ViewEntries() {
                       <td className="ve-td ve-td--md">{entry.site_name || "—"}</td>
                       <td className="ve-td ve-td--center ve-td--bold">{ga}</td>
 
-                      {/* Form dots */}
-                      <td className="ve-td">
+                      {/* Form dots — completed dots open that form for review */}
+                      <td className="ve-td ve-td--dots" onClick={e => e.stopPropagation()}>
                         <div className="ve-dots">
-                          {forms.slice(0, 10).map((f, i) => (
-                            <ProgressDot key={i} label={f.short} status={f.status} title={f.label}/>
+                          {forms.map((f, i) => (
+                            <ProgressDot
+                              key={i}
+                              label={f.short}
+                              status={f.status}
+                              title={
+                                f.status === "completed"
+                                  ? `View Form ${f.short}: ${f.label}`
+                                  : `${f.label} (not started)`
+                              }
+                              onClick={
+                                f.status === "completed"
+                                  ? () => openForm(entry, f.key)
+                                  : undefined
+                              }
+                            />
                           ))}
                         </div>
                       </td>
@@ -477,7 +552,7 @@ export default function ViewEntries() {
                       </td>
 
                       {/* Next action */}
-                      <td className="ve-td">
+                      <td className="ve-td ve-td--action">
                         <ActionBtn
                           label={action.label}
                           variant={action.variant}
@@ -488,10 +563,14 @@ export default function ViewEntries() {
                       {/* Icon actions with larger size (18px) */}
                       <td className="ve-td ve-td--right" onClick={e => e.stopPropagation()}>
                         <div className="icon-btns">
-                          <button className="icon-btn" title="View" onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}>
+                          <button
+                            className="icon-btn"
+                            title="View completed forms"
+                            onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}
+                          >
                             <Eye size={18}/>
                           </button>
-                          <button className="icon-btn" title="Edit" onClick={() => handleEdit(entry)}>
+                          <button className="icon-btn" title="Edit screening" onClick={() => handleEdit(entry)}>
                             <Edit size={18}/>
                           </button>
                           <button className="icon-btn icon-btn--del" title="Delete" onClick={() => handleDelete(entry.id, entry.screening_id)}>
@@ -506,8 +585,10 @@ export default function ViewEntries() {
                         <td colSpan={10} className="ve-exp-cell" onClick={e => e.stopPropagation()}>
                           <ExpandedPanel
                             entry={entry}
+                            forms={forms}
                             onEdit={() => handleEdit(entry)}
                             onDelete={() => handleDelete(entry.id, entry.screening_id)}
+                            onViewForm={(formKey) => openForm(entry, formKey)}
                           />
                         </td>
                       </tr>

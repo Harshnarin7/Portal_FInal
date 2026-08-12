@@ -76,7 +76,12 @@ async def login(request: Request, data: LoginRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(user)
 
-    claims = {"sub": user.username, "role": user.role, "site_name": user.site_name}
+    claims = {
+        "sub": user.username,
+        "role": user.role,
+        "site_name": user.site_name,
+        "full_name": user.full_name or user.username,
+    }
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
 
@@ -101,7 +106,12 @@ def refresh_access_token(body: RefreshTokenRequest, db: Session = Depends(get_db
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
-    claims = {"sub": user.username, "role": user.role, "site_name": user.site_name}
+    claims = {
+        "sub": user.username,
+        "role": user.role,
+        "site_name": user.site_name,
+        "full_name": user.full_name or user.username,
+    }
     return TokenRefreshResponse(access_token=create_access_token(claims))
 
 

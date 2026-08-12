@@ -14,11 +14,11 @@ const PCT_CLASS = (pct) => {
 };
 
 const STATUS_COLORS = {
-  empty:     "#4a4a6a",
-  draft:     "#7b6fa0",
-  complete:  "#2a7a5a",
-  submitted: "#1a9a6a",
-  late:      "#b85a2a",
+  empty:     "#94a3b8",
+  draft:     "#7c3aed",
+  complete:  "#0e7c7b",
+  submitted: "#15803d",
+  late:      "#b45309",
 };
 
 function PctBadge({ pct }) {

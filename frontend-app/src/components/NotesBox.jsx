@@ -1,21 +1,57 @@
 // NotesBox.jsx — Shared optional notes component for all PORTAL Trial forms
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./NotesBox.css";
+
+/** Prefer the real-id key; fall back to a provisional `…_new` key and migrate. */
+function readNotes(storageKey, formKey) {
+  if (!storageKey) return "";
+  const existing = localStorage.getItem(storageKey);
+  if (existing) return existing;
+
+  if (formKey && !String(formKey).endsWith("_new")) {
+    const provisionalKey = `notes_${String(formKey).replace(/_[^_]+$/, "_new")}`;
+    const migrated = localStorage.getItem(provisionalKey);
+    if (migrated) {
+      localStorage.setItem(storageKey, migrated);
+      localStorage.removeItem(provisionalKey);
+      return migrated;
+    }
+  }
+  return "";
+}
 
 export default function NotesBox({ formKey }) {
   const storageKey = formKey ? `notes_${formKey}` : null;
   const MAX = 500;
 
-  const [notes, setNotes] = useState(() => {
-    if (!storageKey) return "";
-    return localStorage.getItem(storageKey) || "";
-  });
+  const [notes, setNotes] = useState(() => readNotes(storageKey, formKey));
   const [focused, setFocused] = useState(false);
+  const activeKeyRef = useRef(storageKey);
+  const skipPersistRef = useRef(false);
+
+  // Re-hydrate (and migrate from `…_new`) whenever the form key changes.
+  useEffect(() => {
+    if (!storageKey) {
+      activeKeyRef.current = null;
+      skipPersistRef.current = true;
+      setNotes("");
+      return;
+    }
+    if (activeKeyRef.current === storageKey) return;
+    skipPersistRef.current = true;
+    activeKeyRef.current = storageKey;
+    setNotes(readNotes(storageKey, formKey));
+  }, [formKey, storageKey]);
 
   useEffect(() => {
     if (!storageKey) return;
+    if (activeKeyRef.current !== storageKey) return;
+    if (skipPersistRef.current) {
+      skipPersistRef.current = false;
+      return;
+    }
     if (notes) localStorage.setItem(storageKey, notes);
-    else        localStorage.removeItem(storageKey);
+    else localStorage.removeItem(storageKey);
   }, [notes, storageKey]);
 
   const clear = () => {

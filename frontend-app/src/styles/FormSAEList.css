@@ -1,0 +1,394 @@
+/* ============================================================
+   FormSAEList.css — Helper Form: Serious Adverse Events Listing
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+.form-sael-page {
+  --sl-accent: #b91c1c;
+  --sl-accent-deep: #991b1b;
+  --sl-header-bg: #fef2f2;
+  --sl-ink: #0f172a;
+  --sl-muted: #64748b;
+  --sl-border: #e2e8f0;
+  --sl-font: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-bottom: 100px;
+  font-family: var(--sl-font);
+  color: var(--sl-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.form-sael-page .form-main-title,
+.form-sael-page .form-main-subtitle,
+.form-sael-page .form-breadcrumb,
+.form-sael-page button,
+.form-sael-page input,
+.form-sael-page select,
+.form-sael-page textarea,
+.form-sael-page label,
+.form-sael-page h3,
+.form-sael-page th,
+.form-sael-page td {
+  font-family: var(--sl-font);
+}
+
+.form-sael-page .form-group,
+.screening-form.form-sael-page .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 0;
+  min-width: 0;
+}
+.form-sael-page .form-group label,
+.screening-form.form-sael-page .form-group label {
+  display: block;
+  align-items: initial;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1.25;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sl-card {
+  background: #fff;
+  border: 1px solid var(--sl-border);
+  border-radius: 14px;
+  margin-bottom: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.sl-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--sl-header-bg);
+  border-bottom: 1px solid #fecaca;
+}
+.sl-sec-icon { color: var(--sl-accent-deep); flex-shrink: 0; }
+.sl-card-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--sl-accent-deep);
+  letter-spacing: -0.02em;
+}
+.sl-card-body { padding: 18px 20px 20px; }
+
+.sl-input,
+.form-sael-page .form-group input,
+.form-sael-page .form-group select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.sl-input:focus,
+.form-sael-page .form-group input:focus,
+.form-sael-page .form-group select:focus {
+  outline: none;
+  border-color: var(--sl-accent);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.12);
+}
+.form-sael-page .form-group input[readonly] {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.sl-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 700px) {
+  .sl-grid-3 { grid-template-columns: 1fr; }
+}
+
+.sl-note {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid var(--sl-accent);
+  border-radius: 10px;
+  color: #991b1b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sl-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sl-event-card {
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px 16px;
+}
+.sl-event-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #fee2e2;
+}
+.sl-event-num {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.sl-event-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 14px;
+}
+.sl-event-grid .sl-span-2 {
+  grid-column: span 2;
+}
+@media (max-width: 800px) {
+  .sl-event-grid { grid-template-columns: 1fr; }
+  .sl-event-grid .sl-span-2 { grid-column: auto; }
+}
+.sl-event-block {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #fafafa;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+}
+.sl-event-block-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: #991b1b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+
+.sl-date-wrap .react-datepicker-wrapper,
+.sl-date-wrap .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}
+
+.sl-expand-cell {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+.sl-cell-ta {
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  max-height: 120px;
+  padding: 8px 10px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: vertical;
+  background: #fff;
+  box-sizing: border-box;
+}
+.sl-cell-ta:focus {
+  outline: none;
+  border-color: var(--sl-accent);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.12);
+}
+.sl-expand-btn {
+  appearance: none;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sl-expand-btn:hover,
+.sl-expand-btn.hot {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.sl-del {
+  appearance: none;
+  border: 1.5px solid #fecaca;
+  background: #fff;
+  color: #b91c1c;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+.sl-del:hover { background: #fef2f2; }
+
+.sl-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.sl-add {
+  appearance: none;
+  border: 1.5px dashed #fca5a5;
+  background: #fef2f2;
+  color: var(--sl-accent-deep);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sl-add:hover { background: #fee2e2; }
+.sl-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sl-save-msg {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: #b91c1c;
+}
+.sl-save-msg.err { color: #b91c1c; }
+.sl-save-msg.ok { color: #047857; }
+
+.form-sael-page .screening-id-badge {
+  width: max-content;
+  min-width: 0;
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
+  border-color: #fecaca;
+  border-left-color: var(--sl-accent);
+}
+.form-sael-page .id-label { color: #b91c1c; }
+.form-sael-page .id-val { color: #7f1d1d; }
+
+.sl-datepicker-popper { z-index: 60 !important; }
+
+.sl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.sl-modal {
+  width: min(640px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 560px);
+}
+.sl-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+}
+.sl-modal-head h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #991b1b;
+}
+.sl-modal-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.sl-modal-close:hover { background: #fee2e2; color: #b91c1c; }
+.sl-modal-ta {
+  flex: 1;
+  min-height: 220px;
+  margin: 14px 16px 0;
+  padding: 12px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.sl-modal-ta:focus {
+  outline: none;
+  border-color: var(--sl-accent);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.12);
+}
+.sl-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+.sl-modal-hint {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.sl-modal-done {
+  appearance: none;
+  border: none;
+  background: #b91c1c;
+  color: #fff;
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sl-modal-done:hover { background: #991b1b; }
