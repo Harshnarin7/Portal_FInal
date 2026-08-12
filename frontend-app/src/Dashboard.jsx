@@ -452,7 +452,7 @@ export default function Dashboard() {
             <Crd style={{ marginBottom: 14 }}>
               <SH icon={P.trend} title="Monthly Enrollment Trend" sub="All 6 sites combined" />
               {monthly.length === 0 ? (
-                <div style={{ height: 180, displayContent: "center", textAlign: "center", color: C.slate, fontSize: 12 }}>No enrolment trend in live data yet</div>
+                <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: C.slate, fontSize: 12 }}>No enrolment trend in live data yet</div>
               ) : (
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
