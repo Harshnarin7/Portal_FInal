@@ -1027,3 +1027,12 @@ SAE_LIST_TABLE_PATCHES = [
 ]
 
 # total new columns: 92
+
+# 2026-08-12: which physical blender (A/B/C/D) was used for a birth — needed
+# to identify the stratum for per-blender allocation-sequence monitoring
+# (see models.py comment on BirthResuscitation.blender_letter for why this
+# isn't an unblinding risk). No manual call needed here — apply_schema_patches()
+# auto-discovers this list by its _PATCHES suffix.
+BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_letter VARCHAR",
+]

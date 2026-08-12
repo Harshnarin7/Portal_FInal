@@ -448,6 +448,7 @@ class BirthResuscitationCreate(BaseModel):
     required_resuscitation: Optional[bool] = None
     initial_steps: Optional[bool] = None
     strata: Optional[str] = None
+    blender_letter: Optional[str] = None
     enrollment_reason_not_randomized: Optional[str] = None
     enrollment_reason_not_randomized_other: Optional[str] = None
 

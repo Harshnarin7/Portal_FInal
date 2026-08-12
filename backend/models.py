@@ -220,6 +220,14 @@ class BirthResuscitation(Base):
     required_resuscitation = Column(Boolean)
     initial_steps = Column(Boolean)
     strata = Column(String, nullable=True)
+    # Which of the 4 site blenders (A/B/C/D) was used for this birth — not an
+    # unblinding risk: each blender runs its own independent 30/60/90%
+    # sequence, so the letter alone reveals nothing about arm. Needed to
+    # identify which of the 48 site×blender×gestation allocation sequences a
+    # birth belongs to (see PORTAL_allocations/generate_sequences.R) — without
+    # it, per-stratum enrollment/exhaustion monitoring can't be done from the
+    # clinical DB, only from the blender's own encrypted log.
+    blender_letter = Column(String, nullable=True)
     enrollment_reason_not_randomized = Column(String, nullable=True)
     enrollment_reason_not_randomized_other = Column(String, nullable=True)
     ppv_required = Column(Boolean)

@@ -404,7 +404,7 @@ export default function BirthResuscitationForm() {
     /* B3 — hr_below_100 is CRF Q21 (HR < 100); stored inverted as hr_above_100 */
     poor_resp_efforts:"", poor_muscle_tone:"", hr_below_100:"",
     initial_steps:"", required_resuscitation:"",
-    randomised:"", randomisation_date:"", strata:"",
+    randomised:"", randomisation_date:"", strata:"", blender_letter:"",
     enrollment_reason_not_randomized:"", enrollment_reason_not_randomized_other:"",
     /* B4 */
     ppv_required:"",
@@ -731,6 +731,7 @@ export default function BirthResuscitationForm() {
       time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
+      blender_letter:      fd.blender_letter || null,
       randomisation_date:  fd.randomisation_date
         ? String(fd.randomisation_date).slice(0, 10) : null,
       enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
@@ -1628,7 +1629,17 @@ export default function BirthResuscitationForm() {
                           <label>27. Strata <span className="field-note">(auto, from Gestation at Randomization)</span></label>
                           <input value={formData.strata||""} readOnly className="readonly-input" placeholder="—"/>
                         </div>
-                        <div/>
+                        <div className="form-group">
+                          <label>Blender Used <span className="field-note">(device identifier — not a numbered CRF item; needed to track allocation sequence usage, not an unblinding risk)</span></label>
+                          <select name="blender_letter" value={formData.blender_letter||""}
+                            disabled={!isFieldEditable} onChange={handleChange}>
+                            <option value="">-- Select --</option>
+                            <option value="A">Blender A</option>
+                            <option value="B">Blender B</option>
+                            <option value="C">Blender C</option>
+                            <option value="D">Blender D</option>
+                          </select>
+                        </div>
                       </div>
                     )}
                     {formData.randomised==="No" && (
