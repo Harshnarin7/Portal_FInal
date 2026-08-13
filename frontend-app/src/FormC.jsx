@@ -27,6 +27,81 @@ const STATES = [
   "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry",
 ];
 
+/* Antenatal steroids — doses required to complete one course (clinical rule). */
+const DOSES_PER_COURSE = { Betamethasone: 2, Dexamethasone: 4 };
+const DRUG_DOSE_CAP = { Betamethasone: 8, Dexamethasone: 12 };
+
+const parseSteroidDrugs = (raw) =>
+  String(raw || "").split(",").map(s => s.trim()).filter(Boolean);
+
+const hasSteroidDrug = (raw, drug) => parseSteroidDrugs(raw).includes(drug);
+
+/**
+ * Per-drug course computation from dose count.
+ * Rules (floor division):
+ *   Betamethasone: 2 doses = 1 course  → 3 doses = 1 course completed (1 leftover)
+ *   Dexamethasone: 4 doses = 1 course  → 7 doses = 1 course; 8 doses = 2 courses
+ */
+function computeSteroidCourse(drug, dosesRaw) {
+  const per = DOSES_PER_COURSE[drug];
+  if (!per) return null;
+  if (dosesRaw === "" || dosesRaw == null) return null;
+  const doses = Number(dosesRaw);
+  if (!Number.isFinite(doses) || doses < 0) return null;
+  const completedCourses = Math.floor(doses / per);
+  const remainder = doses % per;
+  // Complete only when every dose fits exact full courses (no leftover).
+  const status = doses > 0 && remainder === 0 ? "Complete" : "Incomplete";
+  return { drug, doses, per, completedCourses, remainder, status };
+}
+
+function formatSteroidCourseLabel(info) {
+  if (!info) return "";
+  const n = info.completedCourses;
+  // Once at least one full course is done, only show the completed count
+  // (no Incomplete label) — e.g. Beta 3 → "1 course completed".
+  if (n >= 1) {
+    return `${n} course${n === 1 ? "" : "s"} completed`;
+  }
+  // Not enough doses for a full course yet.
+  return `0 courses completed — Incomplete (${info.doses}/${info.per} doses given)`;
+}
+
+/** Combined legacy columns for reports that still read shared steroid_* fields. */
+function buildLegacySteroidSummary(steroidDrug, betaDoses, dexaDoses) {
+  const drugs = parseSteroidDrugs(steroidDrug).filter(d => d !== "Not known");
+  const parts = [];
+  const statuses = [];
+  let totalCourses = 0;
+
+  if (drugs.includes("Betamethasone")) {
+    const info = computeSteroidCourse("Betamethasone", betaDoses);
+    if (info) {
+      parts.push(`Betamethasone:${info.doses}`);
+      statuses.push(info.status);
+      totalCourses += info.completedCourses;
+    }
+  }
+  if (drugs.includes("Dexamethasone")) {
+    const info = computeSteroidCourse("Dexamethasone", dexaDoses);
+    if (info) {
+      parts.push(`Dexamethasone:${info.doses}`);
+      statuses.push(info.status);
+      totalCourses += info.completedCourses;
+    }
+  }
+
+  if (!parts.length) {
+    return { steroid_doses: null, steroid_courses_status: null, steroid_courses: null };
+  }
+  const allComplete = statuses.length > 0 && statuses.every(s => s === "Complete");
+  return {
+    steroid_doses: parts.join("; "),
+    steroid_courses_status: allComplete ? "Complete" : "Incomplete",
+    steroid_courses: String(totalCourses),
+  };
+}
+
 /* ── Toggle component — matches YesNoToggle (Form A/B) exactly ── */
 function Toggle({ name, value, options, onChange, disabled, error }) {
   const isActive = (opt) => {
@@ -144,8 +219,11 @@ export default function FormC() {
     multiple: "No", multiple_other: "", lmp: "", edd: "",
     conception: "", artificial_type: "", artificial_other: "",
     // C2 Antenatal Treatment
-    antenatal_steroids: "", steroid_drug: "", steroid_doses: "",
-    steroid_courses_status: "", steroid_courses: "",
+    antenatal_steroids: "", steroid_drug: "",
+    steroid_beta_doses: "", steroid_dexa_doses: "",
+    steroid_beta_courses: "", steroid_dexa_courses: "",
+    // Legacy combined summary (derived on save; still hydrated for older rows)
+    steroid_doses: "", steroid_courses_status: "", steroid_courses: "",
     lddi_known: "", lddi_hours: "",
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
@@ -334,11 +412,48 @@ export default function FormC() {
             artificial_type: formCData.artificial_type ?? prev.artificial_type,
             artificial_other: formCData.artificial_other ?? prev.artificial_other,
             antenatal_steroids: formCData.antenatal_steroids ?? prev.antenatal_steroids,
-            steroid_drug: formCData.steroid_drug ?? prev.steroid_drug,
-            steroid_doses: formCData.steroid_doses != null ? String(formCData.steroid_doses) : prev.steroid_doses,
-            steroid_courses_status: formCData.steroid_courses_status
-              ?? (formCData.steroid_courses != null && formCData.steroid_courses !== "" ? "Complete" : prev.steroid_courses_status),
-            steroid_courses: formCData.steroid_courses != null ? String(formCData.steroid_courses) : prev.steroid_courses,
+            ...(() => {
+              const drug = formCData.steroid_drug ?? prev.steroid_drug;
+              let beta = formCData.steroid_beta_doses != null && formCData.steroid_beta_doses !== ""
+                ? String(formCData.steroid_beta_doses) : "";
+              let dexa = formCData.steroid_dexa_doses != null && formCData.steroid_dexa_doses !== ""
+                ? String(formCData.steroid_dexa_doses) : "";
+              const legacy = formCData.steroid_doses != null ? String(formCData.steroid_doses) : "";
+              // Soft-migrate older shared steroid_doses into per-drug fields when possible.
+              if (!beta && !dexa && legacy) {
+                const betaM = legacy.match(/Betamethasone\s*:\s*(\d+)/i);
+                const dexaM = legacy.match(/Dexamethasone\s*:\s*(\d+)/i);
+                if (betaM) beta = betaM[1];
+                if (dexaM) dexa = dexaM[1];
+                if (!beta && !dexa && /^\d+$/.test(legacy.trim())) {
+                  if (hasSteroidDrug(drug, "Betamethasone") && !hasSteroidDrug(drug, "Dexamethasone")) {
+                    beta = legacy.trim();
+                  } else if (hasSteroidDrug(drug, "Dexamethasone") && !hasSteroidDrug(drug, "Betamethasone")) {
+                    dexa = legacy.trim();
+                  }
+                }
+              }
+              const betaInfo = computeSteroidCourse("Betamethasone", beta);
+              const dexaInfo = computeSteroidCourse("Dexamethasone", dexa);
+              const legacySummary = buildLegacySteroidSummary(drug, beta, dexa);
+              return {
+                steroid_drug: drug,
+                steroid_beta_doses: beta || prev.steroid_beta_doses,
+                steroid_dexa_doses: dexa || prev.steroid_dexa_doses,
+                steroid_beta_courses: betaInfo
+                  ? String(betaInfo.completedCourses)
+                  : (formCData.steroid_beta_courses != null ? String(formCData.steroid_beta_courses) : prev.steroid_beta_courses),
+                steroid_dexa_courses: dexaInfo
+                  ? String(dexaInfo.completedCourses)
+                  : (formCData.steroid_dexa_courses != null ? String(formCData.steroid_dexa_courses) : prev.steroid_dexa_courses),
+                steroid_doses: legacySummary.steroid_doses ?? (legacy || prev.steroid_doses),
+                steroid_courses_status: legacySummary.steroid_courses_status
+                  ?? formCData.steroid_courses_status
+                  ?? prev.steroid_courses_status,
+                steroid_courses: legacySummary.steroid_courses
+                  ?? (formCData.steroid_courses != null ? String(formCData.steroid_courses) : prev.steroid_courses),
+              };
+            })(),
             multiple_other: formCData.multiple_other ?? prev.multiple_other,
             lddi_known: formCData.lddi_known ?? (formCData.lddi_hours != null ? "Known" : prev.lddi_known),
             lddi_hours: formCData.lddi_hours ?? prev.lddi_hours,
@@ -447,9 +562,24 @@ export default function FormC() {
       case "multiple_other": return (d.multiple==="Other"&&!value?.trim()) ? "Required" : "";
       case "antenatal_steroids": return value ? "" : "Required";
       case "steroid_drug": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
-      case "steroid_doses": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
-      case "steroid_courses_status": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
-      case "steroid_courses": return (d.antenatal_steroids==="Yes"&&d.steroid_courses_status==="Complete"&&!value) ? "Required" : "";
+      case "steroid_beta_doses": {
+        if (d.antenatal_steroids !== "Yes" || !hasSteroidDrug(d.steroid_drug, "Betamethasone")) return "";
+        if (value === "" || value == null) return "Required";
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1 || n > DRUG_DOSE_CAP.Betamethasone) {
+          return `Enter 1–${DRUG_DOSE_CAP.Betamethasone}`;
+        }
+        return "";
+      }
+      case "steroid_dexa_doses": {
+        if (d.antenatal_steroids !== "Yes" || !hasSteroidDrug(d.steroid_drug, "Dexamethasone")) return "";
+        if (value === "" || value == null) return "Required";
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1 || n > DRUG_DOSE_CAP.Dexamethasone) {
+          return `Enter 1–${DRUG_DOSE_CAP.Dexamethasone}`;
+        }
+        return "";
+      }
       case "lddi_known": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
       case "lddi_hours": if (d.lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
       case "antenatal_mgso4": return value ? "" : "Required";
@@ -524,14 +654,29 @@ export default function FormC() {
   };
 
   const handleToggle = (name, value) => {
-    set({ [name]: value });
+    const patch = { [name]: value };
+    if (name === "antenatal_steroids" && value !== "Yes") {
+      Object.assign(patch, {
+        steroid_drug: "",
+        steroid_beta_doses: "",
+        steroid_dexa_doses: "",
+        steroid_beta_courses: "",
+        steroid_dexa_courses: "",
+        steroid_doses: "",
+        steroid_courses_status: "",
+        steroid_courses: "",
+        lddi_known: "",
+        lddi_hours: "",
+      });
+    }
+    set(patch);
     touchField(name);
-    setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
+    setErrors(p => ({ ...p, [name]: validateField(name, value, { ...formData, ...patch }) }));
   };
 
-  /* Steroid Drug / Doses — multi-select. "Not known" is exclusive for drug. */
+  /* Steroid drug — multi-select. "Not known" is exclusive. Clears dose fields for deselected drugs. */
   const handleSteroidDrugToggle = (name, clicked) => {
-    const current = String(formData[name] || "").split(",").map(s => s.trim()).filter(Boolean);
+    const current = parseSteroidDrugs(formData[name]);
     let next;
     if (clicked === "Not known") {
       next = current.includes("Not known") ? [] : ["Not known"];
@@ -540,20 +685,69 @@ export default function FormC() {
       next = base.includes(clicked) ? base.filter(v => v !== clicked) : [...base, clicked];
     }
     const value = next.join(",");
-    set({ [name]: value });
+    const patch = { [name]: value };
+    if (!next.includes("Betamethasone")) {
+      patch.steroid_beta_doses = "";
+      patch.steroid_beta_courses = "";
+    }
+    if (!next.includes("Dexamethasone")) {
+      patch.steroid_dexa_doses = "";
+      patch.steroid_dexa_courses = "";
+    }
+    if (next.includes("Not known") || next.length === 0) {
+      patch.steroid_beta_doses = "";
+      patch.steroid_dexa_doses = "";
+      patch.steroid_beta_courses = "";
+      patch.steroid_dexa_courses = "";
+      patch.steroid_doses = "";
+      patch.steroid_courses_status = "";
+      patch.steroid_courses = "";
+    } else {
+      Object.assign(patch, buildLegacySteroidSummary(
+        value,
+        next.includes("Betamethasone") ? formData.steroid_beta_doses : "",
+        next.includes("Dexamethasone") ? formData.steroid_dexa_doses : "",
+      ));
+      const betaInfo = computeSteroidCourse("Betamethasone", patch.steroid_beta_doses ?? formData.steroid_beta_doses);
+      const dexaInfo = computeSteroidCourse("Dexamethasone", patch.steroid_dexa_doses ?? formData.steroid_dexa_doses);
+      patch.steroid_beta_courses = betaInfo ? String(betaInfo.completedCourses) : "";
+      patch.steroid_dexa_courses = dexaInfo ? String(dexaInfo.completedCourses) : "";
+    }
+    set(patch);
     touchField(name);
-    setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
+    setErrors(p => ({
+      ...p,
+      [name]: validateField(name, value, { ...formData, ...patch }),
+      steroid_beta_doses: validateField("steroid_beta_doses", patch.steroid_beta_doses ?? formData.steroid_beta_doses, { ...formData, ...patch }),
+      steroid_dexa_doses: validateField("steroid_dexa_doses", patch.steroid_dexa_doses ?? formData.steroid_dexa_doses, { ...formData, ...patch }),
+    }));
   };
 
-  const handleSteroidDosesToggle = (name, clicked) => {
-    const current = String(formData[name] || "").split(",").map(s => s.trim()).filter(Boolean);
-    const next = current.includes(clicked)
-      ? current.filter(v => v !== clicked)
-      : [...current, clicked].sort();
-    const value = next.join(",");
-    set({ [name]: value });
-    touchField(name);
-    setErrors(p => ({ ...p, [name]: validateField(name, value, formData) }));
+  const handleSteroidDoseCount = (drug, raw) => {
+    const cap = DRUG_DOSE_CAP[drug];
+    let value = raw;
+    if (value !== "") {
+      if (!/^\d+$/.test(value)) return;
+      const n = Number(value);
+      if (n > cap) value = String(cap);
+    }
+    const patch = drug === "Betamethasone"
+      ? { steroid_beta_doses: value }
+      : { steroid_dexa_doses: value };
+    const beta = drug === "Betamethasone" ? value : formData.steroid_beta_doses;
+    const dexa = drug === "Dexamethasone" ? value : formData.steroid_dexa_doses;
+    const betaInfo = computeSteroidCourse("Betamethasone", beta);
+    const dexaInfo = computeSteroidCourse("Dexamethasone", dexa);
+    patch.steroid_beta_courses = betaInfo ? String(betaInfo.completedCourses) : "";
+    patch.steroid_dexa_courses = dexaInfo ? String(dexaInfo.completedCourses) : "";
+    Object.assign(patch, buildLegacySteroidSummary(formData.steroid_drug, beta, dexa));
+    set(patch);
+    const field = drug === "Betamethasone" ? "steroid_beta_doses" : "steroid_dexa_doses";
+    touchField(field);
+    setErrors(p => ({
+      ...p,
+      [field]: validateField(field, value, { ...formData, ...patch }),
+    }));
   };
 
   const handleBlur = (e) => {
@@ -600,10 +794,14 @@ export default function FormC() {
     if (!data.antenatal_steroids) e.antenatal_steroids = "Required";
     if (data.antenatal_steroids==="Yes") {
       if (!data.steroid_drug) e.steroid_drug = "Required";
-      if (!data.steroid_doses) e.steroid_doses = "Required";
-      if (!data.steroid_courses_status) e.steroid_courses_status = "Required";
-      if (data.steroid_courses_status==="Complete"&&!data.steroid_courses)
-        e.steroid_courses = "Required";
+      if (hasSteroidDrug(data.steroid_drug, "Betamethasone")) {
+        const err = validateField("steroid_beta_doses", data.steroid_beta_doses, data);
+        if (err) e.steroid_beta_doses = err;
+      }
+      if (hasSteroidDrug(data.steroid_drug, "Dexamethasone")) {
+        const err = validateField("steroid_dexa_doses", data.steroid_dexa_doses, data);
+        if (err) e.steroid_dexa_doses = err;
+      }
       if (!data.lddi_known) e.lddi_known = "Required";
       if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null))
         e.lddi_hours = "Required";
@@ -698,9 +896,32 @@ export default function FormC() {
     artificial_other: formData.artificial_other || null,
     antenatal_steroids: formData.antenatal_steroids || null,
     steroid_drug: formData.steroid_drug || null,
-    steroid_doses: formData.steroid_doses || null,
-    steroid_courses_status: formData.steroid_courses_status || null,
-    steroid_courses: formData.steroid_courses_status === "Complete" ? (formData.steroid_courses || null) : null,
+    steroid_beta_doses: hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+      ? toInt(formData.steroid_beta_doses) : null,
+    steroid_dexa_doses: hasSteroidDrug(formData.steroid_drug, "Dexamethasone")
+      ? toInt(formData.steroid_dexa_doses) : null,
+    steroid_beta_courses: (() => {
+      const info = computeSteroidCourse("Betamethasone", formData.steroid_beta_doses);
+      return hasSteroidDrug(formData.steroid_drug, "Betamethasone") && info
+        ? info.completedCourses : null;
+    })(),
+    steroid_dexa_courses: (() => {
+      const info = computeSteroidCourse("Dexamethasone", formData.steroid_dexa_doses);
+      return hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && info
+        ? info.completedCourses : null;
+    })(),
+    ...(() => {
+      const legacy = buildLegacySteroidSummary(
+        formData.steroid_drug,
+        formData.steroid_beta_doses,
+        formData.steroid_dexa_doses,
+      );
+      return {
+        steroid_doses: legacy.steroid_doses,
+        steroid_courses_status: legacy.steroid_courses_status,
+        steroid_courses: legacy.steroid_courses,
+      };
+    })(),
     lddi_known: formData.lddi_known || null,
     lddi_hours: formData.lddi_hours || null,
     antenatal_mgso4: formData.antenatal_mgso4 || null,
@@ -812,7 +1033,7 @@ export default function FormC() {
     c1: ["mother_age","house","city","state","landmark","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c2: ["house","city","state","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c3: ["gravida","parity","abortions","live","still","anc_visits","conception","artificial_type","artificial_other","multiple","multiple_other"].filter(f => touched[f]&&errors[f]).length,
-    c4: ["antenatal_steroids","steroid_drug","steroid_doses","steroid_courses_status","steroid_courses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
+    c4: ["antenatal_steroids","steroid_drug","steroid_beta_doses","steroid_dexa_doses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
     c5: ["medical_disorders","other_medical_disorder"].filter(f => touched[f]&&errors[f]).length,
     c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
     c7: ["pprom","pprom_duration","preterm_labor","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
@@ -1119,36 +1340,125 @@ export default function FormC() {
 
                 {formData.antenatal_steroids==="Yes" && (
                   <div className="followup-box">
-                    <div className="form-grid-2">
-                      <div className="form-group">
-                        <label>20. If yes, drug <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
-                        <MultiToggle name="steroid_drug" value={formData.steroid_drug}
-                          options={["Betamethasone","Dexamethasone","Not known"]}
-                          onToggle={handleSteroidDrugToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
-                      </div>
-                      <div className="form-group">
-                        <label>21. No of Doses <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
-                        <MultiToggle name="steroid_doses" value={String(formData.steroid_doses)}
-                          options={["1","2","3","4"]}
-                          onToggle={handleSteroidDosesToggle} disabled={!isFieldEditable} error={E("steroid_doses")}/>
-                      </div>
+                    <div className="form-group">
+                      <label>20. If yes, drug <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
+                      <MultiToggle name="steroid_drug" value={formData.steroid_drug}
+                        options={["Betamethasone","Dexamethasone","Not known"]}
+                        onToggle={handleSteroidDrugToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
                     </div>
-                    <div className="form-grid-2" style={{marginTop:12}}>
-                      <div className="form-group">
-                        <label>22. Courses<span className="required">*</span></label>
-                        <Toggle name="steroid_courses_status" value={formData.steroid_courses_status}
-                          options={["Complete","Incomplete"]}
-                          onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_courses_status")}/>
+
+                    {(hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+                      || hasSteroidDrug(formData.steroid_drug, "Dexamethasone")) && (
+                      <div className="form-grid-2" style={{marginTop:12}}>
+                        {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
+                          <div className="form-group">
+                            <label>
+                              21a. Betamethasone — No. of Doses Given
+                              <span className="field-note"> (1 course = {DOSES_PER_COURSE.Betamethasone} doses)</span>
+                              <span className="required">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="1"
+                              max={DRUG_DOSE_CAP.Betamethasone}
+                              name="steroid_beta_doses"
+                              value={formData.steroid_beta_doses || ""}
+                              placeholder={`1–${DRUG_DOSE_CAP.Betamethasone}`}
+                              onChange={e => handleSteroidDoseCount("Betamethasone", e.target.value)}
+                              onBlur={() => {
+                                touchField("steroid_beta_doses");
+                                setErrors(p => ({
+                                  ...p,
+                                  steroid_beta_doses: validateField(
+                                    "steroid_beta_doses",
+                                    formData.steroid_beta_doses,
+                                    formData
+                                  ),
+                                }));
+                              }}
+                              readOnly={!isFieldEditable}
+                              className={E("steroid_beta_doses") ? "input-error" : ""}
+                            />
+                            <FieldError msg={E("steroid_beta_doses")}/>
+                          </div>
+                        )}
+                        {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
+                          <div className="form-group">
+                            <label>
+                              21b. Dexamethasone — No. of Doses Given
+                              <span className="field-note"> (1 course = {DOSES_PER_COURSE.Dexamethasone} doses)</span>
+                              <span className="required">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="1"
+                              max={DRUG_DOSE_CAP.Dexamethasone}
+                              name="steroid_dexa_doses"
+                              value={formData.steroid_dexa_doses || ""}
+                              placeholder={`1–${DRUG_DOSE_CAP.Dexamethasone}`}
+                              onChange={e => handleSteroidDoseCount("Dexamethasone", e.target.value)}
+                              onBlur={() => {
+                                touchField("steroid_dexa_doses");
+                                setErrors(p => ({
+                                  ...p,
+                                  steroid_dexa_doses: validateField(
+                                    "steroid_dexa_doses",
+                                    formData.steroid_dexa_doses,
+                                    formData
+                                  ),
+                                }));
+                              }}
+                              readOnly={!isFieldEditable}
+                              className={E("steroid_dexa_doses") ? "input-error" : ""}
+                            />
+                            <FieldError msg={E("steroid_dexa_doses")}/>
+                          </div>
+                        )}
                       </div>
-                      {formData.steroid_courses_status==="Complete" && (
-                        <div className="form-group">
-                          <label>23. Number of courses<span className="required">*</span></label>
-                          <Toggle name="steroid_courses" value={String(formData.steroid_courses)}
-                            options={["1","2","3","4"].map(v=>({label:v,value:v}))}
-                            onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_courses")}/>
-                        </div>
-                      )}
-                    </div>
+                    )}
+
+                    {(hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+                      || hasSteroidDrug(formData.steroid_drug, "Dexamethasone")) && (
+                      <div className="form-grid-2" style={{marginTop:12}}>
+                        {(() => {
+                          const betaInfo = hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+                            ? computeSteroidCourse("Betamethasone", formData.steroid_beta_doses)
+                            : null;
+                          const dexaInfo = hasSteroidDrug(formData.steroid_drug, "Dexamethasone")
+                            ? computeSteroidCourse("Dexamethasone", formData.steroid_dexa_doses)
+                            : null;
+                          return (
+                            <>
+                              {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
+                                <div className="form-group">
+                                  <label>22a. Betamethasone Course <span className="auto-tag">AUTO</span></label>
+                                  <input
+                                    readOnly
+                                    className="readonly-input"
+                                    value={betaInfo ? formatSteroidCourseLabel(betaInfo) : ""}
+                                    placeholder="Enter doses in 21a"
+                                  />
+                                </div>
+                              )}
+                              {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
+                                <div className="form-group">
+                                  <label>22b. Dexamethasone Course <span className="auto-tag">AUTO</span></label>
+                                  <input
+                                    readOnly
+                                    className="readonly-input"
+                                    value={dexaInfo ? formatSteroidCourseLabel(dexaInfo) : ""}
+                                    placeholder="Enter doses in 21b"
+                                  />
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+
                     <div className="form-grid-2" style={{marginTop:12}}>
                       <div className="form-group">
                         <label>24. LDDI<span className="required">*</span></label>

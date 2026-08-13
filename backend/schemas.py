@@ -664,6 +664,10 @@ class MaternalDetailsCreate(BaseModel):
     steroid_doses: Optional[str] = None
     steroid_courses_status: Optional[str] = None
     steroid_courses: Optional[str] = None
+    steroid_beta_doses: Optional[int] = None
+    steroid_dexa_doses: Optional[int] = None
+    steroid_beta_courses: Optional[int] = None
+    steroid_dexa_courses: Optional[int] = None
     lddi_known: Optional[str] = None
     lddi_hours: Optional[str] = None
     antenatal_mgso4: Optional[str] = None

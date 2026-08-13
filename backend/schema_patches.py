@@ -314,6 +314,11 @@ MATERNAL_DETAILS_COLUMN_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_abdominal_tenderness VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hypothyroidism BOOLEAN DEFAULT FALSE",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hyperthyroidism BOOLEAN DEFAULT FALSE",
+    # Form C antenatal steroids — per-drug dose / completed-course tracking
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_doses INTEGER",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_doses INTEGER",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_courses INTEGER",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_courses INTEGER",
 ]
 
 POSTNATAL_DAY1_V2_COLUMN_PATCHES = [

@@ -324,6 +324,12 @@ class MaternalDetails(Base):
     steroid_doses = Column(String)
     steroid_courses_status = Column(String)
     steroid_courses = Column(String)
+    # Per-drug antenatal steroid tracking (source of truth); legacy
+    # steroid_doses / steroid_courses_* keep a combined summary for exports.
+    steroid_beta_doses = Column(Integer)
+    steroid_dexa_doses = Column(Integer)
+    steroid_beta_courses = Column(Integer)
+    steroid_dexa_courses = Column(Integer)
     lddi_known = Column(String)
     lddi_hours = Column(String)
     antenatal_mgso4 = Column(String)

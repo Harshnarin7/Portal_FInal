@@ -957,9 +957,9 @@ export default function BirthResuscitationForm() {
         : await api.post("/birth-resuscitation/", body);
 
       const eid = res.data.enrollment_id;
-      const sid = res.data.screening_id;
+      const savedSid = res.data.screening_id;
       setStoredId("current_enrollment_id", eid);
-      if (sid) setStoredId("current_screening_id", sid);
+      if (savedSid) setStoredId("current_screening_id", savedSid);
       hasBirthRecordRef.current = true;
       window.dispatchEvent(new Event("storage"));
 
@@ -1005,9 +1005,9 @@ export default function BirthResuscitationForm() {
         : await api.post("/birth-resuscitation/", body);
 
       const eid = res.data.enrollment_id;
-      const sid = res.data.screening_id;
+      const savedSid = res.data.screening_id;
       setStoredId("current_enrollment_id", eid);
-      if (sid) setStoredId("current_screening_id", sid);
+      if (savedSid) setStoredId("current_screening_id", savedSid);
       hasBirthRecordRef.current = true;
       window.dispatchEvent(new Event("storage"));
 
@@ -1081,9 +1081,9 @@ export default function BirthResuscitationForm() {
       }
 
       const newEid = res.data.enrollment_id || eid;
-      const sid = res.data.screening_id;
+      const savedSid = res.data.screening_id;
       setStoredId("current_enrollment_id", newEid);
-      if (sid) setStoredId("current_screening_id", sid);
+      if (savedSid) setStoredId("current_screening_id", savedSid);
       /* Do not setConfirmedEnrollmentId here — that re-triggers the birth
          GET and can overwrite fields the nurse typed after this save. */
       window.dispatchEvent(new Event("storage"));
