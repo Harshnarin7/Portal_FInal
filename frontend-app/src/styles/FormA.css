@@ -376,6 +376,16 @@
   background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
   padding: 12px 14px; margin-top: 14px;
 }
+.gestation-info-banner--warn {
+  background: #fef2f2; border-color: #fecaca;
+}
+.gestation-info-banner--warn .banner-info-icon { color: #b91c1c; }
+.gestation-info-banner--warn .banner-text { color: #991b1b; }
+.ga-calculated-input {
+  color: #111827 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em;
+}
 .banner-info-icon { color: #2563eb; flex-shrink: 0; margin-top: 1px; }
 .banner-text { font-size: 13px; color: #1e40af; line-height: 1.55; }
 .banner-text strong { font-weight: 700; }

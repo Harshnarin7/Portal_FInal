@@ -980,6 +980,10 @@ def create_birth_resuscitation(
                 )
             payload.pop("enrollment_id", None)
             for key, value in payload.items():
+                # Skip None so partial mobile Form B / Form C saves do not
+                # wipe the other half of the birth_resuscitation record.
+                if value is None:
+                    continue
                 setattr(existing, key, value)
 
             db.commit()
@@ -1095,6 +1099,10 @@ def update_birth_resuscitation(
         )
 
         for key, value in update_data.items():
+            # Skip None so partial mobile Form B / Form C updates do not wipe
+            # the other half of the birth_resuscitation record.
+            if value is None:
+                continue
             setattr(entry, key, value)
 
         db.commit()
