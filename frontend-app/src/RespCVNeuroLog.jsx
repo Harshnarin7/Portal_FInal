@@ -843,7 +843,12 @@ export default function RespCVNeuroLog() {
           resetFormState();
         }
       } catch (err) {
-        if (err?.response?.status === 404) resetFormState();
+        // Always clear — never leave previous day's values in the form.
+        resetFormState();
+        if (err?.response?.status !== 404) {
+          setMessage("❌ Could not load Day " + activeDay + " — save disabled until reload");
+          setTimeout(() => setMessage(""), 5000);
+        }
       } finally {
         setLoading(false);
       }
@@ -1002,9 +1007,12 @@ export default function RespCVNeuroLog() {
   const setNeuro  = (k, v) => isFieldEditable && setNeuroData(p => ({ ...p, [k]: v }));
 
   /* ── Save (Nurse) ── */
-  const handleSave = async () => {
-    if (!enrollmentId) return;
-    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+  const handleSave = async ({ force = false } = {}) => {
+    if (!enrollmentId) return false;
+    // force: re-save while viewing a saved draft (Submit path) without requiring Edit.
+    if (!force && !isFieldEditable) return false;
+    if (isSubmitted && !isOverrideActiveDay) return false;
+    if (isFutureActiveDay) return false;
     const now = new Date().toISOString();
     const payload = {
       enrollment_id:       enrollmentId,
@@ -1057,9 +1065,11 @@ export default function RespCVNeuroLog() {
         setCompletedDays(prev => [...prev, activeDay]);
       setMessage("✅ Day " + activeDay + " saved successfully");
       setTimeout(() => setMessage(""), 3000);
+      return true;
     } catch (err) {
       console.error(err?.response?.data || err);
       setMessage("❌ Error saving — please try again");
+      return false;
     }
   };
 
@@ -1067,8 +1077,14 @@ export default function RespCVNeuroLog() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      // Auto-save first if not already saved
-      if (!isSaved) await handleSave();
+      // Always persist current form state before locking — prevents edit→Submit
+      // from locking the previous payload (mobile round-trip data loss).
+      const saved = await handleSave({ force: true });
+      if (!saved) {
+        setMessage("❌ Save failed — submit cancelled");
+        setShowModal(false);
+        return;
+      }
       const now = new Date().toISOString();
       await api.patch(`/resp-cv-neuro/${enrollmentId}/${activeDay}/submit`, {
         submission_status: STATUS.SUBMITTED,

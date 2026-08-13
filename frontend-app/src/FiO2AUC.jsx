@@ -215,6 +215,8 @@ export default function Fio2AUCForm() {
   /*  Auto-save refs  */
   const autoSaveTimer = useRef(null);
   const daysRef = useRef(null);
+  /** Last loaded server fio2_logs — merged into saves so hidden days aren't wiped. */
+  const lastServerLogsRef = useRef([]);
 
   /*  Load identification from PatientContext  */
   useEffect(() => {
@@ -288,16 +290,27 @@ export default function Fio2AUCForm() {
       ]);
 
       const surfactantDays = (sumRes?.data || [])
-        .filter(s => s.surfactant === true)
+        .filter(s => s.surfactant === true || s.surfactant === "true" || s.surfactant === 1)
         .map(s => Number(s.nicu_day))
         .filter(n => Number.isFinite(n) && n >= 1);
 
       const list = Array.isArray(fio2Res?.data) ? fio2Res.data : [];
       const record = list[0];
       const logs = Array.isArray(record?.fio2_logs) ? record.fio2_logs : [];
-      // Cards ONLY for Helper 2 days with Surfactant given = Yes.
-      // Old empty fio2_logs stubs (or a lone start time) must not open a day.
-      const dayNums = [...surfactantDays].sort((a, b) => a - b);
+      // Keep server logs for merge-on-save so days not currently shown aren't wiped.
+      lastServerLogsRef.current = logs.map(l => ({ ...l }));
+
+      // Union Helper 2 surfactant=Yes days with any day that already has FiO₂
+      // values — matches mobile and the comment above this function.
+      const dayNumsSet = new Set(surfactantDays);
+      for (const l of logs) {
+        const entries = Array.isArray(l?.entries) ? l.entries : [];
+        const hasFio2 = entries.some(e => String(e?.fio2 ?? "").trim() !== "");
+        if (!hasFio2) continue;
+        const d = Number(l.day);
+        if (Number.isFinite(d) && d >= 1) dayNumsSet.add(d);
+      }
+      const dayNums = [...dayNumsSet].sort((a, b) => a - b);
 
       setDays(prev => {
         if (!dayNums.length) return [];
@@ -314,8 +327,8 @@ export default function Fio2AUCForm() {
         });
       });
 
-      const anySavedOnSurfactantDays = dayNums.some(n => savedDayHasEnteredData(n, logs));
-      if (anySavedOnSurfactantDays) {
+      // Any existing FiO₂ row → prefer PUT (backend POST also upserts now).
+      if (record) {
         setIsSaved(true);
         if (!preserveLocal) setHasUnsavedChanges(false);
       }
@@ -457,20 +470,39 @@ export default function Fio2AUCForm() {
     return Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01;
   }).length;
 
+  const buildUiLogs = (currentDays) =>
+    currentDays.flatMap(d => [
+      { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+      { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
+    ]);
+
+  /** Upsert UI day/blocks onto last server logs (preserve days not on screen). */
+  const mergeLogsForSave = (uiLogs) => {
+    const merged = (lastServerLogsRef.current || []).map(l => ({ ...l }));
+    for (const u of uiLogs) {
+      const day = Number(u.day);
+      const block = String(u.block || "");
+      const idx = merged.findIndex(
+        m => Number(m.day) === day && String(m.block || "") === block
+      );
+      if (idx < 0) merged.push({ ...u });
+      else merged[idx] = { ...u };
+    }
+    return merged;
+  };
+
   const buildDraftPayload = (currentDays) => {
     const total = currentDays.reduce((s, d) => s + dayAUC(d.w1, d.w2), 0);
     const hoursLogged = totalHoursLogged(currentDays);
     const mean = hoursLogged > 0 ? ((total / hoursLogged) * 100).toFixed(1) : "0.0";
     const excess = Math.max(0, total - 0.21 * hoursLogged).toFixed(2);
+    const fio2_logs = mergeLogsForSave(buildUiLogs(currentDays));
     return {
       enrollment_id:   enrollmentId,
       total_auc:       parseFloat(total.toFixed(3)),
       mean_daily_fio2: parseFloat(mean),
       excess_o2_auc:   parseFloat(excess),
-      fio2_logs: currentDays.flatMap(d => [
-        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-      ]),
+      fio2_logs,
     };
   };
 
@@ -502,10 +534,7 @@ export default function Fio2AUCForm() {
       const meanFiO2Val = hoursLoggedVal > 0 ? ((grandTotalVal / hoursLoggedVal) * 100).toFixed(1) : "0.0";
       const excessO2Val = Math.max(0, grandTotalVal - 0.21 * hoursLoggedVal).toFixed(2);
       
-      const fio2_logs = currentDays.flatMap(d => [
-        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-      ]);
+      const fio2_logs = mergeLogsForSave(buildUiLogs(currentDays));
       const payload = {
         enrollment_id:   enrollmentId,
         total_auc:       parseFloat(grandTotalVal.toFixed(3)),
@@ -513,13 +542,16 @@ export default function Fio2AUCForm() {
         excess_o2_auc:   parseFloat(excessO2Val),
         fio2_logs,
       };
-      
-      if (isSaved) {
+
+      // Prefer PUT upsert; fall back to POST (also upserts on backend).
+      try {
         await api.put(`/fio2-auc/${enrollmentId}`, payload);
-      } else {
+      } catch (err) {
+        if (err?.response?.status !== 404 && err?.response?.status !== 405) throw err;
         await api.post("/fio2-auc/", payload);
-        setIsSaved(true);
       }
+      lastServerLogsRef.current = fio2_logs.map(l => ({ ...l }));
+      setIsSaved(true);
       setHasUnsavedChanges(false);
       setAutoSaveStatus("saved");
       setTimeout(() => setAutoSaveStatus(""), 2000);
@@ -528,7 +560,7 @@ export default function Fio2AUCForm() {
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus(""), 3000);
     }
-  }, [enrollmentId, isSaved, hasUnsavedChanges]);
+  }, [enrollmentId, hasUnsavedChanges]);
 
   /*  Auto-save interval (10 seconds)  */
   useEffect(() => {
@@ -575,10 +607,7 @@ export default function Fio2AUCForm() {
         }
       }
       
-      const fio2_logs = days.flatMap(d => [
-        { day: d.day, block: "0-12h",  start_time: d.start1 || "", entries: d.w1.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-        { day: d.day, block: "12-24h", start_time: d.start2 || "", entries: d.w2.map(r => ({ fio2: r.fio2, dur: r.dur })) },
-      ]);
+      const fio2_logs = mergeLogsForSave(buildUiLogs(days));
       const payload = {
         enrollment_id:   enrollmentId,
         total_auc:       parseFloat(grandTotal.toFixed(3)),
@@ -586,11 +615,13 @@ export default function Fio2AUCForm() {
         excess_o2_auc:   parseFloat(excessO2),
         fio2_logs,
       };
-      if (isSaved) {
+      try {
         await api.put(`/fio2-auc/${enrollmentId}`, payload);
-      } else {
+      } catch (err) {
+        if (err?.response?.status !== 404 && err?.response?.status !== 405) throw err;
         await api.post("/fio2-auc/", payload);
       }
+      lastServerLogsRef.current = fio2_logs.map(l => ({ ...l }));
       markFormCompleted("fio2_auc");
       setMessage("FiO2 data saved successfully");
       setIsSaved(true);
@@ -612,12 +643,14 @@ export default function Fio2AUCForm() {
     }
     try {
       const payload = buildDraftPayload(days);
-      if (isSaved) {
+      try {
         await api.put(`/fio2-auc/${enrollmentId}`, payload);
-      } else {
+      } catch (err) {
+        if (err?.response?.status !== 404 && err?.response?.status !== 405) throw err;
         await api.post("/fio2-auc/", payload);
-        setIsSaved(true);
       }
+      lastServerLogsRef.current = (payload.fio2_logs || []).map(l => ({ ...l }));
+      setIsSaved(true);
       setHasUnsavedChanges(false);
       setMessage("Draft saved - return any time to complete");
       setTimeout(() => setMessage(""), 3000);

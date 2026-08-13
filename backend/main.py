@@ -314,9 +314,18 @@ def require_enrollment_access(enrollment_id: str, db: Session, user: User):
     if not enrollment_id or not enrollment_id.strip():
         raise HTTPException(
             status_code=422,
-            detail="enrollment_id is required ? this form can't be saved until randomization assigns one.",
+            detail="enrollment_id is required — this form can't be saved until randomization assigns one.",
         )
-    screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
+    eid = enrollment_id.strip()
+    # Non-randomised / no-PPV placeholder IDs: NR-{screening_id}
+    if eid.startswith("NR-"):
+        screening = db.query(Screening).filter(
+            Screening.screening_id == eid[3:]
+        ).first()
+        if screening:
+            ensure_same_site(screening.site_name, user)
+        return
+    screening = db.query(Screening).filter(Screening.enrollment_id == eid).first()
     if screening:
         ensure_same_site(screening.site_name, user)
 
@@ -324,8 +333,47 @@ def require_enrollment_access(enrollment_id: str, db: Session, user: User):
 def site_for_enrollment(db: Session, enrollment_id: str | None) -> str | None:
     if not enrollment_id:
         return None
-    screening = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
+    eid = enrollment_id.strip()
+    if eid.startswith("NR-"):
+        screening = db.query(Screening).filter(
+            Screening.screening_id == eid[3:]
+        ).first()
+        return screening.site_name if screening else None
+    screening = db.query(Screening).filter(Screening.enrollment_id == eid).first()
     return screening.site_name if screening else None
+
+
+def resolve_birth_enrollment_id(data) -> str | None:
+    """Return enrollment_id, auto-assigning NR-{screening_id} for non-randomised / no-PPV."""
+    eid = (data.enrollment_id or "").strip() if data.enrollment_id else ""
+    if eid:
+        return eid
+    if data.screening_id and (
+        data.randomised is False or data.required_resuscitation is False
+    ):
+        return f"NR-{data.screening_id}"
+    return None
+
+
+def link_screening_enrollment(
+    db: Session, screening_id: str | None, enrollment_id: str | None
+) -> None:
+    """Write enrollment_id (incl. NR- placeholders) onto the screening row.
+
+    Web Form B loads birth data via screenings.enrollment_id → GET
+    /birth-resuscitation/{eid}. Mobile no-PPV / not-randomised saves use
+    NR-{screening_id}; without this link the web form opens blank.
+    """
+    if not screening_id or not enrollment_id:
+        return
+    sid = str(screening_id).strip()
+    eid = str(enrollment_id).strip()
+    if not sid or not eid:
+        return
+    db.query(Screening).filter(Screening.screening_id == sid).update(
+        {"enrollment_id": eid}
+    )
+    db.commit()
 
 # ============================================================================
 # UTILITY ENDPOINTS
@@ -935,14 +983,17 @@ def create_birth_resuscitation(
     # record really was saved, but res.data.enrollment_id came back
     # missing/malformed from this endpoint's response, so the browser never
     # got the ID to store for the next screen.
-    require_enrollment_access(data.enrollment_id, db, current_user)
+    enrollment_id = resolve_birth_enrollment_id(data)
+    require_enrollment_access(enrollment_id, db, current_user)
+    # Re-bind so payload / DB row use the resolved id (incl. NR- placeholders).
+    data = data.model_copy(update={"enrollment_id": enrollment_id})
     payload = split_and_store_pii(
         db,
         data.model_dump(),
         BIRTH_PII_FIELDS,
-        enrollment_id=data.enrollment_id,
+        enrollment_id=enrollment_id,
         screening_id=data.screening_id,
-        site_name=site_for_enrollment(db, data.enrollment_id),
+        site_name=site_for_enrollment(db, enrollment_id),
     )
     # FIX: this had no try/except at all. enrollment_id is typed in by hand
     # on Form B (there's no backend generator for it, unlike screening_id),
@@ -953,9 +1004,19 @@ def create_birth_resuscitation(
     try:
         existing = (
             db.query(BirthResuscitation)
-            .filter(BirthResuscitation.enrollment_id == data.enrollment_id)
+            .filter(BirthResuscitation.enrollment_id == enrollment_id)
             .first()
         )
+        # Non-randomised / no-PPV: also match prior row by screening_id so
+        # re-saves don't create a second record if the placeholder id changes.
+        if not existing and data.screening_id and (
+            data.randomised is False or data.required_resuscitation is False
+        ):
+            existing = (
+                db.query(BirthResuscitation)
+                .filter(BirthResuscitation.screening_id == data.screening_id)
+                .first()
+            )
         if existing:
             # CRITICAL FIX: previously, ANY existing record with this
             # enrollment_id got overwritten with the incoming data ?
@@ -979,6 +1040,9 @@ def create_birth_resuscitation(
                     ),
                 )
             payload.pop("enrollment_id", None)
+            # Keep placeholder NR- ids aligned when matched by screening_id.
+            if existing.enrollment_id != enrollment_id:
+                existing.enrollment_id = enrollment_id
             for key, value in payload.items():
                 # Skip None so partial mobile Form B / Form C saves do not
                 # wipe the other half of the birth_resuscitation record.
@@ -989,11 +1053,11 @@ def create_birth_resuscitation(
             db.commit()
             db.refresh(existing)
 
-            if existing.randomised and existing.screening_id:
-                db.query(Screening).filter(
-                    Screening.screening_id == existing.screening_id
-                ).update({"enrollment_id": existing.enrollment_id})
-                db.commit()
+            # Always link screening ↔ birth row (randomised OR NR- placeholder)
+            # so web Form B can reload mobile-synced data.
+            link_screening_enrollment(
+                db, existing.screening_id, existing.enrollment_id
+            )
 
             return existing
 
@@ -1002,14 +1066,9 @@ def create_birth_resuscitation(
         db.commit()
         db.refresh(entry)
 
-        # Issue #1 Fix 2: write enrollment_id back to the screenings record on
-        # randomisation, so the screenings<->birth_resuscitation join used by
-        # the CONSORT dashboard resolves correctly.
-        if entry.randomised and entry.screening_id:
-            db.query(Screening).filter(
-                Screening.screening_id == entry.screening_id
-            ).update({"enrollment_id": entry.enrollment_id})
-            db.commit()
+        # Always write enrollment_id back to screenings (incl. NR- ids from
+        # mobile / not-randomised / no-PPV saves) so Form B reopen works.
+        link_screening_enrollment(db, entry.screening_id, entry.enrollment_id)
 
         return entry
 
@@ -1108,13 +1167,8 @@ def update_birth_resuscitation(
         db.commit()
         db.refresh(entry)
 
-        # Issue #1 Fix 2: keep screenings.enrollment_id in sync if this
-        # update is what randomises the baby (or edits a randomised record).
-        if entry.randomised and entry.screening_id:
-            db.query(Screening).filter(
-                Screening.screening_id == entry.screening_id
-            ).update({"enrollment_id": entry.enrollment_id})
-            db.commit()
+        # Keep screenings.enrollment_id in sync for randomised and NR- rows.
+        link_screening_enrollment(db, entry.screening_id, entry.enrollment_id)
 
         return entry
 
@@ -1789,15 +1843,22 @@ def create_fio2_auc(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Upsert — one FiO₂ row per enrollment (same as PUT). Prevents web/mobile
+    POST from stacking duplicate rows that hide older good data on GET newest-first."""
     require_enrollment_access(data.enrollment_id, db, current_user)
-    record = FiO2AUC(
-        enrollment_id=data.enrollment_id,
-        total_auc=data.total_auc,
-        mean_daily_fio2=data.mean_daily_fio2,
-        excess_o2_auc=data.excess_o2_auc,
-        fio2_logs=data.fio2_logs
+    record = (
+        db.query(FiO2AUC)
+        .filter(FiO2AUC.enrollment_id == data.enrollment_id)
+        .order_by(FiO2AUC.created_at.desc())
+        .first()
     )
-    db.add(record)
+    if not record:
+        record = FiO2AUC(enrollment_id=data.enrollment_id)
+        db.add(record)
+    record.total_auc = data.total_auc
+    record.mean_daily_fio2 = data.mean_daily_fio2
+    record.excess_o2_auc = data.excess_o2_auc
+    record.fio2_logs = data.fio2_logs
     db.commit()
     db.refresh(record)
     return record

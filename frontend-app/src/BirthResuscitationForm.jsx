@@ -178,11 +178,39 @@ const EXIT_REASON_OPTIONS = [
   "Other",
 ];
 const normalizeTimeForInput = value => {
-  if (!value) return "";
-  const m = String(value).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return String(value);
+  if (value === "" || value == null) return "";
+  const s = String(value).trim();
+  // Accept HH:MM[:SS][.fraction], or ISO-ish "...T12:30:45"
+  const m = s.match(/(?:T|\s|^)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?/);
+  if (!m) return s;
   const hh = m[1].padStart(2, "0");
-  return m[3] !== undefined ? `${hh}:${m[2]}:${m[3]}` : `${hh}:${m[2]}`;
+  const mm = m[2];
+  const ss = (m[3] ?? "00").padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+};
+
+/** Clock time HH:MM[:SS] → seconds since midnight (null if unusable). */
+const clockTimeToSeconds = value => {
+  const normalized = normalizeTimeForInput(value);
+  if (!normalized) return null;
+  const m = normalized.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  const seconds = Number(m[3]);
+  if ([hours, minutes, seconds].some(n => Number.isNaN(n))) return null;
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return hours * 3600 + minutes * 60 + seconds;
+};
+
+/** Elapsed cord-clamp seconds from birth clock → clamp clock (wrap past midnight). */
+const cordClampElapsedSeconds = (timeOfBirth, cordClampedAt) => {
+  const birth = clockTimeToSeconds(timeOfBirth);
+  const clamp = clockTimeToSeconds(cordClampedAt);
+  if (birth === null || clamp === null) return null;
+  let elapsed = clamp - birth;
+  if (elapsed < 0) elapsed += 86400;
+  return elapsed;
 };
 
 function DurationColumn({ label, options, active, onPick, listRef }) {
@@ -458,14 +486,27 @@ export default function BirthResuscitationForm() {
   // Plain HH:MM:SS string helpers backing ModernTimeInput (all three
   // segments now live in the picker itself).
   const getTimePart = (field, part) => {
-    const [hh, mm, ss] = (formData[field] || "").split(":");
+    const normalized = normalizeTimeForInput(formData[field] || "");
+    const [hh, mm, ss] = (normalized || "").split(":");
     return part === "h" ? (hh ?? "") : part === "m" ? (mm ?? "") : (ss ?? "");
   };
   const handleTimeChange = (field, newH, newM, newS) => {
     const hh = newH === null ? "" : String(newH).padStart(2, "0");
     const mm = newM === null ? "" : String(newM).padStart(2, "0");
     const ss = newS === null ? "" : String(newS).padStart(2, "0");
-    set({ [field]: (hh || mm || ss) ? `${hh || "00"}:${mm || "00"}:${ss || "00"}` : "" });
+    const next = (hh || mm || ss) ? `${hh || "00"}:${mm || "00"}:${ss || "00"}` : "";
+    // Update time + auto-fill field 44 in one write so 44 never stays blank
+    // after 43 is entered (also covers HH:MM / ISO time_of_birth from API).
+    setFormData(p => {
+      const updated = { ...p, [field]: next };
+      if (field === "time_of_birth" || field === "cord_clamp_timestamp") {
+        const birth = field === "time_of_birth" ? next : updated.time_of_birth;
+        const clamp = field === "cord_clamp_timestamp" ? next : updated.cord_clamp_timestamp;
+        const elapsed = cordClampElapsedSeconds(birth, clamp);
+        if (elapsed !== null) updated.cord_clamp_time = String(elapsed);
+      }
+      return updated;
+    });
   };
 
   const endParticipation = formData.required_resuscitation === "No";
@@ -574,22 +615,26 @@ export default function BirthResuscitationForm() {
     if (formData.strata !== computedStrata) set({ strata: computedStrata });
   }, [formData.randomised, formData.gestation_rand_weeks, formData.gestation_rand_days]); // eslint-disable-line
 
-  /* ── Cord-clamping time in seconds from birth ── */
+  /* ── Cord-clamping time in seconds from birth (field 44) ── */
   useEffect(() => {
-    const toSeconds = value => {
-      const parts = String(value || "").split(":").map(Number);
-      if (parts.length < 2 || parts.some(Number.isNaN)) return null;
-      const [hours, minutes, seconds = 0] = parts;
-      if (hours > 23 || minutes > 59 || seconds > 59) return null;
-      return hours * 3600 + minutes * 60 + seconds;
-    };
-    const birth = toSeconds(formData.time_of_birth);
-    const clamp = toSeconds(formData.cord_clamp_timestamp);
-    if (birth === null || clamp === null) return;
-    let elapsed = clamp - birth;
-    if (elapsed < 0) elapsed += 86400;
-    set({ cord_clamp_time: elapsed });
-    setErrors(p => ({...p, cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : ""}));
+    const elapsed = cordClampElapsedSeconds(
+      formData.time_of_birth,
+      formData.cord_clamp_timestamp,
+    );
+    if (elapsed === null) return;
+    const asStr = String(elapsed);
+    if (String(formData.cord_clamp_time ?? "") === asStr) {
+      setErrors(p => ({
+        ...p,
+        cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : "",
+      }));
+      return;
+    }
+    set({ cord_clamp_time: asStr });
+    setErrors(p => ({
+      ...p,
+      cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : "",
+    }));
   }, [formData.time_of_birth, formData.cord_clamp_timestamp]); // eslint-disable-line
 
   /* ── Online / Offline detection ── */
@@ -731,7 +776,6 @@ export default function BirthResuscitationForm() {
       time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
-      blender_letter:      fd.randomised === "Yes" ? (fd.blender_letter || null) : null,
       randomisation_date:  fd.randomisation_date
         ? String(fd.randomisation_date).slice(0, 10) : null,
       enrollment_reason_not_randomized: fd.enrollment_reason_not_randomized || null,
@@ -895,7 +939,13 @@ export default function BirthResuscitationForm() {
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
     const payload = buildPayload();
     try {
-      const existingId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+      const storedId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+      const sid = payload.screening_id || getStoredId("current_screening_id") || "";
+      // Not randomised / no PPV: use stable NR-{screening_id} so the row still syncs.
+      const existingId = (storedId || "").trim()
+        || ((payload.randomised === false || payload.required_resuscitation === false) && sid
+            ? `NR-${sid}`
+            : "");
       if (!existingId) {
         setMessage("❌ Enrollment ID is required before saving.");
         return false;
@@ -986,7 +1036,12 @@ export default function BirthResuscitationForm() {
     if (!fd || !isFormBLoadedRef.current) return;
 
     const storedId = getStoredId("current_enrollment_id");
-    const eid = (storedId || fd.enrollment_id || "").trim();
+    const sid = fd.screening_id || getStoredId("current_screening_id") || "";
+    let eid = (storedId || fd.enrollment_id || "").trim();
+    // Not randomised / no PPV still sync via NR-{screening_id}.
+    if (!eid && sid && (fd.randomised === "No" || fd.required_resuscitation === "No")) {
+      eid = `NR-${sid}`;
+    }
 
     /* Need an enrollment ID before creating/updating a Form B row.
        Also wait for baby_uid on first create so we don't insert empty shells. */
@@ -1209,13 +1264,29 @@ export default function BirthResuscitationForm() {
           setConfirmedEnrollmentId(d.enrollment_id);
           /* Birth-load effect will set isFormBLoaded when GET finishes */
         } else {
-          localStorage.removeItem("current_enrollment_id");
-          setConfirmedEnrollmentId(null);
-          hasBirthRecordRef.current = false;
-          isInitialRender.current = true;
-          /* No enrollment yet — enable autosave so it can POST once the
-             nurse enters enrollment_id + baby_uid */
-          setIsFormBLoaded(true);
+          /* Mobile / no-PPV / not-randomised saves use NR-{screeningId}.
+             If screening.enrollment_id was never linked, still try that
+             placeholder so web Form B shows the synced birth row. */
+          let foundNr = false;
+          try {
+            const nrId = `NR-${screeningId}`;
+            const br = await api.get(`/birth-resuscitation/${nrId}`);
+            if (!cancelled && br?.data) {
+              foundNr = true;
+              set({ enrollment_id: nrId });
+              setStoredId("current_enrollment_id", nrId);
+              setConfirmedEnrollmentId(nrId);
+            }
+          } catch (_) { /* 404 = no NR row yet */ }
+          if (!foundNr && !cancelled) {
+            localStorage.removeItem("current_enrollment_id");
+            setConfirmedEnrollmentId(null);
+            hasBirthRecordRef.current = false;
+            isInitialRender.current = true;
+            /* No enrollment yet — enable autosave so it can POST once the
+               nurse enters enrollment_id + baby_uid */
+            setIsFormBLoaded(true);
+          }
         }
       }catch(e){
         console.error(e);
@@ -1629,17 +1700,7 @@ export default function BirthResuscitationForm() {
                           <label>27. Strata <span className="field-note">(auto, from Gestation at Randomization)</span></label>
                           <input value={formData.strata||""} readOnly className="readonly-input" placeholder="—"/>
                         </div>
-                        <div className="form-group">
-                          <label>Blender Used <span className="field-note">(device identifier — not a numbered CRF item; needed to track allocation sequence usage, not an unblinding risk)</span></label>
-                          <select name="blender_letter" value={formData.blender_letter||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="A">Blender A</option>
-                            <option value="B">Blender B</option>
-                            <option value="C">Blender C</option>
-                            <option value="D">Blender D</option>
-                          </select>
-                        </div>
+                        <div/>
                       </div>
                     )}
                     {formData.randomised==="No" && (
@@ -1882,12 +1943,18 @@ export default function BirthResuscitationForm() {
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>44. Cord clamping time from birth (sec) <span className="field-note">auto-filled or enter directly</span></label>
-                          <input type="text" name="cord_clamp_time" value={formData.cord_clamp_time||""}
+                          <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at</span></label>
+                          <input type="text" name="cord_clamp_time"
+                            value={formData.cord_clamp_time === 0 || formData.cord_clamp_time === "0"
+                              ? "0"
+                              : (formData.cord_clamp_time ?? "")}
                             inputMode="numeric" maxLength={3} placeholder="0–300" readOnly={!isFieldEditable}
                             className={errors.cord_clamp_time?"input-error":""}
                             onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))set({cord_clamp_time:v});}}/>
                           {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
+                          {!formData.time_of_birth && formData.cord_clamp_timestamp && (
+                            <div className="field-error">Enter 9. Time of Birth first to auto-calculate.</div>
+                          )}
                         </div>
                         <div/>
                       </div>
@@ -1905,11 +1972,18 @@ export default function BirthResuscitationForm() {
                         onChange={v => set({ time_to_respiration: v })}/>
                     </div>
                     <div className="form-group">
-                      <label>46. SpO₂ at 5 min (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>46. SpO₂ at 5 min (%) <span className="field-note">1–100 only</span></label>
                       <input type="text" name="spo2_5min" value={formData.spo2_5min||""}
-                        inputMode="numeric" maxLength={3} placeholder="0–100"
+                        inputMode="numeric" maxLength={3} placeholder="1–100"
                         readOnly={!isFieldEditable}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=100))set({spo2_5min:v});}}/>
+                        onChange={e=>{
+                          const v=e.target.value;
+                          // Allow empty, or integer 1–100 (incl. 01–09); block 0 / 00 / >100
+                          if (v==="") { set({spo2_5min:v}); return; }
+                          if (!/^\d{1,3}$/.test(v)) return;
+                          const n=Number(v);
+                          if (n>=1 && n<=100) set({spo2_5min:v});
+                        }}/>
                     </div>
                   </div>
                   <div className="form-grid-2">
@@ -2086,11 +2160,17 @@ export default function BirthResuscitationForm() {
 
                   <div className="form-grid-2" style={{marginTop:14}}>
                     <div className="form-group">
-                      <label>56. SpO₂ at exit from trial gas (%) <span className="field-note">cross-verify with pulse oximeter</span></label>
+                      <label>56. SpO₂ at exit from trial gas (%) <span className="field-note">1–100 only</span></label>
                       <input type="text" name="spo2_exit_trial_gas" value={formData.spo2_exit_trial_gas||""}
-                        inputMode="numeric" maxLength={3} placeholder="0-100"
+                        inputMode="numeric" maxLength={3} placeholder="1–100"
                         readOnly={!isFieldEditable}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=100))set({spo2_exit_trial_gas:v});}}/>
+                        onChange={e=>{
+                          const v=e.target.value;
+                          if (v==="") { set({spo2_exit_trial_gas:v}); return; }
+                          if (!/^\d{1,3}$/.test(v)) return;
+                          const n=Number(v);
+                          if (n>=1 && n<=100) set({spo2_exit_trial_gas:v});
+                        }}/>
                     </div>
                     <div className="form-group">
                       <label>57. Total time (min) <span className="field-note">from APGAR timer</span></label>

@@ -558,11 +558,18 @@ class BirthResuscitationCreate(BaseModel):
             raise ValueError("Intrauterine centile must be between 0 and 100")
         return v
 
-    @field_validator("spo2_5min", "spo2_exit_trial_gas")
+    @field_validator("spo2_5min")
     @classmethod
-    def validate_spo2(cls, v):
-        if v is not None and not 0 <= v <= 100:
-            raise ValueError("SpO2 must be between 0 and 100 percent")
+    def validate_spo2_5min(cls, v):
+        if v is not None and not 1 <= v <= 100:
+            raise ValueError("SpO2 at 5 min must be between 1 and 100 percent")
+        return v
+
+    @field_validator("spo2_exit_trial_gas")
+    @classmethod
+    def validate_spo2_exit(cls, v):
+        if v is not None and not 1 <= v <= 100:
+            raise ValueError("SpO2 at exit from trial gas must be between 1 and 100 percent")
         return v
 
     @field_validator("cord_clamp_time")
