@@ -1087,6 +1087,8 @@ BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
 
 # Field 57 Total resus time: was Integer minutes; now VARCHAR "MM:SS".
 # Convert existing minute integers to "MM:00" once (idempotent via data_type check).
+# NOTE: do NOT write the literal ':00' inside sqlalchemy.text() — it is parsed as
+# a bind parameter named "00" and the whole patch group silently fails on startup.
 BIRTH_RESUSCITATION_TOTAL_RESUS_TIME_MMSS_PATCHES = [
     """
     DO $$
@@ -1103,7 +1105,7 @@ BIRTH_RESUSCITATION_TOTAL_RESUS_TIME_MMSS_PATCHES = [
           ALTER COLUMN total_resus_time TYPE VARCHAR
           USING CASE
             WHEN total_resus_time IS NULL THEN NULL
-            ELSE total_resus_time::text || ':00'
+            ELSE (total_resus_time::text || chr(58) || '00')
           END;
       END IF;
     END $$;
