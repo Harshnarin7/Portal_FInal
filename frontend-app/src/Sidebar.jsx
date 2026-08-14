@@ -141,6 +141,12 @@ export default function Sidebar({ currentForm }) {
     return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', sync); };
   }, []);
 
+  // Route changes (e.g. View Entries → Form A) update localStorage in the same
+  // tab; re-read IDs so progress fetch runs for the newly opened patient.
+  useEffect(() => {
+    setIds(readIds());
+  }, [location.pathname]);
+
   useEffect(() => {
     if (enrollmentId && enrollmentId !== 'undefined' && enrollmentId !== 'null') {
       fetchProgress(enrollmentId);

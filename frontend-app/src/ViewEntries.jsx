@@ -340,16 +340,23 @@ export default function ViewEntries() {
     } catch { alert("Failed to delete"); }
   };
 
-  const handleEdit = (entry) => {
-    localStorage.setItem("current_screening_id", entry.screening_id);
+  const setSessionIds = (entry) => {
+    if (entry.screening_id) localStorage.setItem("current_screening_id", entry.screening_id);
+    else localStorage.removeItem("current_screening_id");
+    // Always clear a previous patient's enrollment before applying the new one
     if (entry.enrollment_id) localStorage.setItem("current_enrollment_id", entry.enrollment_id);
+    else localStorage.removeItem("current_enrollment_id");
+    window.dispatchEvent(new Event("storage"));
+  };
+
+  const handleEdit = (entry) => {
+    setSessionIds(entry);
     navigate(`/form-a/${entry.screening_id}`);
   };
 
   const openForm = (entry, formKey) => {
     if (!formKey || !ROUTE_MAP[formKey]) return;
-    if (entry.screening_id) localStorage.setItem("current_screening_id", entry.screening_id);
-    if (entry.enrollment_id) localStorage.setItem("current_enrollment_id", entry.enrollment_id);
+    setSessionIds(entry);
     navigate(ROUTE_MAP[formKey](entry.screening_id, entry.enrollment_id));
   };
 
@@ -419,6 +426,7 @@ export default function ViewEntries() {
             onClick={() => {
               localStorage.removeItem("current_screening_id");
               localStorage.removeItem("current_enrollment_id");
+              window.dispatchEvent(new Event("storage"));
               navigate("/form-a");
             }}
           >

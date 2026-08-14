@@ -1,145 +1,143 @@
 // FormProgressContext.jsx — PORTAL Trial
-// FIX: Reload completedForms whenever enrollment_id changes in localStorage
-// so refreshing a form page never resets the sidebar.
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+// Sidebar completion must follow the *current* patient and backend truth.
+// Never keep a previous enrolment's B/C/D ticks after opening another screening.
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import api from "../api/axios";
 
 const FormProgressContext = createContext();
 
+/** Forms whose completion is authoritative from GET /enrollment-status */
+const BACKEND_TRACKED = new Set(["form_a", "form_b", "form_c", "form_d", "form_e"]);
+
+const validId = (value) =>
+  value && value !== "undefined" && value !== "null" ? value : null;
+
+function progressStorageKey(enrollmentId, screeningId) {
+  if (enrollmentId) return `completedForms_${enrollmentId}`;
+  if (screeningId) return `completedForms_screening_${screeningId}`;
+  return null;
+}
+
 export function FormProgressProvider({ children }) {
-  const [completedForms,    setCompletedForms]    = useState([]);
-  const [isProgressLoaded,  setIsProgressLoaded]  = useState(false);
-  const [progress,          setProgress]          = useState({
+  const [completedForms, setCompletedForms] = useState([]);
+  const [isProgressLoaded, setIsProgressLoaded] = useState(false);
+  const [progress, setProgress] = useState({
     form_a: false, form_b: false, form_c: false, form_d: false,
   });
+  // Persist only to the key we last loaded — never write stale ticks onto a new patient.
+  const [activeKey, setActiveKey] = useState(null);
+  const fetchSeq = useRef(0);
 
-  /* ─── Core loader: reads from localStorage keyed by enrollmentId ─── */
   const loadFromStorage = useCallback(() => {
-    const enrollmentId = localStorage.getItem("current_enrollment_id");
+    const enrollmentId = validId(localStorage.getItem("current_enrollment_id"));
+    const screeningId = validId(localStorage.getItem("current_screening_id"));
+    const key = progressStorageKey(enrollmentId, screeningId);
 
-    if (!enrollmentId || enrollmentId === "undefined" || enrollmentId === "null") {
-      // No enrollment yet — Form A only
-      const screeningId = localStorage.getItem("current_screening_id");
-      if (screeningId && screeningId !== "undefined" && screeningId !== "null") {
-        // Screening exists, form_a is done
-        const key = `completedForms_screening_${screeningId}`;
-        const saved = localStorage.getItem(key);
-        setCompletedForms(saved ? JSON.parse(saved) : ["form_a"]);
-      } else {
-        setCompletedForms([]);
-      }
+    setActiveKey(key);
+
+    if (!enrollmentId && !screeningId) {
+      setCompletedForms([]);
       setIsProgressLoaded(true);
       return;
     }
 
-    const key = `completedForms_${enrollmentId}`;
-    const saved = localStorage.getItem(key);
+    if (!enrollmentId) {
+      // Pre-enrolment: Form A only unless a screening-scoped cache exists
+      const saved = key ? localStorage.getItem(key) : null;
+      setCompletedForms(saved ? JSON.parse(saved) : ["form_a"]);
+      setIsProgressLoaded(true);
+      return;
+    }
+
+    const saved = key ? localStorage.getItem(key) : null;
     setCompletedForms(saved ? JSON.parse(saved) : []);
     setIsProgressLoaded(true);
   }, []);
 
-  /* ─── Load on mount ─── */
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
 
-  /* ─── Re-load whenever localStorage changes (same tab or cross-tab) ─── */
   useEffect(() => {
     const onStorage = (e) => {
-      // Reload when enrollment_id or screening_id changes
+      // Custom same-tab Event("storage") has no key — treat as full session sync
       if (!e.key || e.key === "current_enrollment_id" || e.key === "current_screening_id") {
         loadFromStorage();
+        return;
       }
-      // Also reload if completedForms for current enrollment changes
-      const eid = localStorage.getItem("current_enrollment_id");
-      if (eid && e.key === `completedForms_${eid}`) {
-        loadFromStorage();
-      }
+      const eid = validId(localStorage.getItem("current_enrollment_id"));
+      const sid = validId(localStorage.getItem("current_screening_id"));
+      const key = progressStorageKey(eid, sid);
+      if (key && e.key === key) loadFromStorage();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [loadFromStorage]);
 
-  /* ─── Persist completedForms whenever it changes ─── */
   useEffect(() => {
-    if (!isProgressLoaded) return;
+    if (!isProgressLoaded || !activeKey) return;
+    localStorage.setItem(activeKey, JSON.stringify(completedForms));
+  }, [completedForms, isProgressLoaded, activeKey]);
 
-    const enrollmentId = localStorage.getItem("current_enrollment_id");
-    if (enrollmentId && enrollmentId !== "undefined" && enrollmentId !== "null") {
-      const key = `completedForms_${enrollmentId}`;
-      localStorage.setItem(key, JSON.stringify(completedForms));
-    } else {
-      // Pre-enrollment: save under screening key
-      const screeningId = localStorage.getItem("current_screening_id");
-      if (screeningId && screeningId !== "undefined" && screeningId !== "null") {
-        const key = `completedForms_screening_${screeningId}`;
-        localStorage.setItem(key, JSON.stringify(completedForms));
-      }
-    }
-  }, [completedForms, isProgressLoaded]);
-
-  /* ─── Mark a form completed ─── */
   const markFormCompleted = useCallback((formId) => {
-    setCompletedForms(prev => {
+    setCompletedForms((prev) => {
       if (prev.includes(formId)) return prev;
       const updated = [...prev, formId];
-
-      // Immediately persist to the right key
-      const enrollmentId = localStorage.getItem("current_enrollment_id");
-      if (enrollmentId && enrollmentId !== "undefined" && enrollmentId !== "null") {
-        localStorage.setItem(`completedForms_${enrollmentId}`, JSON.stringify(updated));
-      } else {
-        const screeningId = localStorage.getItem("current_screening_id");
-        if (screeningId && screeningId !== "undefined" && screeningId !== "null") {
-          localStorage.setItem(`completedForms_screening_${screeningId}`, JSON.stringify(updated));
-        }
+      const enrollmentId = validId(localStorage.getItem("current_enrollment_id"));
+      const screeningId = validId(localStorage.getItem("current_screening_id"));
+      const key = progressStorageKey(enrollmentId, screeningId);
+      if (key) {
+        localStorage.setItem(key, JSON.stringify(updated));
+        setActiveKey(key);
       }
-
-      // Notify sidebar in same tab
       window.dispatchEvent(new Event("storage"));
       return updated;
     });
   }, []);
 
-  /* ─── Reset ALL progress (for New Entry) ─── */
   const resetProgress = useCallback(() => {
+    const enrollmentId = validId(localStorage.getItem("current_enrollment_id"));
+    const screeningId = validId(localStorage.getItem("current_screening_id"));
+    const key = progressStorageKey(enrollmentId, screeningId);
+    if (key) localStorage.removeItem(key);
+
     setCompletedForms([]);
     setProgress({ form_a: false, form_b: false, form_c: false, form_d: false });
-    setIsProgressLoaded(false);
-
-    // Clean up old keys
-    const enrollmentId = localStorage.getItem("current_enrollment_id");
-    if (enrollmentId) localStorage.removeItem(`completedForms_${enrollmentId}`);
-    const screeningId = localStorage.getItem("current_screening_id");
-    if (screeningId) localStorage.removeItem(`completedForms_screening_${screeningId}`);
-
-    // Slight delay then mark as loaded so sidebar doesn't stay in loading
-    setTimeout(() => setIsProgressLoaded(true), 50);
+    setActiveKey(null);
+    setIsProgressLoaded(true);
   }, []);
 
-  /* ─── Fetch backend progress to sync with DB ─── */
   const fetchProgress = useCallback(async (enrollmentId) => {
-    if (!enrollmentId) return;
+    if (!validId(enrollmentId)) return;
+    const seq = ++fetchSeq.current;
     try {
       const res = await api.get(`/enrollment-status/${enrollmentId}`);
-      const data = res.data;
+      if (seq !== fetchSeq.current) return; // stale response
+      // Ignore if nurse already switched patients
+      const currentEid = validId(localStorage.getItem("current_enrollment_id"));
+      if (currentEid && currentEid !== enrollmentId) return;
 
-      // Rebuild completedForms from backend truth
+      const data = res.data;
       const fromBackend = [];
       if (data.form_a) fromBackend.push("form_a");
       if (data.form_b) fromBackend.push("form_b");
       if (data.form_c) fromBackend.push("form_c");
       if (data.form_d) fromBackend.push("form_d");
+      if (data.form_e) fromBackend.push("form_e");
 
-      // Merge with localStorage (localStorage may have more recent completions)
+      // Keep helper/other ticks that enrollment-status does not cover,
+      // but never keep stale B/C/D when the DB says they are empty.
       const key = `completedForms_${enrollmentId}`;
       const local = localStorage.getItem(key);
       const localForms = local ? JSON.parse(local) : [];
-      const merged = [...new Set([...fromBackend, ...localForms])];
+      const localExtras = localForms.filter((f) => !BACKEND_TRACKED.has(f));
+      const merged = [...new Set([...fromBackend, ...localExtras])];
 
+      setActiveKey(key);
       setCompletedForms(merged);
       localStorage.setItem(key, JSON.stringify(merged));
       setProgress(data);
+      setIsProgressLoaded(true);
     } catch (err) {
       console.error("Failed to fetch progress", err);
     }
@@ -153,6 +151,7 @@ export function FormProgressProvider({ children }) {
       progress,
       fetchProgress,
       isProgressLoaded,
+      reloadProgress: loadFromStorage,
     }}>
       {children}
     </FormProgressContext.Provider>

@@ -314,8 +314,13 @@ export default function ScreeningForm() {
         video_pis_shown:          d.video_pis_shown            || "",
       }));
 
-      if (d.screening_id)  localStorage.setItem("current_screening_id",  d.screening_id);
+      if (d.screening_id) localStorage.setItem("current_screening_id", d.screening_id);
+      else localStorage.removeItem("current_screening_id");
+      // Drop a previous patient's enrollment_id so the sidebar does not keep
+      // showing their Form B/C/D as complete on this (possibly A-only) record.
       if (d.enrollment_id) localStorage.setItem("current_enrollment_id", d.enrollment_id);
+      else localStorage.removeItem("current_enrollment_id");
+      window.dispatchEvent(new Event("storage"));
 
       /* If A4 exclusions not fully answered, load in editing mode so nurse can continue */
       const exclusionAnswered = (label) =>

@@ -521,14 +521,38 @@
   background: #fff; cursor: pointer;
   font-size: 13px; font-weight: 500; color: #374151;
   transition: all 0.15s; user-select: none;
+  text-transform: none;
 }
-.multi-check-item:hover:not(.disabled) { background: #f0f9ff; border-color: #93c5fd; }
-.multi-check-item.checked { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
-.multi-check-item.disabled { opacity: 0.65; cursor: not-allowed; background: #f9fafb; }
+.multi-check-item:hover:not(.disabled) {
+  background: #dbeafe;
+  border-color: #3b82f6;
+}
+.multi-check-item.checked {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+.multi-check-item.checked span {
+  color: #ffffff !important;
+  font-weight: 700;
+}
+.multi-check-item.checked.disabled {
+  background: #3b82f6 !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+  opacity: 0.85;
+}
 .multi-check-item input[type="checkbox"] {
-  width: 15px; height: 15px; flex-shrink: 0;
-  accent-color: #2563eb; cursor: pointer; margin: 0;
+  width: 16px; height: 16px; flex-shrink: 0;
+  accent-color: #1d4ed8; cursor: pointer; margin: 0;
 }
+.multi-check-item.checked input[type="checkbox"] {
+  accent-color: #ffffff;
+}
+.multi-check-item.disabled { opacity: 0.65; cursor: not-allowed; }
+.multi-check-item.disabled:not(.checked) { background: #f9fafb; }
 .multi-check-item.disabled input[type="checkbox"] { cursor: not-allowed; }
 
 /* Guard against .form-group's generic text-input styling (width:100%,

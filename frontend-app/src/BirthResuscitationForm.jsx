@@ -372,6 +372,27 @@ export default function BirthResuscitationForm() {
   const [offlineQueue,    setOfflineQueue]     = useState(false);
   const [showDraftModal,  setShowDraftModal]   = useState(false);
   const [siteName,        setSiteName]          = useState("");
+  const SITE_ID_MAP = {
+    PGIMER: "01", GMCH: "02", IOG: "03", AFMC: "04", "GMCH-A": "05", AMC: "06",
+  };
+  const siteCode = SITE_ID_MAP[siteName] || "00";
+  /** Format enrollment ID as `{site}-{A|B|C|D}-{###}` with site autofilled. */
+  const formatEnrollmentId = (raw, site = siteCode) => {
+    const site2 = String(site || "00").padStart(2, "0").slice(0, 2);
+    let cleaned = String(raw || "").toUpperCase().replace(/[^A-D0-9]/g, "");
+    if (cleaned.startsWith(site2)) cleaned = cleaned.slice(2);
+    else if (/^\d{2}/.test(cleaned)) cleaned = cleaned.slice(2);
+    let letter = "";
+    let nums = "";
+    for (const ch of cleaned) {
+      if (!letter && /[A-D]/.test(ch)) letter = ch;
+      else if (letter && /[0-9]/.test(ch) && nums.length < 3) nums += ch;
+    }
+    if (!letter) return `${site2}-`;
+    if (!nums) return `${site2}-${letter}-`;
+    return `${site2}-${letter}-${nums}`;
+  };
+  const isCompleteEnrollmentId = (v) => /^\d{2}-[A-D]-\d{3}$/.test(String(v || "").trim());
   const autoSaveTimer   = useRef(null);
   const lastSavedTimer = useRef(null);
   const isInitialRender = useRef(true);
@@ -854,11 +875,15 @@ export default function BirthResuscitationForm() {
     if(!formData.poor_muscle_tone)   add("B3. Muscle Tone",           "poor_muscle_tone");
     if(!formData.hr_below_100)       add("B3. HR < 100",              "hr_below_100");
     if(!formData.initial_steps)      add("B3. Initial Steps",         "initial_steps");
-    if(!formData.required_resuscitation) add("B3. Does baby require ventilation (PPV)?", "required_resuscitation");
+    // Q23 only when initial steps = Required
+    if(formData.initial_steps==="Yes" && !formData.required_resuscitation)
+      add("B3. Does baby require ventilation (PPV)?", "required_resuscitation");
     if(formData.required_resuscitation==="Yes"){
       if(!formData.randomised)       add("B3. Randomised?",           "randomised");
       if(formData.randomised==="Yes"){
         if(!formData.enrollment_id)  add("B3. Enrollment ID",         "enrollment_id");
+        else if(!isCompleteEnrollmentId(formData.enrollment_id))
+          add(`B3. Enrollment ID must be ${siteCode}-A-001`, "enrollment_id");
         if(!formData.randomisation_date) add("B3. Randomization Date","randomisation_date");
         if(!formData.strata)        add("B3. Strata",                 "strata");
       }
@@ -1150,6 +1175,9 @@ export default function BirthResuscitationForm() {
           reasonExit = "Other";
         }
         setFormData(p=>({...p,...dSafe,
+          enrollment_id: d.enrollment_id && !String(d.enrollment_id).startsWith("NR-")
+            ? formatEnrollmentId(d.enrollment_id, SITE_ID_MAP[p.site_name] || siteCode)
+            : (String(p.enrollment_id || "").startsWith("NR-") ? "" : (p.enrollment_id || "")),
           // FIX: GET /birth-resuscitation overlays Form D NBS GA onto
           // gestation_weeks when NBS differs by >2 weeks — that is for
           // forms AFTER Form D only. Form B must keep the original birth/
@@ -1261,7 +1289,9 @@ export default function BirthResuscitationForm() {
           screening_datetime: d.screening_datetime||"",
           contact_mother:  pii.mother_contact||pii.contact_mother||"",
           contact_husband: pii.husband_contact||pii.contact_husband||"",
-          ...(d.enrollment_id ? { enrollment_id: d.enrollment_id } : {}),
+          ...(d.enrollment_id && !String(d.enrollment_id).startsWith("NR-")
+            ? { enrollment_id: formatEnrollmentId(d.enrollment_id, SITE_ID_MAP[d.site_name] || "00") }
+            : {}),
         });
         setSiteName(d.site_name || "");
 
@@ -1648,7 +1678,32 @@ export default function BirthResuscitationForm() {
                 <YesNoToggle label={<>22. Initial steps{requiredMark}</>}
                   name="initial_steps" value={formData.initial_steps}
                   yesLabel="Required" noLabel="Not required"
-                  onChange={handleChange} disabled={!isFieldEditable}/>
+                  onChange={e=>{
+                    handleChange(e);
+                    // Q23 only when initial steps are required
+                    if (e.target.value === "Yes") {
+                      set({ required_resuscitation: "" });
+                      if (localStorage.getItem("enrollment_lock_reason") === "no_ppv") {
+                        localStorage.removeItem("enrollment_locked");
+                        localStorage.removeItem("enrollment_lock_reason");
+                        window.dispatchEvent(new Event("storage"));
+                      }
+                    } else if (e.target.value === "No") {
+                      set({
+                        required_resuscitation: "No",
+                        randomised: "",
+                        randomisation_date: "",
+                        strata: "",
+                        enrollment_reason_not_randomized: "",
+                        enrollment_reason_not_randomized_other: "",
+                      });
+                      localStorage.setItem("enrollment_locked", "true");
+                      localStorage.setItem("enrollment_lock_reason", "no_ppv");
+                      window.dispatchEvent(new Event("storage"));
+                    }
+                  }}
+                  disabled={!isFieldEditable}/>
+                {formData.initial_steps === "Yes" && (
                 <YesNoToggle label={<>23. Does baby require ventilation (PPV)?{requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
                   yesLabel="Required" noLabel="Not required"
@@ -1667,6 +1722,7 @@ export default function BirthResuscitationForm() {
                     }
                   }}
                   disabled={!isFieldEditable}/>
+                )}
 
                 {formData.required_resuscitation==="No" && (
                   <div className="alert-danger">
@@ -1680,15 +1736,24 @@ export default function BirthResuscitationForm() {
                   <div className="followup-box">
                     <span className="followup-label">Randomization details</span>
                     <div className="form-grid-3">
-                      <div className="form-group">
-                        <label>24. Randomised?<span className="required">*</span></label>
+                        <div className="form-group">
+                          <label>24. Randomised?<span className="required">*</span></label>
                         <select name="randomised" value={formData.randomised}
-                          disabled={!isFieldEditable} onChange={handleChange}>
+                          disabled={!isFieldEditable}
+                          onChange={e=>{
+                            handleChange(e);
+                            if (e.target.value === "Yes") {
+                              const cur = formData.enrollment_id || "";
+                              if (!cur || cur.startsWith("NR-") || !cur.startsWith(siteCode)) {
+                                set({ enrollment_id: `${siteCode}-` });
+                              }
+                            }
+                          }}>
                           <option value="">-- Select --</option>
                           <option value="Yes">Yes</option>
                           <option value="No">No</option>
                         </select>
-                      </div>
+                        </div>
                       {formData.randomised==="Yes" && (<>
                         <div className="form-group">
                           <label>25. Randomization Date<span className="required">*</span></label>
@@ -1701,9 +1766,21 @@ export default function BirthResuscitationForm() {
                         </div>
                         <div className="form-group">
                           <label>26. Enrollment ID<span className="required">*</span></label>
-                          <input name="enrollment_id" value={formData.enrollment_id||""}
-                            onChange={handleChange} placeholder="e.g. 01-A-001"
+                          <input
+                            name="enrollment_id"
+                            value={formData.enrollment_id||""}
+                            onChange={e=>set({ enrollment_id: formatEnrollmentId(e.target.value) })}
+                            onFocus={()=>{
+                              const cur = formData.enrollment_id || "";
+                              if (!cur || cur.startsWith("NR-")) set({ enrollment_id: `${siteCode}-` });
+                            }}
+                            placeholder={`${siteCode}-A-001`}
+                            maxLength={8}
+                            autoComplete="off"
+                            spellCheck={false}
+                            style={{ letterSpacing: "0.06em", fontWeight: 600 }}
                             readOnly={!isFieldEditable}/>
+                          <span className="field-note">Site {siteCode} · letter A–D · 3-digit serial</span>
                         </div>
                       </>)}
                     </div>
@@ -1927,52 +2004,50 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 41–44. Placental transfusion */}
+                  {/* 41. Placental transfusion — 42–44 sit outside (same level), enabled when Yes */}
                   <YesNoToggle label={<>41. Placental transfusion{requiredMark}</>}
                     name="placental_transfusion" value={formData.placental_transfusion}
                     onChange={e=>{handleChange(e);if(e.target.value==="No")set({transfusion_method:"",cord_clamp_time:"",cord_clamp_timestamp:""});}}
                     disabled={!isFieldEditable}/>
-                  {formData.placental_transfusion==="Yes" && (
-                    <div className="followup-box">
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>42. Method{requiredMark}</label>
-                          <select name="transfusion_method" value={formData.transfusion_method||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="Deferred clamping">Deferred clamping</option>
-                            <option value="Intact cord milking">Intact cord milking</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label>43. Cord clamped at (HH:MM:SS){requiredMark}</label>
-                          <ModernTimeInput
-                            hour={getTimePart("cord_clamp_timestamp","h")}
-                            minute={getTimePart("cord_clamp_timestamp","m")}
-                            second={getTimePart("cord_clamp_timestamp","s")}
-                            onChange={(h,m,s)=>handleTimeChange("cord_clamp_timestamp", h, m, s)}
-                            disabled={!isFieldEditable}/>
-                        </div>
-                      </div>
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at</span></label>
-                          <input type="text" name="cord_clamp_time"
-                            value={formData.cord_clamp_time === 0 || formData.cord_clamp_time === "0"
-                              ? "0"
-                              : (formData.cord_clamp_time ?? "")}
-                            inputMode="numeric" maxLength={3} placeholder="0–300" readOnly={!isFieldEditable}
-                            className={errors.cord_clamp_time?"input-error":""}
-                            onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))set({cord_clamp_time:v});}}/>
-                          {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
-                          {!formData.time_of_birth && formData.cord_clamp_timestamp && (
-                            <div className="field-error">Enter 9. Time of Birth first to auto-calculate.</div>
-                          )}
-                        </div>
-                        <div/>
-                      </div>
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label>42. Method{formData.placental_transfusion==="Yes"?requiredMark:null}</label>
+                      <select name="transfusion_method" value={formData.transfusion_method||""}
+                        disabled={!isFieldEditable || formData.placental_transfusion!=="Yes"}
+                        onChange={handleChange}>
+                        <option value="">-- Select --</option>
+                        <option value="Deferred clamping">Deferred clamping</option>
+                        <option value="Intact cord milking">Intact cord milking</option>
+                      </select>
                     </div>
-                  )}
+                    <div className="form-group">
+                      <label>43. Cord clamped at (HH:MM:SS){formData.placental_transfusion==="Yes"?requiredMark:null}</label>
+                      <ModernTimeInput
+                        hour={getTimePart("cord_clamp_timestamp","h")}
+                        minute={getTimePart("cord_clamp_timestamp","m")}
+                        second={getTimePart("cord_clamp_timestamp","s")}
+                        onChange={(h,m,s)=>handleTimeChange("cord_clamp_timestamp", h, m, s)}
+                        disabled={!isFieldEditable || formData.placental_transfusion!=="Yes"}/>
+                    </div>
+                  </div>
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at</span></label>
+                      <input type="text" name="cord_clamp_time"
+                        value={formData.cord_clamp_time === 0 || formData.cord_clamp_time === "0"
+                          ? "0"
+                          : (formData.cord_clamp_time ?? "")}
+                        inputMode="numeric" maxLength={3} placeholder="0–300"
+                        readOnly={!isFieldEditable || formData.placental_transfusion!=="Yes"}
+                        className={errors.cord_clamp_time?"input-error":""}
+                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))set({cord_clamp_time:v});}}/>
+                      {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
+                      {formData.placental_transfusion==="Yes" && !formData.time_of_birth && formData.cord_clamp_timestamp && (
+                        <div className="field-error">Enter 9. Time of Birth first to auto-calculate.</div>
+                      )}
+                    </div>
+                    <div/>
+                  </div>
 
                   {/* Timings 45–47 */}
                   <div className="form-grid-2" style={{marginTop:16}}>
