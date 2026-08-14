@@ -278,7 +278,7 @@ class BirthResuscitation(Base):
     interventions = Column(JSON, nullable=True)
     reason_exit_trial_gas = Column(String, nullable=True)
     spo2_exit_trial_gas = Column(Float)
-    total_resus_time = Column(Integer, nullable=True)
+    total_resus_time = Column(String, nullable=True)  # MM:SS from APGAR timer (was Integer minutes)
     blender_stopped = Column(Boolean, nullable=True)
     blender_stopped_description = Column(String, nullable=True)
 

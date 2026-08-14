@@ -499,13 +499,28 @@ class BirthResuscitationCreate(BaseModel):
     interventions: Optional[Dict[str, Dict[str, str]]] = None
     reason_exit_trial_gas: Optional[str] = None
     spo2_exit_trial_gas: Optional[float] = None
-    total_resus_time: Optional[int] = None
+    total_resus_time: Optional[str] = None  # MM:SS from APGAR timer
     blender_stopped: Optional[bool] = None
     blender_stopped_description: Optional[str] = None
 
     # =====================================================
     # 🔐 VALIDATORS (MUST BE INSIDE CLASS)
     # =====================================================
+
+    @field_validator("total_resus_time", mode="before")
+    @classmethod
+    def coerce_total_resus_time_mmss(cls, v):
+        """Accept MM:SS strings; coerce legacy integer minutes → 'MM:00'."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, (int, float)):
+            return f"{int(v)}:00"
+        s = str(v).strip()
+        if not s:
+            return None
+        if s.isdigit():
+            return f"{int(s)}:00"
+        return s
 
     @field_validator("baby_uid")
     @classmethod

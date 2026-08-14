@@ -286,23 +286,58 @@ def generate_screening_id(site_id: str, db: Session):
     return f"{prefix}{next_number:04d}"
 
 def compute_screening_status(data):
-    if data.gestation_weeks is None:
+    """Authoritative screening_status for web + mobile (Form A).
+
+    Labels match Screening Form / ViewEntries banners:
+      Screen Failure — GA undeterminable (Neither) OR any exclusion Yes
+      Not Eligible   — GA outside 25w0d–31w6d, OR consent No / Not approached
+      Eligible       — GA in window, no exclusion, consent Yes or Trial run
+      Pending        — screening incomplete (no GA yet) OR clinically OK
+                       but consent not yet recorded
+    """
+    gestation_known = getattr(data, "gestation_known", None)
+    ga_source = getattr(data, "ga_source", None)
+    if gestation_known == "No" and ga_source == "Neither":
         return "Screen Failure"
+
+    if data.gestation_weeks is None:
+        return "Pending"
 
     weeks = int(data.gestation_weeks)
     days = int(getattr(data, "gestation_days", None) or 0)
     total_days = weeks * 7 + days
-    # Eligible window: 25w0d ? 31w6d inclusive
+    # Eligible window: 25w0d – 31w6d inclusive (Form A GA banner = Not Eligible)
     if total_days < 25 * 7 or total_days > 31 * 7 + 6:
-        return "Screen Failure"
+        return "Not Eligible"
 
     if data.exclusion_present:
         return "Screen Failure"
 
-    if data.consent_given == "Yes":
+    consent = getattr(data, "consent_given", None)
+    # Trial run is allowed to proceed the same way as Yes (web Sidebar)
+    if consent in ("Yes", "Trial run"):
         return "Eligible"
 
-    return "Not Eligible"
+    if consent in ("No", "Not approached"):
+        return "Not Eligible"
+
+    # Clinically passed inclusion; consent not answered yet
+    return "Pending"
+
+
+def heal_screening_status(entry, db: Session | None = None) -> bool:
+    """Recompute and optionally persist screening_status. Returns True if changed."""
+    new_status = compute_screening_status(entry)
+    if entry.screening_status == new_status:
+        return False
+    entry.screening_status = new_status
+    if db is not None:
+        try:
+            db.commit()
+            db.refresh(entry)
+        except Exception:
+            db.rollback()
+    return True
 
 def get_accessible_screening_query(db: Session, user: User):
     query = db.query(Screening).filter(Screening.is_deleted.isnot(True))
@@ -543,6 +578,16 @@ def get_screenings(
         .limit(limit)
         .all()
     )
+    # Heal stale screening_status so web ViewEntries and mobile chips stay aligned.
+    dirty = False
+    for row in rows:
+        if heal_screening_status(row):
+            dirty = True
+    if dirty:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
     if len(rows) >= 50:
         security_monitor.record_bulk_access(
             current_user.username,
@@ -564,9 +609,18 @@ def get_screening_stats(
     # not the full CONSORT box breakdown ? same site-scoping as GET
     # /screenings/ so these numbers always agree with the patient list.
     rows = get_accessible_screening_query(db, current_user).all()
-    enrolled = sum(1 for r in rows if r.screening_status == "Eligible" and r.consent_given == "Yes")
+    dirty = False
+    for row in rows:
+        if heal_screening_status(row):
+            dirty = True
+    if dirty:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    enrolled = sum(1 for r in rows if r.screening_status == "Eligible")
     excluded = sum(1 for r in rows
-                   if r.screening_status in ("Not Eligible", "Screen Failure") or r.consent_given == "No")
+                   if r.screening_status in ("Not Eligible", "Screen Failure"))
     return {
         "total": len(rows),
         "enrolled": enrolled,
@@ -587,6 +641,7 @@ def get_screening(
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
 
+    heal_screening_status(entry, db)
     return entry
 
 @app.post("/screenings/", response_model=ScreeningOut)
@@ -948,6 +1003,7 @@ def get_screening_by_screening_id(
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
 
+    heal_screening_status(entry, db)
     return entry
 
 @app.get("/screenings/by-enrollment/{enrollment_id}", response_model=ScreeningClinicalOut)
@@ -963,6 +1019,7 @@ def get_screening_by_enrollment(
     if not entry:
         raise HTTPException(status_code=404, detail="Screening not found")
 
+    heal_screening_status(entry, db)
     return entry
 
 # ============================================================================
@@ -2812,6 +2869,7 @@ def get_resp_cv_neuro_summary(
             "saved_at":          r.saved_at,
             "submitted_at":      r.submitted_at,
             "surfactant":        r.surfactant,
+            "supp_o2":           r.supp_o2,
         }
         for r in records
     ]

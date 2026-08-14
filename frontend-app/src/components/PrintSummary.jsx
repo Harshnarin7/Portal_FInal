@@ -51,6 +51,7 @@ function PrintReport({ formData = {} }) {
   const gaStr = (gaW != null && gaW !== "")
     ? `${gaW} weeks ${gaD} days` : "—";
 
+  /* Same rules as backend compute_screening_status() / ViewEntries badges */
   const outcome = (() => {
     if (formData.gestation_known === "No" && formData.ga_source === "Neither")
       return "SCREEN FAILURE";
@@ -61,9 +62,10 @@ function PrintReport({ formData = {} }) {
     const excl = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus",
       "insufficient_time","iufd"].some(k => formData[k] === "Yes");
     if (excl) return "SCREEN FAILURE";
+    if (formData.consent_given === "Yes" || formData.consent_given === "Trial run")
+      return "ELIGIBLE";
     if (formData.consent_given === "No" ||
-        formData.consent_given === "Not approached") return "CONSENT REFUSED";
-    if (formData.consent_given === "Yes") return "ELIGIBLE";
+        formData.consent_given === "Not approached") return "NOT ELIGIBLE";
     return "PENDING";
   })();
 

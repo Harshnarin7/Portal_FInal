@@ -1084,3 +1084,28 @@ SAE_LIST_TABLE_PATCHES = [
 BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_letter VARCHAR",
 ]
+
+# Field 57 Total resus time: was Integer minutes; now VARCHAR "MM:SS".
+# Convert existing minute integers to "MM:00" once (idempotent via data_type check).
+BIRTH_RESUSCITATION_TOTAL_RESUS_TIME_MMSS_PATCHES = [
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'birth_resuscitation'
+          AND column_name = 'total_resus_time'
+          AND data_type IN ('integer', 'bigint', 'smallint', 'numeric')
+      ) THEN
+        ALTER TABLE birth_resuscitation
+          ALTER COLUMN total_resus_time TYPE VARCHAR
+          USING CASE
+            WHEN total_resus_time IS NULL THEN NULL
+            ELSE total_resus_time::text || ':00'
+          END;
+      END IF;
+    END $$;
+    """,
+]

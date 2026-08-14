@@ -788,7 +788,10 @@ export default function BirthResuscitationForm() {
       cord_sbe:            optionalNum(fd.cord_sbe),
       cord_pco2:           optionalNum(fd.cord_pco2),
       spo2_exit_trial_gas: optionalNum(fd.spo2_exit_trial_gas),
-      total_resus_time:    optionalNum(fd.total_resus_time),
+      total_resus_time:    (() => {
+        const formatted = formatDurationMs(fd.total_resus_time);
+        return formatted || null;
+      })(),
       reason_exit_trial_gas: fd.reason_exit_trial_gas==="Other"
         ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
       blender_stopped:     yn(fd.blender_stopped),
@@ -902,6 +905,8 @@ export default function BirthResuscitationForm() {
         add("B4. Time to Respiratory Efforts must be HH:MM:SS", "time_to_respiration");
       if(formData.time_to_spo2_80 && durationToSeconds(formatDurationMs(formData.time_to_spo2_80))===null)
         add("B4. Time to SpO2 >80% must be MM:SS", "time_to_spo2_80");
+      if(formData.total_resus_time && durationToSeconds(formatDurationMs(formData.total_resus_time))===null)
+        add("B6. Total time from APGAR timer must be MM:SS", "total_resus_time");
       if(!formData.cord_blood_done) add("B6. Cord Blood Analysis",     "cord_blood_done");
       if(formData.cord_blood_done==="No" && !formData.cord_blood_within_1hr)
         add("B6. Sample Within 1 Hour", "cord_blood_within_1hr");
@@ -1191,6 +1196,14 @@ export default function BirthResuscitationForm() {
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
+          // Field 57: MM:SS string (legacy integer minutes → "MM:00")
+          total_resus_time: (() => {
+            const v = d.total_resus_time;
+            if (v == null || v === "") return p.total_resus_time || "";
+            const s = String(v).trim();
+            if (/^\d{1,3}$/.test(s)) return formatDurationMs(`${Number(s)}:00`);
+            return formatDurationMs(s);
+          })(),
         }));
         if (d.required_resuscitation === false) {
           localStorage.setItem("enrollment_locked", "true");
@@ -2173,11 +2186,13 @@ export default function BirthResuscitationForm() {
                         }}/>
                     </div>
                     <div className="form-group">
-                      <label>57. Total time (min) <span className="field-note">from APGAR timer</span></label>
-                      <input type="text" name="total_resus_time" value={formData.total_resus_time||""}
-                        inputMode="numeric" maxLength={3} placeholder="minutes"
-                        readOnly={!isFieldEditable}
-                        onChange={e=>{if(/^\d{0,3}$/.test(e.target.value))set({total_resus_time:e.target.value});}}/>
+                      <label>57. Total time (MM:SS) <span className="field-note">from APGAR timer</span></label>
+                      <DurationField mode="ms" name="total_resus_time"
+                        value={formData.total_resus_time}
+                        disabled={!isFieldEditable}
+                        placeholder="MM:SS" maxLength={6}
+                        hasError={!!errors.total_resus_time}
+                        onChange={v => set({ total_resus_time: v })}/>
                     </div>
                   </div>
 

@@ -250,7 +250,7 @@ function PrintReportB({ formData = {} }) {
               <R label="Cord PCO₂" value={formData.cord_pco2} />
               <R label="Resuscitation Failure" value={yn(formData.resus_failure)} />
               <R label="SpO₂ Exit Trial Gas" value={formData.spo2_exit_trial_gas} />
-              <R label="Total Resus Time" value={formData.total_resus_time} />
+              <R label="Total Resus Time (MM:SS)" value={formData.total_resus_time} />
               <R label="Reason Exit Trial Gas" value={formData.reason_exit_trial_gas} />
               {formData.reason_exit_trial_gas_other && (
                 <R label="Exit Reason — Other" value={formData.reason_exit_trial_gas_other} />
