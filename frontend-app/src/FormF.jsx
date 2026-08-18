@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import "./styles/FormF.css";
 import NotesBox from "./components/NotesBox";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import { resolveEffectiveGestation } from "./utils/gestation";
 
 /* ══════════════════════════════════════════════════════
@@ -299,6 +300,7 @@ export default function FormF() {
   const [isEditing, setIsEditing]     = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [message, setMessage]         = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
 
   const [patientInfo, setPatientInfo] = useState({
     enrollmentId: enrollmentId || "",
@@ -516,6 +518,7 @@ export default function FormF() {
         : await api.post("/form-h/", payload);
       markFormCompleted("form_h");
       setIsSaved(true); setIsEditing(false);
+      setShowSaveSuccess(true);
       setMessage("Form F saved successfully.");
       setTimeout(() => setMessage(""), 3000);
     } catch (err) {
@@ -981,6 +984,11 @@ export default function FormF() {
         </button>
 
       </div>
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form F has been saved successfully."
+      />
     </>
   );
 }

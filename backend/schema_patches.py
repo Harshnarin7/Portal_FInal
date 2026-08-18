@@ -314,11 +314,16 @@ MATERNAL_DETAILS_COLUMN_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS maternal_abdominal_tenderness VARCHAR",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hypothyroidism BOOLEAN DEFAULT FALSE",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS hyperthyroidism BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS explicitly_saved BOOLEAN DEFAULT FALSE",
     # Form C antenatal steroids — per-drug dose / completed-course tracking
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_doses INTEGER",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_doses INTEGER",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_courses INTEGER",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_courses INTEGER",
+]
+
+SCREENING_SAVE_STATE_PATCHES = [
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS explicitly_saved BOOLEAN DEFAULT FALSE",
 ]
 
 POSTNATAL_DAY1_V2_COLUMN_PATCHES = [
@@ -349,6 +354,10 @@ NICU_ADMISSION_V2_COLUMN_PATCHES = [
     # background autosave silently persisted an in-progress draft —
     # reopening the latter should stay editable, not lock until Edit.
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS finalized BOOLEAN DEFAULT FALSE",
+]
+
+BIRTH_RESUSCITATION_SAVE_STATE_PATCHES = [
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS explicitly_saved BOOLEAN DEFAULT FALSE",
 ]
 
 INFECT_GI_HEMA_COLUMN_PATCHES = [

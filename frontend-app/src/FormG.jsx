@@ -7,6 +7,7 @@ import {
   Eye, Info, Calendar, FileText, ShieldAlert, CheckSquare,
   ArrowLeft, ArrowRight, Save,
 } from "lucide-react";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -222,6 +223,7 @@ export default function FormG() {
   const { patientData } = usePatient();
 
   const [message, setMessage] = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -492,6 +494,7 @@ export default function FormG() {
       await api.post("/rop-screening/", buildPayload());
       markFormCompleted("form_g");
       setMessage("Form G saved successfully.");
+      setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {
@@ -930,6 +933,11 @@ export default function FormG() {
           Form H <ArrowRight size={15} />
         </button>
       </div>
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form G has been saved successfully."
+      />
     </div>
   );
 }

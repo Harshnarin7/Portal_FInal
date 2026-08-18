@@ -742,6 +742,7 @@ def create_screening(
                 reason_for_consent_refusal=screening.reason_for_consent_refusal,
                 reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
                 video_pis_shown=screening.video_pis_shown,
+                explicitly_saved=bool(screening.explicitly_saved),
             )
             stamp_created(db_screening, current_user)
 
@@ -1059,7 +1060,7 @@ def create_birth_resuscitation(
     data = data.model_copy(update={"enrollment_id": enrollment_id})
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         BIRTH_PII_FIELDS,
         enrollment_id=enrollment_id,
         screening_id=data.screening_id,
@@ -1294,7 +1295,7 @@ def create_maternal_details(
     require_enrollment_access(data.enrollment_id, db, current_user)
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         MATERNAL_PII_FIELDS,
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
@@ -1346,7 +1347,7 @@ def update_maternal_details(
         raise HTTPException(status_code=404, detail="Maternal details not found")
     payload = split_and_store_pii(
         db,
-        data.model_dump(),
+        data.model_dump(exclude_unset=True),
         MATERNAL_PII_FIELDS,
         enrollment_id=enrollment_id,
         site_name=site_for_enrollment(db, enrollment_id),
@@ -1419,6 +1420,26 @@ def create_postnatal_day1(
         enrollment_id=data.enrollment_id,
         site_name=site_for_enrollment(db, data.enrollment_id),
     )
+
+    # Upsert: a retry / stale isRecordSaved can POST again for the same
+    # enrollment. postnatal_day1.enrollment_id has no unique constraint, so
+    # a blind insert used to create a second row; GET then .first() with no
+    # ORDER BY could return the older one and look like data vanished.
+    existing = (
+        db.query(PostnatalDay1)
+        .filter(PostnatalDay1.enrollment_id == data.enrollment_id)
+        .order_by(PostnatalDay1.id.desc())
+        .first()
+    )
+    if existing:
+        payload.pop("enrollment_id", None)
+        for key, value in payload.items():
+            if hasattr(existing, key):
+                setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     record = PostnatalDay1(**payload)
     db.add(record)
     db.commit()
@@ -1434,7 +1455,7 @@ def get_postnatal_day1(
     require_enrollment_access(enrollment_id, db, current_user)
     record = db.query(PostnatalDay1).filter(
         PostnatalDay1.enrollment_id == enrollment_id
-    ).first()
+    ).order_by(PostnatalDay1.id.desc()).first()
 
     if not record:
         return None

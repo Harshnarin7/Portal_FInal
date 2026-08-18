@@ -339,6 +339,7 @@ class ScreeningCreate(BaseModel):
     reason_for_consent_refusal: Optional[str] = None
     reason_for_consent_refusal_other: Optional[str] = None
     video_pis_shown: Optional[str] = None
+    explicitly_saved: Optional[bool] = None
 
 
 class ScreeningClinicalOut(BaseModel):
@@ -389,6 +390,7 @@ class ScreeningClinicalOut(BaseModel):
     reason_for_consent_refusal: Optional[str] = None
     reason_for_consent_refusal_other: Optional[str] = None
     video_pis_shown: Optional[str] = None
+    explicitly_saved: Optional[bool] = None
 
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
@@ -502,6 +504,7 @@ class BirthResuscitationCreate(BaseModel):
     total_resus_time: Optional[str] = None  # MM:SS from APGAR timer
     blender_stopped: Optional[bool] = None
     blender_stopped_description: Optional[str] = None
+    explicitly_saved: Optional[bool] = None
 
     # =====================================================
     # 🔐 VALIDATORS (MUST BE INSIDE CLASS)
@@ -739,6 +742,7 @@ class MaternalDetailsCreate(BaseModel):
     mgso4_date: Optional[date] = None
     mgso4_gestation_weeks: Optional[int] = None
     mgso4_gestation_days: Optional[int] = None
+    explicitly_saved: Optional[bool] = None
 
     chronic_hypertension: Optional[bool] = None
     hepatitis: Optional[bool] = None

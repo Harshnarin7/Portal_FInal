@@ -6,6 +6,7 @@ import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
@@ -590,6 +591,7 @@ export default function MetabRenalVascEyeLog() {
   const [isSaved, setIsSaved]             = useState(false);
   const [isEditing, setIsEditing]         = useState(false);
   const [message, setMessage]             = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [loading, setLoading]             = useState(false);
   const [showModal, setShowModal]         = useState(false);
   const [submitting, setSubmitting]       = useState(false);
@@ -1398,6 +1400,7 @@ export default function MetabRenalVascEyeLog() {
       if (!completedDays.includes(activeDay))
         setCompletedDays(prev => [...prev, activeDay]);
       setMessage("✅ Day " + activeDay + " saved successfully");
+      setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);
     } catch (_) { setMessage("❌ Error saving — please try again"); }
   };
@@ -2369,6 +2372,11 @@ export default function MetabRenalVascEyeLog() {
           Form F <ArrowRight size={15}/>
         </button>
       </div>
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message={`Day ${activeDay} has been saved successfully.`}
+      />
     </>
   );
 }

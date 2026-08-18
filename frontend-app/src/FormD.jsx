@@ -9,6 +9,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
@@ -287,6 +288,7 @@ export default function FormD() {
   const [isSaved,   setIsSaved]   = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [message,   setMessage]   = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [touched,   setTouched]   = useState({});
   const [submitErrors, setSubmitErrors] = useState([]);
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
@@ -762,6 +764,7 @@ export default function FormD() {
       });
       markFormCompleted("form_d");
       setMessage("✅ Form D saved successfully");
+      setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date()); setIsDirty(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1656,6 +1659,11 @@ export default function FormD() {
           </div>
         </div>
       )}
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form D has been saved successfully."
+      />
     </>
   );
 }

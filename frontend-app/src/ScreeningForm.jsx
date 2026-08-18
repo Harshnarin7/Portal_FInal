@@ -10,6 +10,7 @@ import "./styles/FormA.css";
 import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import {
   ArrowLeft, ArrowRight, Save, Home, Pencil,
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
@@ -137,6 +138,7 @@ export default function ScreeningForm() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentMessage,   setConsentMessage]   = useState("");
   const [showDraftModal,   setShowDraftModal]   = useState(false);
+  const [showSaveSuccess,  setShowSaveSuccess]  = useState(false);
   const [dataLoaded,       setDataLoaded]       = useState(false);
   const [autoSaveStatus,   setAutoSaveStatus]   = useState("idle");
   const [lastSaved,        setLastSaved]        = useState(null);   // Date object
@@ -375,8 +377,9 @@ export default function ScreeningForm() {
       const videosDone  = !!d.video_pis_shown;
       const fullyDone   = a4Complete && consentDone && videosDone;
 
-      setIsSaved(true);
-      setIsEditing(!fullyDone); // stay editable if any required field not yet filled
+      const explicitlySaved = !!d.explicitly_saved;
+      setIsSaved(explicitlySaved);
+      setIsEditing(!explicitlySaved || !fullyDone); // drafts stay editable; explicit saves reopen read-only unless incomplete
       setIsInitialLoad(false);
       setDataLoaded(true);
     } catch (err) {
@@ -842,7 +845,7 @@ export default function ScreeningForm() {
   // Gestational age for the "gestation not known" path is recomputed from
   // fd.edd_date at save time so autosave never writes 0w 0d while waiting
   // for the EDD→auto_ga_* effect to catch up.
-  const buildPayloadFrom = (fd, useDraftFallbacks, exclYes) => {
+  const buildPayloadFrom = (fd, useDraftFallbacks, exclYes, explicitlySaved = false) => {
     const exclusionParts = [];
     if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
     if (fd.fetal_hydrops         === "Yes") exclusionParts.push("Fetal hydrops");
@@ -913,11 +916,12 @@ export default function ScreeningForm() {
         ? fd.reason_not_approached_list.join(", ") : null,
       reason_not_approached_other: fd.reason_not_approached_other || null,
       video_pis_shown:           fd.video_pis_shown  || null,
+      ...(explicitlySaved ? { explicitly_saved: true } : {}),
     };
   };
 
   const buildPayload = useCallback(
-    (useDraftFallbacks = false) => buildPayloadFrom(formData, useDraftFallbacks, anyExclusionYes),
+    (useDraftFallbacks = false) => buildPayloadFrom(formData, useDraftFallbacks, anyExclusionYes, false),
     [formData, anyExclusionYes]
   );
 
@@ -999,7 +1003,7 @@ export default function ScreeningForm() {
       return; // show modal, don't attempt save yet
     }
 
-    const payload = buildPayload(false);
+    const payload = buildPayloadFrom(formData, false, anyExclusionYes, true);
 
     try {
       const storedId = localStorage.getItem("current_screening_id");
@@ -1016,6 +1020,7 @@ export default function ScreeningForm() {
       window.dispatchEvent(new Event("storage"));
 
       setMessage("✅ Form A saved successfully");
+      setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date());
       setIsDirty(false);
@@ -1982,7 +1987,7 @@ export default function ScreeningForm() {
             </div>
             <div style={{display:"flex", gap:"10px", marginTop:"16px"}}>
               <button className="modal-btn" style={{background:"#f1f5f9", color:"#374151", border:"1px solid #e2e8f0"}}
-                onClick={() => { setShowDraftModal(false); setIsSaved(true); }}>
+                onClick={() => { setShowDraftModal(false); setIsSaved(false); setIsEditing(true); }}>
                 Keep Editing
               </button>
               <button className="modal-btn"
@@ -1995,6 +2000,11 @@ export default function ScreeningForm() {
       )}
 
       {/* Print report lives outside #root via portal — required for window.print() */}
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form A has been saved successfully."
+      />
       <PrintSummary formData={formData} />
     </>
   );

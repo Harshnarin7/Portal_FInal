@@ -13,6 +13,7 @@ import NotesBox      from "./components/NotesBox";
 import OfflineBanner from "./components/OfflineBanner";
 import FormNavBar    from "./components/FormNavBar";
 import FormModals    from "./components/FormModals";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import useFormSession from "./hooks/useFormSession";
 import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap, Pencil } from "lucide-react";
 
@@ -230,6 +231,7 @@ export default function FormC() {
   const [isSaved,        setIsSaved]        = useState(false);
   const [isEditing,      setIsEditing]      = useState(false);
   const [message,        setMessage]        = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isFormCLoaded,  setIsFormCLoaded]  = useState(false);
   // True after GET for this enrollment finishes (record or 404). Distinct
   // from isFormCLoaded, which means a maternal_details row already exists.
@@ -342,7 +344,7 @@ export default function FormC() {
     formKey:      "form_c",
     isLoaded:     isFormCLoaded,
     recordId:     formData.enrollment_id,
-    buildPayload: useCallback(() => buildPayload(), [formData, isFormCLoaded]), // eslint-disable-line
+    buildPayload: useCallback(() => buildPayload(false), [formData, isFormCLoaded]), // eslint-disable-line
     endpoint:     "/maternal-details",
     // Block draft/autosave until this enrollment's load finishes — otherwise
     // a previous patient's in-memory fields can be written under the new id.
@@ -666,7 +668,7 @@ export default function FormC() {
           edd: formCData?.edd ? parseDateOnly(formCData.edd) : formAData?.expected_delivery_date ? parseDateOnly(formAData.expected_delivery_date) : null,
           mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : "",
         });
-        if (formCData || isEditMode) setIsSaved(true);
+        if (formCData?.explicitly_saved || isEditMode) setIsSaved(true);
         resetInitialRender();
       } catch (err) { console.log("Error loading Form C:", err); }
       finally {
@@ -1019,7 +1021,7 @@ export default function FormC() {
   };
 
   /* ── Build payload ── */
-  const buildPayload = useCallback(() => ({
+  const buildPayload = useCallback((explicitlySaved = false) => ({
     enrollment_id: formData.enrollment_id || null,
     mother_age: toInt(formData.mother_age),
     maternal_uid: formData.maternal_uid || null,
@@ -1109,6 +1111,7 @@ export default function FormC() {
     fetal_tachycardia_intrapartum: formData.fetal_tachycardia_intrapartum||null,
     duration_rom: formData.duration_rom||null,
     uterotonic: formData.uterotonic||null, uterotonic_timing: formData.uterotonic_timing||null,
+    ...(explicitlySaved ? { explicitly_saved: true } : {}),
   }), [formData]); // eslint-disable-line
 
   /* ── Save form ── */
@@ -1131,12 +1134,13 @@ export default function FormC() {
     }
     try {
       if (isFormCLoaded) {
-        await api.put(`/maternal-details/${formData.enrollment_id}`, buildPayload());
+        await api.put(`/maternal-details/${formData.enrollment_id}`, buildPayload(true));
       } else {
-        await api.post("/maternal-details/", buildPayload());
+        await api.post("/maternal-details/", buildPayload(true));
         setIsFormCLoaded(true);
       }
       setMessage("✅ Form C saved successfully");
+      setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       markFormCompleted("form_c");
       window.scrollTo({ top:0, behavior:"smooth" });
@@ -2174,6 +2178,11 @@ export default function FormC() {
         session={session}
         onKeepEditing={() => session.setShowDraftModal(false)}
         onGoToDashboard={() => { session.setShowDraftModal(false); navigate("/dashboard"); }}
+      />
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form C has been saved successfully."
       />
     </>
   );

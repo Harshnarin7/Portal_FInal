@@ -160,6 +160,7 @@ class Screening(Base):
     reason_for_consent_refusal_other = Column(String, nullable=True)
     decision_forego_resuscitation_reason_other = Column(String, nullable=True)
     video_pis_shown = Column(String, nullable=True)
+    explicitly_saved = Column(Boolean, default=False, nullable=True)
 
     created_by = Column(String, nullable=True)
     updated_by = Column(String, nullable=True)
@@ -281,6 +282,7 @@ class BirthResuscitation(Base):
     total_resus_time = Column(String, nullable=True)  # MM:SS from APGAR timer (was Integer minutes)
     blender_stopped = Column(Boolean, nullable=True)
     blender_stopped_description = Column(String, nullable=True)
+    explicitly_saved = Column(Boolean, default=False, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
 
@@ -338,6 +340,7 @@ class MaternalDetails(Base):
     mgso4_date = Column(Date)
     mgso4_gestation_weeks = Column(Integer)
     mgso4_gestation_days = Column(Integer)
+    explicitly_saved = Column(Boolean, default=False, nullable=True)
 
     # ---------- MATERNAL MEDICAL DISORDERS ----------
     chronic_hypertension = Column(Boolean, default=False)

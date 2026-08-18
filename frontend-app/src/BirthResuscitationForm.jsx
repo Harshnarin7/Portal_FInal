@@ -9,6 +9,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import PrintSummaryB from "./components/PrintSummaryB";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
@@ -414,6 +415,7 @@ export default function BirthResuscitationForm() {
   const [isOnline,         setIsOnline]         = useState(navigator.onLine);
   const [offlineQueue,    setOfflineQueue]     = useState(false);
   const [showDraftModal,  setShowDraftModal]   = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess]  = useState(false);
   const [siteName,        setSiteName]          = useState("");
   const SITE_ID_MAP = {
     PGIMER: "01", GMCH: "02", IOG: "03", AFMC: "04", "GMCH-A": "05", AMC: "06",
@@ -790,7 +792,7 @@ export default function BirthResuscitationForm() {
       as null (all columns are nullable) rather than fabricated sentinel
       values, so partially-filled forms persist without corrupting clinical
       data or tripping the backend range validators. */
-  const buildPayloadFrom = useCallback((fd) => {
+  const buildPayloadFrom = useCallback((fd, explicitlySaved = false) => {
     return {
       screening_id:        fd.screening_id || null,
       enrollment_id:       fd.enrollment_id || null,
@@ -885,11 +887,12 @@ export default function BirthResuscitationForm() {
         cpap: fd.interventions?.cpap || {},
         apgar: fd.interventions?.apgar || {},
       },
+      ...(explicitlySaved ? { explicitly_saved: true } : {}),
     };
   }, []);
 
   const buildPayload = useCallback(
-    () => buildPayloadFrom(formData),
+    () => buildPayloadFrom(formData, false),
     [formData, buildPayloadFrom]
   );
 
@@ -1032,7 +1035,7 @@ export default function BirthResuscitationForm() {
     setMessage("");
     const missing = validate();
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
-    const payload = buildPayload();
+    const payload = buildPayloadFrom(formData, true);
     try {
       const payloadEid = String(payload.enrollment_id || "").trim();
       const storedEid = String(getStoredId("current_enrollment_id") || "").trim();
@@ -1088,6 +1091,7 @@ export default function BirthResuscitationForm() {
 
       setIsFormBLoaded(true);
       setMessage("✅ Form B saved successfully");
+      setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date()); setIsDirty(false);
       markFormCompleted("form_b");
@@ -1397,7 +1401,10 @@ export default function BirthResuscitationForm() {
         }
         hasBirthRecordRef.current = true;
         isInitialRender.current = true;
-        setIsFormBLoaded(true); setIsSaved(true);
+        const explicitlySaved = !!d.explicitly_saved;
+        setIsFormBLoaded(true);
+        setIsSaved(explicitlySaved);
+        setIsEditing(!explicitlySaved);
       }).catch(err => {
         /* 404 = brand-new Form B for this enrollment — still enable autosave */
         if (err?.response?.status !== 404) {
@@ -2623,7 +2630,7 @@ export default function BirthResuscitationForm() {
             </div>
             <div style={{display:"flex", gap:"10px", marginTop:"16px"}}>
               <button className="modal-btn" style={{background:"#f1f5f9", color:"#374151", border:"1px solid #e2e8f0"}}
-                onClick={() => { setShowDraftModal(false); setIsSaved(true); }}>
+                onClick={() => { setShowDraftModal(false); setIsSaved(false); setIsEditing(true); }}>
                 Keep Editing
               </button>
               <button className="modal-btn"
@@ -2635,6 +2642,11 @@ export default function BirthResuscitationForm() {
         </div>
       )}
 
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form B has been saved successfully."
+      />
       <PrintSummaryB formData={formData} />
     </>
   );

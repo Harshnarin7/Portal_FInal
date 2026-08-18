@@ -10,6 +10,7 @@ import NotesBox from "./components/NotesBox";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import OfflineBanner from "./components/OfflineBanner";
+import SaveSuccessModal from "./components/SaveSuccessModal";
 import { toDateOnlyValue, parseDateOnly, toDateTimeLocalValue } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
@@ -355,6 +356,7 @@ export default function FormE() {
   const [isSaved,   setIsSaved]   = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [message,   setMessage]   = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isFormELoaded, setIsFormELoaded] = useState(false);
   const [isBirthLoaded, setIsBirthLoaded] = useState(false);
   const [hasFormERecord, setHasFormERecord] = useState(false);
@@ -790,6 +792,7 @@ export default function FormE() {
       markFormCompleted("form_e");
       setHasFormERecord(true);
       setMessage("✅ Form E saved successfully");
+      setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setTimeout(() => setMessage(""), 3000);
@@ -1300,6 +1303,11 @@ export default function FormE() {
           FiO₂ AUC Log <ArrowRight size={15} />
         </button>
       </div>
+      <SaveSuccessModal
+        open={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        message="Form E has been saved successfully."
+      />
     </>
   );
 }

@@ -786,9 +786,52 @@
     left: 0;
     padding: 10px 16px;
     height: auto;
-    min-height: var(--action-bar-height, 80px);
+    min-height: 76px;
     flex-wrap: wrap;
-    gap: 10px;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px 12px;
+  }
+
+  .form-navigation .btn,
+  .form-navigation .btn-primary,
+  .form-navigation .btn-draft,
+  .form-navigation .btn-save,
+  .form-navigation .btn-secondary {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0 16px;
+  }
+
+  .form-navigation .btn-primary {
+    margin-left: auto;
+    min-width: 170px;
+  }
+
+  .autosave-indicator {
+    order: 10;
+    width: 100%;
+    flex: 0 0 100%;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .footer-step-indicator {
+    order: 11;
+    width: 100%;
+    flex: 0 0 100%;
+    min-width: 0;
+    margin-left: 0;
+    align-items: center;
+  }
+
+  .step-text {
+    font-size: 9px;
+    letter-spacing: 0.07em;
+  }
+
+  .progress-segment {
+    width: 22px;
   }
 
   .screening-form .form-grid-2,
@@ -922,6 +965,19 @@
     min-width: 0;
     padding: 0 12px;
     font-size: 13px;
+  }
+
+  .autosave-indicator {
+    order: 10;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .footer-step-indicator {
+    order: -1;
+    width: 100%;
+    margin-left: 0;
+    align-items: center;
   }
 
   .screening-id-badge {
