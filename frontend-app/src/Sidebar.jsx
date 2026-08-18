@@ -11,6 +11,7 @@ import {
 import { useFormProgress } from './context/FormProgressContext';
 import { useAuth } from './context/AuthContext';
 import api from './api/axios';
+import { isUsableEnrollmentId } from './utils/enrollmentId';
 import './Sidebar.css';
 
 /* All forms unlock after A+B are done */
@@ -128,7 +129,10 @@ export default function Sidebar({ currentForm }) {
 
   const readIds = () => ({
     screeningId:  validId(localStorage.getItem('current_screening_id')),
-    enrollmentId: validId(localStorage.getItem('current_enrollment_id')),
+    // Ignore typing stubs like "01-" left by Form B focus/autosave.
+    enrollmentId: isUsableEnrollmentId(localStorage.getItem('current_enrollment_id'))
+      ? localStorage.getItem('current_enrollment_id')
+      : null,
   });
   const [ids, setIds] = useState(readIds);
   const screeningId = ids.screeningId;
@@ -151,7 +155,7 @@ export default function Sidebar({ currentForm }) {
     if (enrollmentId && enrollmentId !== 'undefined' && enrollmentId !== 'null') {
       fetchProgress(enrollmentId);
     }
-  }, [enrollmentId]); // eslint-disable-line
+  }, [enrollmentId, location.pathname]); // eslint-disable-line
 
   const [enrollmentLocked, setEnrollmentLocked] = useState(
     localStorage.getItem('enrollment_locked') === 'true'
@@ -211,18 +215,32 @@ export default function Sidebar({ currentForm }) {
         return;
       }
 
-      /* Keep no_ppv lock from Form B — consent OK must not wipe it */
-      if (localStorage.getItem('enrollment_lock_reason') === 'no_ppv') {
-        localStorage.setItem('enrollment_locked', 'true');
-        setEnrollmentLocked(true);
+      /* no_ppv is per-enrollment. Confirm against THIS patient's birth row
+         instead of keeping another baby's no_ppv lock forever. */
+      const eid = validId(localStorage.getItem('current_enrollment_id'))
+        || (d.enrollment_id && d.enrollment_id !== 'undefined' ? d.enrollment_id : null);
+      const finishUnlock = () => {
+        if (consentAllowsEnrollment(consent)) {
+          localStorage.removeItem('enrollment_locked');
+          localStorage.removeItem('enrollment_lock_reason');
+          setEnrollmentLocked(false);
+        }
+      };
+      if (eid && isUsableEnrollmentId(eid)) {
+        api.get(`/enrollment-status/${eid}`).then(stRes => {
+          if (!active) return;
+          if (stRes.data?.no_ppv) {
+            localStorage.setItem('enrollment_locked', 'true');
+            localStorage.setItem('enrollment_lock_reason', 'no_ppv');
+            setEnrollmentLocked(true);
+          } else {
+            finishUnlock();
+          }
+        }).catch(() => { if (active) finishUnlock(); });
         return;
       }
 
-      if (consentAllowsEnrollment(consent)) {
-        localStorage.removeItem('enrollment_locked');
-        localStorage.removeItem('enrollment_lock_reason');
-        setEnrollmentLocked(false);
-      }
+      finishUnlock();
     }).catch(() => {
       if (active) setEnrollmentLocked(localStorage.getItem('enrollment_locked') === 'true');
     });

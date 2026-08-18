@@ -73,6 +73,7 @@ from pii_service import (
     split_and_store_pii,
     migrate_legacy_pii,
     upsert_participant_pii,
+    get_pii_for_participant,
     can_view_pii_for_site,
 )
 
@@ -398,6 +399,9 @@ def link_screening_enrollment(
     Web Form B loads birth data via screenings.enrollment_id → GET
     /birth-resuscitation/{eid}. Mobile no-PPV / not-randomised saves use
     NR-{screening_id}; without this link the web form opens blank.
+
+    Also keep participant_pii.enrollment_id / screening_id in sync so Form B
+    identity fields (maternal UID, mother name, phones) resolve after enroll.
     """
     if not screening_id or not enrollment_id:
         return
@@ -408,6 +412,15 @@ def link_screening_enrollment(
     db.query(Screening).filter(Screening.screening_id == sid).update(
         {"enrollment_id": eid}
     )
+    try:
+        pii = get_pii_for_participant(db, screening_id=sid, enrollment_id=eid)
+        if pii:
+            if not pii.enrollment_id:
+                pii.enrollment_id = eid
+            if not pii.screening_id:
+                pii.screening_id = sid
+    except Exception:
+        pass
     db.commit()
 
 # ============================================================================
@@ -1184,6 +1197,38 @@ def get_birth_resuscitation(
             record_dict["gestation_weeks"] = form_d.gestation_weeks
             record_dict["gestation_days"] = form_d.gestation_days
             record_dict["gestation_source"] = "Form D NBS"
+
+    # Reattach Form A identity for B1 fields 2/3/5 (stored only in participant_pii).
+    try:
+        site = site_for_enrollment(db, enrollment_id) or (
+            db.query(Screening.site_name)
+            .filter(Screening.screening_id == entry.screening_id)
+            .scalar()
+            if entry.screening_id else None
+        )
+        if can_view_pii_for_site(current_user, site):
+            pii = get_pii_for_participant(
+                db,
+                enrollment_id=enrollment_id,
+                screening_id=entry.screening_id,
+            )
+            if pii:
+                if pii.maternal_uid:
+                    record_dict["maternal_uid"] = pii.maternal_uid
+                if pii.mother_first_name:
+                    record_dict["mother_name_first"] = pii.mother_first_name
+                if pii.mother_surname:
+                    record_dict["mother_name_surname"] = pii.mother_surname
+                contact_m = pii.mother_contact or pii.contact_mother
+                contact_h = pii.husband_contact or pii.contact_husband
+                if contact_m:
+                    record_dict["contact_mother"] = contact_m
+                if contact_h:
+                    record_dict["contact_husband"] = contact_h
+    except Exception:
+        # Never fail the clinical GET if PII decrypt/auth fails — Form B
+        # still loads; identity fields stay blank and the UI can retry PII.
+        pass
 
     return record_dict
 
@@ -2558,25 +2603,52 @@ def get_enrollment_status(
     # PPV / resuscitation not required ? stop after Forms A?C
     no_ppv = form_b and birth.required_resuscitation is False
 
-    form_c = (
+    maternal = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == enrollment_id)
         .first()
-        is not None
+    )
+    # Row existence alone is not "complete" — empty autosave shells must not
+    # green-tick Form C in the sidebar.
+    form_c = bool(
+        maternal
+        and (
+            maternal.mother_age is not None
+            or (maternal.gravida not in (None, ""))
+            or (maternal.booked not in (None, ""))
+            or (maternal.address not in (None, ""))
+            or (maternal.antenatal_steroids not in (None, ""))
+        )
     )
 
-    form_d = (
+    postnatal = (
         db.query(PostnatalDay1)
         .filter(PostnatalDay1.enrollment_id == enrollment_id)
         .first()
-        is not None
+    )
+    form_d = bool(
+        postnatal
+        and (
+            postnatal.ga_method not in (None, "")
+            or postnatal.baby_name not in (None, "")
+            or postnatal.plastic_wrap is not None
+            or postnatal.surfactant_required is not None
+        )
     )
 
-    form_e = (
+    nicu = (
         db.query(NICUAdmission)
         .filter(NICUAdmission.enrollment_id == enrollment_id)
         .first()
-        is not None
+    )
+    form_e = bool(
+        nicu
+        and (
+            nicu.admission_datetime is not None
+            or nicu.baby_uid not in (None, "")
+            or nicu.temp_dr is not None
+            or nicu.transport_mode not in (None, "")
+        )
     )
 
     if not form_b:

@@ -5,6 +5,7 @@ import Sidebar from '../Sidebar';
 import Header from '../components/Header';
 import './FormLayout.css';
 import '../styles/Theme.css';
+import { isUsableEnrollmentId } from '../utils/enrollmentId';
 
 const FormLayout = ({ children, currentForm, headerProps }) => {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ const FormLayout = ({ children, currentForm, headerProps }) => {
     const eid = localStorage.getItem("current_enrollment_id");
     let target;
     if (reason === "no_ppv") {
-      target = eid && eid !== "undefined" && eid !== "null"
+      target = isUsableEnrollmentId(eid)
         ? `/form-c/${eid}`
         : (sid && sid !== "undefined" && sid !== "null" ? `/form-b/${sid}` : "/form-b");
     } else {

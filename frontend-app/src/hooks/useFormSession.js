@@ -114,15 +114,27 @@ export default function useFormSession({
     }
   }, [enabled, isLoaded, recordId, endpoint, buildPayload]); // eslint-disable-line
 
-  /* ── Auto-save interval (10s) ── */
+  /* ── Auto-save interval (10s) — only while enabled and dirty ── */
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      clearInterval(autoSaveTimer.current);
+      return;
+    }
     clearInterval(autoSaveTimer.current);
     autoSaveTimer.current = setInterval(() => {
       if (isDirtyRef.current) doSave();
     }, 10000);
     return () => clearInterval(autoSaveTimer.current);
   }, [doSave, enabled]);
+
+  /* When autosave is disabled (saved + not editing), clear dirty so we don't
+     flush a stale write the moment Edit is opened. */
+  useEffect(() => {
+    if (!enabled) {
+      setIsDirty(false);
+      isDirtyRef.current = false;
+    }
+  }, [enabled]);
 
   /* ── Save for Later (no validation) ── */
   const saveDraft = useCallback(async () => {

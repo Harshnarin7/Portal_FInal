@@ -10,6 +10,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import PrintSummaryB from "./components/PrintSummaryB";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby, Pencil,
@@ -29,7 +30,21 @@ const getStoredId = (key) => {
   return v && v !== "undefined" && v !== "null" ? v : null;
 };
 const setStoredId = (key, value) => {
-  if (value !== undefined && value !== null) localStorage.setItem(key, value);
+  if (value === undefined || value === null) return;
+  // Never persist the Form B typing stub ("01-") as the case enrollment ID.
+  if (key === "current_enrollment_id" && !isUsableEnrollmentId(value)) return;
+  localStorage.setItem(key, value);
+  // Same-tab listeners (Sidebar / FormProgress) only see custom events —
+  // native `storage` does not fire in the writing tab.
+  if (key === "current_enrollment_id" || key === "current_screening_id") {
+    window.dispatchEvent(new Event("storage"));
+  }
+};
+const clearStoredId = (key) => {
+  localStorage.removeItem(key);
+  if (key === "current_enrollment_id" || key === "current_screening_id") {
+    window.dispatchEvent(new Event("storage"));
+  }
 };
 
 /* ── Inline SVG icon ── */
@@ -518,13 +533,19 @@ export default function BirthResuscitationForm() {
     const next = (hh || mm || ss) ? `${hh || "00"}:${mm || "00"}:${ss || "00"}` : "";
     // Update time + auto-fill field 44 in one write so 44 never stays blank
     // after 43 is entered (also covers HH:MM / ISO time_of_birth from API).
+    // Only store elapsed when clinically valid (0–300s); larger values (e.g.
+    // midnight-wrap mis-entry) must not autosave or the API returns 422.
     setFormData(p => {
       const updated = { ...p, [field]: next };
       if (field === "time_of_birth" || field === "cord_clamp_timestamp") {
         const birth = field === "time_of_birth" ? next : updated.time_of_birth;
         const clamp = field === "cord_clamp_timestamp" ? next : updated.cord_clamp_timestamp;
         const elapsed = cordClampElapsedSeconds(birth, clamp);
-        if (elapsed !== null) updated.cord_clamp_time = String(elapsed);
+        if (elapsed !== null && elapsed >= 0 && elapsed <= 300) {
+          updated.cord_clamp_time = String(elapsed);
+        } else if (elapsed !== null) {
+          updated.cord_clamp_time = "";
+        }
       }
       return updated;
     });
@@ -534,7 +555,18 @@ export default function BirthResuscitationForm() {
   const times = ["1","5","10","15","20"];
   const yn  = v => v === "Yes" ? true : v === "No" ? false : null;
   const num = v => v === "" ? 0 : Number(v);
-  const optionalNum = v => v === "" || v === null || v === undefined ? null : Number(v);
+  const optionalNum = v => {
+    if (v === "" || v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  /** Autosave-safe: omit out-of-range values so draft PUTs don't 422. */
+  const optionalNumInRange = (v, min, max) => {
+    const n = optionalNum(v);
+    if (n === null) return null;
+    if (n < min || n > max) return null;
+    return n;
+  };
   const durationToSeconds = value => {
     if (value === "" || value === null || value === undefined) return null;
     const match = String(value).match(/^(\d{1,3}):([0-5]\d)$/);
@@ -643,18 +675,19 @@ export default function BirthResuscitationForm() {
       formData.cord_clamp_timestamp,
     );
     if (elapsed === null) return;
-    const asStr = String(elapsed);
+    const valid = elapsed >= 0 && elapsed <= 300;
+    const asStr = valid ? String(elapsed) : "";
     if (String(formData.cord_clamp_time ?? "") === asStr) {
       setErrors(p => ({
         ...p,
-        cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : "",
+        cord_clamp_time: valid ? "" : "Must be ≤ 300 sec",
       }));
       return;
     }
     set({ cord_clamp_time: asStr });
     setErrors(p => ({
       ...p,
-      cord_clamp_time: elapsed > 300 ? "Must be ≤ 300 sec" : "",
+      cord_clamp_time: valid ? "" : "Must be ≤ 300 sec",
     }));
   }, [formData.time_of_birth, formData.cord_clamp_timestamp]); // eslint-disable-line
 
@@ -689,12 +722,13 @@ export default function BirthResuscitationForm() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  /* ── Mark form dirty only after user edits (not on initial load) ── */
+  /* ── Mark form dirty only after user edits (not on initial load / readonly) ── */
   useEffect(() => {
     if (!isFormBLoaded) return;
     if (isInitialRender.current) { isInitialRender.current = false; return; }
+    if (isSaved && !isEditing) return;
     setIsDirty(true);
-  }, [formData]); // eslint-disable-line
+  }, [formData, isFormBLoaded, isSaved, isEditing]); // eslint-disable-line
 
   /* ── Refresh "last saved X mins ago" every 30 seconds ── */
   useEffect(() => {
@@ -740,11 +774,11 @@ export default function BirthResuscitationForm() {
       baby_uid:            fd.baby_uid || null,
       baby_admission_no:   fd.baby_admission_no || null,
       baby_annual_no:      fd.baby_annual_no || null,
-      gestation_weeks:     optionalNum(fd.gestation_weeks),
-      gestation_days:      optionalNum(fd.gestation_days),
-      gestation_rand_weeks: optionalNum(fd.gestation_rand_weeks),
-      gestation_rand_days: optionalNum(fd.gestation_rand_days),
-      birth_weight:        optionalNum(fd.birth_weight),
+      gestation_weeks:     optionalNumInRange(fd.gestation_weeks, 18, 42),
+      gestation_days:      optionalNumInRange(fd.gestation_days, 0, 6),
+      gestation_rand_weeks: optionalNumInRange(fd.gestation_rand_weeks, 18, 42),
+      gestation_rand_days: optionalNumInRange(fd.gestation_rand_days, 0, 6),
+      birth_weight:        optionalNumInRange(fd.birth_weight, 300, 6000),
       intrauterine_centile: fd.intrauterine_centile || null,
       date_of_birth:       fd.date_of_birth
         ? String(fd.date_of_birth).slice(0, 10) : null,
@@ -791,9 +825,9 @@ export default function BirthResuscitationForm() {
       placental_transfusion: yn(fd.placental_transfusion),
       transfusion_method:  fd.transfusion_method || null,
       cord_clamp_timestamp: fd.cord_clamp_timestamp || null,
-      cord_clamp_time:     optionalNum(fd.cord_clamp_time),
+      cord_clamp_time:     optionalNumInRange(fd.cord_clamp_time, 0, 300),
       time_to_respiration: durationHmsToSeconds(formatDurationHms(fd.time_to_respiration)),
-      spo2_5min:           optionalNum(fd.spo2_5min),
+      spo2_5min:           optionalNumInRange(fd.spo2_5min, 1, 100),
       time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
       strata:              fd.strata || null,
@@ -805,10 +839,10 @@ export default function BirthResuscitationForm() {
       cord_blood_done:     yn(fd.cord_blood_done),
       cord_blood_within_1hr: yn(fd.cord_blood_within_1hr),
       cord_blood_source:   fd.cord_blood_source || null,
-      cord_ph:             optionalNum(fd.cord_ph),
-      cord_sbe:            optionalNum(fd.cord_sbe),
-      cord_pco2:           optionalNum(fd.cord_pco2),
-      spo2_exit_trial_gas: optionalNum(fd.spo2_exit_trial_gas),
+      cord_ph:             optionalNumInRange(fd.cord_ph, 6.8, 7.8),
+      cord_sbe:            optionalNumInRange(fd.cord_sbe, -30, 30),
+      cord_pco2:           optionalNumInRange(fd.cord_pco2, 0, 200),
+      spo2_exit_trial_gas: optionalNumInRange(fd.spo2_exit_trial_gas, 1, 100),
       total_resus_time:    (() => {
         const formatted = formatDurationMs(fd.total_resus_time);
         return formatted || null;
@@ -922,9 +956,9 @@ export default function BirthResuscitationForm() {
       if(formData.fluid_bolus==="Yes" && !formData.fluid_bolus_cumulative)
         add("B4. Fluid Bolus Cumulative Volume/Dose", "fluid_bolus_cumulative");
       if(!formData.placental_transfusion) add("B4. Placental Transfusion", "placental_transfusion");
-      if(formData.placental_transfusion==="Yes" && !formData.transfusion_method)
+      if(!formData.transfusion_method)
         add("B4. Placental Transfusion Method", "transfusion_method");
-      if(formData.placental_transfusion==="Yes" && !formData.cord_clamp_timestamp)
+      if(!formData.cord_clamp_timestamp)
         add("B4. Cord Clamp Timestamp", "cord_clamp_timestamp");
       if(formData.time_to_respiration && durationHmsToSeconds(formatDurationHms(formData.time_to_respiration))===null)
         add("B4. Time to Respiratory Efforts must be HH:MM:SS", "time_to_respiration");
@@ -969,16 +1003,24 @@ export default function BirthResuscitationForm() {
     if(missing.length>0){setMissingFields(missing);setShowMissingModal(true);return false;}
     const payload = buildPayload();
     try {
-      const storedId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+      const payloadEid = String(payload.enrollment_id || "").trim();
+      const storedEid = String(getStoredId("current_enrollment_id") || "").trim();
       const sid = payload.screening_id || getStoredId("current_screening_id") || "";
-      // Not randomised / no PPV: use stable NR-{screening_id} so the row still syncs.
-      const existingId = (storedId || "").trim()
-        || ((payload.randomised === false || payload.required_resuscitation === false) && sid
-            ? `NR-${sid}`
-            : "");
+      // Prefer the form value when it is complete. Never let a leftover "01-"
+      // stub in localStorage override a finished enrollment ID the nurse typed.
+      let existingId = "";
+      if (isUsableEnrollmentId(payloadEid)) existingId = payloadEid;
+      else if (isUsableEnrollmentId(storedEid)) existingId = storedEid;
+      else if ((payload.randomised === false || payload.required_resuscitation === false) && sid)
+        existingId = `NR-${sid}`;
       if (!existingId) {
         setMessage("❌ Enrollment ID is required before saving.");
         return false;
+      }
+      // If autosave created a row under a stub ID, treat this as a new create.
+      if (isUsableEnrollmentId(payloadEid) && storedEid && payloadEid !== storedEid
+          && !isUsableEnrollmentId(storedEid)) {
+        hasBirthRecordRef.current = false;
       }
       const body = { ...payload, enrollment_id: existingId };
 
@@ -1022,10 +1064,18 @@ export default function BirthResuscitationForm() {
   /* ── Save Draft — no validation, saves whatever is filled ── */
   const saveDraft = async () => {
     const payload = buildPayload();
-    const existingId = getStoredId("current_enrollment_id") || payload.enrollment_id;
+    const payloadEid = String(payload.enrollment_id || "").trim();
+    const storedEid = String(getStoredId("current_enrollment_id") || "").trim();
+    let existingId = "";
+    if (isUsableEnrollmentId(payloadEid)) existingId = payloadEid;
+    else if (isUsableEnrollmentId(storedEid)) existingId = storedEid;
     if (!existingId) {
-      setMessage("❌ Enter Enrollment ID before saving a draft.");
+      setMessage("❌ Enter a full Enrollment ID (e.g. 01-A-001) before saving a draft.");
       return;
+    }
+    if (isUsableEnrollmentId(payloadEid) && storedEid && payloadEid !== storedEid
+        && !isUsableEnrollmentId(storedEid)) {
+      hasBirthRecordRef.current = false;
     }
     const body = { ...payload, enrollment_id: existingId };
 
@@ -1060,8 +1110,20 @@ export default function BirthResuscitationForm() {
     }
   };
 
-  /* ── Auto-save every 10 seconds (silent, no modals, no validation) ── */
+  /* Keep latest flags for the interval callback (avoids stale closures). */
+  const isDirtyRef = useRef(false);
+  const isSavedRef = useRef(false);
+  const isEditingRef = useRef(false);
+  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
+  useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
+  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
+
+  /* ── Auto-save every 10 seconds (silent, no modals, no validation) ──
+     Only while editable + dirty — never while viewing a saved form. */
   const autoSave = useCallback(async () => {
+    if (isSavedRef.current && !isEditingRef.current) return;
+    if (!isDirtyRef.current) return;
+
     const fd = formDataRef.current;
     if (!fd || !isFormBLoadedRef.current) return;
 
@@ -1073,9 +1135,9 @@ export default function BirthResuscitationForm() {
       eid = `NR-${sid}`;
     }
 
-    /* Need an enrollment ID before creating/updating a Form B row.
-       Also wait for baby_uid on first create so we don't insert empty shells. */
-    if (!eid) return;
+    /* Need a complete enrollment ID (or NR-*) before creating/updating.
+       Do not autosave the typing stub "01-" — that polluted Form C routes. */
+    if (!isUsableEnrollmentId(eid)) return;
     if (!hasBirthRecordRef.current && !fd.baby_uid) return;
 
     if (!navigator.onLine) {
@@ -1146,8 +1208,14 @@ export default function BirthResuscitationForm() {
   const handleNext = async () => {
     const ok = await saveForm();
     if(!ok) return;
-    const eid = getStoredId("current_enrollment_id");
-    if(!eid) { setMessage("❌ Enrollment ID not saved — please re-enter and save before proceeding"); return; }
+    const eid = (
+      getStoredId("current_enrollment_id")
+      || String(formDataRef.current?.enrollment_id || "").trim()
+    );
+    if(!isUsableEnrollmentId(eid)) {
+      setMessage("❌ Enrollment ID not saved — please enter a full ID (e.g. 01-A-001) and save before proceeding");
+      return;
+    }
     const key = `completedForms_${eid}`;
     const ex  = JSON.parse(localStorage.getItem(key)||"[]");
     if(!ex.includes("form_b")) localStorage.setItem(key,JSON.stringify([...ex,"form_b"]));
@@ -1162,11 +1230,9 @@ export default function BirthResuscitationForm() {
     api.get(`/birth-resuscitation/${eid}`)
       .then(r=>{
         const d=r.data;
-        // contact_mother/contact_husband/mother_name_* on THIS endpoint's
-        // response are always null — Form B's own record never stores PII,
-        // it lives only in participant_pii. Blindly spreading `d` here
-        // would overwrite the correct values already loaded (from the
-        // screening/PII fetch below) with these nulls on every page load.
+        // contact_* / mother_name_* / maternal_uid live in participant_pii.
+        // Prefer values already on the form (from /pii/screening) and fill
+        // gaps from the birth GET when the API reattaches PII.
         const { contact_mother, contact_husband, mother_name_first, mother_name_surname, maternal_uid, ...dSafe } = d;
         let reasonExit = d.reason_exit_trial_gas || "";
         let reasonExitOther = "";
@@ -1175,6 +1241,11 @@ export default function BirthResuscitationForm() {
           reasonExit = "Other";
         }
         setFormData(p=>({...p,...dSafe,
+          maternal_uid:        p.maternal_uid || maternal_uid || "",
+          mother_name_first:   p.mother_name_first || mother_name_first || "",
+          mother_name_surname: p.mother_name_surname || mother_name_surname || "",
+          contact_mother:      p.contact_mother || contact_mother || "",
+          contact_husband:     p.contact_husband || contact_husband || "",
           enrollment_id: d.enrollment_id && !String(d.enrollment_id).startsWith("NR-")
             ? formatEnrollmentId(d.enrollment_id, SITE_ID_MAP[p.site_name] || siteCode)
             : (String(p.enrollment_id || "").startsWith("NR-") ? "" : (p.enrollment_id || "")),
@@ -1264,13 +1335,36 @@ export default function BirthResuscitationForm() {
     hasBirthRecordRef.current = false;
     isInitialRender.current = true;
 
+    // Sync session IDs immediately (before the async screening fetch).
+    // Otherwise Sidebar still shows the *previous* patient's enrollment
+    // progress (C/D/E green ticks) while Form B already shows this baby.
+    setStoredId("current_screening_id", screeningId);
+    clearStoredId("current_enrollment_id");
+    setConfirmedEnrollmentId(null);
+
     let cancelled = false;
     const fetch=async()=>{
       try {
         const r=await api.get(`/screenings/by-screening-id/${screeningId}`);
         const d=r.data||{};
         let pii={};
-        try{const p2=await api.get(`/pii/screening/${screeningId}`);pii=p2.data||{};}catch(_){}
+        try {
+          const p2 = await api.get(`/pii/screening/${screeningId}`);
+          pii = p2.data || {};
+        } catch (piiErr) {
+          console.warn("Form B: PII by screening failed", screeningId, piiErr?.response?.status || piiErr);
+        }
+        // Prefer enrollment-linked PII when screening lookup is empty/missing
+        // (common after enrollment is assigned and screening_id was never set on the row).
+        const piiBlank = !(pii.maternal_uid || pii.mother_first_name || pii.mother_contact || pii.contact_mother);
+        if (piiBlank && d.enrollment_id) {
+          try {
+            const p3 = await api.get(`/pii/enrollment/${d.enrollment_id}`);
+            pii = p3.data || pii;
+          } catch (e2) {
+            console.warn("Form B: PII by enrollment failed", d.enrollment_id, e2?.response?.status || e2);
+          }
+        }
 
         // Discard this response if the user has since navigated to a
         // different patient's Form B — otherwise a slow request for the
@@ -1322,7 +1416,7 @@ export default function BirthResuscitationForm() {
             }
           } catch (_) { /* 404 = no NR row yet */ }
           if (!foundNr && !cancelled) {
-            localStorage.removeItem("current_enrollment_id");
+            clearStoredId("current_enrollment_id");
             setConfirmedEnrollmentId(null);
             hasBirthRecordRef.current = false;
             isInitialRender.current = true;
@@ -1387,7 +1481,11 @@ export default function BirthResuscitationForm() {
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing?" editing-active":""}`}
-                    onClick={()=>setIsEditing(p=>!p)}>
+                    onClick={()=>setIsEditing(p=>{
+                      const next = !p;
+                      if (!next) setIsDirty(false);
+                      return next;
+                    })}>
                     {isEditing?"✓ Done Editing":"Edit Form"}
                   </button>
                 )}
@@ -2004,16 +2102,16 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 41. Placental transfusion — 42–44 sit outside (same level), enabled when Yes */}
+                  {/* 41–44 independent — 42/43/44 are not gated on 41 */}
                   <YesNoToggle label={<>41. Placental transfusion{requiredMark}</>}
                     name="placental_transfusion" value={formData.placental_transfusion}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({transfusion_method:"",cord_clamp_time:"",cord_clamp_timestamp:""});}}
+                    onChange={handleChange}
                     disabled={!isFieldEditable}/>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>42. Method{formData.placental_transfusion==="Yes"?requiredMark:null}</label>
+                      <label>42. Method{requiredMark}</label>
                       <select name="transfusion_method" value={formData.transfusion_method||""}
-                        disabled={!isFieldEditable || formData.placental_transfusion!=="Yes"}
+                        disabled={!isFieldEditable}
                         onChange={handleChange}>
                         <option value="">-- Select --</option>
                         <option value="Deferred clamping">Deferred clamping</option>
@@ -2021,13 +2119,13 @@ export default function BirthResuscitationForm() {
                       </select>
                     </div>
                     <div className="form-group">
-                      <label>43. Cord clamped at (HH:MM:SS){formData.placental_transfusion==="Yes"?requiredMark:null}</label>
+                      <label>43. Cord clamped at (HH:MM:SS){requiredMark}</label>
                       <ModernTimeInput
                         hour={getTimePart("cord_clamp_timestamp","h")}
                         minute={getTimePart("cord_clamp_timestamp","m")}
                         second={getTimePart("cord_clamp_timestamp","s")}
                         onChange={(h,m,s)=>handleTimeChange("cord_clamp_timestamp", h, m, s)}
-                        disabled={!isFieldEditable || formData.placental_transfusion!=="Yes"}/>
+                        disabled={!isFieldEditable}/>
                     </div>
                   </div>
                   <div className="form-grid-2">
@@ -2038,11 +2136,11 @@ export default function BirthResuscitationForm() {
                           ? "0"
                           : (formData.cord_clamp_time ?? "")}
                         inputMode="numeric" maxLength={3} placeholder="0–300"
-                        readOnly={!isFieldEditable || formData.placental_transfusion!=="Yes"}
+                        readOnly={!isFieldEditable}
                         className={errors.cord_clamp_time?"input-error":""}
                         onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))set({cord_clamp_time:v});}}/>
                       {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
-                      {formData.placental_transfusion==="Yes" && !formData.time_of_birth && formData.cord_clamp_timestamp && (
+                      {!formData.time_of_birth && formData.cord_clamp_timestamp && (
                         <div className="field-error">Enter 9. Time of Birth first to auto-calculate.</div>
                       )}
                     </div>

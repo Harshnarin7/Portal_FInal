@@ -306,7 +306,7 @@ export default function FormD() {
 
   const isFieldEditable = true; // Form D is always editable
 
-  const [formData, setFormData] = useState({
+  const emptyFormD = () => ({
     enrollment_id: "", gestation_weeks: "", gestation_days: "",
     original_gestation_weeks: "", original_gestation_days: "",
     annual_number: "", baby_name: "", baby_uid: "", birth_weight: "", site_name: "",
@@ -327,12 +327,15 @@ export default function FormD() {
     completed_by: "", designation: "", date: "",
   });
 
+  const [formData, setFormData] = useState(emptyFormD);
+
   const touch = (name) => setTouched(p => ({ ...p, [name]: true }));
 
   /* ── handleChange: mark touched, update state ── */
   const handleChange = (e) => {
     const { name, value } = e.target;
     touch(name);
+    if (!isSaved || isEditing) setIsDirty(true);
     setFormData(prev => {
       let updated = { ...prev, [name]: value };
       if (name === "et_intubation" && value === "No") updated.remained_intubated = "";
@@ -342,6 +345,7 @@ export default function FormD() {
 
   const handleToggle = (name, value) => {
     touch(name);
+    if (!isSaved || isEditing) setIsDirty(true);
     setFormData(prev => {
       let updated = { ...prev, [name]: value };
       if (name === "et_intubation" && value === "No") updated.remained_intubated = "";
@@ -411,23 +415,24 @@ export default function FormD() {
   useEffect(() => {
     if (!enrollmentId) return;
 
-    // Reset immediately: without this, switching to a patient with no
-    // Form D record yet keeps isRecordSaved=true from whichever patient
-    // was viewed previously, which makes autosave/save fire PUT instead
-    // of POST and the backend 404s.
+    // Wipe previous patient's Form D from memory immediately. Merging onto
+    // leftover state left surfactant/golden-hour answers from baby A on baby B
+    // when B had no Form D row yet — and dirty autosave then wrote that leak.
     setIsRecordSaved(false);
+    setIsSaved(false);
+    setIsDirty(false);
+    setTouched({});
+    setSubmitErrors([]);
+    setFormData(emptyFormD());
 
+    let cancelled = false;
     const loadData = async () => {
       try {
         // ── Form B: identification fields (readonly) ──
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
+        if (cancelled) return;
         const b = res?.data || {};
         let motherName = "";
-        // If Form B hasn't been created yet for this enrollment, b.screening_id
-        // won't exist — look up THIS enrollment's own screening record rather
-        // than falling back to whatever screening_id is cached in localStorage
-        // from the last patient viewed elsewhere (that was leaking their name
-        // and site into this form).
         let screeningId = b?.screening_id;
         if (!screeningId) {
           try {
@@ -453,65 +458,54 @@ export default function FormD() {
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
         const growth = deriveGrowthStatus(b?.intrauterine_centile);
 
-        // Identification from Form B — use original_* so a Form D NBS
-        // overlay on GET /birth-resuscitation never seeds Form D's
-        // "previous GA" / non-NBS display with the NBS value itself.
-        setFormData(prev => ({
-          ...prev,
+        setFormData({
+          ...emptyFormD(),
           enrollment_id:   b?.enrollment_id || enrollmentId,
-          annual_number:   b?.baby_annual_no || prev.annual_number,
+          annual_number:   b?.baby_annual_no || "",
           gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
           gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
           original_gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
           original_gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
           birth_weight:    b?.birth_weight    || "",
           baby_uid:        b?.baby_uid        || "",
-          gender:          b?.gender || prev.gender,
-          growth_status:   growth.growth_status || prev.growth_status,
-          sga_centile:     growth.sga_centile || prev.sga_centile,
+          gender:          b?.gender || "",
+          growth_status:   growth.growth_status || "",
+          sga_centile:     growth.sga_centile || "",
           baby_name:       motherName ? `Baby of ${motherName}` : "",
           site_name:       siteName,
-        }));
+        });
       } catch (err) { console.log("❌ No Form B data found", err); }
 
       // ── Form D: load saved postnatal-day1 record ──
       try {
         const dRes = await api.get(`/postnatal-day1/${enrollmentId}`);
+        if (cancelled) return;
         const d = dRes?.data || {};
 
-        /* Helper: DB stores booleans as true/false, UI toggles expect "Yes"/"No" */
         const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
-
-        /* mode_of_support is saved as "CPAP, IMV" string — restore as array */
         const modeArray = d.mode_of_support
           ? d.mode_of_support.split(",").map(s => s.trim()).filter(Boolean)
           : [];
-
-        /* adverse_type is saved as "Bradycardia, Desaturation" string —
-           restore as array, same as mode_of_support above */
         const adverseTypeArray = d.adverse_type
           ? d.adverse_type.split(",").map(s => s.trim()).filter(Boolean)
           : [];
 
         setFormData(prev => ({
           ...prev,
-          // ── Identification (from Form B already set, but override if present) ──
           annual_number:   d.annual_number   || prev.annual_number,
           baby_name:       d.baby_name       || prev.baby_name,
           gestation_weeks: d.gestation_weeks != null ? String(d.gestation_weeks) : prev.gestation_weeks,
           gestation_days:  d.gestation_days  != null ? String(d.gestation_days)  : prev.gestation_days,
-          ga_method:       d.ga_method       || prev.ga_method,
+          ga_method:       d.ga_method       || "",
           gender:          d.gender          || prev.gender,
           growth_status:   d.growth_status   || prev.growth_status,
           sga_centile:     d.sga_centile     || prev.sga_centile,
 
-          // ── Golden Hour ── (bool → "Yes"/"No")
           plastic_wrap:       fromBool(d.plastic_wrap),
           et_intubation:      fromBool(d.et_intubation),
           remained_intubated: fromBool(d.remained_intubated),
           labored_breathing:  fromBool(d.labored_breathing),
 
-          // ── Surfactant ──
           surfactant_required:   fromBool(d.surfactant_required),
           surfactant_indication: d.surfactant_indication || "",
           cpap_cm:               d.cpap_cm       != null ? String(d.cpap_cm)       : "",
@@ -525,28 +519,23 @@ export default function FormD() {
           premedication_drugs:   d.premedication_drugs || "",
           premedication_other:   d.premedication_other || "",
 
-          // ── LISA ──
           lisa_catheter: d.lisa_catheter || "",
           lisa_catheter_type: d.lisa_catheter_type || "",
           lisa_catheter_other: d.lisa_catheter_other || "",
           device_assistance:  fromBool(d.device_assistance),
-          // device_type was saved as the final resolved value; restore it
           device_type:        d.device_type || "",
           device_type_other:  d.device_type_other || "",
 
-          // ── Adverse Effects ──
           adverse_effects:    fromBool(d.adverse_effects),
           adverse_type:       adverseTypeArray,
           adverse_type_other: d.adverse_type_other || "",
 
-          // ── Early Respiratory Support ──
           early_cpap:             fromBool(d.early_cpap),
           humidified_gas:         fromBool(d.humidified_gas),
           max_fio2_1hr:           d.max_fio2_1hr != null ? String(d.max_fio2_1hr) : "",
           intubation_after_resus: fromBool(d.intubation_after_resus),
           immediate_kmc:          fromBool(d.immediate_kmc),
 
-          // ── Caffeine ──
           caffeine:            fromBool(d.caffeine),
           caffeine_dose:       d.caffeine_dose != null ? String(d.caffeine_dose) : "",
           caffeine_loading:    fromBool(d.caffeine_loading),
@@ -555,44 +544,23 @@ export default function FormD() {
           caffeine_date:       d.caffeine_date || "",
           caffeine_time:       d.caffeine_time || "",
 
-          // ── Completion ──
           completed_by: d.completed_by || "",
           designation:  d.designation  || "",
           date:         d.completion_date || "",
         }));
 
         setIsRecordSaved(true);
-        // Also mark isSaved true — this record is confirmed to exist in
-        // the DB. (Previously left false on load with a comment saying it
-        // kept the form editable, but isFieldEditable is hardcoded `true`
-        // in this form regardless of isSaved — so that never did anything
-        // except force a redundant re-save every time you reopened an
-        // already-completed Form D, just to re-enable Print/Edit Form/
-        // the Next → Form E button.)
         setIsSaved(true);
       } catch (err) {
-        // 404 = no saved record yet — that's fine, form starts blank
         if (err?.response?.status !== 404)
           console.log("❌ Error loading Form D data", err);
+      } finally {
+        if (!cancelled) setIsDirty(false);
       }
     };
     loadData();
+    return () => { cancelled = true; };
   }, [enrollmentId]);
-
-  useEffect(() => {
-    if (formData.enrollment_id) return;
-    const id = location.state?.enrollmentId || localStorage.getItem("current_enrollment_id");
-    if (!id) return;
-    api.get(`/birth-resuscitation/${id}`).then(res => {
-      const b = res.data || {};
-      setFormData(prev => ({
-        ...prev, enrollment_id: id,
-        dob: b?.date_of_birth || "",
-        gestation: b?.gestation_weeks && b?.gestation_days
-          ? `${b.gestation_weeks} weeks ${b.gestation_days} days` : "",
-      }));
-    });
-  }, []);
 
   /* ── Online / Offline ── */
   useEffect(() => {
@@ -616,9 +584,10 @@ export default function FormD() {
   // Track whether a DB record exists (for PUT vs POST) separately from form lock
   const [isRecordSaved, setIsRecordSaved] = useState(false);
 
-  /* ── Auto-save every 10s ── */
+  /* ── Auto-save every 10s (only when dirty — never create empty shells) ── */
   const autoSave = useCallback(async () => {
-    if (!formData.enrollment_id || !navigator.onLine) return;
+    if (isSaved && !isEditing) return;
+    if (!formData.enrollment_id || !navigator.onLine || !isDirty) return;
     setAutoSaveStatus("saving");
     try {
       const payload = buildAutoPayload();
@@ -635,7 +604,7 @@ export default function FormD() {
       setAutoSaveStatus("error");
       setTimeout(() => setAutoSaveStatus("idle"), 3000);
     }
-  }, [formData, isRecordSaved]); // eslint-disable-line
+  }, [formData, isRecordSaved, isDirty, isSaved, isEditing]); // eslint-disable-line
 
   useEffect(() => {
     clearInterval(autoSaveTimer.current);
@@ -924,7 +893,13 @@ export default function FormD() {
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
-                    onClick={() => setIsEditing(p => !p)}>
+                    onClick={() => setIsEditing(p => {
+                      const next = !p;
+                      if (!next) {
+                        setIsDirty(false);
+                      }
+                      return next;
+                    })}>
                     {isEditing ? "✓ Done Editing" : "Edit Form"}
                   </button>
                 )}

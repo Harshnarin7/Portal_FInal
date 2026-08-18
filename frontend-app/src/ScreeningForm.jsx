@@ -15,6 +15,7 @@ import {
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
+import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { useAuth } from "./context/AuthContext";
 import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd } from "./utils/datetime";
 
@@ -116,7 +117,7 @@ const NOT_APPROACHED_REASONS = ["Nurse on leave","Parent not available","Missed 
 ════════════════════════════════════════════ */
 export default function ScreeningForm() {
   const navigate = useNavigate();
-  const { markFormCompleted, resetProgress } = useFormProgress();
+  const { markFormCompleted, resetProgress, fetchProgress } = useFormProgress();
   const { screeningId } = useParams();
   const { user } = useAuth();
   // Global roles (project_scientist — e.g. the nodal scientist Mannat —
@@ -318,9 +319,51 @@ export default function ScreeningForm() {
       else localStorage.removeItem("current_screening_id");
       // Drop a previous patient's enrollment_id so the sidebar does not keep
       // showing their Form B/C/D as complete on this (possibly A-only) record.
-      if (d.enrollment_id) localStorage.setItem("current_enrollment_id", d.enrollment_id);
-      else localStorage.removeItem("current_enrollment_id");
+      // Ignore typing stubs like "01-" left by Form B.
+      if (isUsableEnrollmentId(d.enrollment_id)) {
+        localStorage.setItem("current_enrollment_id", d.enrollment_id);
+      } else {
+        localStorage.removeItem("current_enrollment_id");
+      }
+
+      // Clear stale locks from another patient when THIS screening is eligible
+      // and consented. Keep no_ppv only if enrollment-status later re-applies it.
+      const consentOk = d.consent_given === "Yes" || d.consent_given === "Trial run";
+      const weeks = d.gestation_weeks;
+      const days = d.gestation_days ?? 0;
+      let gaOut = false;
+      if (weeks != null && weeks !== "") {
+        const t = Number(weeks) * 7 + Number(days || 0);
+        gaOut = t < 25 * 7 || t > 31 * 7 + 6;
+      } else if (d.gestation_known === "No" && d.ga_source === "Neither") {
+        gaOut = true;
+      }
+      const shouldLock =
+        d.screening_status === "Screen Failure" ||
+        gaOut ||
+        !!d.exclusion_present ||
+        (d.consent_given && !consentOk);
+      if (shouldLock) {
+        localStorage.setItem("enrollment_locked", "true");
+        if (gaOut || d.screening_status === "Screen Failure") {
+          localStorage.setItem(
+            "enrollment_lock_reason",
+            (d.gestation_known === "No" && d.ga_source === "Neither") ? "ga_unknown" : "ga_out_of_range"
+          );
+        } else if (d.exclusion_present) {
+          localStorage.setItem("enrollment_lock_reason", "exclusion");
+        } else {
+          localStorage.setItem("enrollment_lock_reason", "consent");
+        }
+      } else {
+        localStorage.removeItem("enrollment_locked");
+        localStorage.removeItem("enrollment_lock_reason");
+      }
+
       window.dispatchEvent(new Event("storage"));
+      if (isUsableEnrollmentId(d.enrollment_id)) {
+        fetchProgress(d.enrollment_id);
+      }
 
       /* If A4 exclusions not fully answered, load in editing mode so nurse can continue */
       const exclusionAnswered = (label) =>
@@ -340,7 +383,7 @@ export default function ScreeningForm() {
       if (err?.response?.status !== 404) setMessage("⚠️ Could not load saved data.");
       setDataLoaded(true);
     }
-  }, []); // eslint-disable-line
+  }, [fetchProgress]); // eslint-disable-line
 
 
   /* ─── Online / Offline detection ── */
@@ -374,13 +417,17 @@ export default function ScreeningForm() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  /* ─── Mark form dirty only after user edits (not on initial load) ── */
+  /* ─── Mark form dirty only after user edits (not on initial load / readonly) ── */
   const isInitialRender = useRef(true);
   useEffect(() => {
-    if (!dataLoaded) return;
+    if (!dataLoaded) {
+      isInitialRender.current = true;
+      return;
+    }
     if (isInitialRender.current) { isInitialRender.current = false; return; }
+    if (isSaved && !isEditing) return;
     setIsDirty(true);
-  }, [formData]); // eslint-disable-line
+  }, [formData, dataLoaded, isSaved, isEditing]); // eslint-disable-line
 
   /* ─── Refresh "last saved X mins ago" every 30 seconds ── */
   useEffect(() => {
@@ -534,12 +581,20 @@ export default function ScreeningForm() {
       );
       window.dispatchEvent(new Event("storage"));
     } else if (eligibilityStatus === "eligible") {
-      /* Clear only a GA lock — do not clear a consent refusal lock */
+      /* Eligible + consented: clear stale locks from another patient / GA.
+         Sidebar re-applies no_ppv from THIS enrollment's birth row if needed. */
+      const consentOk =
+        formData.consent_given === "Yes" ||
+        formData.consent_given === "Trial run" ||
+        !formData.consent_given;
       const reason = localStorage.getItem("enrollment_lock_reason");
-      if (reason === "ga_out_of_range" || reason === "ga_unknown") {
+      if (consentOk && reason !== "no_ppv") {
         localStorage.removeItem("enrollment_lock_reason");
-        /* Consent may still require lock; Sidebar re-evaluates from API */
-        if (formData.consent_given === "Yes" || formData.consent_given === "Trial run" || !formData.consent_given) {
+        localStorage.removeItem("enrollment_locked");
+        window.dispatchEvent(new Event("storage"));
+      } else if (reason === "ga_out_of_range" || reason === "ga_unknown") {
+        localStorage.removeItem("enrollment_lock_reason");
+        if (consentOk) {
           localStorage.removeItem("enrollment_locked");
           window.dispatchEvent(new Event("storage"));
         }
@@ -866,8 +921,21 @@ export default function ScreeningForm() {
     [formData, anyExclusionYes]
   );
 
-  /* ─── Auto-save every 10 seconds (silent, no modals, no validation) ── */
+  /* Keep latest flags for the interval callback (avoids stale closures). */
+  const isDirtyRef = useRef(false);
+  const isSavedRef = useRef(false);
+  const isEditingRef = useRef(false);
+  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
+  useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
+  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
+
+  /* ─── Auto-save every 10 seconds (silent, no modals, no validation) ──
+     Only while the form is editable and has unsaved edits — never on a
+     locked/saved view (was PUTting continuously after "Save"). */
   const autoSave = useCallback(async () => {
+    if (isSavedRef.current && !isEditingRef.current) return;
+    if (!isDirtyRef.current) return;
+
     const fd = formDataRef.current;
     const exclYes = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
       .some(k => fd[k] === "Yes");
@@ -915,9 +983,12 @@ export default function ScreeningForm() {
   /* ─── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
     if (!dataLoaded) return;
-    autoSaveTimer.current = setInterval(autoSave, 10000);
+    clearInterval(autoSaveTimer.current);
+    autoSaveTimer.current = setInterval(() => {
+      autoSaveRef.current?.();
+    }, 10000);
     return () => clearInterval(autoSaveTimer.current);
-  }, [autoSave, dataLoaded]);
+  }, [dataLoaded]);
 
   /* ─── Save ── */
   const saveForm = async () => {
@@ -1083,7 +1154,11 @@ export default function ScreeningForm() {
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
-                    onClick={() => setIsEditing(p => !p)}>
+                    onClick={() => setIsEditing(p => {
+                      const next = !p;
+                      if (!next) setIsDirty(false);
+                      return next;
+                    })}>
                     {isEditing ? "✓ Done Editing" : "✎ Edit Form"}
                   </button>
                 )}

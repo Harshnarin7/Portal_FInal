@@ -507,6 +507,44 @@ class BirthResuscitationCreate(BaseModel):
     # 🔐 VALIDATORS (MUST BE INSIDE CLASS)
     # =====================================================
 
+    @field_validator(
+        "time_of_birth",
+        "cord_clamp_timestamp",
+        "date_of_birth",
+        "gestation_weeks",
+        "gestation_days",
+        "gestation_rand_weeks",
+        "gestation_rand_days",
+        "birth_weight",
+        "sib_peep_cmh2o",
+        "tpiece_pip",
+        "tpiece_peep",
+        "tpiece_flow",
+        "ppv_duration",
+        "cc_duration",
+        "med_doses",
+        "adrenaline_cumulative",
+        "fluid_bolus_doses",
+        "fluid_bolus_cumulative",
+        "cord_clamp_time",
+        "time_to_respiration",
+        "respiration_days",
+        "respiration_hours",
+        "time_to_spo2_80",
+        "spo2_5min",
+        "cord_ph",
+        "cord_sbe",
+        "cord_pco2",
+        "spo2_exit_trial_gas",
+        mode="before",
+    )
+    @classmethod
+    def empty_str_to_none(cls, v):
+        """Autosave often sends "" for cleared optional fields; coerce to None."""
+        if v == "" or v is None:
+            return None
+        return v
+
     @field_validator("total_resus_time", mode="before")
     @classmethod
     def coerce_total_resus_time_mmss(cls, v):

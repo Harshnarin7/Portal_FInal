@@ -8,6 +8,7 @@ import { usePatient } from "./context/PatientContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import NotesBox      from "./components/NotesBox";
 import OfflineBanner from "./components/OfflineBanner";
 import FormNavBar    from "./components/FormNavBar";
@@ -189,6 +190,38 @@ export default function FormC() {
   const navigate  = useNavigate();
   const { enrollmentId } = useParams();
   const { markFormCompleted } = useFormProgress();
+
+  // Recover when Form B autosave left a typing stub in the URL (e.g. /form-c/01-).
+  useEffect(() => {
+    if (isUsableEnrollmentId(enrollmentId)) return;
+    let cancelled = false;
+    const resolve = async () => {
+      const stored = localStorage.getItem("current_enrollment_id");
+      if (isUsableEnrollmentId(stored)) {
+        if (!cancelled) navigate(`/form-c/${stored}`, { replace: true });
+        return;
+      }
+      // Drop the typing stub so sidebar/stop linking to /form-c/01-.
+      if (stored && stored !== "undefined" && stored !== "null") {
+        localStorage.removeItem("current_enrollment_id");
+        window.dispatchEvent(new Event("storage"));
+      }
+      const sid = localStorage.getItem("current_screening_id");
+      if (!sid || sid === "undefined" || sid === "null") return;
+      try {
+        const res = await api.get(`/screenings/by-screening-id/${sid}`);
+        const eid = res.data?.enrollment_id;
+        if (isUsableEnrollmentId(eid) && !cancelled) {
+          localStorage.setItem("current_enrollment_id", eid);
+          window.dispatchEvent(new Event("storage"));
+          navigate(`/form-c/${eid}`, { replace: true });
+        }
+      } catch (_) {}
+    };
+    resolve();
+    return () => { cancelled = true; };
+  }, [enrollmentId, navigate]);
+
   const location  = useLocation();
   const { patientData } = usePatient();
   const isEditMode = location.state?.fromEdit === true;
@@ -198,6 +231,9 @@ export default function FormC() {
   const [isEditing,      setIsEditing]      = useState(false);
   const [message,        setMessage]        = useState("");
   const [isFormCLoaded,  setIsFormCLoaded]  = useState(false);
+  // True after GET for this enrollment finishes (record or 404). Distinct
+  // from isFormCLoaded, which means a maternal_details row already exists.
+  const [isFormCFetchDone, setIsFormCFetchDone] = useState(false);
   // Holds this enrollment's own screening_id (from Form A), so the
   // "Previous" button can navigate to the correct Form B record instead of
   // relying on browser history.
@@ -257,6 +293,48 @@ export default function FormC() {
     duration_rom: "", uterotonic: "", uterotonic_timing: "", obstetric_other: "",
   });
 
+  const emptyFormC = () => ({
+    enrollment_id: "",
+    mother_name: "", mother_age: "", maternal_uid: "",
+    contact_mother: "", contact_husband: "", email_address: "",
+    address: "", house: "", city: "", district: "", state: "", pincode: "", landmark: "",
+    gravida: "", parity: "", abortions: "", live: "", still: "",
+    booked: "", anc_visits: "", pregnancy_supervision: "",
+    multiple: "No", multiple_other: "", lmp: "", edd: "",
+    conception: "", artificial_type: "", artificial_other: "",
+    antenatal_steroids: "", steroid_drug: "",
+    steroid_beta_doses: "", steroid_dexa_doses: "",
+    steroid_beta_courses: "", steroid_dexa_courses: "",
+    steroid_doses: "", steroid_courses_status: "", steroid_courses: "",
+    lddi_known: "", lddi_hours: "",
+    antenatal_mgso4: "",
+    steroid_date: "", gestation_at_steroids: "",
+    mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
+    chronic_hypertension: false, hepatitis: false, heart_disease: false,
+    renal_disease: false, vdrl_positive: false, seizure_disorder: false,
+    asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
+    tb: false, malaria: false, severe_anemia: false,
+    no_known_medical_disorder: true,
+    other_medical_checkbox: false, other_medical_disorder: "",
+    hdp: "", hdp_type: "",
+    gdm: "", gdm_rx: [],
+    liquor: "",
+    fgr: "", fgr_centile: "",
+    doppler: "", doppler_other: "",
+    placental_abnormality: "", placental_type: "", placental_other: "",
+    retroplacental_collection: "",
+    aph: "", aph_type: "", aph_other: "",
+    isoimmunization: "",
+    pprom: "", pprom_duration: "", preterm_labor: "", triple_i: "",
+    maternal_fever: "", fetal_tachycardia: "", maternal_tlc_high: "",
+    foul_smelling_liquor: "", maternal_uti: "", maternal_diarrhea: "",
+    maternal_tachycardia: "", maternal_abdominal_tenderness: "",
+    msl: "", non_reactive_nst: "", reduced_fm: "",
+    prolonged_labor: "", cord_accident: "", cord_accident_type: "",
+    fetal_bradycardia: "", fetal_tachycardia_intrapartum: "",
+    duration_rom: "", uterotonic: "", uterotonic_timing: "", obstetric_other: "",
+  });
+
   const set = patch => setFormData(p => ({ ...p, ...patch }));
 
   /* ── useFormSession: auto-save, offline, beforeunload, modals ── */
@@ -266,8 +344,18 @@ export default function FormC() {
     recordId:     formData.enrollment_id,
     buildPayload: useCallback(() => buildPayload(), [formData, isFormCLoaded]), // eslint-disable-line
     endpoint:     "/maternal-details",
-    enabled:      !!(formData.enrollment_id),
+    // Block draft/autosave until this enrollment's load finishes — otherwise
+    // a previous patient's in-memory fields can be written under the new id.
+    enabled:      !!(formData.enrollment_id) && isFormCFetchDone && (!isSaved || isEditing),
   });
+  const { markDirty, resetInitialRender } = session;
+
+  /* Mark dirty on user edits only while the form is editable */
+  useEffect(() => {
+    if (!isFormCFetchDone) return;
+    if (isSaved && !isEditing) return;
+    markDirty();
+  }, [formData, isFormCFetchDone, isSaved, isEditing, markDirty]);
 
   /* ── Auto-calc address ── */
   useEffect(() => {
@@ -365,7 +453,17 @@ export default function FormC() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        if (!enrollmentId) return;
+        if (!isUsableEnrollmentId(enrollmentId)) return;
+        // Wipe previous patient's in-memory Form C before loading this one.
+        setIsFormCFetchDone(false);
+        setIsFormCLoaded(false);
+        setIsSaved(false);
+        setIsEditing(false);
+        setErrors({});
+        setTouched({});
+        setScreeningIdForBack("");
+        setFormData(emptyFormC());
+
         let formAData = null, formCData = null;
         // Look up THIS enrollment's own screening record (Form A) — not
         // whatever screening_id happens to be cached in localStorage from
@@ -390,36 +488,36 @@ export default function FormC() {
 
         if (formCData) disordersLoadedFromDb.current = true;
 
-        setFormData(prev => ({
-          ...prev,
+        // Start from empty — never merge onto another patient's leftover state.
+        setFormData({
+          ...emptyFormC(),
           enrollment_id:   enrollmentId,
           mother_name:     `${formAData?.mother_first_name || ""} ${formAData?.mother_surname || ""}`.trim(),
           maternal_uid:    formAData?.maternal_uid || "",
           contact_mother:  formAData?.contact_mother  || formAData?.mother_contact  || "",
           contact_husband: formAData?.contact_husband || formAData?.husband_contact || "",
           ...(formCData ? {
-            mother_age: formCData.mother_age ?? prev.mother_age,
-            house: formCData.house ?? prev.house, city: formCData.city ?? prev.city,
-            district: formCData.district ?? prev.district, state: formCData.state ?? prev.state,
-            pincode: formCData.pincode ?? prev.pincode, landmark: formCData.landmark ?? prev.landmark,
-            email_address: formCData.email_address ?? prev.email_address,
-            gravida: formCData.gravida ?? prev.gravida, parity: formCData.parity ?? prev.parity,
-            abortions: formCData.abortions ?? prev.abortions, live: formCData.live ?? prev.live,
-            still: formCData.still ?? prev.still, booked: formCData.booked ?? prev.booked,
-            anc_visits: formCData.anc_visits ?? prev.anc_visits,
-            multiple: formCData.multiple ?? prev.multiple,
-            conception: formCData.conception ?? prev.conception,
-            artificial_type: formCData.artificial_type ?? prev.artificial_type,
-            artificial_other: formCData.artificial_other ?? prev.artificial_other,
-            antenatal_steroids: formCData.antenatal_steroids ?? prev.antenatal_steroids,
+            mother_age: formCData.mother_age ?? "",
+            house: formCData.house ?? "", city: formCData.city ?? "",
+            district: formCData.district ?? "", state: formCData.state ?? "",
+            pincode: formCData.pincode ?? "", landmark: formCData.landmark ?? "",
+            email_address: formCData.email_address ?? "",
+            gravida: formCData.gravida ?? "", parity: formCData.parity ?? "",
+            abortions: formCData.abortions ?? "", live: formCData.live ?? "",
+            still: formCData.still ?? "", booked: formCData.booked ?? "",
+            anc_visits: formCData.anc_visits ?? "",
+            multiple: formCData.multiple ?? "No",
+            conception: formCData.conception ?? "",
+            artificial_type: formCData.artificial_type ?? "",
+            artificial_other: formCData.artificial_other ?? "",
+            antenatal_steroids: formCData.antenatal_steroids ?? "",
             ...(() => {
-              const drug = formCData.steroid_drug ?? prev.steroid_drug;
+              const drug = formCData.steroid_drug ?? "";
               let beta = formCData.steroid_beta_doses != null && formCData.steroid_beta_doses !== ""
                 ? String(formCData.steroid_beta_doses) : "";
               let dexa = formCData.steroid_dexa_doses != null && formCData.steroid_dexa_doses !== ""
                 ? String(formCData.steroid_dexa_doses) : "";
               const legacy = formCData.steroid_doses != null ? String(formCData.steroid_doses) : "";
-              // Soft-migrate older shared steroid_doses into per-drug fields when possible.
               if (!beta && !dexa && legacy) {
                 const betaM = legacy.match(/Betamethasone\s*:\s*(\d+)/i);
                 const dexaM = legacy.match(/Dexamethasone\s*:\s*(\d+)/i);
@@ -438,28 +536,28 @@ export default function FormC() {
               const legacySummary = buildLegacySteroidSummary(drug, beta, dexa);
               return {
                 steroid_drug: drug,
-                steroid_beta_doses: beta || prev.steroid_beta_doses,
-                steroid_dexa_doses: dexa || prev.steroid_dexa_doses,
+                steroid_beta_doses: beta,
+                steroid_dexa_doses: dexa,
                 steroid_beta_courses: betaInfo
                   ? String(betaInfo.completedCourses)
-                  : (formCData.steroid_beta_courses != null ? String(formCData.steroid_beta_courses) : prev.steroid_beta_courses),
+                  : (formCData.steroid_beta_courses != null ? String(formCData.steroid_beta_courses) : ""),
                 steroid_dexa_courses: dexaInfo
                   ? String(dexaInfo.completedCourses)
-                  : (formCData.steroid_dexa_courses != null ? String(formCData.steroid_dexa_courses) : prev.steroid_dexa_courses),
-                steroid_doses: legacySummary.steroid_doses ?? (legacy || prev.steroid_doses),
+                  : (formCData.steroid_dexa_courses != null ? String(formCData.steroid_dexa_courses) : ""),
+                steroid_doses: legacySummary.steroid_doses ?? legacy,
                 steroid_courses_status: legacySummary.steroid_courses_status
                   ?? formCData.steroid_courses_status
-                  ?? prev.steroid_courses_status,
+                  ?? "",
                 steroid_courses: legacySummary.steroid_courses
-                  ?? (formCData.steroid_courses != null ? String(formCData.steroid_courses) : prev.steroid_courses),
+                  ?? (formCData.steroid_courses != null ? String(formCData.steroid_courses) : ""),
               };
             })(),
-            multiple_other: formCData.multiple_other ?? prev.multiple_other,
-            lddi_known: formCData.lddi_known ?? (formCData.lddi_hours != null ? "Known" : prev.lddi_known),
-            lddi_hours: formCData.lddi_hours ?? prev.lddi_hours,
-            antenatal_mgso4: formCData.antenatal_mgso4 ?? prev.antenatal_mgso4,
-            mgso4_gestation_weeks: formCData.mgso4_gestation_weeks ?? prev.mgso4_gestation_weeks,
-            mgso4_gestation_days: formCData.mgso4_gestation_days ?? prev.mgso4_gestation_days,
+            multiple_other: formCData.multiple_other ?? "",
+            lddi_known: formCData.lddi_known ?? (formCData.lddi_hours != null ? "Known" : ""),
+            lddi_hours: formCData.lddi_hours ?? "",
+            antenatal_mgso4: formCData.antenatal_mgso4 ?? "",
+            mgso4_gestation_weeks: formCData.mgso4_gestation_weeks ?? "",
+            mgso4_gestation_days: formCData.mgso4_gestation_days ?? "",
             chronic_hypertension: formCData.chronic_hypertension ?? false,
             hepatitis: formCData.hepatitis ?? false, heart_disease: formCData.heart_disease ?? false,
             renal_disease: formCData.renal_disease ?? false, vdrl_positive: formCData.vdrl_positive ?? false,
@@ -469,7 +567,7 @@ export default function FormC() {
             hyperthyroidism: formCData.hyperthyroidism ?? false,
             tb: formCData.tb ?? false, malaria: formCData.malaria ?? false,
             severe_anemia: formCData.severe_anemia ?? false,
-            other_medical_disorder: formCData.other_medical_disorder ?? prev.other_medical_disorder,
+            other_medical_disorder: formCData.other_medical_disorder ?? "",
             other_medical_checkbox: !!formCData.other_medical_disorder,
             no_known_medical_disorder: !(
               formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
@@ -478,54 +576,58 @@ export default function FormC() {
               formCData.hypothyroidism || formCData.hyperthyroidism ||
               formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
             ),
-            hdp: formCData.hdp ?? prev.hdp, hdp_type: formCData.hdp_type ?? prev.hdp_type,
-            gdm: formCData.gdm ?? prev.gdm,
-            gdm_rx: formCData.gdm_rx ? formCData.gdm_rx.split(", ").map(s => s.trim()) : prev.gdm_rx,
-            liquor: formCData.liquor ?? prev.liquor, fgr: formCData.fgr ?? prev.fgr,
-            fgr_centile: formCData.fgr_centile ?? prev.fgr_centile,
-            doppler: formCData.doppler ?? prev.doppler, doppler_other: formCData.doppler_other ?? prev.doppler_other,
-            placental_abnormality: formCData.placental_abnormality ?? prev.placental_abnormality,
-            placental_type: formCData.placental_type ?? prev.placental_type,
-            placental_other: formCData.placental_other ?? prev.placental_other,
-            retroplacental_collection: formCData.retroplacental_collection ?? prev.retroplacental_collection,
-            aph: formCData.aph ?? prev.aph,
+            hdp: formCData.hdp ?? "", hdp_type: formCData.hdp_type ?? "",
+            gdm: formCData.gdm ?? "",
+            gdm_rx: formCData.gdm_rx ? formCData.gdm_rx.split(", ").map(s => s.trim()) : [],
+            liquor: formCData.liquor ?? "", fgr: formCData.fgr ?? "",
+            fgr_centile: formCData.fgr_centile ?? "",
+            doppler: formCData.doppler ?? "", doppler_other: formCData.doppler_other ?? "",
+            placental_abnormality: formCData.placental_abnormality ?? "",
+            placental_type: formCData.placental_type ?? "",
+            placental_other: formCData.placental_other ?? "",
+            retroplacental_collection: formCData.retroplacental_collection ?? "",
+            aph: formCData.aph ?? "",
             aph_type: ({
               "Placental Abruption": "Abruption",
               "Abruption": "Abruption",
               "Vasa Previa": "Previa",
               "Previa": "Previa",
               "Other": "Other",
-            })[formCData.aph_type] ?? formCData.aph_type ?? prev.aph_type,
-            aph_other: formCData.aph_other ?? prev.aph_other,
-            isoimmunization: formCData.isoimmunization ?? prev.isoimmunization,
-            pprom: formCData.pprom ?? prev.pprom, pprom_duration: formCData.pprom_duration ?? prev.pprom_duration,
-            preterm_labor: formCData.preterm_labor ?? prev.preterm_labor,
-            triple_i: formCData.triple_i ?? prev.triple_i,
-            maternal_fever: formCData.maternal_fever ?? prev.maternal_fever,
-            fetal_tachycardia: formCData.fetal_tachycardia ?? prev.fetal_tachycardia,
-            maternal_tlc_high: formCData.maternal_tlc_high ?? prev.maternal_tlc_high,
-            maternal_tachycardia: formCData.maternal_tachycardia ?? prev.maternal_tachycardia,
-            maternal_abdominal_tenderness: formCData.maternal_abdominal_tenderness ?? prev.maternal_abdominal_tenderness,
-            foul_smelling_liquor: formCData.foul_smelling_liquor ?? prev.foul_smelling_liquor,
-            maternal_uti: formCData.maternal_uti ?? prev.maternal_uti,
-            maternal_diarrhea: formCData.maternal_diarrhea ?? prev.maternal_diarrhea,
-            msl: formCData.msl ?? prev.msl, non_reactive_nst: formCData.non_reactive_nst ?? prev.non_reactive_nst,
-            reduced_fm: formCData.reduced_fm ?? prev.reduced_fm,
-            prolonged_labor: formCData.prolonged_labor ?? prev.prolonged_labor,
-            cord_accident: formCData.cord_accident ?? prev.cord_accident,
-            cord_accident_type: formCData.cord_accident_type ?? prev.cord_accident_type,
-            fetal_bradycardia: formCData.fetal_bradycardia ?? prev.fetal_bradycardia,
-            fetal_tachycardia_intrapartum: formCData.fetal_tachycardia_intrapartum ?? prev.fetal_tachycardia_intrapartum,
-            duration_rom: formCData.duration_rom ?? prev.duration_rom,
-            uterotonic: formCData.uterotonic ?? prev.uterotonic,
-            uterotonic_timing: formCData.uterotonic_timing ?? prev.uterotonic_timing,
+            })[formCData.aph_type] ?? formCData.aph_type ?? "",
+            aph_other: formCData.aph_other ?? "",
+            isoimmunization: formCData.isoimmunization ?? "",
+            pprom: formCData.pprom ?? "", pprom_duration: formCData.pprom_duration ?? "",
+            preterm_labor: formCData.preterm_labor ?? "",
+            triple_i: formCData.triple_i ?? "",
+            maternal_fever: formCData.maternal_fever ?? "",
+            fetal_tachycardia: formCData.fetal_tachycardia ?? "",
+            maternal_tlc_high: formCData.maternal_tlc_high ?? "",
+            maternal_tachycardia: formCData.maternal_tachycardia ?? "",
+            maternal_abdominal_tenderness: formCData.maternal_abdominal_tenderness ?? "",
+            foul_smelling_liquor: formCData.foul_smelling_liquor ?? "",
+            maternal_uti: formCData.maternal_uti ?? "",
+            maternal_diarrhea: formCData.maternal_diarrhea ?? "",
+            msl: formCData.msl ?? "", non_reactive_nst: formCData.non_reactive_nst ?? "",
+            reduced_fm: formCData.reduced_fm ?? "",
+            prolonged_labor: formCData.prolonged_labor ?? "",
+            cord_accident: formCData.cord_accident ?? "",
+            cord_accident_type: formCData.cord_accident_type ?? "",
+            fetal_bradycardia: formCData.fetal_bradycardia ?? "",
+            fetal_tachycardia_intrapartum: formCData.fetal_tachycardia_intrapartum ?? "",
+            duration_rom: formCData.duration_rom ?? "",
+            uterotonic: formCData.uterotonic ?? "",
+            uterotonic_timing: formCData.uterotonic_timing ?? "",
           } : {}),
-          lmp: formCData?.lmp ? parseDateOnly(formCData.lmp) : formAData?.lmp_date ? parseDateOnly(formAData.lmp_date) : prev.lmp || null,
-          edd: formCData?.edd ? parseDateOnly(formCData.edd) : formAData?.expected_delivery_date ? parseDateOnly(formAData.expected_delivery_date) : prev.edd || null,
-          mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : prev.mgso4_date || "",
-        }));
+          lmp: formCData?.lmp ? parseDateOnly(formCData.lmp) : formAData?.lmp_date ? parseDateOnly(formAData.lmp_date) : null,
+          edd: formCData?.edd ? parseDateOnly(formCData.edd) : formAData?.expected_delivery_date ? parseDateOnly(formAData.expected_delivery_date) : null,
+          mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : "",
+        });
         if (formCData || isEditMode) setIsSaved(true);
+        resetInitialRender();
       } catch (err) { console.log("Error loading Form C:", err); }
+      finally {
+        setIsFormCFetchDone(true);
+      }
     };
     fetchData();
   }, [enrollmentId, isEditMode]); // eslint-disable-line
@@ -1040,9 +1142,9 @@ export default function FormC() {
     c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","cord_accident","cord_accident_type","uterotonic","uterotonic_timing"].filter(f => touched[f]&&errors[f]).length,
   };
 
-  if (!enrollmentId) return (
+  if (!isUsableEnrollmentId(enrollmentId)) return (
     <div style={{ padding:40, color:"red", fontSize:18, fontWeight:600 }}>
-      ❌ Enrollment ID missing. Please open Form C from Dashboard or Form B.
+      ❌ Enrollment ID missing or incomplete. Open Form C from Form B after saving a full Enrollment ID (e.g. 01-A-001).
     </div>
   );
 
@@ -1092,7 +1194,11 @@ export default function FormC() {
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing?" editing-active":""}`}
-                    onClick={() => setIsEditing(p => !p)}>
+                    onClick={() => setIsEditing(p => {
+                      const next = !p;
+                      if (!next) resetInitialRender();
+                      return next;
+                    })}>
                     {isEditing ? "✓ Done Editing" : "Edit Form"}
                   </button>
                 )}

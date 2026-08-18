@@ -343,9 +343,10 @@ export default function FormE() {
   const [message,   setMessage]   = useState("");
   const [isFormELoaded, setIsFormELoaded] = useState(false);
   const [isBirthLoaded, setIsBirthLoaded] = useState(false);
+  const [hasFormERecord, setHasFormERecord] = useState(false);
   const isFieldEditable = !isSaved || isEditing;
 
-  const [formData, setFormData] = useState({
+  const emptyFormE = () => ({
     enrollment_id: "",
     baby_uid: "", annual_number: "", baby_name: "", date_of_birth: "",
     time_of_birth: "",
@@ -364,6 +365,8 @@ export default function FormE() {
     nicu_map: "", nicu_fio2: "",
     completed_by: "", designation: "", completion_date: "",
   });
+
+  const [formData, setFormData] = useState(emptyFormE);
 
   /* ── Build payload for auto-save (draft-safe, no validation) ── */
   const buildAutoPayload = () => ({
@@ -404,18 +407,20 @@ export default function FormE() {
   /* ── useFormSession hook: auto-save, dirty tracking, beforeunload warning ── */
   const session = useFormSession({
     formKey: "form_e",
-    isLoaded: isFormELoaded,
+    isLoaded: hasFormERecord,
     recordId: enrollmentId,
     buildPayload: buildAutoPayload,
     endpoint: "/nicu-admission",
-    enabled: true,
+    enabled: !!(enrollmentId) && isBirthLoaded && isFormELoaded && (!isSaved || isEditing),
   });
   const { markDirty, resetInitialRender } = session;
 
-  /* ── Mark dirty on form change ── */
+  /* ── Mark dirty on form change (only while editable) ── */
   useEffect(() => {
+    if (!isFormELoaded) return;
+    if (isSaved && !isEditing) return;
     markDirty();
-  }, [formData, markDirty]);
+  }, [formData, isFormELoaded, isSaved, isEditing, markDirty]);
 
   /* ════════ ALL ORIGINAL LOGIC PRESERVED ════════ */
 
@@ -431,13 +436,18 @@ export default function FormE() {
     if (!enrollmentId) return;
     let cancelled = false;
 
-    // Reset immediately: without this, switching to a patient with no
-    // Form E record yet keeps isSaved=true from whichever patient was
-    // viewed previously, which makes Save fire PUT instead of POST and
-    // the backend correctly 404s ("Form E not found").
+    // Wipe previous patient's NICU answers immediately. Without this, opening
+    // Form E for baby B while baby A's fields were still in memory let
+    // autosave write A's temps/modes under B's enrollment_id.
     setIsSaved(false);
     setIsFormELoaded(false);
     setIsBirthLoaded(false);
+    setHasFormERecord(false);
+    setIsEditing(false);
+    setErrors({});
+    setTouched({});
+    setFormData(emptyFormE());
+    resetInitialRender();
 
     /* ── Phase 1: identification from Form B (DOB/TOB drive age calc) ── */
     api.get(`/birth-resuscitation/${enrollmentId}`)
@@ -445,9 +455,6 @@ export default function FormE() {
         if (cancelled) return;
         const b = res?.data || {};
         let motherName = "";
-        // Same fix as FormD: don't fall back to a stale, globally-cached
-        // screening_id from a different patient when Form B doesn't have
-        // one yet for this enrollment.
         let screeningId = b?.screening_id;
         if (!screeningId) {
           try {
@@ -466,25 +473,21 @@ export default function FormE() {
         }
         if (!motherName)
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
-        setFormData(prev => {
-          const dob = normalizeDobYmd(b?.date_of_birth);
-          const tob = normalizeTobHms(b?.time_of_birth);
-          const age = calcAgeAtAdmissionHours(dob, tob, prev.admission_datetime);
-          return {
-            ...prev,
-            enrollment_id: enrollmentId,
-            baby_uid: b?.baby_uid || prev.baby_uid || "",
-            baby_name: motherName ? `Baby of ${motherName}` : (b?.baby_name || prev.baby_name || ""),
-            annual_number: b?.annual_number || prev.annual_number || "",
-            date_of_birth: dob,
-            time_of_birth: tob,
-            age_at_admission_hours: age !== "" ? age : (prev.age_at_admission_hours || ""),
-          };
+        const dob = normalizeDobYmd(b?.date_of_birth);
+        const tob = normalizeTobHms(b?.time_of_birth);
+        setFormData({
+          ...emptyFormE(),
+          enrollment_id: enrollmentId,
+          baby_uid: b?.baby_uid || "",
+          baby_name: motherName ? `Baby of ${motherName}` : (b?.baby_name || ""),
+          annual_number: b?.annual_number || "",
+          date_of_birth: dob,
+          time_of_birth: tob,
+          age_at_admission_hours: calcAgeAtAdmissionHours(dob, tob, "") || "",
         });
       })
       .catch(() => {
         if (cancelled) return;
-        // Keep form usable; age stays blank until Form B DOB exists.
       })
       .finally(() => {
         if (!cancelled) setIsBirthLoaded(true);
@@ -494,19 +497,17 @@ export default function FormE() {
    api.get(`/nicu-admission/${enrollmentId}`)
      .then(res => {
        if (cancelled) return;
-       // GET returns a single record, or null when Form E has not been saved yet
        const e = res.data;
        if (!e) {
          setIsSaved(false);
+         setHasFormERecord(false);
          setIsFormELoaded(true);
          resetInitialRender();
          return;
        }
 
-       /* DB stores booleans as true/false; toggles expect "Yes"/"No" */
        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
 
-      // Detect if heating_type or adverse_event_type are custom "Other" values
       const heatingDecoded = decodeMultiChoice(e.heating_type, KNOWN_HEATING_TYPES);
       const adverseDecoded = decodeMultiChoice(e.adverse_event_type, KNOWN_ADVERSE_TYPES);
 
@@ -527,36 +528,29 @@ export default function FormE() {
           : "";
         return {
          ...prev,
-          // Identification
           annual_number:   e.annual_number || prev.annual_number,
           baby_name:       e.baby_name     || prev.baby_name,
           baby_uid:        e.baby_uid      || prev.baby_uid,
 
-          // Admission — prefer live calc from Form B DOB/TOB when available
           admission_datetime: admission,
           age_at_admission_hours: computedAge !== "" ? computedAge : storedAge,
 
-          // Temperature
           temp_dr:       e.temp_dr       != null ? String(e.temp_dr)       : "",
           temp_skin:     e.temp_skin     != null ? String(e.temp_skin)     : "",
           temp_axillary: e.temp_axillary != null ? String(e.temp_axillary) : "",
 
-          // Additional heating — bool → "Yes"/"No"
           additional_heating: fromBool(e.additional_heating),
           heating_type: heatingDecoded.selected,
           heating_type_other: heatingDecoded.other,
 
-          // Transport incubator — bool → "Yes"/"No"
           transport_incubator: fromBool(e.transport_incubator),
           transport_mode: e.transport_mode || "",
 
-          // Transport adverse event — bool → "Yes"/"No"
           transport_adverse_event: fromBool(e.transport_adverse_event),
           adverse_event_type: adverseDecoded.selected,
           adverse_event_other: adverseDecoded.other,
           tube_accident_type: e.tube_accident_type || "",
 
-          // Respiratory — transport
           transport_mode_resp: transportModeIsOther ? "Other" : transportModeRaw,
           transport_mode_other: transportModeIsOther ? transportModeRaw : "",
           transport_cpap: e.transport_cpap != null ? String(e.transport_cpap) : "",
@@ -565,7 +559,6 @@ export default function FormE() {
           transport_map:  e.transport_map  != null ? String(e.transport_map)  : "",
           transport_fio2: e.transport_fio2 != null ? String(e.transport_fio2) : "",
 
-          // Respiratory — NICU
           nicu_mode_resp: nicuModeIsOther ? "Other" : nicuModeRaw,
           nicu_mode_other: nicuModeIsOther ? nicuModeRaw : "",
           nicu_cpap: e.nicu_cpap != null ? String(e.nicu_cpap) : "",
@@ -574,18 +567,13 @@ export default function FormE() {
           nicu_map:  e.nicu_map  != null ? String(e.nicu_map)  : "",
           nicu_fio2: e.nicu_fio2 != null ? String(e.nicu_fio2) : "",
 
-          // Completion
           completed_by:    e.completed_by    || "",
           designation:     e.designation     || "",
           completion_date: e.completion_date || "",
         };
       });
 
-        // Only lock the form read-only-until-Edit if this record was
-        // explicitly finalized via the real Save button. A record that
-        // only exists because the background autosave silently
-        // persisted an in-progress draft (finalized still false/null)
-        // should stay editable when reopened.
+        setHasFormERecord(true);
         setIsSaved(!!e.finalized);
         setIsFormELoaded(true);
         resetInitialRender();
@@ -593,6 +581,7 @@ export default function FormE() {
       .catch(err => {
         if (cancelled) return;
         console.log("❌ Error loading Form E data", err);
+        setHasFormERecord(false);
         setIsFormELoaded(true);
         resetInitialRender();
       });
@@ -779,12 +768,13 @@ export default function FormE() {
       finalized: true,
     };
     try {
-      if (isSaved) {
+      if (hasFormERecord || isSaved) {
         await api.put(`/nicu-admission/${formData.enrollment_id}`, payload);
       } else {
         await api.post("/nicu-admission/", payload);
       }
       markFormCompleted("form_e");
+      setHasFormERecord(true);
       setMessage("✅ Form E saved successfully");
       setIsSaved(true); setIsEditing(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -805,6 +795,7 @@ export default function FormE() {
     }
     try {
       await session.saveDraft();
+      setHasFormERecord(true);
       setIsFormELoaded(true);
       setMessage("💾 Draft saved — return any time to complete");
       setTimeout(() => setMessage(""), 3000);
@@ -882,7 +873,11 @@ export default function FormE() {
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
-                    onClick={() => setIsEditing(p => !p)}>
+                    onClick={() => setIsEditing(p => {
+                      const next = !p;
+                      if (!next) resetInitialRender();
+                      return next;
+                    })}>
                     {isEditing ? "✓ Done Editing" : "Edit Form"}
                   </button>
                 )}

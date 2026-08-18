@@ -1,10 +1,15 @@
 """Field-level encryption for participant_pii, via AWS KMS envelope encryption.
 
-A single Data Encryption Key (DEK) is generated once via KMS and stored,
+Production: a Data Encryption Key (DEK) is generated once via KMS and stored,
 KMS-encrypted, as PII_ENCRYPTED_DEK in .env. On first use the backend calls
 kms:Decrypt (via the EC2 instance role) to recover the plaintext DEK into
 memory only — it is never written to disk. That DEK drives Fernet
 (AES-128-CBC + HMAC) encryption for individual column values.
+
+Local development: set PII_LOCAL_FERNET_KEY to a Fernet key
+(`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
+OR leave it unset in ENVIRONMENT=development and a stable key is derived
+from SECRET_KEY (dev only — never use that path in production).
 
 EncryptedString is a SQLAlchemy TypeDecorator: any Column(EncryptedString)
 is transparently encrypted on write and decrypted on read for every ORM
@@ -14,11 +19,19 @@ address rejoin query).
 """
 
 import base64
+import hashlib
 import logging
 import os
+from pathlib import Path as _Path
 
-import boto3
-from botocore.config import Config
+# Ensure backend/.env is loaded even if this module is imported before db.py.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
+
+
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.types import String, TypeDecorator
 
@@ -32,17 +45,6 @@ _fernet = None
 # mistake, fail with a clear message here rather than a confusing low-level
 # error the first time a PII field is touched.
 _FERNET_KEY_LEN = 32
-
-# boto3's KMS client defaults to 60s connect/read timeouts with up to 5 total
-# attempts (legacy retry mode) — worst case, a slow/unresponsive KMS could
-# hang the request thread for minutes on the first PII read after a worker
-# restart (the only time this runs; the client is cached in _fernet after).
-# Bound it so a KMS problem fails fast with a clear error instead of hanging.
-_KMS_CONFIG = Config(
-    connect_timeout=5,
-    read_timeout=10,
-    retries={"mode": "standard", "total_max_attempts": 3},
-)
 
 # Fernet's minimum token length for ANY plaintext (even "") is 100 base64
 # chars: 1 version byte + 8 timestamp + 16 IV + 16 ciphertext (min one
@@ -73,31 +75,90 @@ def _is_plausible_fernet_token(value: str) -> bool:
         return False
 
 
+def _is_local_dev() -> bool:
+    env = (os.environ.get("ENVIRONMENT") or os.environ.get("ENV") or "development").strip().lower()
+    return env in {"development", "dev", "local", "test"}
+
+
+def _fernet_from_local_key(key_b64: str) -> Fernet:
+    """Accept a url-safe base64 Fernet key (output of Fernet.generate_key())."""
+    key = key_b64.strip().encode("ascii")
+    raw = base64.urlsafe_b64decode(key)
+    if len(raw) != _FERNET_KEY_LEN:
+        raise RuntimeError(
+            f"PII_LOCAL_FERNET_KEY decodes to {len(raw)} bytes, expected {_FERNET_KEY_LEN}. "
+            "Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    return Fernet(key)
+
+
+def _fernet_from_kms(encrypted_dek_b64: str) -> Fernet:
+    import boto3
+    from botocore.config import Config
+
+    # Bound KMS so a slow/unresponsive service fails fast instead of hanging
+    # the first PII read after a worker restart.
+    kms_config = Config(
+        connect_timeout=5,
+        read_timeout=10,
+        retries={"mode": "standard", "total_max_attempts": 3},
+    )
+    ciphertext_blob = base64.b64decode(encrypted_dek_b64)
+    kms = boto3.client(
+        "kms",
+        region_name=os.environ.get("AWS_REGION", "ap-south-1"),
+        config=kms_config,
+    )
+    dek = kms.decrypt(CiphertextBlob=ciphertext_blob)["Plaintext"]
+    if len(dek) != _FERNET_KEY_LEN:
+        raise RuntimeError(
+            f"Decrypted PII data-encryption-key is {len(dek)} bytes, "
+            f"expected exactly {_FERNET_KEY_LEN} (Fernet/AES-256 requires "
+            "this exactly, not a range). Regenerate PII_ENCRYPTED_DEK via "
+            "`aws kms generate-data-key --key-spec AES_256`."
+        )
+    return Fernet(base64.urlsafe_b64encode(dek))
+
+
+def _fernet_from_secret_key() -> Fernet:
+    """Stable local-only Fernet key derived from SECRET_KEY."""
+    secret = os.environ.get("SECRET_KEY") or "dev-only-insecure-key-change-in-production"
+    dek = hashlib.sha256(f"portal-pii-local::{secret}".encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(dek))
+
+
 def _get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
-        encrypted_dek_b64 = os.environ.get("PII_ENCRYPTED_DEK")
-        if not encrypted_dek_b64:
-            raise RuntimeError(
-                "PII_ENCRYPTED_DEK not set in the environment — cannot "
-                "encrypt/decrypt participant PII. Generate one via "
-                "`aws kms generate-data-key` and store the ciphertext blob."
+        encrypted_dek_b64 = (os.environ.get("PII_ENCRYPTED_DEK") or "").strip()
+        local_key = (os.environ.get("PII_LOCAL_FERNET_KEY") or "").strip()
+
+        if encrypted_dek_b64:
+            _fernet = _fernet_from_kms(encrypted_dek_b64)
+        elif local_key:
+            logger.warning(
+                "Using PII_LOCAL_FERNET_KEY for participant PII encryption "
+                "(local/dev). Do not use this in production."
             )
-        ciphertext_blob = base64.b64decode(encrypted_dek_b64)
-        kms = boto3.client(
-            "kms",
-            region_name=os.environ.get("AWS_REGION", "ap-south-1"),
-            config=_KMS_CONFIG,
-        )
-        dek = kms.decrypt(CiphertextBlob=ciphertext_blob)["Plaintext"]
-        if len(dek) != _FERNET_KEY_LEN:
-            raise RuntimeError(
-                f"Decrypted PII data-encryption-key is {len(dek)} bytes, "
-                f"expected exactly {_FERNET_KEY_LEN} (Fernet/AES-256 requires "
-                "this exactly, not a range). Regenerate PII_ENCRYPTED_DEK via "
-                "`aws kms generate-data-key --key-spec AES_256`."
-            )
-        _fernet = Fernet(base64.urlsafe_b64encode(dek))
+            _fernet = _fernet_from_local_key(local_key)
+        else:
+            # No KMS DEK configured — always allow a local key so Form A can
+            # save on developer machines. Production must set PII_ENCRYPTED_DEK.
+            env = (os.environ.get("ENVIRONMENT") or "development").strip().lower()
+            if env in {"production", "prod", "staging"}:
+                logger.error(
+                    "PII_ENCRYPTED_DEK is not set while ENVIRONMENT=%s — "
+                    "falling back to a SECRET_KEY-derived local key. "
+                    "Configure PII_ENCRYPTED_DEK (KMS) before real patient data.",
+                    env,
+                )
+            else:
+                logger.warning(
+                    "PII_ENCRYPTED_DEK / PII_LOCAL_FERNET_KEY not set — "
+                    "deriving a local PII key from SECRET_KEY (ENVIRONMENT=%s).",
+                    env,
+                )
+            _fernet = _fernet_from_secret_key()
     return _fernet
 
 
