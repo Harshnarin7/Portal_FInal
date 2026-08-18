@@ -994,7 +994,10 @@ export default function FormJ() {
       {saveMessage && <p className="fj-save-msg">{saveMessage}</p>}
 
       <FormNavBar
-        onBack={() => navigate(`/form-i/${enrollmentId}`, { state: { enrollmentId } })}
+        onBack={async () => {
+          try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          navigate(`/form-i/${enrollmentId}`, { state: { enrollmentId } });
+        }}
         onSave={async () => { await saveForm(); }}
         onNext={async () => {
           const saved = await saveForm({ silent: true });

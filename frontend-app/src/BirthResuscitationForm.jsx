@@ -10,6 +10,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import PrintSummaryB from "./components/PrintSummaryB";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
@@ -193,6 +194,11 @@ const CRF_INDICATIONS = [
 ];
 
 const padDur = n => String(n).padStart(2, "0");
+/** Enrollment IDs are `{site}-{A|B|C|D}-{serial}` — the letter is the blender unit. */
+const blenderLetterFromEnrollmentId = (v) => {
+  const letter = String(v || "").trim().toUpperCase().split("-")[1];
+  return ["A", "B", "C", "D"].includes(letter) ? letter : "";
+};
 const parseDurationParts = (value, mode) => {
   const parts = String(value || "").split(":");
   const num = (v, max = 99) => {
@@ -698,6 +704,12 @@ export default function BirthResuscitationForm() {
     if (formData.strata !== computedStrata) set({ strata: computedStrata });
   }, [formData.randomised, formData.gestation_rand_weeks, formData.gestation_rand_days]); // eslint-disable-line
 
+  /* ── Blender Unit ID (field 60) from Enrollment ID letter ── */
+  useEffect(() => {
+    const fromEid = blenderLetterFromEnrollmentId(formData.enrollment_id);
+    if (formData.blender_letter !== fromEid) set({ blender_letter: fromEid });
+  }, [formData.enrollment_id]); // eslint-disable-line
+
   /* ── Cord-clamping time in seconds from birth (field 44) ── */
   useEffect(() => {
     const elapsed = cordClampElapsedSeconds(
@@ -881,7 +893,8 @@ export default function BirthResuscitationForm() {
         ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
       blender_stopped:     yn(fd.blender_stopped),
       blender_stopped_description: fd.blender_stopped_description || null,
-      blender_letter:      ["A", "B", "C", "D"].includes(fd.blender_letter) ? fd.blender_letter : null,
+      blender_letter:      blenderLetterFromEnrollmentId(fd.enrollment_id)
+        || (["A", "B", "C", "D"].includes(fd.blender_letter) ? fd.blender_letter : null),
       interventions:       {
         oxygen: fd.interventions?.oxygen || {},
         cpap: fd.interventions?.cpap || {},
@@ -1278,6 +1291,8 @@ export default function BirthResuscitationForm() {
 
   autoSaveRef.current = autoSave;
 
+  useRegisterActiveFormSession(() => isDirtyRef.current, autoSave);
+
   /* ── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
     if (!isFormBLoaded) return;
@@ -1289,6 +1304,13 @@ export default function BirthResuscitationForm() {
   }, [isFormBLoaded]);
 
   /* ── Next ── */
+  const handlePrevious = async () => {
+    if (isDirty) {
+      try { await autoSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/form-a/${screeningId}`);
+  };
+
   const handleNext = async () => {
     const ok = await saveForm();
     if(!ok) return;
@@ -1377,7 +1399,8 @@ export default function BirthResuscitationForm() {
             ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.indication_for_delivery || []),
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
-          blender_letter:    ["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : "",
+          blender_letter:    blenderLetterFromEnrollmentId(d.enrollment_id)
+            || (["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : ""),
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
           // Field 57: MM:SS string (legacy integer minutes → "MM:00")
@@ -1955,7 +1978,13 @@ export default function BirthResuscitationForm() {
                           <input
                             name="enrollment_id"
                             value={formData.enrollment_id||""}
-                            onChange={e=>set({ enrollment_id: formatEnrollmentId(e.target.value) })}
+                            onChange={e=>{
+                              const enrollment_id = formatEnrollmentId(e.target.value);
+                              set({
+                                enrollment_id,
+                                blender_letter: blenderLetterFromEnrollmentId(enrollment_id),
+                              });
+                            }}
                             onFocus={()=>{
                               const cur = formData.enrollment_id || "";
                               if (!cur || cur.startsWith("NR-")) set({ enrollment_id: `${siteCode}-` });
@@ -2500,11 +2529,11 @@ export default function BirthResuscitationForm() {
                   )}
 
                   <LetterToggle
-                    label={<>60. Blender Unit ID{requiredMark}</>}
+                    label={<>60. Blender Unit ID{requiredMark} <span className="field-note">(auto, from Enrollment ID)</span></>}
                     name="blender_letter"
                     value={formData.blender_letter}
                     onChange={handleChange}
-                    disabled={!isFieldEditable}/>
+                    disabled/>
 
                 </div>
               </div>
@@ -2531,7 +2560,7 @@ export default function BirthResuscitationForm() {
       {/* ── NAV BAR ── */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary"
-          onClick={()=>navigate(`/form-a/${screeningId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15}/> Screening
         </button>
         <button type="button" className="btn btn-save" onClick={saveForm}>

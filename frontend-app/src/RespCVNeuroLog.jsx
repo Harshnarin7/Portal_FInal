@@ -7,6 +7,7 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertCircle, Clock,
@@ -1075,6 +1076,15 @@ export default function RespCVNeuroLog() {
       return false;
     }
   };
+
+  const handlePrevious = async () => {
+    if (isFieldEditable) {
+      try { await handleSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/fio2-auc/${enrollmentId}`);
+  };
+
+  useRegisterActiveFormSession(() => isFieldEditable, handleSave);
 
   /* ── Submit ── */
   const handleSubmit = async () => {
@@ -2235,7 +2245,7 @@ export default function RespCVNeuroLog() {
 
         {/* ← Back */}
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/fio2-auc/${enrollmentId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15} /> FiO₂ AUC
         </button>
 

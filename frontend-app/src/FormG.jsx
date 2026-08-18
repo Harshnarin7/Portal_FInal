@@ -505,6 +505,11 @@ export default function FormG() {
     }
   };
 
+  const handlePrevious = async () => {
+    try { await handleSubmit(); } catch (err) { console.error("Save before back failed:", err); }
+    navigate(`/form-f/${formData.enrollment_id}`);
+  };
+
   /* ════════════════════ RENDER ════════════════════ */
   return (
     <div className="rop-page">
@@ -899,7 +904,7 @@ export default function FormG() {
       {/* ══ STICKY FOOTER NAVIGATION BAR ══ */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/form-f/${formData.enrollment_id}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15} /> Form F
         </button>
 

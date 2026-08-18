@@ -1167,7 +1167,10 @@ export default function FormC() {
   // page happened to be previous in this tab's history — not necessarily
   // Form B. Navigate to the actual Form B route (using this enrollment's
   // own screening_id) instead.
-  const handlePrevious = () => {
+  const handlePrevious = async () => {
+    if (session.isDirty) {
+      try { await session.doSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
     if (screeningIdForBack) navigate(`/form-b/${screeningIdForBack}`);
     else navigate(-1);
   };

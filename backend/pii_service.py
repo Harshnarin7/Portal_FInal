@@ -93,6 +93,51 @@ def _merge(existing: ParticipantPII | None, **fields: Any) -> dict[str, Any]:
     return out
 
 
+def _collapse_pii_duplicates(
+    db: Session,
+    keep: ParticipantPII,
+    drop: ParticipantPII,
+    *,
+    enrollment_id: str | None = None,
+    screening_id: str | None = None,
+) -> ParticipantPII:
+    """Merge two PII rows that represent the same participant.
+
+    Form A typically creates a row keyed only by screening_id. Form B/C may
+    later create a second row keyed only by enrollment_id. Stamping
+    screening_id onto the enrollment row then hits
+    ix_participant_pii_screening_id. Collapse into one row instead.
+    """
+    if keep.id == drop.id:
+        return keep
+
+    drop_eid = drop.enrollment_id
+    drop_sid = drop.screening_id
+    drop.enrollment_id = None
+    drop.screening_id = None
+    db.flush()
+
+    skip = {"id", "created_at", "updated_at", "enrollment_id", "screening_id"}
+    for col in ParticipantPII.__table__.columns:
+        name = col.name
+        if name in skip:
+            continue
+        if getattr(keep, name) is None:
+            drop_val = getattr(drop, name)
+            if drop_val is not None:
+                setattr(keep, name, drop_val)
+
+    preferred_eid = enrollment_id or keep.enrollment_id or drop_eid
+    preferred_sid = screening_id or keep.screening_id or drop_sid
+    keep.enrollment_id = preferred_eid
+    keep.screening_id = preferred_sid
+
+    db.delete(drop)
+    db.flush()
+    keep.updated_at = utc_now()
+    return keep
+
+
 def upsert_participant_pii(
     db: Session,
     *,
@@ -101,19 +146,36 @@ def upsert_participant_pii(
     site_name: str | None = None,
     **fields: Any,
 ) -> ParticipantPII:
-    record = None
+    by_enrollment = None
+    by_screening = None
     if enrollment_id:
-        record = (
+        by_enrollment = (
             db.query(ParticipantPII)
             .filter(ParticipantPII.enrollment_id == enrollment_id)
             .first()
         )
-    if record is None and screening_id:
-        record = (
+    if screening_id:
+        by_screening = (
             db.query(ParticipantPII)
             .filter(ParticipantPII.screening_id == screening_id)
             .first()
         )
+
+    record = None
+    if by_enrollment and by_screening and by_enrollment.id != by_screening.id:
+        # Prefer the screening-keyed row (Form A identity) and fold the
+        # enrollment-only row into it.
+        record = _collapse_pii_duplicates(
+            db,
+            by_screening,
+            by_enrollment,
+            enrollment_id=enrollment_id,
+            screening_id=screening_id,
+        )
+    elif by_enrollment:
+        record = by_enrollment
+    elif by_screening:
+        record = by_screening
 
     merged = _merge(record, **fields)
 
@@ -126,10 +188,46 @@ def upsert_participant_pii(
         )
         db.add(record)
     else:
-        if enrollment_id and not record.enrollment_id:
+        if enrollment_id and record.enrollment_id != enrollment_id:
+            other = (
+                db.query(ParticipantPII)
+                .filter(
+                    ParticipantPII.enrollment_id == enrollment_id,
+                    ParticipantPII.id != record.id,
+                )
+                .first()
+            )
+            if other:
+                record = _collapse_pii_duplicates(
+                    db, record, other,
+                    enrollment_id=enrollment_id,
+                    screening_id=screening_id or record.screening_id,
+                )
+            else:
+                record.enrollment_id = enrollment_id
+        elif enrollment_id and not record.enrollment_id:
             record.enrollment_id = enrollment_id
-        if screening_id and not record.screening_id:
+
+        if screening_id and record.screening_id != screening_id:
+            other = (
+                db.query(ParticipantPII)
+                .filter(
+                    ParticipantPII.screening_id == screening_id,
+                    ParticipantPII.id != record.id,
+                )
+                .first()
+            )
+            if other:
+                record = _collapse_pii_duplicates(
+                    db, other, record,
+                    enrollment_id=enrollment_id or record.enrollment_id,
+                    screening_id=screening_id,
+                )
+            elif not record.screening_id:
+                record.screening_id = screening_id
+        elif screening_id and not record.screening_id:
             record.screening_id = screening_id
+
         if site_name:
             record.site_name = site_name
 
@@ -195,21 +293,26 @@ def get_pii_for_participant(
     enrollment_id: str | None = None,
     screening_id: str | None = None,
 ) -> ParticipantPII | None:
+    by_enrollment = None
+    by_screening = None
     if enrollment_id:
-        row = (
+        by_enrollment = (
             db.query(ParticipantPII)
             .filter(ParticipantPII.enrollment_id == enrollment_id)
             .first()
         )
-        if row:
-            return row
     if screening_id:
-        return (
+        by_screening = (
             db.query(ParticipantPII)
             .filter(ParticipantPII.screening_id == screening_id)
             .first()
         )
-    return None
+    # Prefer Form A (screening-keyed) identity when two rows still exist;
+    # Form B save will collapse them. Do not return the enrollment-only stub
+    # and hide the mother's Form A name / UID.
+    if by_screening:
+        return by_screening
+    return by_enrollment
 
 
 def migrate_legacy_pii(db: Session) -> int:

@@ -234,6 +234,82 @@ def test_upsert_matches_by_screening_id_when_no_enrollment(db):
     assert record.husband_first_name == "Ram"
 
 
+def test_upsert_collapses_screening_row_and_enrollment_only_row(db):
+    """Form A and Form B can create two PII rows for the same mother.
+
+    Stamping screening_id onto the enrollment-only row used to hit
+    ix_participant_pii_screening_id. Collapse into the Form A row instead.
+    """
+    form_a = pii.upsert_participant_pii(
+        db,
+        screening_id="01-9996",
+        mother_first_name="FormA",
+        maternal_uid="UID-A",
+    )
+    db.commit()
+
+    form_b = pii.upsert_participant_pii(
+        db,
+        enrollment_id="ENR-9996",
+        mother_first_name="FormB",
+        mother_contact="99999",
+    )
+    db.commit()
+    assert db.query(models.ParticipantPII).count() == 2
+    assert form_a.id != form_b.id
+
+    merged = pii.upsert_participant_pii(
+        db,
+        enrollment_id="ENR-9996",
+        screening_id="01-9996",
+        mother_first_name="FormB-updated",
+    )
+    db.commit()
+
+    rows = db.query(models.ParticipantPII).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.id == form_a.id
+    assert row.screening_id == "01-9996"
+    assert row.enrollment_id == "ENR-9996"
+    assert row.mother_first_name == "FormB-updated"
+    assert row.maternal_uid == "UID-A"
+    assert row.mother_contact == "99999"
+    assert merged.id == form_a.id
+
+
+def test_split_and_store_pii_collapses_duplicate_form_b_rows(db):
+    pii.upsert_participant_pii(
+        db, screening_id="01-9996", mother_first_name="FormA"
+    )
+    pii.upsert_participant_pii(
+        db, enrollment_id="ENR-9996", mother_first_name="Stub"
+    )
+    db.commit()
+
+    payload = {
+        "enrollment_id": "ENR-9996",
+        "mother_name_first": "Saved",
+        "gestation_weeks": 28,
+    }
+    returned = pii.split_and_store_pii(
+        db,
+        payload,
+        pii.BIRTH_PII_FIELDS,
+        enrollment_id="ENR-9996",
+        screening_id="01-9996",
+    )
+    db.commit()
+
+    assert "mother_name_first" not in returned
+    assert returned["gestation_weeks"] == 28
+    rows = db.query(models.ParticipantPII).all()
+    assert len(rows) == 1
+    assert rows[0].screening_id == "01-9996"
+    assert rows[0].enrollment_id == "ENR-9996"
+    assert rows[0].mother_first_name == "Saved"
+
+
 # ---------------------------------------------------------------------------
 # get_pii_for_participant
 # ---------------------------------------------------------------------------
@@ -258,6 +334,22 @@ def test_get_pii_for_participant_by_screening(db):
 def test_get_pii_for_participant_not_found(db):
     assert pii.get_pii_for_participant(db, enrollment_id="MISSING") is None
     assert pii.get_pii_for_participant(db) is None
+
+
+def test_get_pii_prefers_screening_row_when_duplicates_exist(db):
+    pii.upsert_participant_pii(
+        db, screening_id="01-9996", mother_first_name="FormA"
+    )
+    pii.upsert_participant_pii(
+        db, enrollment_id="ENR-9996", mother_first_name="Stub"
+    )
+    db.commit()
+    found = pii.get_pii_for_participant(
+        db, enrollment_id="ENR-9996", screening_id="01-9996"
+    )
+    assert found is not None
+    assert found.screening_id == "01-9996"
+    assert found.mother_first_name == "FormA"
 
 
 # ---------------------------------------------------------------------------

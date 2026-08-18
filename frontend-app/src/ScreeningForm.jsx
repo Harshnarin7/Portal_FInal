@@ -11,6 +11,7 @@ import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, Home, Pencil,
   Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
@@ -984,6 +985,8 @@ export default function ScreeningForm() {
 
   autoSaveRef.current = autoSave;
 
+  useRegisterActiveFormSession(() => isDirtyRef.current, autoSave);
+
   /* ─── Start 10-second interval once form is loaded (stable — not reset on keystroke) ── */
   useEffect(() => {
     if (!dataLoaded) return;
@@ -1076,6 +1079,13 @@ export default function ScreeningForm() {
       setMessage(`❌ ${msg}`);
       window.scrollTo({ top:0, behavior:"smooth" });
     }
+  };
+
+  const handlePrevious = async () => {
+    if (isDirty) {
+      try { await autoSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate("/dashboard");
   };
 
   const handleNext = async () => {
@@ -1829,7 +1839,7 @@ export default function ScreeningForm() {
 
       {/* ── STICKY NAVIGATION BAR ── */}
       <div className="form-navigation">
-        <button type="button" className="btn btn-secondary" onClick={() => navigate("/dashboard")}>
+        <button type="button" className="btn btn-secondary" onClick={handlePrevious}>
           <ArrowLeft size={15}/> Dashboard
         </button>
         <button type="button" className="btn btn-save" onClick={saveForm}>

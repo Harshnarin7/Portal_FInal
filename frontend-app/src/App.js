@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation 
 import { Activity, ClipboardList, Home, Plus, Users } from "lucide-react";
 
 import { FormProgressProvider } from "./context/FormProgressContext";
+import { ActiveFormSessionProvider } from "./context/ActiveFormSessionContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PatientProvider } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -244,9 +245,11 @@ function App() {
   return (
     <Router>
       <FormProgressProvider>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
+        <ActiveFormSessionProvider>
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </ActiveFormSessionProvider>
       </FormProgressProvider>
     </Router>
   );

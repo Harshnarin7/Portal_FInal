@@ -8,6 +8,7 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
@@ -898,6 +899,15 @@ export default function InfectGIHemaLog() {
     }
   };
 
+  const handlePrevious = async () => {
+    if (isFieldEditable) {
+      try { await handleSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/vs6-1/${enrollmentId}`);
+  };
+
+  useRegisterActiveFormSession(() => isFieldEditable, handleSave);
+
   /* ── Submit ── */
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -1648,7 +1658,7 @@ export default function InfectGIHemaLog() {
       {/* ══ STICKY FOOTER ══ */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/vs6-1/${enrollmentId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15} /> Resp-CV-Neuro
         </button>
 

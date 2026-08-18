@@ -644,7 +644,10 @@ export default function FormK() {
       {saveMessage && <p className="fk-save-msg">{saveMessage}</p>}
 
       <FormNavBar
-        onBack={() => navigate(`/form-j/${formData.enrollment_id}`, { state: { enrollmentId: formData.enrollment_id } })}
+        onBack={async () => {
+          try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          navigate(`/form-j/${formData.enrollment_id}`, { state: { enrollmentId: formData.enrollment_id } });
+        }}
         onSave={saveForm}
         onNext={async () => {
           const ok = await saveForm();

@@ -55,6 +55,13 @@ def test_blender_letter_rejects_invalid():
         pass
 
 
+def test_blender_letter_autofills_from_enrollment_id():
+    data = BirthResuscitationCreate(enrollment_id="01-A-001")
+    assert data.blender_letter == "A"
+    data = BirthResuscitationCreate(enrollment_id="02-C-012", blender_letter="B")
+    assert data.blender_letter == "C"
+
+
 def test_birth_resuscitation_schema_preserves_device_and_adrenaline_details():
     data = BirthResuscitationCreate(
         sib_peep_with="Yes",

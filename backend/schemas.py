@@ -597,6 +597,15 @@ class BirthResuscitationCreate(BaseModel):
             raise ValueError("Blender Unit ID must be A, B, C, or D")
         return letter
 
+    @model_validator(mode="after")
+    def blender_letter_from_enrollment_id(self):
+        """Enrollment IDs are `{site}-{A|B|C|D}-{serial}`; the letter is the blender."""
+        eid = (self.enrollment_id or "").strip().upper()
+        parts = eid.split("-")
+        if len(parts) >= 2 and parts[1] in {"A", "B", "C", "D"}:
+            self.blender_letter = parts[1]
+        return self
+
     @field_validator("gestation_weeks", "gestation_rand_weeks")
     @classmethod
     def validate_gestation_weeks(cls, v):

@@ -3323,7 +3323,8 @@ const num = (v) => {
   };
 
   // Bottom nav bar — Back to Form G (ROP Screening).
-  const handleNavBack = () => {
+  const handleNavBack = async () => {
+    try { await saveFormH(); } catch (err) { console.error("Save before back failed:", err); }
     navigate(`/form-g/${formData.enrollment_id}`, {
       state: { enrollmentId: formData.enrollment_id },
     });

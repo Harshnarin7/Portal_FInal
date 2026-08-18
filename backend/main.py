@@ -413,12 +413,9 @@ def link_screening_enrollment(
         {"enrollment_id": eid}
     )
     try:
-        pii = get_pii_for_participant(db, screening_id=sid, enrollment_id=eid)
-        if pii:
-            if not pii.enrollment_id:
-                pii.enrollment_id = eid
-            if not pii.screening_id:
-                pii.screening_id = sid
+        # Merge Form A (screening_id) and Form B (enrollment_id) PII rows if
+        # they split; never stamp screening_id onto a second row.
+        upsert_participant_pii(db, enrollment_id=eid, screening_id=sid)
     except Exception:
         pass
     db.commit()
@@ -1058,14 +1055,6 @@ def create_birth_resuscitation(
     require_enrollment_access(enrollment_id, db, current_user)
     # Re-bind so payload / DB row use the resolved id (incl. NR- placeholders).
     data = data.model_copy(update={"enrollment_id": enrollment_id})
-    payload = split_and_store_pii(
-        db,
-        data.model_dump(exclude_unset=True),
-        BIRTH_PII_FIELDS,
-        enrollment_id=enrollment_id,
-        screening_id=data.screening_id,
-        site_name=site_for_enrollment(db, enrollment_id),
-    )
     # FIX: this had no try/except at all. enrollment_id is typed in by hand
     # on Form B (there's no backend generator for it, unlike screening_id),
     # and birth_resuscitation.enrollment_id IS unique at the DB level ? so a
@@ -1073,6 +1062,14 @@ def create_birth_resuscitation(
     # an unhandled 500 / raw psycopg2 traceback, the exact same failure mode
     # the screening_id bug had. Now it's caught and returned as a clear 409.
     try:
+        payload = split_and_store_pii(
+            db,
+            data.model_dump(exclude_unset=True),
+            BIRTH_PII_FIELDS,
+            enrollment_id=enrollment_id,
+            screening_id=data.screening_id,
+            site_name=site_for_enrollment(db, enrollment_id),
+        )
         existing = (
             db.query(BirthResuscitation)
             .filter(BirthResuscitation.enrollment_id == enrollment_id)
@@ -2658,13 +2655,25 @@ def get_enrollment_status(
         .filter(NICUAdmission.enrollment_id == enrollment_id)
         .first()
     )
+    # Opening Form E copies baby_uid / baby_name from Form B, then autosave
+    # (or a helper Day-1 date stub) writes a nicu_admission row. Those must
+    # not green-tick the sidebar. finalized is set only by the explicit Save
+    # button. Legacy rows saved before that flag existed still count if they
+    # have real Form E clinical data — not identification copied from Form B.
     form_e = bool(
         nicu
         and (
-            nicu.admission_datetime is not None
-            or nicu.baby_uid not in (None, "")
-            or nicu.temp_dr is not None
-            or nicu.transport_mode not in (None, "")
+            nicu.finalized is True
+            or (
+                nicu.admission_datetime is not None
+                and (
+                    nicu.temp_dr is not None
+                    or nicu.temp_skin is not None
+                    or nicu.temp_axillary is not None
+                    or (nicu.nicu_mode_resp not in (None, ""))
+                    or (nicu.completed_by not in (None, ""))
+                )
+            )
         )
     )
 

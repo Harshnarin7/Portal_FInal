@@ -10,6 +10,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import {
   ArrowLeft, ArrowRight, Save, Home,
@@ -633,6 +634,15 @@ export default function FormD() {
     } catch (err) {
       setMessage("❌ Draft save failed — " + (err?.response?.data?.detail || err.message));
     }
+  };
+
+  useRegisterActiveFormSession(isDirty, saveForLater);
+
+  const handlePrevious = async () => {
+    if (isDirty) {
+      try { await saveForLater(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/form-c/${enrollmentId}`);
   };
 
   /* ── Payload builder (shared by save, auto-save, save-for-later) ── */
@@ -1589,7 +1599,7 @@ export default function FormD() {
 
       {/* STICKY FOOTER */}
       <div className="form-navigation">
-        <button type="button" className="btn btn-secondary btn-outline" onClick={() => navigate(`/form-c/${enrollmentId}`)}>
+        <button type="button" className="btn btn-secondary btn-outline" onClick={handlePrevious}>
           <ArrowLeft size={15} /> Maternal Details
         </button>
         <button type="button"

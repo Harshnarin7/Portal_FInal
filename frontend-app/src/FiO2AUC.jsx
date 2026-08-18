@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import api from "./api/axios";
 import { ArrowLeft, ArrowRight, Save, RefreshCw } from "lucide-react";
 import "./styles/global.css";
@@ -579,6 +580,8 @@ export default function Fio2AUCForm() {
     }
   }, [enrollmentId, hasUnsavedChanges]);
 
+  useRegisterActiveFormSession(hasUnsavedChanges, autoSave);
+
   /*  Auto-save interval (10 seconds)  */
   useEffect(() => {
     daysRef.current = days;
@@ -687,12 +690,10 @@ export default function Fio2AUCForm() {
   };
 
   const handlePrevious = async () => {
-    if (isSaved) {
-      navigate(`/form-e/${enrollmentId}`);
-    } else {
-      const ok = await handleSubmit();
-      if (ok) navigate(`/form-e/${enrollmentId}`);
+    if (hasUnsavedChanges) {
+      try { await autoSave(); } catch (err) { console.error("Save before back failed:", err); }
     }
+    navigate(`/form-e/${enrollmentId}`);
   };
 
   // FIX (Export PDF): previously just called window.print() directly, which

@@ -991,7 +991,8 @@ export default function FormI() {
     }
   };
 
-  const handleNavBack = () => {
+  const handleNavBack = async () => {
+    try { await saveFormI(); } catch (err) { console.error("Save before back failed:", err); }
     navigate(`/form-h/${formData.enrollment_id}`, { state: { enrollmentId: formData.enrollment_id } });
   };
   const handleNavNext = () => {

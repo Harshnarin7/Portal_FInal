@@ -12,6 +12,7 @@ import {
 import "./styles/FormF.css";
 import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { resolveEffectiveGestation } from "./utils/gestation";
 
 /* ══════════════════════════════════════════════════════
@@ -527,6 +528,15 @@ export default function FormF() {
     }
   };
 
+  const handlePrevious = async () => {
+    if (!isSubmitted) {
+      try { await handleSaveDraft(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
+  };
+
+  useRegisterActiveFormSession(() => !isSubmitted && (!isSaved || isEditing), handleSaveDraft);
+
   const handleNext = async () => {
     try {
       if (!isSubmitted) {
@@ -944,7 +954,7 @@ export default function FormF() {
       <div className="form-navigation">
 
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15} /> Metab Helper Form
         </button>
 

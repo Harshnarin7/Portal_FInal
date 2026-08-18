@@ -7,6 +7,7 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
@@ -1405,6 +1406,15 @@ export default function MetabRenalVascEyeLog() {
     } catch (_) { setMessage("❌ Error saving — please try again"); }
   };
 
+  const handlePrevious = async () => {
+    if (isFieldEditable) {
+      try { await handleSave(); } catch (err) { console.error("Save before back failed:", err); }
+    }
+    navigate(`/infect-gi-hema-log/${enrollmentId}`);
+  };
+
+  useRegisterActiveFormSession(() => isFieldEditable, handleSave);
+
   /* ── Submit ── */
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -2269,7 +2279,7 @@ export default function MetabRenalVascEyeLog() {
       {/* ── Sticky Footer ── */}
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/infect-gi-hema-log/${enrollmentId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15}/> Infect-GI-Hema
         </button>
 

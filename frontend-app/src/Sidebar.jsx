@@ -9,6 +9,7 @@ import {
   LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X,
 } from 'lucide-react';
 import { useFormProgress } from './context/FormProgressContext';
+import { useActiveFormSessionRegistry } from './context/ActiveFormSessionContext';
 import { useAuth } from './context/AuthContext';
 import api from './api/axios';
 import { isUsableEnrollmentId } from './utils/enrollmentId';
@@ -107,11 +108,31 @@ export default function Sidebar({ currentForm }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { getActiveSession } = useActiveFormSessionRegistry() || {};
 
   // ≤1024px: sticky bar + overlay drawer (does not push form content)
   const [navOpen, setNavOpen] = useState(false);
   const closeNav = () => setNavOpen(false);
   const toggleNav = () => setNavOpen(o => !o);
+
+  const guardedNavigate = async (e, to) => {
+    e?.preventDefault?.();
+    const session = getActiveSession?.() || null;
+    if (session?.isDirty?.()) {
+      try {
+        await session.doSave();
+      } catch (err) {
+        const proceed = window.confirm(
+          "This form couldn't be saved (you may be offline). Leave anyway and " +
+          "lose unsaved changes, or stay and try again?\n\nOK = leave anyway, " +
+          "Cancel = stay on this page."
+        );
+        if (!proceed) return;
+      }
+    }
+    closeNav();
+    navigate(to);
+  };
 
   useEffect(() => { setNavOpen(false); }, [location.pathname]);
 
@@ -351,7 +372,7 @@ export default function Sidebar({ currentForm }) {
 
       {/* Desktop header */}
       <div className="sidebar-header">
-        <div className="sidebar-brand" onClick={() => navigate('/dashboard')} title="Dashboard">
+        <div className="sidebar-brand" onClick={() => guardedNavigate(null, '/dashboard')} title="Dashboard">
           <div className="sidebar-logo-box">
             <img src="/logo.png" alt="PORTAL" className="sidebar-logo-img" />
           </div>
@@ -391,19 +412,19 @@ export default function Sidebar({ currentForm }) {
         </div>
         <div className="sidebar-nav-inner">
           <NavLink to="/dashboard"
-            onClick={closeNav}
+            onClick={(e) => guardedNavigate(e, '/dashboard')}
             className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
             <LayoutDashboard size={14} strokeWidth={2} />
             <span>Dashboard</span>
           </NavLink>
           <NavLink to="/trial-monitoring"
-            onClick={closeNav}
+            onClick={(e) => guardedNavigate(e, '/trial-monitoring')}
             className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
             <BarChart3 size={14} strokeWidth={2} />
             <span>Trial Monitoring</span>
           </NavLink>
           <NavLink to="/helper-form-records"
-            onClick={closeNav}
+            onClick={(e) => guardedNavigate(e, '/helper-form-records')}
             className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
             <ClipboardList size={14} strokeWidth={2} />
             <span>Helper Form Records</span>
@@ -453,7 +474,7 @@ export default function Sidebar({ currentForm }) {
                           alert(`Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);
                           return;
                         }
-                        closeNav();
+                        guardedNavigate(e, path);
                       }}
                       className={({ isActive }) =>
                         `sidebar-item ${stateClass}${isActive && !locked ? ' nav-active' : ''}`

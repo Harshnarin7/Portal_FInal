@@ -7,6 +7,7 @@ import {
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
+import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { toDateOnlyValue } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
@@ -574,6 +575,15 @@ export default function MinimalMonitoringLog() {
 
   const handleSave = () => persist({ silent: false, runValidate: true });
 
+  const handlePrevious = async () => {
+    try { await persist({ silent: true, runValidate: false }); } catch (err) {
+      console.error("Save before back failed:", err);
+    }
+    navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
+  };
+
+  useRegisterActiveFormSession(true, () => persist({ silent: true, runValidate: false }));
+
   /* Debounced autosave (~1.5s) after hydrate */
   useEffect(() => {
     if (!hydratedRef.current || !enrollmentId || saveTick === 0) return;
@@ -1070,7 +1080,7 @@ export default function MinimalMonitoringLog() {
 
       <div className="form-navigation">
         <button type="button" className="btn btn-secondary btn-outline"
-          onClick={() => navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`)}>
+          onClick={handlePrevious}>
           <ArrowLeft size={15} /> Metab Helper Form
         </button>
         <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSave} disabled={saving}>

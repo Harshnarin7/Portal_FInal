@@ -25,6 +25,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../api/axios";
 import { relativeTime } from "../utils/datetime";
+import { useActiveFormSessionRegistry } from "../context/ActiveFormSessionContext";
 
 export default function useFormSession({
   formKey,
@@ -46,6 +47,8 @@ export default function useFormSession({
   const autoSaveTimer   = useRef(null);
   const isInitialRender = useRef(true);
   const isDirtyRef      = useRef(false);
+  const doSaveRef       = useRef(null);
+  const registry        = useActiveFormSessionRegistry();
 
   /* ── Mark dirty (call this whenever formData changes) ── */
   const markDirty = useCallback(() => {
@@ -113,6 +116,20 @@ export default function useFormSession({
       throw err;
     }
   }, [enabled, isLoaded, recordId, endpoint, buildPayload]); // eslint-disable-line
+
+  doSaveRef.current = doSave;
+
+  /* Register with Sidebar so in-app NavLink navigation can flush drafts.
+     Dashboard / read-only pages never call this hook, so getActiveSession()
+     stays null there and guardedNavigate is a no-op. */
+  useEffect(() => {
+    if (!registry) return undefined;
+    registry.register({
+      isDirty: () => isDirtyRef.current,
+      doSave: () => doSaveRef.current?.(),
+    });
+    return () => registry.unregister();
+  }, [registry]);
 
   /* ── Auto-save interval (10s) — only while enabled and dirty ── */
   useEffect(() => {
