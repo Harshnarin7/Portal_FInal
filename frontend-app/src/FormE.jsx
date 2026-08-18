@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/FormC.css";
+import "./styles/FormC1.css";
 import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import useFormSession from "./hooks/useFormSession";
@@ -16,31 +17,44 @@ import {
   CheckCircle, AlertTriangle, XCircle,
 } from "lucide-react";
 
-/* ── Segmented Toggle (same as FormC/D) ── */
+/* ── Toggle — same compact Yes/No control as Form C ── */
 function Toggle({ name, value, options, onChange, disabled, error }) {
-  const isWide = options.length > 3;
+  const isActive = (opt) => {
+    const v = typeof opt === "object" ? opt.value : opt;
+    if (value === v) return true;
+    if (v === "Yes" && value === true)  return true;
+    if (v === "No"  && value === false) return true;
+    return String(value) === String(v);
+  };
+
   return (
     <>
-      <div className={`emr-toggle-group${isWide ? " wide-toggle" : ""}${disabled ? " disabled" : ""}${error ? " toggle-error" : ""}`}>
-        {options.map(opt => {
-          const v = typeof opt === "object" ? opt.value : opt;
-          const l = typeof opt === "object" ? opt.label : opt;
-          const active = value === v;
-          const sv = String(v).toLowerCase();
-          let cls = "emr-toggle-btn";
-          if (active) {
-            cls += " selected";
-            if (sv === "yes" || v === true) cls += " yes-active";
-            else if (sv === "no" || v === false) cls += " no-active";
-            else cls += " other-active";
-          }
-          return (
-            <button key={String(v)} type="button" disabled={disabled} className={cls}
-              onClick={() => !disabled && onChange(name, v)}>
-              {l}
-            </button>
-          );
-        })}
+      <div style={{ display: "block", lineHeight: 0 }}>
+        <div className={`fc-toggle-group${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
+          {options.map((opt, idx) => {
+            const v = typeof opt === "object" ? opt.value : opt;
+            const l = typeof opt === "object" ? opt.label : opt;
+            const active = isActive(opt);
+            const sv = String(v).toLowerCase();
+            let activeCls = "";
+            if (active) {
+              if (sv === "yes" || v === true)        activeCls = " fc-yes";
+              else if (sv === "no" || v === false)   activeCls = " fc-no";
+              else                                    activeCls = " fc-other";
+            }
+            return (
+              <button
+                key={String(v)}
+                type="button"
+                disabled={disabled}
+                className={`fc-toggle-btn${active ? " fc-active" + activeCls : ""}${idx > 0 ? " fc-divider" : ""}`}
+                onClick={() => !disabled && onChange(name, v)}
+              >
+                {l}
+              </button>
+            );
+          })}
+        </div>
       </div>
       {error && <div className="field-error">{error}</div>}
     </>

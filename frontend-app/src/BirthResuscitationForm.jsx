@@ -131,6 +131,34 @@ function ModernTimeInput({ hour, minute, second, onChange, disabled = false }) {
 // so toggle buttons here showed NO visual feedback whatsoever for which
 // option was selected: no background highlight, no active text color,
 // nothing. Now identical to ScreeningForm.jsx's working version.
+function LetterToggle({
+  label, name, value, onChange, disabled = false,
+  letters = ["A", "B", "C", "D"],
+}) {
+  const fire = (val) => {
+    if (disabled) return;
+    onChange({ target: { name, value: val } });
+  };
+  return (
+    <div className={`yes-no-toggle letter-toggle${disabled ? " yn-disabled" : ""}`}>
+      <span className="yes-no-label">{label}</span>
+      <div className="letter-toggle-group" role="group" aria-label={typeof label === "string" ? label : "Blender Unit ID"}>
+        {letters.map((letter) => (
+          <button
+            key={letter}
+            type="button"
+            disabled={disabled}
+            className={`letter-toggle-btn${value === letter ? " is-active" : ""}`}
+            onClick={() => fire(letter)}
+          >
+            {letter}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function YesNoToggle({
   label, name, value, onChange, disabled = false,
   yesLabel = "YES", noLabel = "NO",
@@ -823,7 +851,7 @@ export default function BirthResuscitationForm() {
       fluid_bolus_doses:   optionalNum(fd.fluid_bolus_doses),
       fluid_bolus_cumulative: optionalNum(fd.fluid_bolus_cumulative),
       placental_transfusion: yn(fd.placental_transfusion),
-      transfusion_method:  fd.transfusion_method || null,
+      transfusion_method:  fd.placental_transfusion === "Yes" ? (fd.transfusion_method || null) : null,
       cord_clamp_timestamp: fd.cord_clamp_timestamp || null,
       cord_clamp_time:     optionalNumInRange(fd.cord_clamp_time, 0, 300),
       time_to_respiration: durationHmsToSeconds(formatDurationHms(fd.time_to_respiration)),
@@ -851,6 +879,7 @@ export default function BirthResuscitationForm() {
         ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
       blender_stopped:     yn(fd.blender_stopped),
       blender_stopped_description: fd.blender_stopped_description || null,
+      blender_letter:      ["A", "B", "C", "D"].includes(fd.blender_letter) ? fd.blender_letter : null,
       interventions:       {
         oxygen: fd.interventions?.oxygen || {},
         cpap: fd.interventions?.cpap || {},
@@ -956,7 +985,7 @@ export default function BirthResuscitationForm() {
       if(formData.fluid_bolus==="Yes" && !formData.fluid_bolus_cumulative)
         add("B4. Fluid Bolus Cumulative Volume/Dose", "fluid_bolus_cumulative");
       if(!formData.placental_transfusion) add("B4. Placental Transfusion", "placental_transfusion");
-      if(!formData.transfusion_method)
+      if(formData.placental_transfusion==="Yes" && !formData.transfusion_method)
         add("B4. Placental Transfusion Method", "transfusion_method");
       if(!formData.cord_clamp_timestamp)
         add("B4. Cord Clamp Timestamp", "cord_clamp_timestamp");
@@ -985,6 +1014,8 @@ export default function BirthResuscitationForm() {
       if(!formData.blender_stopped) add("B6. PORTAL Blender Status",  "blender_stopped");
       if(formData.blender_stopped==="Yes" && !formData.blender_stopped_description)
         add("B6. Blender Stop Description", "blender_stopped_description");
+      if(!["A","B","C","D"].includes(formData.blender_letter))
+        add("B6. Blender Unit ID", "blender_letter");
       }
     }
     return m;
@@ -1024,9 +1055,29 @@ export default function BirthResuscitationForm() {
       }
       const body = { ...payload, enrollment_id: existingId };
 
-      const res = hasBirthRecordRef.current
-        ? await api.put(`/birth-resuscitation/${existingId}`, body)
-        : await api.post("/birth-resuscitation/", body);
+      // FIX: hasBirthRecordRef can go stale (e.g. a previous save under a
+      // different NR-/stub id, or the flag surviving a form reset) and PUT
+      // to an enrollment_id that was never actually created, which the
+      // backend correctly 404s. Self-heal by retrying as a create instead
+      // of surfacing a crash â€” see api/axios.js for why this used to blow
+      // up with "Cannot read properties of null" instead of a real error.
+      let res;
+      try {
+        res = hasBirthRecordRef.current
+          ? await api.put(`/birth-resuscitation/${existingId}`, body)
+          : await api.post("/birth-resuscitation/", body);
+      } catch (e) {
+        if (hasBirthRecordRef.current && e?.response?.status === 404) {
+          hasBirthRecordRef.current = false;
+          res = await api.post("/birth-resuscitation/", body);
+        } else {
+          throw e;
+        }
+      }
+
+      if (!res?.data) {
+        throw new Error("Server returned an empty response. Please try saving again.");
+      }
 
       const eid = res.data.enrollment_id;
       const savedSid = res.data.screening_id;
@@ -1080,9 +1131,23 @@ export default function BirthResuscitationForm() {
     const body = { ...payload, enrollment_id: existingId };
 
     try {
-      const res = hasBirthRecordRef.current
-        ? await api.put(`/birth-resuscitation/${existingId}`, body)
-        : await api.post("/birth-resuscitation/", body);
+      let res;
+      try {
+        res = hasBirthRecordRef.current
+          ? await api.put(`/birth-resuscitation/${existingId}`, body)
+          : await api.post("/birth-resuscitation/", body);
+      } catch (e) {
+        if (hasBirthRecordRef.current && e?.response?.status === 404) {
+          hasBirthRecordRef.current = false;
+          res = await api.post("/birth-resuscitation/", body);
+        } else {
+          throw e;
+        }
+      }
+
+      if (!res?.data) {
+        throw new Error("Server returned an empty response. Please try saving again.");
+      }
 
       const eid = res.data.enrollment_id;
       const savedSid = res.data.screening_id;
@@ -1155,7 +1220,18 @@ export default function BirthResuscitationForm() {
 
       let res;
       if (hasBirthRecordRef.current) {
-        res = await api.put(`/birth-resuscitation/${eid}`, payload);
+        try {
+          res = await api.put(`/birth-resuscitation/${eid}`, payload);
+        } catch (putErr) {
+          /* Stale flag — row was never actually created under this id. */
+          if (putErr?.response?.status === 404) {
+            hasBirthRecordRef.current = false;
+            res = await api.post("/birth-resuscitation/", payload);
+            hasBirthRecordRef.current = true;
+          } else {
+            throw putErr;
+          }
+        }
       } else {
         /* No row yet — POST. create_birth_resuscitation upserts if the
            enrollment_id already exists, so this is safe to retry. */
@@ -1170,6 +1246,10 @@ export default function BirthResuscitationForm() {
           }
         }
         hasBirthRecordRef.current = true;
+      }
+
+      if (!res?.data) {
+        throw new Error("Server returned an empty response.");
       }
 
       const newEid = res.data.enrollment_id || eid;
@@ -1293,6 +1373,7 @@ export default function BirthResuscitationForm() {
             ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.indication_for_delivery || []),
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
+          blender_letter:    ["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : "",
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
           // Field 57: MM:SS string (legacy integer minutes → "MM:00")
@@ -2102,22 +2183,27 @@ export default function BirthResuscitationForm() {
                     </div>
                   )}
 
-                  {/* 41–44 independent — 42/43/44 are not gated on 41 */}
+                  {/* 41. Placental transfusion — 42 Method only when Yes */}
                   <YesNoToggle label={<>41. Placental transfusion{requiredMark}</>}
                     name="placental_transfusion" value={formData.placental_transfusion}
-                    onChange={handleChange}
+                    onChange={e=>{
+                      handleChange(e);
+                      if (e.target.value === "No") set({ transfusion_method: "" });
+                    }}
                     disabled={!isFieldEditable}/>
                   <div className="form-grid-2">
-                    <div className="form-group">
-                      <label>42. Method{requiredMark}</label>
-                      <select name="transfusion_method" value={formData.transfusion_method||""}
-                        disabled={!isFieldEditable}
-                        onChange={handleChange}>
-                        <option value="">-- Select --</option>
-                        <option value="Deferred clamping">Deferred clamping</option>
-                        <option value="Intact cord milking">Intact cord milking</option>
-                      </select>
-                    </div>
+                    {formData.placental_transfusion === "Yes" && (
+                      <div className="form-group">
+                        <label>42. Method{requiredMark}</label>
+                        <select name="transfusion_method" value={formData.transfusion_method||""}
+                          disabled={!isFieldEditable}
+                          onChange={handleChange}>
+                          <option value="">-- Select --</option>
+                          <option value="Deferred clamping">Deferred clamping</option>
+                          <option value="Intact cord milking">Intact cord milking</option>
+                        </select>
+                      </div>
+                    )}
                     <div className="form-group">
                       <label>43. Cord clamped at (HH:MM:SS){requiredMark}</label>
                       <ModernTimeInput
@@ -2405,6 +2491,13 @@ export default function BirthResuscitationForm() {
                       </div>
                     </div>
                   )}
+
+                  <LetterToggle
+                    label={<>60. Blender Unit ID{requiredMark}</>}
+                    name="blender_letter"
+                    value={formData.blender_letter}
+                    onChange={handleChange}
+                    disabled={!isFieldEditable}/>
 
                 </div>
               </div>

@@ -122,7 +122,11 @@ export default function useFormSession({
     }
     clearInterval(autoSaveTimer.current);
     autoSaveTimer.current = setInterval(() => {
-      if (isDirtyRef.current) doSave();
+      if (!isDirtyRef.current) return;
+      doSave().catch((err) => {
+        const detail = err?.response?.data?.detail;
+        console.warn("Form autosave skipped:", detail || err?.message || err);
+      });
     }, 10000);
     return () => clearInterval(autoSaveTimer.current);
   }, [doSave, enabled]);

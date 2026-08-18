@@ -536,6 +536,7 @@ class BirthResuscitationCreate(BaseModel):
         "cord_sbe",
         "cord_pco2",
         "spo2_exit_trial_gas",
+        "blender_letter",
         mode="before",
     )
     @classmethod
@@ -582,6 +583,16 @@ class BirthResuscitationCreate(BaseModel):
         if len(v) != 10:
             raise ValueError("Contact must be exactly 10 digits")
         return v
+
+    @field_validator("blender_letter")
+    @classmethod
+    def validate_blender_letter(cls, v):
+        if v is None or v == "":
+            return None
+        letter = str(v).strip().upper()
+        if letter not in {"A", "B", "C", "D"}:
+            raise ValueError("Blender Unit ID must be A, B, C, or D")
+        return letter
 
     @field_validator("gestation_weeks", "gestation_rand_weeks")
     @classmethod
@@ -808,6 +819,30 @@ class MaternalDetailsCreate(BaseModel):
         if v is None:
             return v
         return str(v)
+
+    @field_validator(
+        "mother_age",
+        "gravida",
+        "parity",
+        "abortions",
+        "live",
+        "still",
+        "anc_visits",
+        "steroid_beta_doses",
+        "steroid_dexa_doses",
+        "steroid_beta_courses",
+        "steroid_dexa_courses",
+        "mgso4_gestation_weeks",
+        "mgso4_gestation_days",
+        "steroid_date",
+        "mgso4_date",
+        mode="before",
+    )
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class MaternalDetailsOut(MaternalDetailsCreate):

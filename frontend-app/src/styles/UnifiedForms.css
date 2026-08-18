@@ -76,9 +76,10 @@ body { color: var(--portal-ink); background: var(--portal-canvas); }
 .error-text, .field-error { color: #dc2626 !important; font-size: 12px !important; font-weight: 600; }
 .input-error, [aria-invalid="true"] { border-color: #ef4444 !important; background: #fff7f7 !important; }
 
-/* Do NOT include .yn-btn here — Form A/B Yes/No is a compact 32px segment
-   control; min-height:42px + border-radius makes YES/NO stack and break. */
-.emr-toggle-btn, .rx-horizontal-btn, .rcn-yn-btn, .rcn-pill,
+/* Do NOT include .yn-btn or .emr-toggle-btn here — those are compact
+   segmented controls; min-height:42px + 10px radius makes the selected
+   pill sit inside the track with mismatched corners. */
+.rx-horizontal-btn, .rcn-yn-btn, .rcn-pill,
 .stage-pill, .mode-option, .checkbox-item { min-height: 42px; border-radius: 10px !important; }
 .form-layout-content input[type="checkbox"], .form-layout-content input[type="radio"] {
   width: 18px; height: 18px; accent-color: var(--portal-blue);

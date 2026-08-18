@@ -374,9 +374,14 @@ export default function FormC() {
   }, [formData.anc_visits]);
 
   /* ── Auto-calc MgSO4 gestation at administration ──
-     GA (days) = 280 − (EDD − adminDate) using calendar days only.
+     GA (days) = adminDate − (DOB − gestation_at_birth).
+     This anchors the calculation to the baby’s Date of Birth (DOB),
+     instead of using Form A’s LMP.
+
+     If the app doesn’t have the baby’s gestation-at-birth (weeks/days),
+     we fall back to 280 days (40 weeks) so the field still auto-fills.
      DatePicker values can carry a wall-clock time; comparing those with
-     midnight EDD via Math.floor(ms/86400000) drifts by ±1 day — normalize
+     midnight dates via Math.floor(ms/86400000) drifts by ±1 day — normalize
      both to local calendar dates first (same approach as Form A GA). */
   useEffect(() => {
     const toLocalDay = (value) => {
@@ -395,15 +400,25 @@ export default function FormC() {
       return;
     }
 
-    const edd = toLocalDay(formData.edd);
-    const lmp = toLocalDay(formData.lmp);
-    let gestDays = null;
-    if (edd) {
-      const daysUntilEdd = Math.round((edd.getTime() - admin.getTime()) / 86400000);
-      gestDays = 280 - daysUntilEdd;
-    } else if (lmp) {
-      gestDays = Math.round((admin.getTime() - lmp.getTime()) / 86400000);
+    const birth = toLocalDay(formData.dob || patientData?.dob);
+    if (!birth) return; // can't compute without DOB anchor
+
+    // PatientContext may store gestation as "weeks+days" (e.g. "27+3").
+    // BirthResuscitationForm updatePatientData uses that shape.
+    const gestStr = patientData?.gestation;
+    let gestAtBirthDays = null;
+    if (typeof gestStr === "string" && gestStr.includes("+")) {
+      const [wRaw, dRaw] = gestStr.split("+");
+      const w = Number(wRaw);
+      const d = Number(dRaw || 0);
+      if (Number.isFinite(w) && Number.isFinite(d) && w >= 0 && d >= 0) {
+        gestAtBirthDays = w * 7 + d;
+      }
     }
+    if (gestAtBirthDays == null) gestAtBirthDays = 280; // fallback: 40 weeks
+
+    const lmpFromDob = new Date(birth.getTime() - gestAtBirthDays * 86400000);
+    const gestDays = Math.round((admin.getTime() - lmpFromDob.getTime()) / 86400000);
 
     if (gestDays == null || gestDays < 0 || gestDays > 314) {
       if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
@@ -417,22 +432,51 @@ export default function FormC() {
     if (formData.mgso4_gestation_weeks !== weeks || formData.mgso4_gestation_days !== days) {
       set({ mgso4_gestation_weeks: weeks, mgso4_gestation_days: days });
     }
-  }, [formData.mgso4_date, formData.edd, formData.lmp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formData.mgso4_date, formData.dob, patientData?.dob, patientData?.gestation]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Triple I computation (auto) ──
+   *
+   * Rules:
+   * - If Q47 (maternal_fever) === "No" => triple_i = "No" immediately
+   * - If Q47 === "Yes" => evaluate only Q48–Q51:
+   *     fetal_tachycardia, maternal_tlc_high, maternal_tachycardia,
+   *     maternal_abdominal_tenderness
+   *   - If at least 2 of these 4 are "Yes" => triple_i = "Yes"
+   *   - Else, once all 4 are answered (non-empty) => triple_i = "No"
+   *   - Otherwise => unresolved => triple_i = ""
+   *
+   * IMPORTANT: Do NOT include Q53 (foul_smelling_liquor) in this calculation.
+   */
+  const computeTripleI = (d) => {
+    const q47 = d?.maternal_fever ?? "";
+    if (q47 === "No") return "No";
+    if (q47 !== "Yes") return "";
+
+    const fields = [
+      d?.fetal_tachycardia ?? "",
+      d?.maternal_tlc_high ?? "",
+      d?.maternal_tachycardia ?? "",
+      d?.maternal_abdominal_tenderness ?? "",
+    ];
+
+    const yesCount = fields.filter(v => v === "Yes").length;
+    const allAnswered = fields.every(v => v !== "");
+
+    if (yesCount >= 2) return "Yes";
+    if (allAnswered) return "No";
+    return "";
+  };
 
   /* ── Auto-calc Triple I from infection fields ── */
   useEffect(() => {
-    const infectionFields = [
-      formData.maternal_fever, formData.fetal_tachycardia,
-      formData.maternal_tlc_high, formData.maternal_tachycardia,
-      formData.maternal_abdominal_tenderness, formData.foul_smelling_liquor,
-    ];
-    const yesCount   = infectionFields.filter(v => v === "Yes").length;
-    const allAnswered = infectionFields.every(v => v !== "");
-    if (yesCount >= 2)  set({ triple_i: "Yes" });
-    else if (allAnswered) set({ triple_i: "No" });
+    const next = computeTripleI(formData);
+    if (formData.triple_i !== next) set({ triple_i: next });
   }, [
-    formData.maternal_fever, formData.fetal_tachycardia, formData.maternal_tlc_high,
-    formData.maternal_tachycardia, formData.maternal_abdominal_tenderness, formData.foul_smelling_liquor
+    formData.maternal_fever,
+    formData.fetal_tachycardia,
+    formData.maternal_tlc_high,
+    formData.maternal_tachycardia,
+    formData.maternal_abdominal_tenderness,
   ]); // eslint-disable-line
 
   /* ── No known disorders clears all ── */
@@ -1621,12 +1665,12 @@ export default function FormC() {
                         <FieldError msg={E("mgso4_date")}/>
                       </div>
                       <div className="form-group">
-                        <label>28. Gestation at administration <span className="field-note">(auto from EDD)</span></label>
+                        <label>28. Gestation at administration <span className="field-note">(auto from DOB)</span></label>
                         <input value={formData.mgso4_gestation_weeks!==""&&formData.mgso4_gestation_weeks!=null
                           ? `${formData.mgso4_gestation_weeks}w ${formData.mgso4_gestation_days ?? 0}d`
                           : ""}
                           readOnly className="readonly-input"
-                          placeholder={!formData.edd && !formData.lmp ? "Needs EDD/LMP from Form A" : "auto"}/>
+                          placeholder={!(formData.dob || patientData?.dob) ? "Needs DOB from Form B" : "auto"}/>
                       </div>
                     </div>
                   </div>
@@ -1969,18 +2013,7 @@ export default function FormC() {
                   <div className="form-group">
                     <label>52. Intrauterine Inflammation or Infection or both (triple ‘I’) <span className="field-note">(auto filled)</span></label>
                     <input
-                      value={
-                        [formData.maternal_fever, formData.fetal_tachycardia,
-                         formData.maternal_tlc_high, formData.maternal_tachycardia,
-                         formData.maternal_abdominal_tenderness, formData.foul_smelling_liquor]
-                          .filter(v => v === "Yes").length >= 2
-                          ? "Yes" : (
-                          [formData.maternal_fever, formData.fetal_tachycardia,
-                           formData.maternal_tlc_high, formData.maternal_tachycardia,
-                           formData.maternal_abdominal_tenderness, formData.foul_smelling_liquor]
-                            .every(v => v !== "")
-                          ? "No" : "")
-                      }
+                      value={computeTripleI(formData)}
                       readOnly className="readonly-input" placeholder="Auto-calculated"/>
                   </div>
                 </div>

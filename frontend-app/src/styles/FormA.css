@@ -408,6 +408,39 @@
 .yes-no-toggle:first-of-type { padding-top: 0; }
 .yes-no-toggle.yn-disabled { opacity: 0.6; }
 
+.letter-toggle-group {
+  display: inline-flex;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.letter-toggle-btn {
+  width: 44px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
+}
+.letter-toggle-btn + .letter-toggle-btn {
+  border-left: 1.5px solid #d1d5db;
+}
+.letter-toggle-btn:hover:not(:disabled):not(.is-active) {
+  background: #f3f4f6;
+  color: #374151;
+}
+.letter-toggle-btn.is-active {
+  background: #1e3a5f;
+  color: #fff;
+}
+.letter-toggle-btn:disabled {
+  cursor: not-allowed;
+}
+
 .yes-no-label {
   font-size: 13px; font-weight: 500; color: #111827;
   flex: 1; line-height: 1.45; padding-right: 16px;

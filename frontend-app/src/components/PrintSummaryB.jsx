@@ -259,6 +259,7 @@ function PrintReportB({ formData = {} }) {
               {formData.blender_stopped_description && (
                 <R label="Blender Stopped — Detail" value={formData.blender_stopped_description} />
               )}
+              <R label="Blender Unit ID" value={formData.blender_letter} />
             </tbody></table>
           </div>
         </div>

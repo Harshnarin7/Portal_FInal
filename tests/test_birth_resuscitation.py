@@ -39,6 +39,22 @@ def test_birth_resuscitation_schema_preserves_clinical_sections():
     assert payload["interventions"] == interventions
 
 
+def test_blender_letter_accepts_a_to_d():
+    data = BirthResuscitationCreate(blender_letter="b")
+    assert data.blender_letter == "B"
+    data = BirthResuscitationCreate(blender_letter="")
+    assert data.blender_letter is None
+
+
+def test_blender_letter_rejects_invalid():
+    from pydantic import ValidationError
+    try:
+        BirthResuscitationCreate(blender_letter="E")
+        raise AssertionError("expected ValidationError")
+    except ValidationError:
+        pass
+
+
 def test_birth_resuscitation_schema_preserves_device_and_adrenaline_details():
     data = BirthResuscitationCreate(
         sib_peep_with="Yes",

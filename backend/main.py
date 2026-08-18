@@ -1292,8 +1292,6 @@ def create_maternal_details(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
-    if not data.landmark or not data.landmark.strip():
-        raise HTTPException(status_code=422, detail="Nearest landmark is required")
     payload = split_and_store_pii(
         db,
         data.model_dump(),
@@ -1339,8 +1337,6 @@ def update_maternal_details(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
-    if not data.landmark or not data.landmark.strip():
-        raise HTTPException(status_code=422, detail="Nearest landmark is required")
     record = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == enrollment_id)

@@ -76,7 +76,17 @@ api.interceptors.response.use(
       window.location.href = "/login";
     }
 
-    if (error.response?.status === 404) {
+    // FIX: this used to swallow a 404 from ANY method (GET/PUT/POST/DELETE)
+    // and resolve it as {data: null} instead of rejecting. That's fine for a
+    // "does this record exist yet" GET, but a 404 on PUT/POST means the save
+    // itself failed (e.g. Form B's hasBirthRecordRef thought a row existed
+    // and PUT'd to it, but the row was never actually created) — silently
+    // handing back {data: null} instead of a real error made every such
+    // failure crash downstream with "Cannot read properties of null" instead
+    // of showing the actual "Not found" message. Only GET gets the soft
+    // 404 treatment now; writes always reject so their catch blocks see it.
+    const method = (originalRequest?.method || "get").toLowerCase();
+    if (error.response?.status === 404 && method === "get") {
       console.log("404 handled safely:", originalRequest?.url);
       return Promise.resolve({ data: null });
     }
