@@ -949,8 +949,16 @@ export default function ScreeningForm() {
     const sid = screeningIdRef.current;
     const existingId = (sid || (storedId && storedId !== "undefined" && storedId !== "null" ? storedId : null)) || null;
 
-    /* Don't create a new DB row until the nurse has picked a site */
-    if (!existingId && !fd.site_name) return;
+    /* Don't create a new DB row on casual/exploratory form opens. Site alone
+       was too weak a gate — picking a site plus typing a couple of unrelated
+       fields was enough to spawn a real "Pending" row in View Entries. Now
+       require site_name AND at least one patient-identifying field
+       (maternal UID or hospital admission number) — i.e. actual intent to
+       screen a specific patient, not just someone poking around the form. */
+    if (!existingId && !(
+      fd.site_name &&
+      (fd.maternal_uid?.trim() || fd.hospital_admission_number?.trim())
+    )) return;
 
     if (!navigator.onLine) {
       setOfflineQueue(true);

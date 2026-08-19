@@ -491,16 +491,26 @@ export default function FormE() {
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
         const dob = normalizeDobYmd(b?.date_of_birth);
         const tob = normalizeTobHms(b?.time_of_birth);
-        setFormData({
-          ...emptyFormE(),
+        // Merge onto whatever is already in formData instead of replacing it
+        // wholesale. Phase 2 (saved Form E record) can resolve before this
+        // Phase 1 callback runs, since Phase 1 chains extra lookups
+        // (screenings/by-enrollment, pii/screening) and is slower/less
+        // predictable. A full setFormData({...emptyFormE(), ...}) here would
+        // silently wipe out any already-loaded saved answers whenever that
+        // happens. Merging preserves them while still filling identification
+        // fields from Form B.
+        setFormData(prev => ({
+          ...prev,
           enrollment_id: enrollmentId,
-          baby_uid: b?.baby_uid || "",
-          baby_name: motherName ? `Baby of ${motherName}` : (b?.baby_name || ""),
-          annual_number: b?.annual_number || "",
-          date_of_birth: dob,
-          time_of_birth: tob,
-          age_at_admission_hours: calcAgeAtAdmissionHours(dob, tob, "") || "",
-        });
+          baby_uid: b?.baby_uid || prev.baby_uid || "",
+          baby_name: motherName ? `Baby of ${motherName}` : (b?.baby_name || prev.baby_name || ""),
+          annual_number: b?.annual_number || prev.annual_number || "",
+          date_of_birth: dob || prev.date_of_birth,
+          time_of_birth: tob || prev.time_of_birth,
+          age_at_admission_hours: prev.age_at_admission_hours
+            || calcAgeAtAdmissionHours(dob, tob, prev.admission_datetime || "")
+            || "",
+        }));
       })
       .catch(() => {
         if (cancelled) return;

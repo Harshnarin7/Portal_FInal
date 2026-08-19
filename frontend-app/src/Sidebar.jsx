@@ -378,7 +378,7 @@ export default function Sidebar({ currentForm }) {
           </div>
           <div>
             <div className="sidebar-header-title">PORTAL Trial</div>
-            <div className="sidebar-header-sub">Clinical EDC · CRF v1.25</div>
+            <div className="sidebar-header-sub">Clinical EDC · CRF 1.26</div>
           </div>
         </div>
         <div className="sidebar-progress">
@@ -404,7 +404,7 @@ export default function Sidebar({ currentForm }) {
         <div className="sidebar-drawer-head">
           <div>
             <div className="sidebar-drawer-title">Forms</div>
-            <div className="sidebar-drawer-sub">PORTAL Trial · CRF v1.25</div>
+            <div className="sidebar-drawer-sub">PORTAL Trial · CRF v1.26</div>
           </div>
           <button type="button" className="sidebar-drawer-close" onClick={closeNav} aria-label="Close">
             <X size={16} strokeWidth={2.5} />

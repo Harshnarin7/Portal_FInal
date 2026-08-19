@@ -15,7 +15,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 # Scientist -> Nurse. Stored lowercase/snake_case in User.role.
 # ============================================================================
 ROLE_SUPERADMIN = "superadmin"
-ROLE_PROJECT_SCIENTIST = "project_scientist"   # head of all sites, global read
+ROLE_PROJECT_SCIENTIST = "project_scientist"   # site-scoped, same as site_pi/site_scientist
 ROLE_SITE_PI = "site_pi"
 ROLE_SITE_SCIENTIST = "site_scientist"
 ROLE_NURSE = "nurse"
@@ -27,7 +27,11 @@ ALL_ROLES = frozenset({
 })
 
 # Roles that can see/act across every site, not just their own site_name.
-GLOBAL_ROLES = frozenset({ROLE_SUPERADMIN, ROLE_PROJECT_SCIENTIST})
+# As of Aug 2026 (Harsh's decision): ONLY superadmin gets cross-site visibility.
+# project_scientist was previously global ("head of all sites, global read") —
+# that was intentionally removed. Every other role, including project_scientist,
+# is now scoped to their own site_name in dashboards, View Entries, etc.
+GLOBAL_ROLES = frozenset({ROLE_SUPERADMIN})
 
 # Mobile app (Flutter UserRole enum) only knows ADMIN/PI/SCIENTIST/NURSE/DEO/MONITOR.
 # Both project_scientist (global) and site_scientist map to SCIENTIST; the mobile

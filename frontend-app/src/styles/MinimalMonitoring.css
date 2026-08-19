@@ -280,3 +280,237 @@
   }
   .mml-quicknav::-webkit-scrollbar { display: none; }
 }
+
+/* ============================================================
+   Drill-down navigation: headings → field list → single-field detail
+   ============================================================ */
+
+.mml-step-hint {
+  margin: 4px 24px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748B;
+}
+
+/* ── Level 1: heading tiles ── */
+.mml-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+  padding: 0 24px 24px;
+}
+
+.mml-section-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  background: #fff;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 16px 16px 16px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.mml-section-tile:hover {
+  border-color: #0F4C81;
+  box-shadow: 0 4px 14px rgba(15, 76, 129, 0.12);
+  transform: translateY(-1px);
+}
+.mml-section-tile--done {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: #F0FDF9;
+}
+
+.mml-section-tile-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #EFF6FF, #E0F2FE);
+  color: #0F4C81;
+}
+.mml-section-tile--done .mml-section-tile-icon {
+  background: linear-gradient(135deg, #ECFDF5, #D1FAE5);
+  color: #047857;
+}
+
+.mml-section-tile-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mml-section-tile-code {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font-size: 10px;
+}
+
+.mml-section-tile-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+.mml-section-tile-bar {
+  width: 100%;
+  height: 5px;
+  margin-top: 2px;
+}
+
+.mml-section-tile-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94A3B8;
+}
+
+.mml-section-tile-arrow {
+  flex: 0 0 auto;
+  color: #94A3B8;
+}
+.mml-section-tile-check {
+  flex: 0 0 auto;
+  color: #10B981;
+}
+
+/* ── Back button (shared by fields list & detail) ── */
+.mml-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 24px 14px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  border: 1.5px solid #E2E8F0;
+  background: #fff;
+  color: #0F4C81;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.mml-back-btn:hover {
+  border-color: #0F4C81;
+  background: #F0F9FF;
+}
+
+/* ── Level 2: field/variable picker list ── */
+.mml-fields-list {
+  padding: 0 0 24px;
+}
+
+.mml-fields-list-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 24px 4px;
+}
+.mml-fields-list-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+.mml-fields-list-hint {
+  margin: 0 24px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748B;
+}
+
+.mml-field-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 24px;
+}
+
+.mml-field-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: #fff;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mml-field-row:hover {
+  border-color: #0F4C81;
+  box-shadow: 0 2px 10px rgba(15, 76, 129, 0.1);
+}
+.mml-field-row--done {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: #F0FDF9;
+}
+
+.mml-field-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mml-field-row-label {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0F172A;
+}
+.mml-field-row-desc {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94A3B8;
+}
+
+.mml-field-row-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #94A3B8;
+}
+
+/* ── Level 3: single-field detail screen ── */
+.mml-detail {
+  padding: 0 24px 24px;
+}
+
+.mml-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+.mml-detail-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+@media (max-width: 720px) {
+  .mml-sections-grid {
+    grid-template-columns: 1fr;
+    padding: 0 16px 20px;
+  }
+  .mml-fields-list-title,
+  .mml-fields-list-hint,
+  .mml-field-rows,
+  .mml-back-btn,
+  .mml-detail {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+  .mml-field-rows { padding: 0 16px; }
+  .mml-detail { padding: 0 16px 20px; }
+}

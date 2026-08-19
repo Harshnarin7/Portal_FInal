@@ -281,7 +281,7 @@ function PrintReportB({ formData = {} }) {
       </div>
 
       <div className="pr-footer">
-        <span>PORTAL Trial · Form B · CRF v1.25</span>
+        <span>PORTAL Trial · Form B · CRF v1.26</span>
         <span>CONFIDENTIAL — Authorised study personnel only</span>
         <span>
           ID: {formData.enrollment_id || formData.screening_id || "—"} · Printed: {today}

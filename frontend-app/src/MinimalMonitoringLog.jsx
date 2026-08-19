@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, ChevronDown, Plus, Save, Trash2,
+  ArrowLeft, ChevronDown, ChevronRight, Plus, Save, Trash2, CheckCircle2,
   Heart, Wind, Beaker, Utensils, Brain, Droplet,
 } from "lucide-react";
 import api from "./api/axios";
@@ -35,6 +35,38 @@ const BLOCK_TO_SECTION = {
   heme_a: "hematology",
 };
 
+/** Ordered list of variable/field blocks under each heading — drives the
+ *  second-level "choose a field" list (e.g. Metabolic → Glucose / Lab
+ *  Reports / Electrolyte abnormality). */
+const BLOCKS_BY_SECTION = {
+  cardiovascular: ["cv_a", "cv_b", "cv_c", "cv_d"],
+  respiratory: ["resp_a", "resp_b", "resp_c", "resp_d"],
+  metabolic: ["met_a", "met_b", "met_c"],
+  gastrointestinal: ["gi_a", "gi_b"],
+  neurological: ["neuro_a", "neuro_b"],
+  hematology: ["heme_a"],
+};
+
+/** Friendly label + one-line description shown in the field-picker list. */
+const BLOCK_META = {
+  cv_a: { code: "5.1.A", label: "Vitals", desc: "Shift, axillary temp, SBP, DBP, MAP" },
+  cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given" },
+  cv_c: { code: "5.1.C", label: "Vasoactive Drugs", desc: "Agent, dose & unit" },
+  cv_d: { code: "5.1.D", label: "PDA Medical Rx", desc: "Agent for medical Rx of PDA & dose" },
+  resp_a: { code: "5.2.A", label: "Respiratory Support", desc: "Time, mode, max MAP/CPAP, max FiO₂" },
+  resp_b: { code: "5.2.B", label: "Blood Gas", desc: "pH, PaO₂, PaCO₂" },
+  resp_c: { code: "5.2.C", label: "Apnea / Desaturation", desc: "Episode counts per shift" },
+  resp_d: { code: "5.2.D", label: "Postnatal Steroids", desc: "Agent & dose" },
+  met_a: { code: "5.3.A", label: "Glucose", desc: "Spot glucose reading" },
+  met_b: { code: "5.3.B", label: "Lab Reports — ALP, Total Ca, P", desc: "ALP, total calcium & phosphorus" },
+  met_c: { code: "5.3.C", label: "Electrolyte Abnormality", desc: "Yes/No, Hypo/Hyper, symptomatic status" },
+  gi_a: { code: "5.4.A", label: "Feed Volume", desc: "Shift & cumulative feed volume" },
+  gi_b: { code: "5.4.B", label: "Direct Bilirubin", desc: "Direct bilirubin value" },
+  neuro_a: { code: "5.5.A", label: "Ventriculomegaly", desc: "Severity, VI, AHW" },
+  neuro_b: { code: "5.5.B", label: "Doppler", desc: "TOD, ACA RI, MCA RI" },
+  heme_a: { code: "5.6.A", label: "Transfusion", desc: "Products, count, PRBC volume" },
+};
+
 const pad2 = n => String(n).padStart(2, "0");
 const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -45,6 +77,8 @@ const stringToList = v => Array.isArray(v) ? v : String(v || "").split(",").map(
 const asNumber = v => v === "" || v === null || v === undefined ? null : Number(v);
 const asInteger = v => v === "" || v === null || v === undefined ? null : parseInt(v, 10);
 
+/** New entries always get today's date + the current clock time — this is
+ *  what makes the date/time on a freshly-opened field "autofill". */
 function freshEntry(fields = {}) {
   const d = new Date();
   return { id: uid(), date: toDateOnlyValue(d), time: nowTime(d), ...fields };
@@ -181,11 +215,14 @@ function countProgress(entries) {
     neurological: { done: 0, total: 0 },
     hematology: { done: 0, total: 0 },
   };
+  const byBlock = {};
+  Object.keys(BLOCK_TO_SECTION).forEach(b => { byBlock[b] = { done: 0, total: 0 }; });
 
-  const bump = (section, ok) => {
+  const bump = (section, block, ok) => {
     total += 1;
     bySection[section].total += 1;
-    if (ok) { done += 1; bySection[section].done += 1; }
+    byBlock[block].total += 1;
+    if (ok) { done += 1; bySection[section].done += 1; byBlock[block].done += 1; }
   };
 
   Object.entries(entries).forEach(([block, list]) => {
@@ -199,7 +236,7 @@ function countProgress(entries) {
         if (k === "electrolytes" && entry.electrolyte_abnormality !== true) return;
         if ((k === "vasoactive_dose" || k === "vasoactive_unit") && !(entry.vasoactive_drugs || []).length) return;
         if (k === "prbc_volume" && !(entry.transfusion_products || []).includes("PRBC")) return;
-        bump(section, ans(v));
+        bump(section, block, ans(v));
       });
     });
   });
@@ -209,6 +246,7 @@ function countProgress(entries) {
     total,
     pct: total ? Math.round((done / total) * 100) : 0,
     bySection,
+    byBlock,
     canSubmit: ans(entries.cv_a?.[0]?.date) && ans(entries.cv_a?.[0]?.shift),
   };
 }
@@ -224,43 +262,6 @@ function MetricCard({ label, value, tone = "blue" }) {
         <span className="rcn-pcard-value">{value || "-"}</span>
       </div>
     </div>
-  );
-}
-
-function SectionCard({
-  icon: Icon,
-  code,
-  title,
-  answered,
-  total,
-  children,
-  defaultOpen = true,
-  open: openProp,
-  onToggle,
-  sectionRef,
-}) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
-  const open = openProp !== undefined ? openProp : internalOpen;
-  const toggle = () => {
-    if (onToggle) onToggle(!open);
-    else setInternalOpen((o) => !o);
-  };
-  const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
-  return (
-    <section className="rcn-card mml-section-card" ref={sectionRef}>
-      <div className="rcn-card-header" onClick={toggle}>
-        <div className="rcn-card-header-left">
-          <div className="rcn-card-icon-wrap"><Icon size={20} className="rcn-card-icon" /></div>
-          <div><h3 className="rcn-card-title">{code} {title}</h3></div>
-        </div>
-        <div className="rcn-card-header-right">
-          <div className="rcn-card-prog-bar"><div className="rcn-card-prog-fill" style={{ width: `${pct}%` }} /></div>
-          <span className="rcn-card-prog-text">{answered}/{total}</span>
-          <div className={`rcn-chevron${open ? " rcn-chevron-open" : ""}`}><ChevronDown size={16} /></div>
-        </div>
-      </div>
-      {open && (<><div className="rcn-card-divider" /><div className="rcn-card-body">{children}</div></>)}
-    </section>
   );
 }
 
@@ -332,7 +333,8 @@ function YNToggle({ value, onChange, disabled }) {
   );
 }
 
-/** One lettered CRF block (5.x.Y) with date/time header and + Add support. */
+/** One lettered CRF block (5.x.Y) with date/time header (auto-filled for new
+ *  readings) and + Add support. Used inside the single-field detail screen. */
 function EntryBlock({
   code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
 }) {
@@ -375,6 +377,77 @@ function EntryBlock({
   );
 }
 
+/* ── Level 1: heading tiles (CVS, Respiratory, Metabolic, ...) ── */
+function SectionsGrid({ counts, onOpen }) {
+  return (
+    <div className="mml-sections-grid">
+      {SECTION_KEYS.map(key => {
+        const meta = SECTION_META[key];
+        const Icon = meta.icon;
+        const prog = counts.bySection[key] || { done: 0, total: 0 };
+        const pct = prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
+        const complete = prog.total > 0 && prog.done >= prog.total;
+        return (
+          <button type="button" key={key}
+            className={`mml-section-tile${complete ? " mml-section-tile--done" : ""}`}
+            onClick={() => onOpen(key)}>
+            <div className="mml-section-tile-icon"><Icon size={22} /></div>
+            <div className="mml-section-tile-body">
+              <span className="mml-subblock-code mml-section-tile-code">{meta.code}</span>
+              <h3 className="mml-section-tile-title">{meta.title}</h3>
+              <div className="rcn-card-prog-bar mml-section-tile-bar">
+                <div className="rcn-card-prog-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="mml-section-tile-count">{prog.done}/{prog.total} filled</span>
+            </div>
+            {complete ? <CheckCircle2 size={18} className="mml-section-tile-check" /> : <ChevronRight size={18} className="mml-section-tile-arrow" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Level 2: field/variable list within a chosen heading ── */
+function FieldsList({ sectionKey, counts, onOpen, onBack }) {
+  const meta = SECTION_META[sectionKey];
+  const Icon = meta.icon;
+  return (
+    <div className="mml-fields-list">
+      <button type="button" className="mml-back-btn" onClick={onBack}>
+        <ArrowLeft size={14} /> All sections
+      </button>
+      <div className="mml-fields-list-title">
+        <div className="mml-card-icon-wrap"><Icon size={18} /></div>
+        <h2>{meta.code} {meta.title}</h2>
+      </div>
+      <p className="mml-fields-list-hint">Choose what you want to fill in right now.</p>
+      <div className="mml-field-rows">
+        {BLOCKS_BY_SECTION[sectionKey].map(blockKey => {
+          const bMeta = BLOCK_META[blockKey];
+          const prog = counts.byBlock[blockKey] || { done: 0, total: 0 };
+          const complete = prog.total > 0 && prog.done >= prog.total;
+          return (
+            <button type="button" key={blockKey}
+              className={`mml-field-row${complete ? " mml-field-row--done" : ""}`}
+              onClick={() => onOpen(blockKey)}>
+              <span className="mml-subblock-code">{bMeta.code}</span>
+              <span className="mml-field-row-text">
+                <span className="mml-field-row-label">{bMeta.label}</span>
+                <span className="mml-field-row-desc">{bMeta.desc}</span>
+              </span>
+              <span className="mml-field-row-right">
+                <span className="mml-quicknav-badge">{prog.done}/{prog.total}</span>
+                <ChevronRight size={16} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════ */
@@ -397,24 +470,15 @@ export default function MinimalMonitoringLog() {
   const hydratedRef = useRef(false);
   const autosaveTimer = useRef(null);
 
-  /* Quick-nav: one ref per top-level section (5.1–5.6) */
-  const sectionRefs = {
-    cardiovascular: useRef(null),
-    respiratory: useRef(null),
-    metabolic: useRef(null),
-    gastrointestinal: useRef(null),
-    neurological: useRef(null),
-    hematology: useRef(null),
-  };
-  const [openSections, setOpenSections] = useState(() =>
-    Object.fromEntries(SECTION_KEYS.map((k) => [k, true]))
-  );
-  const goToSection = (key) => {
-    setOpenSections((prev) => ({ ...prev, [key]: true }));
-    requestAnimationFrame(() => {
-      sectionRefs[key]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  };
+  /* Drill-down navigation: sections → fields (within a section) → detail (a single field) */
+  const [view, setView] = useState("sections"); // "sections" | "fields" | "detail"
+  const [activeSection, setActiveSection] = useState(null);
+  const [activeBlock, setActiveBlock] = useState(null);
+
+  const openSection = (key) => { setActiveSection(key); setActiveBlock(null); setView("fields"); };
+  const openBlock = (key) => { setActiveBlock(key); setView("detail"); };
+  const backToSections = () => { setView("sections"); setActiveSection(null); setActiveBlock(null); };
+  const backToFields = () => { setView("fields"); setActiveBlock(null); };
 
   const isEditable = true;
   const counts = useMemo(() => countProgress(entries), [entries]);
@@ -599,6 +663,415 @@ export default function MinimalMonitoringLog() {
 
   const err = (block, idx, key) => errors[`${block}.${idx}.${key}`];
 
+  /** Renders the fields (Item/Num/PillSingle/etc.) for a single lettered
+   *  block — this is what shows up once the user drills into one variable,
+   *  e.g. Metabolic → Electrolyte abnormality. */
+  const renderBlockBody = (blockKey) => {
+    switch (blockKey) {
+      case "cv_a":
+        return (
+          <EntryBlock code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
+            onAdd={blank => addEntry("cv_a", blank)}
+            onRemove={i => removeEntry("cv_a", i)}
+            blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Select Shift" error={err("cv_a", i, "shift")}>
+                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
+                    onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Axillary Temp">
+                  <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
+                    disabled={!isEditable} unit="°C" />
+                </Item>
+                <Item n={3} label="SBP">
+                  <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
+                    disabled={!isEditable} unit="mm Hg" />
+                </Item>
+                <Item n={4} label="DBP">
+                  <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
+                    disabled={!isEditable} unit="mm Hg" />
+                </Item>
+                <Item n={5} label="MAP">
+                  <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
+                    disabled={!isEditable} unit="mm Hg" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "cv_b":
+        return (
+          <EntryBlock code="5.1.B" entries={entries.cv_b} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
+            onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
+            blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
+            {(e, i) => (
+              <Item n={1} label="Fluid Bolus given">
+                <Txt value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
+                  disabled={!isEditable} placeholder="e.g. 10ml/kg NS" />
+              </Item>
+            )}
+          </EntryBlock>
+        );
+      case "cv_c":
+        return (
+          <EntryBlock code="5.1.C" entries={entries.cv_c} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("cv_c", i, k, v)}
+            onAdd={blank => addEntry("cv_c", blank)} onRemove={i => removeEntry("cv_c", i)}
+            blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Vasoactive given">
+                  <PillMulti options={["Dopamine", "Dobutamine", "Epinephrine", "Milrinone", "Vasopressin", "Norepinephrine"]}
+                    value={e.vasoactive_drugs || []} onChange={v => setEntryField("cv_c", i, "vasoactive_drugs", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Dose administered">
+                  <Txt value={e.vasoactive_dose} onChange={v => setEntryField("cv_c", i, "vasoactive_dose", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={3} label="Unit">
+                  <PillSingle options={["mg/kg/min", "mcg/kg/min", "U/kg/min"]} value={e.vasoactive_unit}
+                    onChange={v => setEntryField("cv_c", i, "vasoactive_unit", v)} disabled={!isEditable} />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "cv_d":
+        return (
+          <EntryBlock code="5.1.D" entries={entries.cv_d} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("cv_d", i, k, v)}
+            onAdd={blank => addEntry("cv_d", blank)} onRemove={i => removeEntry("cv_d", i)}
+            blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Agent for Medical Rx of PDA">
+                  <PillMulti options={["Indo", "Ibu", "PCM"]} value={e.pda_agent || []}
+                    onChange={v => setEntryField("cv_d", i, "pda_agent", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Dose administered">
+                  <Num value={e.pda_dose} onChange={v => setEntryField("cv_d", i, "pda_dose", v)}
+                    disabled={!isEditable} unit="mg/kg" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "resp_a":
+        return (
+          <EntryBlock code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
+            onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
+            blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Time: Btw" sub="AM/PM range">
+                  <Txt value={e.time_range} onChange={v => setEntryField("resp_a", i, "time_range", v)}
+                    disabled={!isEditable} placeholder="e.g. 08:00–14:00" />
+                </Item>
+                <Item n={2} label="Mode">
+                  <PillMulti options={["NC", "HFNC", "CPAP", "NIPPV", "SIMV", "A/C", "PSV", "HFOV"]}
+                    value={e.respiratory_modes || []} onChange={v => setEntryField("resp_a", i, "respiratory_modes", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={3} label="Max MAP/CPAP of the hour">
+                  <Num value={e.max_map_cpap} onChange={v => setEntryField("resp_a", i, "max_map_cpap", v)}
+                    disabled={!isEditable} unit="cm H₂O" />
+                </Item>
+                <Item n={4} label="Max FiO₂ of the hour" error={err("resp_a", i, "max_fio2")}>
+                  <Num value={e.max_fio2} onChange={v => setEntryField("resp_a", i, "max_fio2", v)}
+                    disabled={!isEditable} unit="%" error={err("resp_a", i, "max_fio2")} />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "resp_b":
+        return (
+          <EntryBlock code="5.2.B" entries={entries.resp_b} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("resp_b", i, k, v)}
+            onAdd={blank => addEntry("resp_b", blank)} onRemove={i => removeEntry("resp_b", i)}
+            blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="pH" error={err("resp_b", i, "ph")}>
+                  <Num value={e.ph} onChange={v => setEntryField("resp_b", i, "ph", v)}
+                    disabled={!isEditable} step="0.01" error={err("resp_b", i, "ph")} />
+                </Item>
+                <Item n={2} label="PaO₂">
+                  <Num value={e.pao2} onChange={v => setEntryField("resp_b", i, "pao2", v)}
+                    disabled={!isEditable} unit="mm Hg" />
+                </Item>
+                <Item n={3} label="PaCO₂">
+                  <Num value={e.paco2} onChange={v => setEntryField("resp_b", i, "paco2", v)}
+                    disabled={!isEditable} unit="mm Hg" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "resp_c":
+        return (
+          <EntryBlock code="5.2.C" entries={entries.resp_c} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("resp_c", i, k, v)}
+            onAdd={blank => addEntry("resp_c", blank)} onRemove={i => removeEntry("resp_c", i)}
+            blankFactory={() => freshEntry({ shift: "", apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Select Shift">
+                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
+                    onChange={v => setEntryField("resp_c", i, "shift", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Apnea episodes" error={err("resp_c", i, "apnea_episodes")}>
+                  <Num value={e.apnea_episodes}
+                    onChange={v => setEntryField("resp_c", i, "apnea_episodes", v)}
+                    disabled={!isEditable} error={err("resp_c", i, "apnea_episodes")} />
+                </Item>
+                <Item n={3} label="Desaturation episodes" error={err("resp_c", i, "desaturation_episodes")}>
+                  <Num value={e.desaturation_episodes}
+                    onChange={v => setEntryField("resp_c", i, "desaturation_episodes", v)}
+                    disabled={!isEditable} error={err("resp_c", i, "desaturation_episodes")} />
+                </Item>
+                <Item n={4} label="Sev. desaturation episodes" error={err("resp_c", i, "severe_desaturation_episodes")}>
+                  <Num value={e.severe_desaturation_episodes}
+                    onChange={v => setEntryField("resp_c", i, "severe_desaturation_episodes", v)}
+                    disabled={!isEditable} error={err("resp_c", i, "severe_desaturation_episodes")} />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "resp_d":
+        return (
+          <EntryBlock code="5.2.D" entries={entries.resp_d} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("resp_d", i, k, v)}
+            onAdd={blank => addEntry("resp_d", blank)} onRemove={i => removeEntry("resp_d", i)}
+            blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Postnatal steroids">
+                  <PillMulti options={["Hydrocortisone", "Dexamethasone", "Budesonide", "Other"]}
+                    value={e.postnatal_steroids || []}
+                    onChange={v => setEntryField("resp_d", i, "postnatal_steroids", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Dose administered">
+                  <Num value={e.steroid_dose} onChange={v => setEntryField("resp_d", i, "steroid_dose", v)}
+                    disabled={!isEditable} unit="mg/kg" />
+                </Item>
+                {(e.postnatal_steroids || []).includes("Other") && (
+                  <Item n={3} label="If Other, specify" error={err("resp_d", i, "steroid_other")}>
+                    <Txt value={e.steroid_other}
+                      onChange={v => setEntryField("resp_d", i, "steroid_other", v)}
+                      disabled={!isEditable} error={err("resp_d", i, "steroid_other")}
+                      placeholder="Other steroid name" />
+                  </Item>
+                )}
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "met_a":
+        return (
+          <EntryBlock code="5.3.A" entries={entries.met_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
+            onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
+            blankFactory={() => freshEntry({ glucose: "" })}>
+            {(e, i) => (
+              <Item n={1} label="Glucose">
+                <Num value={e.glucose} onChange={v => setEntryField("met_a", i, "glucose", v)}
+                  disabled={!isEditable} unit="mg/dL" />
+              </Item>
+            )}
+          </EntryBlock>
+        );
+      case "met_b":
+        return (
+          <EntryBlock code="5.3.B" entries={entries.met_b} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("met_b", i, k, v)}
+            onAdd={blank => addEntry("met_b", blank)} onRemove={i => removeEntry("met_b", i)}
+            blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="ALP">
+                  <Num value={e.alp} onChange={v => setEntryField("met_b", i, "alp", v)}
+                    disabled={!isEditable} unit="IU/L" />
+                </Item>
+                <Item n={2} label="Total Ca">
+                  <Num value={e.total_calcium} onChange={v => setEntryField("met_b", i, "total_calcium", v)}
+                    disabled={!isEditable} unit="mg/dL" />
+                </Item>
+                <Item n={3} label="Phosphorus P">
+                  <Num value={e.phosphorus} onChange={v => setEntryField("met_b", i, "phosphorus", v)}
+                    disabled={!isEditable} unit="mg/dL" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "met_c":
+        return (
+          <EntryBlock code="5.3.C" entries={entries.met_c} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("met_c", i, k, v)}
+            onAdd={blank => addEntry("met_c", blank)} onRemove={i => removeEntry("met_c", i)}
+            blankFactory={() => freshEntry({
+              electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "",
+              symptomatic_status: "", symptomatic_detail: "",
+            })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Electrolyte abnormality">
+                  <YNToggle value={e.electrolyte_abnormality}
+                    onChange={v => setEntryField("met_c", i, "electrolyte_abnormality", v)}
+                    disabled={!isEditable} />
+                  {e.electrolyte_abnormality === true && (
+                    <div style={{ marginTop: 8 }}>
+                      <PillMulti options={["Na", "K", "Ionized Ca"]} value={e.electrolytes || []}
+                        onChange={v => setEntryField("met_c", i, "electrolytes", v)}
+                        disabled={!isEditable} />
+                    </div>
+                  )}
+                </Item>
+                <Item n={2} label="Hypo/Hyper">
+                  <PillSingle options={["Hypo", "Hyper"]} value={e.hypo_hyper}
+                    onChange={v => setEntryField("met_c", i, "hypo_hyper", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={3} label="Symptomatic/asymptomatic">
+                  <PillSingle options={["symptomatic", "asymptomatic"]} value={e.symptomatic_status}
+                    onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
+                </Item>
+                {e.symptomatic_status === "symptomatic" && (
+                  <Item n={4} label="If symptomatic" error={err("met_c", i, "symptomatic_detail")}>
+                    <Txt value={e.symptomatic_detail}
+                      onChange={v => setEntryField("met_c", i, "symptomatic_detail", v)}
+                      disabled={!isEditable} error={err("met_c", i, "symptomatic_detail")} />
+                  </Item>
+                )}
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "gi_a":
+        return (
+          <EntryBlock code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
+            onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
+            blankFactory={() => freshEntry({ shift: "", cumulative_feed_volume: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Select Shift">
+                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
+                    onChange={v => setEntryField("gi_a", i, "shift", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Cumulative feed volume">
+                  <Num value={e.cumulative_feed_volume}
+                    onChange={v => setEntryField("gi_a", i, "cumulative_feed_volume", v)}
+                    disabled={!isEditable} unit="ml" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "gi_b":
+        return (
+          <EntryBlock code="5.4.B" entries={entries.gi_b} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("gi_b", i, k, v)}
+            onAdd={blank => addEntry("gi_b", blank)} onRemove={i => removeEntry("gi_b", i)}
+            blankFactory={() => freshEntry({ direct_bilirubin: "" })}>
+            {(e, i) => (
+              <Item n={1} label="Direct Bilirubin">
+                <Num value={e.direct_bilirubin}
+                  onChange={v => setEntryField("gi_b", i, "direct_bilirubin", v)}
+                  disabled={!isEditable} unit="mg/dL" />
+              </Item>
+            )}
+          </EntryBlock>
+        );
+      case "neuro_a":
+        return (
+          <EntryBlock code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
+            onAdd={blank => addEntry("neuro_a", blank)} onRemove={i => removeEntry("neuro_a", i)}
+            blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Severity of Ventriculomegaly">
+                  <PillSingle options={["Mild", "Moderate", "Severe"]} value={e.ventriculomegaly_severity}
+                    onChange={v => setEntryField("neuro_a", i, "ventriculomegaly_severity", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="VI">
+                  <Num value={e.vi} onChange={v => setEntryField("neuro_a", i, "vi", v)}
+                    disabled={!isEditable} unit="mm" />
+                </Item>
+                <Item n={3} label="AHW">
+                  <Num value={e.ahw} onChange={v => setEntryField("neuro_a", i, "ahw", v)}
+                    disabled={!isEditable} unit="mm" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "neuro_b":
+        return (
+          <EntryBlock code="5.5.B" entries={entries.neuro_b} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
+            onAdd={blank => addEntry("neuro_b", blank)} onRemove={i => removeEntry("neuro_b", i)}
+            blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="TOD">
+                  <Num value={e.tod} onChange={v => setEntryField("neuro_b", i, "tod", v)}
+                    disabled={!isEditable} unit="mm" />
+                </Item>
+                <Item n={2} label="ACA RI">
+                  <Num value={e.aca_ri} onChange={v => setEntryField("neuro_b", i, "aca_ri", v)}
+                    disabled={!isEditable} step="0.01" />
+                </Item>
+                <Item n={3} label="MCA RI">
+                  <Num value={e.mca_ri} onChange={v => setEntryField("neuro_b", i, "mca_ri", v)}
+                    disabled={!isEditable} step="0.01" />
+                </Item>
+              </>
+            )}
+          </EntryBlock>
+        );
+      case "heme_a":
+        return (
+          <EntryBlock code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
+            onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
+            onAdd={blank => addEntry("heme_a", blank)} onRemove={i => removeEntry("heme_a", i)}
+            blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })}>
+            {(e, i) => (
+              <>
+                <Item n={1} label="Transfusion">
+                  <PillMulti options={["PRBC", "Platelets", "FFP/Cryo"]} value={e.transfusion_products || []}
+                    onChange={v => setEntryField("heme_a", i, "transfusion_products", v)}
+                    disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="No. of transfusions" error={err("heme_a", i, "transfusion_count")}>
+                  <Num value={e.transfusion_count}
+                    onChange={v => setEntryField("heme_a", i, "transfusion_count", v)}
+                    disabled={!isEditable} error={err("heme_a", i, "transfusion_count")} />
+                </Item>
+                {(e.transfusion_products || []).includes("PRBC") && (
+                  <Item n={3} label="If PRBC, volume">
+                    <Num value={e.prbc_volume} onChange={v => setEntryField("heme_a", i, "prbc_volume", v)}
+                      disabled={!isEditable} unit="ml/kg" />
+                  </Item>
+                )}
+              </>
+            )}
+          </EntryBlock>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <>
       <div className="rcn-page">
@@ -621,453 +1094,38 @@ export default function MinimalMonitoringLog() {
           </div>
         </div>
 
-        {/* Quick-nav rail — jumps to a section card */}
-        <nav className="mml-quicknav" aria-label="Jump to section">
-          {SECTION_KEYS.map((key) => {
-            const meta = SECTION_META[key];
-            const Icon = meta.icon;
-            const prog = counts.bySection[key] || { done: 0, total: 0 };
-            const complete = prog.total > 0 && prog.done >= prog.total;
-            return (
-              <button
-                type="button"
-                key={key}
-                className={complete ? "mml-quicknav-done" : ""}
-                onClick={() => goToSection(key)}
-                title={`${meta.code} ${meta.title}`}
-              >
-                <Icon size={13} />
-                <span className="mml-quicknav-label">{meta.code} {meta.title}</span>
-                <span className="mml-quicknav-badge">
-                  {prog.done}/{prog.total}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-
         {loading ? <div className="rcn-loading">Loading today's sheet...</div> : (
           <div className="rcn-sections">
 
-            {/* ════════════════ 5.1 CARDIOVASCULAR ════════════════ */}
-            <SectionCard icon={SECTION_META.cardiovascular.icon} code={SECTION_META.cardiovascular.code}
-              title={SECTION_META.cardiovascular.title}
-              answered={counts.bySection.cardiovascular.done} total={counts.bySection.cardiovascular.total}
-              open={openSections.cardiovascular}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, cardiovascular: v }))}
-              sectionRef={sectionRefs.cardiovascular}>
+            {view === "sections" && (
+              <>
+                <p className="mml-step-hint">Pick a heading to fill in its values.</p>
+                <SectionsGrid counts={counts} onOpen={openSection} />
+              </>
+            )}
 
-              <EntryBlock code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
-                onAdd={blank => addEntry("cv_a", blank)}
-                onRemove={i => removeEntry("cv_a", i)}
-                blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Select Shift" error={err("cv_a", i, "shift")}>
-                      <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                        onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Axillary Temp">
-                      <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
-                        disabled={!isEditable} unit="°C" />
-                    </Item>
-                    <Item n={3} label="SBP">
-                      <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
-                        disabled={!isEditable} unit="mm Hg" />
-                    </Item>
-                    <Item n={4} label="DBP">
-                      <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
-                        disabled={!isEditable} unit="mm Hg" />
-                    </Item>
-                    <Item n={5} label="MAP">
-                      <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
-                        disabled={!isEditable} unit="mm Hg" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
+            {view === "fields" && activeSection && (
+              <FieldsList
+                sectionKey={activeSection}
+                counts={counts}
+                onOpen={openBlock}
+                onBack={backToSections}
+              />
+            )}
 
-              <EntryBlock code="5.1.B" entries={entries.cv_b} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
-                onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
-                blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
-                {(e, i) => (
-                  <Item n={1} label="Fluid Bolus given">
-                    <Txt value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
-                      disabled={!isEditable} placeholder="e.g. 10ml/kg NS" />
-                  </Item>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.1.C" entries={entries.cv_c} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("cv_c", i, k, v)}
-                onAdd={blank => addEntry("cv_c", blank)} onRemove={i => removeEntry("cv_c", i)}
-                blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Vasoactive given">
-                      <PillMulti options={["Dopamine", "Dobutamine", "Epinephrine", "Milrinone", "Vasopressin", "Norepinephrine"]}
-                        value={e.vasoactive_drugs || []} onChange={v => setEntryField("cv_c", i, "vasoactive_drugs", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Dose administered">
-                      <Txt value={e.vasoactive_dose} onChange={v => setEntryField("cv_c", i, "vasoactive_dose", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={3} label="Unit">
-                      <PillSingle options={["mg/kg/min", "mcg/kg/min", "U/kg/min"]} value={e.vasoactive_unit}
-                        onChange={v => setEntryField("cv_c", i, "vasoactive_unit", v)} disabled={!isEditable} />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.1.D" entries={entries.cv_d} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("cv_d", i, k, v)}
-                onAdd={blank => addEntry("cv_d", blank)} onRemove={i => removeEntry("cv_d", i)}
-                blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Agent for Medical Rx of PDA">
-                      <PillMulti options={["Indo", "Ibu", "PCM"]} value={e.pda_agent || []}
-                        onChange={v => setEntryField("cv_d", i, "pda_agent", v)} disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Dose administered">
-                      <Num value={e.pda_dose} onChange={v => setEntryField("cv_d", i, "pda_dose", v)}
-                        disabled={!isEditable} unit="mg/kg" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-            </SectionCard>
-
-            {/* ════════════════ 5.2 RESPIRATORY ════════════════ */}
-            <SectionCard icon={SECTION_META.respiratory.icon} code={SECTION_META.respiratory.code}
-              title={SECTION_META.respiratory.title}
-              answered={counts.bySection.respiratory.done} total={counts.bySection.respiratory.total}
-              open={openSections.respiratory}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, respiratory: v }))}
-              sectionRef={sectionRefs.respiratory}>
-
-              <EntryBlock code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
-                onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
-                blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Time: Btw" sub="AM/PM range">
-                      <Txt value={e.time_range} onChange={v => setEntryField("resp_a", i, "time_range", v)}
-                        disabled={!isEditable} placeholder="e.g. 08:00–14:00" />
-                    </Item>
-                    <Item n={2} label="Mode">
-                      <PillMulti options={["NC", "HFNC", "CPAP", "NIPPV", "SIMV", "A/C", "PSV", "HFOV"]}
-                        value={e.respiratory_modes || []} onChange={v => setEntryField("resp_a", i, "respiratory_modes", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={3} label="Max MAP/CPAP of the hour">
-                      <Num value={e.max_map_cpap} onChange={v => setEntryField("resp_a", i, "max_map_cpap", v)}
-                        disabled={!isEditable} unit="cm H₂O" />
-                    </Item>
-                    <Item n={4} label="Max FiO₂ of the hour" error={err("resp_a", i, "max_fio2")}>
-                      <Num value={e.max_fio2} onChange={v => setEntryField("resp_a", i, "max_fio2", v)}
-                        disabled={!isEditable} unit="%" error={err("resp_a", i, "max_fio2")} />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.2.B" entries={entries.resp_b} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("resp_b", i, k, v)}
-                onAdd={blank => addEntry("resp_b", blank)} onRemove={i => removeEntry("resp_b", i)}
-                blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="pH" error={err("resp_b", i, "ph")}>
-                      <Num value={e.ph} onChange={v => setEntryField("resp_b", i, "ph", v)}
-                        disabled={!isEditable} step="0.01" error={err("resp_b", i, "ph")} />
-                    </Item>
-                    <Item n={2} label="PaO₂">
-                      <Num value={e.pao2} onChange={v => setEntryField("resp_b", i, "pao2", v)}
-                        disabled={!isEditable} unit="mmHg" />
-                    </Item>
-                    <Item n={3} label="PaCO₂">
-                      <Num value={e.paco2} onChange={v => setEntryField("resp_b", i, "paco2", v)}
-                        disabled={!isEditable} unit="mmHg" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.2.C" entries={entries.resp_c} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("resp_c", i, k, v)}
-                onAdd={blank => addEntry("resp_c", blank)} onRemove={i => removeEntry("resp_c", i)}
-                blankFactory={() => freshEntry({ shift: "", apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Select Shift">
-                      <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                        onChange={v => setEntryField("resp_c", i, "shift", v)} disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Apnea Episodes" error={err("resp_c", i, "apnea_episodes")}>
-                      <Num value={e.apnea_episodes} onChange={v => setEntryField("resp_c", i, "apnea_episodes", v)}
-                        disabled={!isEditable} error={err("resp_c", i, "apnea_episodes")} />
-                    </Item>
-                    <Item n={3} label="Desaturation episodes" error={err("resp_c", i, "desaturation_episodes")}>
-                      <Num value={e.desaturation_episodes}
-                        onChange={v => setEntryField("resp_c", i, "desaturation_episodes", v)}
-                        disabled={!isEditable} error={err("resp_c", i, "desaturation_episodes")} />
-                    </Item>
-                    <Item n={4} label="Sev. desaturation episodes" error={err("resp_c", i, "severe_desaturation_episodes")}>
-                      <Num value={e.severe_desaturation_episodes}
-                        onChange={v => setEntryField("resp_c", i, "severe_desaturation_episodes", v)}
-                        disabled={!isEditable} error={err("resp_c", i, "severe_desaturation_episodes")} />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.2.D" entries={entries.resp_d} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("resp_d", i, k, v)}
-                onAdd={blank => addEntry("resp_d", blank)} onRemove={i => removeEntry("resp_d", i)}
-                blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Postnatal steroids">
-                      <PillMulti options={["Hydrocortisone", "Dexamethasone", "Budesonide", "Other"]}
-                        value={e.postnatal_steroids || []}
-                        onChange={v => setEntryField("resp_d", i, "postnatal_steroids", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Dose administered">
-                      <Num value={e.steroid_dose} onChange={v => setEntryField("resp_d", i, "steroid_dose", v)}
-                        disabled={!isEditable} unit="mg/kg" />
-                    </Item>
-                    {(e.postnatal_steroids || []).includes("Other") && (
-                      <Item n={3} label="If Other, specify" error={err("resp_d", i, "steroid_other")}>
-                        <Txt value={e.steroid_other}
-                          onChange={v => setEntryField("resp_d", i, "steroid_other", v)}
-                          disabled={!isEditable} error={err("resp_d", i, "steroid_other")}
-                          placeholder="Other steroid name" />
-                      </Item>
-                    )}
-                  </>
-                )}
-              </EntryBlock>
-            </SectionCard>
-
-            {/* ════════════════ 5.3 METABOLIC ════════════════ */}
-            <SectionCard icon={SECTION_META.metabolic.icon} code={SECTION_META.metabolic.code}
-              title={SECTION_META.metabolic.title}
-              answered={counts.bySection.metabolic.done} total={counts.bySection.metabolic.total}
-              open={openSections.metabolic}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, metabolic: v }))}
-              sectionRef={sectionRefs.metabolic}>
-
-              <EntryBlock code="5.3.A" entries={entries.met_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
-                onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
-                blankFactory={() => freshEntry({ glucose: "" })}>
-                {(e, i) => (
-                  <Item n={1} label="Glucose">
-                    <Num value={e.glucose} onChange={v => setEntryField("met_a", i, "glucose", v)}
-                      disabled={!isEditable} unit="mg/dL" />
-                  </Item>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.3.B" entries={entries.met_b} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("met_b", i, k, v)}
-                onAdd={blank => addEntry("met_b", blank)} onRemove={i => removeEntry("met_b", i)}
-                blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="ALP">
-                      <Num value={e.alp} onChange={v => setEntryField("met_b", i, "alp", v)}
-                        disabled={!isEditable} unit="IU/L" />
-                    </Item>
-                    <Item n={2} label="Total Ca">
-                      <Num value={e.total_calcium} onChange={v => setEntryField("met_b", i, "total_calcium", v)}
-                        disabled={!isEditable} unit="mg/dL" />
-                    </Item>
-                    <Item n={3} label="Phosphorus P">
-                      <Num value={e.phosphorus} onChange={v => setEntryField("met_b", i, "phosphorus", v)}
-                        disabled={!isEditable} unit="mg/dL" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.3.C" entries={entries.met_c} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("met_c", i, k, v)}
-                onAdd={blank => addEntry("met_c", blank)} onRemove={i => removeEntry("met_c", i)}
-                blankFactory={() => freshEntry({
-                  electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "",
-                  symptomatic_status: "", symptomatic_detail: "",
-                })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Electrolyte abnormality">
-                      <YNToggle value={e.electrolyte_abnormality}
-                        onChange={v => setEntryField("met_c", i, "electrolyte_abnormality", v)}
-                        disabled={!isEditable} />
-                      {e.electrolyte_abnormality === true && (
-                        <div style={{ marginTop: 8 }}>
-                          <PillMulti options={["Na", "K", "Ionized Ca"]} value={e.electrolytes || []}
-                            onChange={v => setEntryField("met_c", i, "electrolytes", v)}
-                            disabled={!isEditable} />
-                        </div>
-                      )}
-                    </Item>
-                    <Item n={2} label="Hypo/Hyper">
-                      <PillSingle options={["Hypo", "Hyper"]} value={e.hypo_hyper}
-                        onChange={v => setEntryField("met_c", i, "hypo_hyper", v)} disabled={!isEditable} />
-                    </Item>
-                    <Item n={3} label="Symptomatic/asymptomatic">
-                      <PillSingle options={["symptomatic", "asymptomatic"]} value={e.symptomatic_status}
-                        onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
-                    </Item>
-                    {e.symptomatic_status === "symptomatic" && (
-                      <Item n={4} label="If symptomatic" error={err("met_c", i, "symptomatic_detail")}>
-                        <Txt value={e.symptomatic_detail}
-                          onChange={v => setEntryField("met_c", i, "symptomatic_detail", v)}
-                          disabled={!isEditable} error={err("met_c", i, "symptomatic_detail")} />
-                      </Item>
-                    )}
-                  </>
-                )}
-              </EntryBlock>
-            </SectionCard>
-
-            {/* ════════════════ 5.4 GASTROINTESTINAL ════════════════ */}
-            <SectionCard icon={SECTION_META.gastrointestinal.icon} code={SECTION_META.gastrointestinal.code}
-              title={SECTION_META.gastrointestinal.title}
-              answered={counts.bySection.gastrointestinal.done} total={counts.bySection.gastrointestinal.total}
-              open={openSections.gastrointestinal}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, gastrointestinal: v }))}
-              sectionRef={sectionRefs.gastrointestinal}>
-
-              <EntryBlock code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
-                onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
-                blankFactory={() => freshEntry({ shift: "", cumulative_feed_volume: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Select Shift">
-                      <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                        onChange={v => setEntryField("gi_a", i, "shift", v)} disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="Cumulative feed volume">
-                      <Num value={e.cumulative_feed_volume}
-                        onChange={v => setEntryField("gi_a", i, "cumulative_feed_volume", v)}
-                        disabled={!isEditable} unit="ml" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.4.B" entries={entries.gi_b} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("gi_b", i, k, v)}
-                onAdd={blank => addEntry("gi_b", blank)} onRemove={i => removeEntry("gi_b", i)}
-                blankFactory={() => freshEntry({ direct_bilirubin: "" })}>
-                {(e, i) => (
-                  <Item n={1} label="Direct Bilirubin">
-                    <Num value={e.direct_bilirubin}
-                      onChange={v => setEntryField("gi_b", i, "direct_bilirubin", v)}
-                      disabled={!isEditable} unit="mg/dL" />
-                  </Item>
-                )}
-              </EntryBlock>
-            </SectionCard>
-
-            {/* ════════════════ 5.5 NEUROLOGICAL ════════════════ */}
-            <SectionCard icon={SECTION_META.neurological.icon} code={SECTION_META.neurological.code}
-              title={SECTION_META.neurological.title}
-              answered={counts.bySection.neurological.done} total={counts.bySection.neurological.total}
-              open={openSections.neurological}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, neurological: v }))}
-              sectionRef={sectionRefs.neurological}>
-
-              <EntryBlock code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
-                onAdd={blank => addEntry("neuro_a", blank)} onRemove={i => removeEntry("neuro_a", i)}
-                blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Severity of Ventriculomegaly">
-                      <PillSingle options={["Mild", "Moderate", "Severe"]} value={e.ventriculomegaly_severity}
-                        onChange={v => setEntryField("neuro_a", i, "ventriculomegaly_severity", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="VI">
-                      <Num value={e.vi} onChange={v => setEntryField("neuro_a", i, "vi", v)}
-                        disabled={!isEditable} unit="mm" />
-                    </Item>
-                    <Item n={3} label="AHW">
-                      <Num value={e.ahw} onChange={v => setEntryField("neuro_a", i, "ahw", v)}
-                        disabled={!isEditable} unit="mm" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-
-              <EntryBlock code="5.5.B" entries={entries.neuro_b} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
-                onAdd={blank => addEntry("neuro_b", blank)} onRemove={i => removeEntry("neuro_b", i)}
-                blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="TOD">
-                      <Num value={e.tod} onChange={v => setEntryField("neuro_b", i, "tod", v)}
-                        disabled={!isEditable} unit="mm" />
-                    </Item>
-                    <Item n={2} label="ACA RI">
-                      <Num value={e.aca_ri} onChange={v => setEntryField("neuro_b", i, "aca_ri", v)}
-                        disabled={!isEditable} step="0.01" />
-                    </Item>
-                    <Item n={3} label="MCA RI">
-                      <Num value={e.mca_ri} onChange={v => setEntryField("neuro_b", i, "mca_ri", v)}
-                        disabled={!isEditable} step="0.01" />
-                    </Item>
-                  </>
-                )}
-              </EntryBlock>
-            </SectionCard>
-
-            {/* ════════════════ 5.6 HEMATOLOGY ════════════════ */}
-            <SectionCard icon={SECTION_META.hematology.icon} code={SECTION_META.hematology.code}
-              title={SECTION_META.hematology.title}
-              answered={counts.bySection.hematology.done} total={counts.bySection.hematology.total}
-              open={openSections.hematology}
-              onToggle={(v) => setOpenSections((p) => ({ ...p, hematology: v }))}
-              sectionRef={sectionRefs.hematology}>
-
-              <EntryBlock code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
-                onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
-                onAdd={blank => addEntry("heme_a", blank)} onRemove={i => removeEntry("heme_a", i)}
-                blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })}>
-                {(e, i) => (
-                  <>
-                    <Item n={1} label="Transfusion">
-                      <PillMulti options={["PRBC", "Platelets", "FFP/Cryo"]} value={e.transfusion_products || []}
-                        onChange={v => setEntryField("heme_a", i, "transfusion_products", v)}
-                        disabled={!isEditable} />
-                    </Item>
-                    <Item n={2} label="No. of transfusions" error={err("heme_a", i, "transfusion_count")}>
-                      <Num value={e.transfusion_count}
-                        onChange={v => setEntryField("heme_a", i, "transfusion_count", v)}
-                        disabled={!isEditable} error={err("heme_a", i, "transfusion_count")} />
-                    </Item>
-                    {(e.transfusion_products || []).includes("PRBC") && (
-                      <Item n={3} label="If PRBC, volume">
-                        <Num value={e.prbc_volume} onChange={v => setEntryField("heme_a", i, "prbc_volume", v)}
-                          disabled={!isEditable} unit="ml/kg" />
-                      </Item>
-                    )}
-                  </>
-                )}
-              </EntryBlock>
-            </SectionCard>
+            {view === "detail" && activeSection && activeBlock && (
+              <div className="mml-detail">
+                <button type="button" className="mml-back-btn" onClick={backToFields}>
+                  <ArrowLeft size={14} /> {SECTION_META[activeSection].title}
+                </button>
+                <div className="mml-detail-title">
+                  <span className="mml-subblock-code">{BLOCK_META[activeBlock].code}</span>
+                  <h2>{BLOCK_META[activeBlock].label}</h2>
+                </div>
+                <p className="mml-fields-list-hint">Date and time are auto-filled to now — adjust if needed.</p>
+                {renderBlockBody(activeBlock)}
+              </div>
+            )}
           </div>
         )}
 
@@ -1079,10 +1137,21 @@ export default function MinimalMonitoringLog() {
       </div>
 
       <div className="form-navigation">
-        <button type="button" className="btn btn-secondary btn-outline"
-          onClick={handlePrevious}>
-          <ArrowLeft size={15} /> Metab Helper Form
-        </button>
+        {view === "sections" && (
+          <button type="button" className="btn btn-secondary btn-outline" onClick={handlePrevious}>
+            <ArrowLeft size={15} /> Metab Helper Form
+          </button>
+        )}
+        {view === "fields" && (
+          <button type="button" className="btn btn-secondary btn-outline" onClick={backToSections}>
+            <ArrowLeft size={15} /> All sections
+          </button>
+        )}
+        {view === "detail" && (
+          <button type="button" className="btn btn-secondary btn-outline" onClick={backToFields}>
+            <ArrowLeft size={15} /> {activeSection ? SECTION_META[activeSection].title : "Back"}
+          </button>
+        )}
         <button type="button" className="btn btn-save btn-outline-blue" onClick={handleSave} disabled={saving}>
           <Save size={15} /> {saving ? "Saving..." : "Save"}
         </button>

@@ -6,9 +6,12 @@ import Header from '../components/Header';
 import './FormLayout.css';
 import '../styles/Theme.css';
 import { isUsableEnrollmentId } from '../utils/enrollmentId';
+import { useAuth } from '../context/AuthContext';
+import { siteDisplayName } from '../utils/siteNames';
 
 const FormLayout = ({ children, currentForm, headerProps }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   /* Block deep-links past allowed forms when enrollment is locked.
      - Screen failure / consent / GA: only Form A
@@ -44,7 +47,7 @@ const FormLayout = ({ children, currentForm, headerProps }) => {
         <Header
           title={headerProps?.title || 'PORTAL Trial'}
           subtitle={headerProps?.subtitle}
-          siteName={headerProps?.siteName}
+          siteName={headerProps?.siteName || siteDisplayName(user?.site)}
           idBadge={headerProps?.idBadge}
         />
         <main className="form-layout-content">
