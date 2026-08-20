@@ -218,11 +218,9 @@ function ReadonlyAutoField({ label, value, unit, autofilled }) {
 
 const pad2 = n => String(n).padStart(2, "0");
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 function blankReading(extra = {}) {
-  const d = new Date();
-  return { id: uid(), date: toDateOnlyValue(d), time: nowTime(d), ...extra };
+  return { id: uid(), ...extra };
 }
 
 function parseJsonArray(raw) {
@@ -284,9 +282,9 @@ function migrateAkiFromLegacy(d) {
   return { aki_suspected: null, aki_stage: d.aki_stage || null };
 }
 
-/** Helper-5-style multi-entry block (date/time + value field(s)). */
+/** Helper-5-style multi-entry block (value field(s) only — no date/time). */
 function ReadingsBlock({
-  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
+  code, entries, onAdd, onRemove, disabled, blankFactory, children,
 }) {
   const list = entries?.length ? entries : [blankFactory ? blankFactory() : blankReading()];
   return (
@@ -296,25 +294,17 @@ function ReadingsBlock({
       </div>
       {list.map((entry, idx) => (
         <div className="mml-entry" key={entry.id || idx}>
-          <div className="mml-entry-head">
-            <div className="mml-entry-meta">
-              {list.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
-              <label className="mml-meta-field">
-                <span>Date</span>
-                <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
-              </label>
-              <label className="mml-meta-field">
-                <span>Time</span>
-                <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
-              </label>
+          {list.length > 1 && (
+            <div className="mml-entry-head">
+              <div className="mml-entry-meta">
+                <span className="mml-entry-badge">#{idx + 1}</span>
+              </div>
+              {!disabled && (
+                <button type="button" className="mml-remove-btn" title="Remove this reading"
+                  onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
+              )}
             </div>
-            {list.length > 1 && !disabled && (
-              <button type="button" className="mml-remove-btn" title="Remove this reading"
-                onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
-            )}
-          </div>
+          )}
           <div className="rcn-grid-3">{children(entry, idx)}</div>
         </div>
       ))}
@@ -1880,8 +1870,7 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.ph_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ ph: "" })}
-                    onChangeEntry={(i, k, v) => setReadingField("ph_readings", i, k, v, "ph")}
-                    onAdd={blank => addReading("ph_readings", blank, "ph")}
+                                        onAdd={blank => addReading("ph_readings", blank, "ph")}
                     onRemove={i => removeReading("ph_readings", i, "ph")}
                   >
                     {(e, i) => (
@@ -1915,8 +1904,7 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.sodium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                    onChangeEntry={(i, k, v) => setReadingField("sodium_readings", i, k, v)}
-                    onAdd={blank => addReading("sodium_readings", blank)}
+                                        onAdd={blank => addReading("sodium_readings", blank)}
                     onRemove={i => removeReading("sodium_readings", i)}
                   >
                     {(e, i) => (
@@ -1941,8 +1929,7 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.potassium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                    onChangeEntry={(i, k, v) => setReadingField("potassium_readings", i, k, v)}
-                    onAdd={blank => addReading("potassium_readings", blank)}
+                                        onAdd={blank => addReading("potassium_readings", blank)}
                     onRemove={i => removeReading("potassium_readings", i)}
                   >
                     {(e, i) => (
@@ -1967,8 +1954,7 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.calcium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                    onChangeEntry={(i, k, v) => setReadingField("calcium_readings", i, k, v)}
-                    onAdd={blank => addReading("calcium_readings", blank)}
+                                        onAdd={blank => addReading("calcium_readings", blank)}
                     onRemove={i => removeReading("calcium_readings", i)}
                   >
                     {(e, i) => (

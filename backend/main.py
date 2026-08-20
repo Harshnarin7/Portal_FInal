@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+﻿from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -1244,6 +1244,32 @@ def update_birth_resuscitation(
 
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
+
+    # FIX: same class of bug as create_birth_resuscitation (see its comments) —
+    # this PUT is looked up by enrollment_id ALONE, with no check that the
+    # screening_id in the incoming save actually belongs to the same patient
+    # as the row already stored under that enrollment_id. If a nurse working
+    # on a DIFFERENT patient's Form B ends up saving under an enrollment_id
+    # that's already in use (e.g. a typo, or a stale "already have a birth
+    # record" flag in the browser causing a PUT instead of a POST), this used
+    # to silently overwrite the first patient's screening_id and merge their
+    # records — which is exactly what produced two screenings sharing one
+    # enrollment_id, with the second patient's later forms appearing
+    # pre-filled with the first patient's data. Block it with a clear 409
+    # instead, matching the POST endpoint's guard.
+    if (
+        entry.screening_id
+        and updated_data.screening_id
+        and entry.screening_id != updated_data.screening_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Enrollment ID '{enrollment_id}' is already used by a "
+                f"different patient (screening {entry.screening_id}). "
+                "Please double-check the enrollment ID and try again."
+            ),
+        )
 
     try:
         update_data = updated_data.model_dump(exclude_unset=True)

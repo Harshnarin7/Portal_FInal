@@ -274,8 +274,8 @@ export default function ScreeningForm() {
            that the migration's best-effort backfill didn't cover — new
            saves always have d.gestation_known set directly. */
         gestation_known:    d.gestation_known || (d.gestation_method ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : "")),
-        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks || "") : "",
-        best_ga_days:       d.gestation_method ? (d.gestation_days  || "") : "",
+        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks ?? "") : "",
+        best_ga_days:       d.gestation_method ? (d.gestation_days  ?? "") : "",
         gestation_method:   d.gestation_method || "",
         ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         /* Prefer EDD derived from LMP so a stale expected_delivery_date cannot skew GA. */
@@ -949,16 +949,8 @@ export default function ScreeningForm() {
     const sid = screeningIdRef.current;
     const existingId = (sid || (storedId && storedId !== "undefined" && storedId !== "null" ? storedId : null)) || null;
 
-    /* Don't create a new DB row on casual/exploratory form opens. Site alone
-       was too weak a gate — picking a site plus typing a couple of unrelated
-       fields was enough to spawn a real "Pending" row in View Entries. Now
-       require site_name AND at least one patient-identifying field
-       (maternal UID or hospital admission number) — i.e. actual intent to
-       screen a specific patient, not just someone poking around the form. */
-    if (!existingId && !(
-      fd.site_name &&
-      (fd.maternal_uid?.trim() || fd.hospital_admission_number?.trim())
-    )) return;
+    /* Don't create a new DB row until the nurse has picked a site */
+    if (!existingId && !fd.site_name) return;
 
     if (!navigator.onLine) {
       setOfflineQueue(true);
