@@ -179,6 +179,115 @@
   }
 }
 
+/* ── Draft ("new reading") card ── */
+.mml-entry--draft {
+  background: #EFF6FF;
+  border: 1.5px solid #BFDBFE;
+}
+
+.mml-draft-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #0F4C81;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Previously-added summary table ── */
+.mml-history {
+  margin-top: 4px;
+}
+
+.mml-history-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748B;
+}
+
+.mml-history-empty {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #94A3B8;
+  font-style: italic;
+}
+
+.mml-history-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+}
+
+.mml-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.mml-history-table th,
+.mml-history-table td {
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.mml-history-table thead th {
+  background: #F8FAFC;
+  color: #64748B;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.mml-history-table tbody tr + tr td {
+  border-top: 1px solid #F1F5F9;
+}
+
+.mml-history-table tbody td {
+  color: #0F172A;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mml-history-th-action,
+.mml-history-td-action {
+  width: 40px;
+}
+
+.mml-history-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid #FECACA;
+  background: #FEF2F2;
+  color: #DC2626;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mml-history-remove-btn:hover {
+  background: #FEE2E2;
+}
+
+@media (max-width: 720px) {
+  .mml-history-table th,
+  .mml-history-table td {
+    padding: 7px 10px;
+  }
+}
+
 /* ── Quick-nav rail (Form I pattern) ── */
 .mml-quicknav {
   position: sticky;

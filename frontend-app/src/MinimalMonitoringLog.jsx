@@ -204,6 +204,18 @@ function flattenEntries(entries) {
   };
 }
 
+/** True if an entry has at least one real clinical value filled in — the
+ *  auto-stamped id/date/time on a freshly-opened blank row don't count. This
+ *  is what distinguishes a "previously added" reading (shown in the history
+ *  table) from the still-blank draft row waiting for new input. */
+function hasEntryData(entry) {
+  if (!entry) return false;
+  return Object.entries(entry).some(([k, v]) => {
+    if (k === "id" || k === "date" || k === "time") return false;
+    return ans(v);
+  });
+}
+
 function countProgress(entries) {
   let total = 0;
   let done = 0;
@@ -227,7 +239,13 @@ function countProgress(entries) {
 
   Object.entries(entries).forEach(([block, list]) => {
     const section = BLOCK_TO_SECTION[block];
-    (list || []).forEach(entry => {
+    const arr = list || [];
+    arr.forEach((entry, idx) => {
+      // The last entry in a block is always kept as an open "new reading"
+      // placeholder (see openBlock/emptyEntries) — while it's still blank it
+      // isn't a pending field to fill, it's just waiting room, so it must not
+      // drag the completion badge down.
+      if (idx === arr.length - 1 && !hasEntryData(entry)) return;
       Object.entries(entry).forEach(([k, v]) => {
         if (k === "id") return;
         // date/time are auto-stamped to "now" on every new entry (see freshEntry) —
@@ -337,46 +355,187 @@ function YNToggle({ value, onChange, disabled }) {
   );
 }
 
-/** One lettered CRF block (5.x.Y) with date/time header (auto-filled for new
- *  readings) and + Add support. Used inside the single-field detail screen. */
+/** Column metadata for every lettered field block — drives the read-only
+ *  "previously added" summary table under each field's blank entry form.
+ *  Keys match the entry object keys used throughout renderBlockBody. */
+const BLOCK_FIELDS = {
+  cv_a: [
+    { key: "shift", label: "Shift" },
+    { key: "axillary_temp", label: "Axillary Temp", unit: "°C" },
+    { key: "sbp", label: "SBP", unit: "mm Hg" },
+    { key: "dbp", label: "DBP", unit: "mm Hg" },
+    { key: "map_value", label: "MAP", unit: "mm Hg" },
+  ],
+  cv_b: [
+    { key: "fluid_bolus_given", label: "Fluid Bolus" },
+  ],
+  cv_c: [
+    { key: "vasoactive_drugs", label: "Vasoactive", list: true },
+    { key: "vasoactive_dose", label: "Dose" },
+    { key: "vasoactive_unit", label: "Unit" },
+  ],
+  cv_d: [
+    { key: "pda_agent", label: "PDA Agent", list: true },
+    { key: "pda_dose", label: "Dose", unit: "mg/kg" },
+  ],
+  resp_a: [
+    { key: "time_range", label: "Time" },
+    { key: "respiratory_modes", label: "Mode", list: true },
+    { key: "max_map_cpap", label: "Max MAP/CPAP", unit: "cm H₂O" },
+    { key: "max_fio2", label: "Max FiO₂", unit: "%" },
+  ],
+  resp_b: [
+    { key: "ph", label: "pH" },
+    { key: "pao2", label: "PaO₂", unit: "mm Hg" },
+    { key: "paco2", label: "PaCO₂", unit: "mm Hg" },
+  ],
+  resp_c: [
+    { key: "shift", label: "Shift" },
+    { key: "apnea_episodes", label: "Apnea eps." },
+    { key: "desaturation_episodes", label: "Desat eps." },
+    { key: "severe_desaturation_episodes", label: "Sev. desat eps." },
+  ],
+  resp_d: [
+    { key: "postnatal_steroids", label: "Steroids", list: true },
+    { key: "steroid_dose", label: "Dose", unit: "mg/kg" },
+    { key: "steroid_other", label: "Other" },
+  ],
+  met_a: [
+    { key: "glucose", label: "Glucose", unit: "mg/dL" },
+  ],
+  met_b: [
+    { key: "alp", label: "ALP", unit: "IU/L" },
+    { key: "total_calcium", label: "Total Ca", unit: "mg/dL" },
+    { key: "phosphorus", label: "Phosphorus", unit: "mg/dL" },
+  ],
+  met_c: [
+    { key: "electrolyte_abnormality", label: "Electrolyte abn.", bool: true },
+    { key: "electrolytes", label: "Electrolytes", list: true },
+    { key: "hypo_hyper", label: "Hypo/Hyper" },
+    { key: "symptomatic_status", label: "Symptomatic" },
+    { key: "symptomatic_detail", label: "Details" },
+  ],
+  gi_a: [
+    { key: "shift", label: "Shift" },
+    { key: "cumulative_feed_volume", label: "Cum. Feed Vol.", unit: "ml" },
+  ],
+  gi_b: [
+    { key: "direct_bilirubin", label: "Direct Bilirubin", unit: "mg/dL" },
+  ],
+  neuro_a: [
+    { key: "ventriculomegaly_severity", label: "Severity" },
+    { key: "vi", label: "VI", unit: "mm" },
+    { key: "ahw", label: "AHW", unit: "mm" },
+  ],
+  neuro_b: [
+    { key: "tod", label: "TOD", unit: "mm" },
+    { key: "aca_ri", label: "ACA RI" },
+    { key: "mca_ri", label: "MCA RI" },
+  ],
+  heme_a: [
+    { key: "transfusion_products", label: "Products", list: true },
+    { key: "transfusion_count", label: "No. of Transfusions" },
+    { key: "prbc_volume", label: "PRBC Volume", unit: "ml/kg" },
+  ],
+};
+
+/** Renders one summary-table cell for a field, using its column metadata. */
+function formatCell(field, entry) {
+  const v = entry ? entry[field.key] : undefined;
+  if (field.bool) {
+    if (v === true) return "Yes";
+    if (v === false) return "No";
+    return "—";
+  }
+  if (field.list) {
+    const arr = Array.isArray(v) ? v : stringToList(v);
+    return arr.length ? arr.join(", ") : "—";
+  }
+  if (!ans(v)) return "—";
+  return field.unit ? `${v} ${field.unit}` : String(v);
+}
+
+/** One lettered CRF block (5.x.Y): a single blank "new reading" form (date/time
+ *  auto-filled to now) on top, and a read-only summary table of every reading
+ *  already added for this field underneath. Used inside the single-field
+ *  detail screen (e.g. Metabolic → Glucose). */
 function EntryBlock({
-  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
+  blockKey, code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
 }) {
+  const draftIdx = entries.length - 1;
+  const draft = entries[draftIdx] || {};
+  const history = entries
+    .map((entry, idx) => ({ entry, idx }))
+    .filter(({ entry, idx }) => idx !== draftIdx && hasEntryData(entry));
+  const fieldsMeta = BLOCK_FIELDS[blockKey] || [];
+
   return (
     <div className="rcn-subsection mml-subblock">
       <div className="mml-subblock-head">
         <span className="mml-subblock-code">{code}</span>
       </div>
-      {entries.map((entry, idx) => (
-        <div className="mml-entry" key={entry.id || idx}>
-          <div className="mml-entry-head">
-            <div className="mml-entry-meta">
-              {entries.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
-              <label className="mml-meta-field">
-                <span>Date</span>
-                <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
-              </label>
-              <label className="mml-meta-field">
-                <span>Time</span>
-                <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
-              </label>
-            </div>
-            {entries.length > 1 && !disabled && (
-              <button type="button" className="mml-remove-btn" title="Remove this reading"
-                onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
-            )}
+
+      <div className="mml-entry mml-entry--draft">
+        <div className="mml-entry-head">
+          <div className="mml-entry-meta">
+            <span className="mml-draft-badge">New reading</span>
+            <label className="mml-meta-field">
+              <span>Date</span>
+              <input type="date" className="rcn-text-input mml-date-input" value={draft.date || ""}
+                disabled={disabled} onChange={e => onChangeEntry(draftIdx, "date", e.target.value)} />
+            </label>
+            <label className="mml-meta-field">
+              <span>Time</span>
+              <input type="time" className="rcn-text-input mml-time-input" value={draft.time || ""}
+                disabled={disabled} onChange={e => onChangeEntry(draftIdx, "time", e.target.value)} />
+            </label>
           </div>
-          <div className="rcn-grid-3">{children(entry, idx)}</div>
+          {!disabled && hasEntryData(draft) && (
+            <button type="button" className="mml-add-btn"
+              onClick={() => onAdd(blankFactory ? blankFactory() : freshEntry())}>
+              <Plus size={14} /> Log another reading
+            </button>
+          )}
         </div>
-      ))}
-      {!disabled && (
-        <button type="button" className="mml-add-btn"
-          onClick={() => onAdd(blankFactory ? blankFactory() : freshEntry())}>
-          <Plus size={14} /> Add values
-        </button>
-      )}
+        <div className="rcn-grid-3">{children(draft, draftIdx)}</div>
+      </div>
+
+      <div className="mml-history">
+        <h4 className="mml-history-title">Previously added ({history.length})</h4>
+        {history.length === 0 ? (
+          <p className="mml-history-empty">No entries yet for this field today.</p>
+        ) : (
+          <div className="mml-history-table-wrap">
+            <table className="mml-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
+                  {fieldsMeta.map(f => <th key={f.key}>{f.label}</th>)}
+                  {!disabled && <th className="mml-history-th-action" aria-hidden="true" />}
+                </tr>
+              </thead>
+              <tbody>
+                {history.slice().reverse().map(({ entry, idx }) => (
+                  <tr key={entry.id || idx}>
+                    <td>{entry.date || "—"}</td>
+                    <td>{entry.time || "—"}</td>
+                    {fieldsMeta.map(f => <td key={f.key}>{formatCell(f, entry)}</td>)}
+                    {!disabled && (
+                      <td className="mml-history-td-action">
+                        <button type="button" className="mml-history-remove-btn" title="Remove this reading"
+                          onClick={() => onRemove(idx)}>
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -484,7 +643,23 @@ export default function MinimalMonitoringLog() {
   const [activeBlock, setActiveBlock] = useState(null);
 
   const openSection = (key) => { setActiveSection(key); setActiveBlock(null); setView("fields"); };
-  const openBlock = (key) => { setActiveBlock(key); setView("detail"); };
+  const openBlock = (key) => {
+    // Guarantee a blank "new reading" row is waiting at the end of this
+    // field's array before showing it — if the last reading already has data
+    // (e.g. it was filled in a previous visit today), start a fresh one so
+    // the field always opens on a blank form with history below it.
+    setEntries(prev => {
+      const list = prev[key] || [];
+      const last = list[list.length - 1];
+      if (last && hasEntryData(last)) {
+        const blank = emptyEntries()[key][0];
+        return { ...prev, [key]: [...list, blank] };
+      }
+      return prev;
+    });
+    setActiveBlock(key);
+    setView("detail");
+  };
   const backToSections = () => { setView("sections"); setActiveSection(null); setActiveBlock(null); };
   const backToFields = () => { setView("fields"); setActiveBlock(null); };
 
@@ -685,7 +860,7 @@ export default function MinimalMonitoringLog() {
     switch (blockKey) {
       case "cv_a":
         return (
-          <EntryBlock code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
+          <EntryBlock blockKey="cv_a" code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
@@ -718,7 +893,7 @@ export default function MinimalMonitoringLog() {
         );
       case "cv_b":
         return (
-          <EntryBlock code="5.1.B" entries={entries.cv_b} disabled={!isEditable}
+          <EntryBlock blockKey="cv_b" code="5.1.B" entries={entries.cv_b} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
             onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
             blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
@@ -732,7 +907,7 @@ export default function MinimalMonitoringLog() {
         );
       case "cv_c":
         return (
-          <EntryBlock code="5.1.C" entries={entries.cv_c} disabled={!isEditable}
+          <EntryBlock blockKey="cv_c" code="5.1.C" entries={entries.cv_c} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("cv_c", i, k, v)}
             onAdd={blank => addEntry("cv_c", blank)} onRemove={i => removeEntry("cv_c", i)}
             blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })}>
@@ -757,7 +932,7 @@ export default function MinimalMonitoringLog() {
         );
       case "cv_d":
         return (
-          <EntryBlock code="5.1.D" entries={entries.cv_d} disabled={!isEditable}
+          <EntryBlock blockKey="cv_d" code="5.1.D" entries={entries.cv_d} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("cv_d", i, k, v)}
             onAdd={blank => addEntry("cv_d", blank)} onRemove={i => removeEntry("cv_d", i)}
             blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" })}>
@@ -777,7 +952,7 @@ export default function MinimalMonitoringLog() {
         );
       case "resp_a":
         return (
-          <EntryBlock code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
+          <EntryBlock blockKey="resp_a" code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
             onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
             blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
@@ -806,7 +981,7 @@ export default function MinimalMonitoringLog() {
         );
       case "resp_b":
         return (
-          <EntryBlock code="5.2.B" entries={entries.resp_b} disabled={!isEditable}
+          <EntryBlock blockKey="resp_b" code="5.2.B" entries={entries.resp_b} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("resp_b", i, k, v)}
             onAdd={blank => addEntry("resp_b", blank)} onRemove={i => removeEntry("resp_b", i)}
             blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" })}>
@@ -830,7 +1005,7 @@ export default function MinimalMonitoringLog() {
         );
       case "resp_c":
         return (
-          <EntryBlock code="5.2.C" entries={entries.resp_c} disabled={!isEditable}
+          <EntryBlock blockKey="resp_c" code="5.2.C" entries={entries.resp_c} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("resp_c", i, k, v)}
             onAdd={blank => addEntry("resp_c", blank)} onRemove={i => removeEntry("resp_c", i)}
             blankFactory={() => freshEntry({ shift: "", apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
@@ -861,7 +1036,7 @@ export default function MinimalMonitoringLog() {
         );
       case "resp_d":
         return (
-          <EntryBlock code="5.2.D" entries={entries.resp_d} disabled={!isEditable}
+          <EntryBlock blockKey="resp_d" code="5.2.D" entries={entries.resp_d} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("resp_d", i, k, v)}
             onAdd={blank => addEntry("resp_d", blank)} onRemove={i => removeEntry("resp_d", i)}
             blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })}>
@@ -891,7 +1066,7 @@ export default function MinimalMonitoringLog() {
         );
       case "met_a":
         return (
-          <EntryBlock code="5.3.A" entries={entries.met_a} disabled={!isEditable}
+          <EntryBlock blockKey="met_a" code="5.3.A" entries={entries.met_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
             onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
             blankFactory={() => freshEntry({ glucose: "" })}>
@@ -905,7 +1080,7 @@ export default function MinimalMonitoringLog() {
         );
       case "met_b":
         return (
-          <EntryBlock code="5.3.B" entries={entries.met_b} disabled={!isEditable}
+          <EntryBlock blockKey="met_b" code="5.3.B" entries={entries.met_b} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("met_b", i, k, v)}
             onAdd={blank => addEntry("met_b", blank)} onRemove={i => removeEntry("met_b", i)}
             blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" })}>
@@ -929,7 +1104,7 @@ export default function MinimalMonitoringLog() {
         );
       case "met_c":
         return (
-          <EntryBlock code="5.3.C" entries={entries.met_c} disabled={!isEditable}
+          <EntryBlock blockKey="met_c" code="5.3.C" entries={entries.met_c} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("met_c", i, k, v)}
             onAdd={blank => addEntry("met_c", blank)} onRemove={i => removeEntry("met_c", i)}
             blankFactory={() => freshEntry({
@@ -971,7 +1146,7 @@ export default function MinimalMonitoringLog() {
         );
       case "gi_a":
         return (
-          <EntryBlock code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
+          <EntryBlock blockKey="gi_a" code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
             onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
             blankFactory={() => freshEntry({ shift: "", cumulative_feed_volume: "" })}>
@@ -992,7 +1167,7 @@ export default function MinimalMonitoringLog() {
         );
       case "gi_b":
         return (
-          <EntryBlock code="5.4.B" entries={entries.gi_b} disabled={!isEditable}
+          <EntryBlock blockKey="gi_b" code="5.4.B" entries={entries.gi_b} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("gi_b", i, k, v)}
             onAdd={blank => addEntry("gi_b", blank)} onRemove={i => removeEntry("gi_b", i)}
             blankFactory={() => freshEntry({ direct_bilirubin: "" })}>
@@ -1007,7 +1182,7 @@ export default function MinimalMonitoringLog() {
         );
       case "neuro_a":
         return (
-          <EntryBlock code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
+          <EntryBlock blockKey="neuro_a" code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
             onAdd={blank => addEntry("neuro_a", blank)} onRemove={i => removeEntry("neuro_a", i)}
             blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}>
@@ -1032,7 +1207,7 @@ export default function MinimalMonitoringLog() {
         );
       case "neuro_b":
         return (
-          <EntryBlock code="5.5.B" entries={entries.neuro_b} disabled={!isEditable}
+          <EntryBlock blockKey="neuro_b" code="5.5.B" entries={entries.neuro_b} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
             onAdd={blank => addEntry("neuro_b", blank)} onRemove={i => removeEntry("neuro_b", i)}
             blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}>
@@ -1056,7 +1231,7 @@ export default function MinimalMonitoringLog() {
         );
       case "heme_a":
         return (
-          <EntryBlock code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
+          <EntryBlock blockKey="heme_a" code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
             onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
             onAdd={blank => addEntry("heme_a", blank)} onRemove={i => removeEntry("heme_a", i)}
             blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })}>
