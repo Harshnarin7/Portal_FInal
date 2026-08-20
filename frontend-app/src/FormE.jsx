@@ -712,6 +712,25 @@ export default function FormE() {
     // Required-field + conditional validation (aligned with CRF E1–E15)
     const v = {};
     if (!formData.admission_datetime) v.admission_datetime = "This field is required";
+    else if (formData.date_of_birth) {
+      const birth = parseDateOnly(String(formData.date_of_birth).slice(0, 10));
+      if (birth) {
+        const tm = String(formData.time_of_birth || "00:00:00").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (tm) birth.setHours(Number(tm[1]), Number(tm[2]), Number(tm[3] || 0), 0);
+        else birth.setHours(0, 0, 0, 0);
+        const admNorm = normalizeAdmissionLocal(formData.admission_datetime);
+        const am = String(admNorm).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/);
+        if (am) {
+          const admission = new Date(
+            Number(am[1]), Number(am[2]) - 1, Number(am[3]),
+            Number(am[4]), Number(am[5]), 0, 0
+          );
+          if (!isNaN(admission.getTime()) && admission.getTime() < birth.getTime()) {
+            v.admission_datetime = "Admission date/time cannot be before Date & Time of Birth";
+          }
+        }
+      }
+    }
     if (!formData.temp_dr) v.temp_dr = "This field is required";
     if (!formData.temp_skin) v.temp_skin = "This field is required";
     if (!formData.temp_axillary) v.temp_axillary = "This field is required";
@@ -957,9 +976,9 @@ export default function FormE() {
                         const d = new Date(v);
                         return isNaN(d.getTime()) ? null : d;
                       })()}
-                      onChange={date => setFormData(prev => {
+                      onChange={date => {
                         const admission = date ? toDateTimeLocalValue(date) : "";
-                        return {
+                        setFormData(prev => ({
                           ...prev,
                           admission_datetime: admission,
                           age_at_admission_hours: calcAgeAtAdmissionHours(
@@ -967,15 +986,42 @@ export default function FormE() {
                             prev.time_of_birth,
                             admission
                           ),
-                        };
-                      })}
+                        }));
+                        let admErr = "";
+                        if (admission && formData.date_of_birth) {
+                          const birth = parseDateOnly(String(formData.date_of_birth).slice(0, 10));
+                          if (birth) {
+                            const tm = String(formData.time_of_birth || "00:00:00")
+                              .match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+                            if (tm) birth.setHours(Number(tm[1]), Number(tm[2]), Number(tm[3] || 0), 0);
+                            else birth.setHours(0, 0, 0, 0);
+                            const admDate = date instanceof Date ? date : new Date(admission);
+                            if (!isNaN(admDate.getTime()) && admDate.getTime() < birth.getTime()) {
+                              admErr = "Admission date/time cannot be before Date & Time of Birth";
+                            }
+                          }
+                        }
+                        setErrors(prev => ({ ...prev, admission_datetime: admErr }));
+                      }}
+                      minDate={(() => {
+                        if (!formData.date_of_birth) return null;
+                        const birth = parseDateOnly(String(formData.date_of_birth).slice(0, 10));
+                        if (!birth) return null;
+                        const tm = String(formData.time_of_birth || "00:00:00")
+                          .match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+                        if (tm) birth.setHours(Number(tm[1]), Number(tm[2]), Number(tm[3] || 0), 0);
+                        else birth.setHours(0, 0, 0, 0);
+                        return birth;
+                      })()}
                       showTimeSelect timeFormat="hh:mm aa" timeIntervals={1}
                       dateFormat="dd-MM-yyyy | hh:mm aa"
                       placeholderText="Select date & time"
+                      className={errors.admission_datetime ? "input-error" : ""}
                       disabled={!isFieldEditable} />
+                    <FieldErr msg={errors.admission_datetime} />
                   </div>
                   <div className="form-group">
-                    <label>4. Age at admission <span className="auto-tag">AUTO</span></label>
+                    <label>4. Age at admission <span className="auto-tag">(AUTO)</span></label>
                     <div style={{ position:"relative" }}>
                       <input
                         value={formData.age_at_admission_hours === "" || formData.age_at_admission_hours == null

@@ -746,6 +746,10 @@ class MaternalDetailsCreate(BaseModel):
     steroid_dexa_courses: Optional[int] = None
     lddi_known: Optional[str] = None
     lddi_hours: Optional[str] = None
+    steroid_beta_lddi_known: Optional[str] = None
+    steroid_beta_lddi_hours: Optional[str] = None
+    steroid_dexa_lddi_known: Optional[str] = None
+    steroid_dexa_lddi_hours: Optional[str] = None
     antenatal_mgso4: Optional[str] = None
     gestation_at_steroids: Optional[str] = None
     mgso4_date: Optional[date] = None
@@ -823,6 +827,8 @@ class MaternalDetailsCreate(BaseModel):
         "steroid_doses",
         "steroid_courses",
         "lddi_hours",
+        "steroid_beta_lddi_hours",
+        "steroid_dexa_lddi_hours",
         "pprom_duration",
         "duration_rom",
         mode="before",

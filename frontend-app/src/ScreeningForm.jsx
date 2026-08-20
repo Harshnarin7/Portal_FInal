@@ -274,8 +274,8 @@ export default function ScreeningForm() {
            that the migration's best-effort backfill didn't cover — new
            saves always have d.gestation_known set directly. */
         gestation_known:    d.gestation_known || (d.gestation_method ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : "")),
-        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks || "") : "",
-        best_ga_days:       d.gestation_method ? (d.gestation_days  || "") : "",
+        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks ?? "") : "",
+        best_ga_days:       d.gestation_method ? (d.gestation_days  ?? "") : "",
         gestation_method:   d.gestation_method || "",
         ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         /* Prefer EDD derived from LMP so a stale expected_delivery_date cannot skew GA. */

@@ -38,6 +38,68 @@ const parseSteroidDrugs = (raw) =>
 
 const hasSteroidDrug = (raw, drug) => parseSteroidDrugs(raw).includes(drug);
 
+/** True once both Betamethasone and Dexamethasone are selected (field 20) —
+ * they're normally given at different times, so once both are recorded,
+ * "time from last dose to delivery" (LDDI) is ambiguous unless tracked
+ * separately per drug rather than as one combined field. */
+const bothSteroidDrugsSelected = (raw) =>
+  hasSteroidDrug(raw, "Betamethasone") && hasSteroidDrug(raw, "Dexamethasone");
+
+/**
+ * Obstetric history (GPAL — Gravida/Parity/Abortions/Live/Still) cross-field
+ * validation, shared by the live onChange/blur checks and the final
+ * pre-save validate() so both enforce the exact same rules.
+ *
+ * Standard identity: Gravida = Parity + Abortions + 1.
+ * Gravida counts every pregnancy including the current, still-ongoing one.
+ * That current pregnancy hasn't been delivered (Parity) or lost (Abortions)
+ * yet, so of the (Gravida − 1) *previous* pregnancies, each one is either a
+ * Parity event (reached viable gestation) or an Abortion (did not) — never
+ * both, and never neither. Hence Parity + Abortions must equal Gravida − 1,
+ * and neither Parity nor Abortions alone may exceed Gravida − 1.
+ *
+ * Each Parity event ends in one delivery outcome, so Live + Still (this
+ * pregnancy's prior delivery outcomes) cannot exceed Parity.
+ */
+const toGpalNum = v => (v === "" || v === null || v === undefined ? null : Number(v));
+const computeGpalErrors = (data) => {
+  const errs = {};
+  const g = toGpalNum(data.gravida);
+  const p = toGpalNum(data.parity);
+  const a = toGpalNum(data.abortions);
+  const l = toGpalNum(data.live);
+  const s = toGpalNum(data.still);
+
+  ["gravida", "parity", "abortions", "live", "still"].forEach(f => {
+    if (data[f] === "" || data[f] === undefined || data[f] === null) errs[f] = "Required";
+  });
+
+  if (g !== null && g < 1) errs.gravida = "Must be ≥ 1";
+
+  const prevPregnancies = g !== null ? g - 1 : null; // pregnancies before this one
+
+  if (!errs.parity && p !== null && prevPregnancies !== null && p > prevPregnancies) {
+    errs.parity = "Parity cannot exceed Gravida − 1";
+  }
+  if (!errs.abortions && a !== null && prevPregnancies !== null && a > prevPregnancies) {
+    errs.abortions = "Abortions cannot exceed Gravida − 1";
+  }
+  if (!errs.parity && !errs.abortions && p !== null && a !== null && prevPregnancies !== null
+      && (p + a) !== prevPregnancies) {
+    const msg = `Parity + Abortions must equal Gravida − 1 (${prevPregnancies})`;
+    errs.parity = msg;
+    errs.abortions = msg;
+  }
+
+  if (!errs.live && l !== null && p !== null && l > p) errs.live = "Cannot exceed Parity";
+  if (!errs.still && s !== null && p !== null && s > p) errs.still = "Cannot exceed Parity";
+  if (!errs.live && !errs.still && l !== null && s !== null && p !== null && (l + s) > p) {
+    errs.still = "Live + Still cannot exceed Parity";
+  }
+
+  return errs;
+};
+
 /**
  * Per-drug course computation from dose count.
  * Rules (floor division):
@@ -67,6 +129,19 @@ function formatSteroidCourseLabel(info) {
   }
   // Not enough doses for a full course yet.
   return `0 courses completed — Incomplete (${info.doses}/${info.per} doses given)`;
+}
+
+/** Field 22: just the Complete / Incomplete status. */
+function formatSteroidStatusLabel(info) {
+  if (!info) return "";
+  return info.status; // "Complete" | "Incomplete"
+}
+
+/** Field 23: just the number of completed courses. */
+function formatSteroidCoursesCountLabel(info) {
+  if (!info) return "";
+  const n = info.completedCourses;
+  return `${n} course${n === 1 ? "" : "s"}`;
 }
 
 /** Combined legacy columns for reports that still read shared steroid_* fields. */
@@ -263,6 +338,8 @@ export default function FormC() {
     // Legacy combined summary (derived on save; still hydrated for older rows)
     steroid_doses: "", steroid_courses_status: "", steroid_courses: "",
     lddi_known: "", lddi_hours: "",
+    steroid_beta_lddi_known: "", steroid_beta_lddi_hours: "",
+    steroid_dexa_lddi_known: "", steroid_dexa_lddi_hours: "",
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
     mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
@@ -309,6 +386,8 @@ export default function FormC() {
     steroid_beta_courses: "", steroid_dexa_courses: "",
     steroid_doses: "", steroid_courses_status: "", steroid_courses: "",
     lddi_known: "", lddi_hours: "",
+    steroid_beta_lddi_known: "", steroid_beta_lddi_hours: "",
+    steroid_dexa_lddi_known: "", steroid_dexa_lddi_hours: "",
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
     mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
@@ -601,6 +680,12 @@ export default function FormC() {
             multiple_other: formCData.multiple_other ?? "",
             lddi_known: formCData.lddi_known ?? (formCData.lddi_hours != null ? "Known" : ""),
             lddi_hours: formCData.lddi_hours ?? "",
+            steroid_beta_lddi_known: formCData.steroid_beta_lddi_known
+              ?? (formCData.steroid_beta_lddi_hours != null ? "Known" : ""),
+            steroid_beta_lddi_hours: formCData.steroid_beta_lddi_hours ?? "",
+            steroid_dexa_lddi_known: formCData.steroid_dexa_lddi_known
+              ?? (formCData.steroid_dexa_lddi_hours != null ? "Known" : ""),
+            steroid_dexa_lddi_hours: formCData.steroid_dexa_lddi_hours ?? "",
             antenatal_mgso4: formCData.antenatal_mgso4 ?? "",
             mgso4_gestation_weeks: formCData.mgso4_gestation_weeks ?? "",
             mgso4_gestation_days: formCData.mgso4_gestation_days ?? "",
@@ -690,18 +775,15 @@ export default function FormC() {
   const validateField = (name, value, data) => {
     const d = { ...data, [name]: value };
     switch (name) {
-      case "mother_age": if (!value) return "Required"; if (Number(value)<15||Number(value)>55) return "Age must be 15–55"; return "";
+      case "mother_age": if (!value) return "Required"; if (Number(value)<15||Number(value)>70) return "Age must be 15–70"; return "";
       case "house": return value?.trim() ? "" : "House / Street required";
       case "city":  return value?.trim() ? "" : "Village / City required";
       case "state": return value ? "" : "State required";
       case "landmark": return value?.trim() ? "" : "Nearest landmark required";
       case "pincode": if (!value) return ""; return /^\d{6}$/.test(value) ? "" : "6-digit PIN";
       case "email_address": if (!value) return ""; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? "" : "Invalid email";
-      case "gravida": if (!value) return "Required"; if (Number(value)<1) return "Must be ≥ 1"; return "";
-      case "parity": if (!value && value!=="0") return "Required"; if (data.gravida && Number(value)>Number(data.gravida)) return "Cannot exceed Gravida"; return "";
-      case "abortions": return (value===""||value===undefined) ? "Required" : "";
-      case "live": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
-      case "still": if (value===""||value===undefined) return "Required"; if (d.parity&&Number(value)>Number(d.parity)) return "Cannot exceed Parity"; return "";
+      case "gravida": case "parity": case "abortions": case "live": case "still":
+        return computeGpalErrors(d)[name] || "";
       case "booked": return ""; /* not on updated CRF */
       case "anc_visits": return (value===""||value===null) ? "Required" : "";
       case "conception": return value ? "" : "Required";
@@ -728,8 +810,19 @@ export default function FormC() {
         }
         return "";
       }
-      case "lddi_known": return (d.antenatal_steroids==="Yes"&&!value) ? "Required" : "";
-      case "lddi_hours": if (d.lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
+      case "lddi_known":
+        return (d.antenatal_steroids==="Yes"&&!bothSteroidDrugsSelected(d.steroid_drug)&&!value) ? "Required" : "";
+      case "lddi_hours":
+        if (bothSteroidDrugsSelected(d.steroid_drug)) return "";
+        if (d.lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
+      case "steroid_beta_lddi_known":
+        return (d.antenatal_steroids==="Yes"&&bothSteroidDrugsSelected(d.steroid_drug)&&!value) ? "Required" : "";
+      case "steroid_beta_lddi_hours":
+        if (d.steroid_beta_lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
+      case "steroid_dexa_lddi_known":
+        return (d.antenatal_steroids==="Yes"&&bothSteroidDrugsSelected(d.steroid_drug)&&!value) ? "Required" : "";
+      case "steroid_dexa_lddi_hours":
+        if (d.steroid_dexa_lddi_known!=="Known") return ""; if (!value&&value!=="0") return "Required"; if (Number(value)<0||Number(value)>99) return "0–99 hours"; return "";
       case "antenatal_mgso4": return value ? "" : "Required";
       case "mgso4_date": return (d.antenatal_mgso4==="Yes"&&!value) ? "Required" : "";
       case "other_medical_disorder": return (d.other_medical_checkbox&&!value?.trim()) ? "Required" : "";
@@ -815,6 +908,10 @@ export default function FormC() {
         steroid_courses: "",
         lddi_known: "",
         lddi_hours: "",
+        steroid_beta_lddi_known: "",
+        steroid_beta_lddi_hours: "",
+        steroid_dexa_lddi_known: "",
+        steroid_dexa_lddi_hours: "",
       });
     }
     set(patch);
@@ -861,13 +958,33 @@ export default function FormC() {
       patch.steroid_beta_courses = betaInfo ? String(betaInfo.completedCourses) : "";
       patch.steroid_dexa_courses = dexaInfo ? String(dexaInfo.completedCourses) : "";
     }
+    // LDDI is one combined field unless BOTH drugs are selected, in which
+    // case it splits into a per-drug pair. Clear whichever shape no longer
+    // applies so a stale hidden value can't get saved.
+    const willHaveBoth = bothSteroidDrugsSelected(value);
+    if (willHaveBoth) {
+      patch.lddi_known = "";
+      patch.lddi_hours = "";
+    } else {
+      patch.steroid_beta_lddi_known = "";
+      patch.steroid_beta_lddi_hours = "";
+      patch.steroid_dexa_lddi_known = "";
+      patch.steroid_dexa_lddi_hours = "";
+    }
     set(patch);
     touchField(name);
+    const nextData = { ...formData, ...patch };
     setErrors(p => ({
       ...p,
-      [name]: validateField(name, value, { ...formData, ...patch }),
-      steroid_beta_doses: validateField("steroid_beta_doses", patch.steroid_beta_doses ?? formData.steroid_beta_doses, { ...formData, ...patch }),
-      steroid_dexa_doses: validateField("steroid_dexa_doses", patch.steroid_dexa_doses ?? formData.steroid_dexa_doses, { ...formData, ...patch }),
+      [name]: validateField(name, value, nextData),
+      steroid_beta_doses: validateField("steroid_beta_doses", patch.steroid_beta_doses ?? formData.steroid_beta_doses, nextData),
+      steroid_dexa_doses: validateField("steroid_dexa_doses", patch.steroid_dexa_doses ?? formData.steroid_dexa_doses, nextData),
+      lddi_known: validateField("lddi_known", nextData.lddi_known, nextData),
+      lddi_hours: validateField("lddi_hours", nextData.lddi_hours, nextData),
+      steroid_beta_lddi_known: validateField("steroid_beta_lddi_known", nextData.steroid_beta_lddi_known, nextData),
+      steroid_beta_lddi_hours: validateField("steroid_beta_lddi_hours", nextData.steroid_beta_lddi_hours, nextData),
+      steroid_dexa_lddi_known: validateField("steroid_dexa_lddi_known", nextData.steroid_dexa_lddi_known, nextData),
+      steroid_dexa_lddi_hours: validateField("steroid_dexa_lddi_hours", nextData.steroid_dexa_lddi_hours, nextData),
     }));
   };
 
@@ -913,7 +1030,7 @@ export default function FormC() {
     const e = {};
 
     // C1 — Identification
-    if (!data.mother_age||Number(data.mother_age)<15||Number(data.mother_age)>55) e.mother_age = "Age must be 15–55";
+    if (!data.mother_age||Number(data.mother_age)<15||Number(data.mother_age)>70) e.mother_age = "Age must be 15–70";
     if (!data.house?.trim()) e.house = "House / Street required";
     if (!data.city?.trim())  e.city  = "Village / City required";
     if (!data.state)         e.state = "State required";
@@ -921,14 +1038,9 @@ export default function FormC() {
     if (data.pincode && !/^\d{6}$/.test(data.pincode)) e.pincode = "6-digit PIN";
     if (data.email_address && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email_address)) e.email_address = "Invalid email";
 
-    // C2 — Obstetric history (GPAL)
-    ["gravida","parity","abortions","live","still"].forEach(f => {
-      if (data[f]===""||data[f]===undefined||data[f]===null) e[f] = "Required";
-    });
-    if (data.gravida!==""&&Number(data.gravida)<1) e.gravida = "Must be ≥ 1";
-    // parity can be 0 to gravida (current pregnancy counts in gravida)
-    if (data.parity!==""&&data.gravida!==""&&Number(data.parity)>Number(data.gravida))
-      e.parity = "Cannot exceed Gravida";
+    // C2 — Obstetric history (GPAL) — same cross-checked rules as the
+    // live field-level validation, so Save can't slip past a stale error.
+    Object.assign(e, computeGpalErrors(data));
 
     if (data.anc_visits===""||data.anc_visits===null) e.anc_visits = "Required";
     if (!data.conception) e.conception = "Required";
@@ -950,9 +1062,18 @@ export default function FormC() {
         const err = validateField("steroid_dexa_doses", data.steroid_dexa_doses, data);
         if (err) e.steroid_dexa_doses = err;
       }
-      if (!data.lddi_known) e.lddi_known = "Required";
-      if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null))
-        e.lddi_hours = "Required";
+      if (bothSteroidDrugsSelected(data.steroid_drug)) {
+        if (!data.steroid_beta_lddi_known) e.steroid_beta_lddi_known = "Required";
+        if (data.steroid_beta_lddi_known==="Known"&&(data.steroid_beta_lddi_hours===""||data.steroid_beta_lddi_hours===null))
+          e.steroid_beta_lddi_hours = "Required";
+        if (!data.steroid_dexa_lddi_known) e.steroid_dexa_lddi_known = "Required";
+        if (data.steroid_dexa_lddi_known==="Known"&&(data.steroid_dexa_lddi_hours===""||data.steroid_dexa_lddi_hours===null))
+          e.steroid_dexa_lddi_hours = "Required";
+      } else {
+        if (!data.lddi_known) e.lddi_known = "Required";
+        if (data.lddi_known==="Known"&&(data.lddi_hours===""||data.lddi_hours===null))
+          e.lddi_hours = "Required";
+      }
     }
     if (!data.antenatal_mgso4) e.antenatal_mgso4 = "Required";
     if (data.antenatal_mgso4==="Yes"&&!data.mgso4_date) e.mgso4_date = "Required";
@@ -1072,6 +1193,10 @@ export default function FormC() {
     })(),
     lddi_known: formData.lddi_known || null,
     lddi_hours: formData.lddi_hours || null,
+    steroid_beta_lddi_known: formData.steroid_beta_lddi_known || null,
+    steroid_beta_lddi_hours: formData.steroid_beta_lddi_hours || null,
+    steroid_dexa_lddi_known: formData.steroid_dexa_lddi_known || null,
+    steroid_dexa_lddi_hours: formData.steroid_dexa_lddi_hours || null,
     antenatal_mgso4: formData.antenatal_mgso4 || null,
     gestation_at_steroids: formData.gestation_at_steroids || null,
     mgso4_date: formData.mgso4_date ? toDateOnlyValue(formData.mgso4_date) : null,
@@ -1186,7 +1311,7 @@ export default function FormC() {
     c1: ["mother_age","house","city","state","landmark","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c2: ["house","city","state","pincode","email_address"].filter(f => touched[f]&&errors[f]).length,
     c3: ["gravida","parity","abortions","live","still","anc_visits","conception","artificial_type","artificial_other","multiple","multiple_other"].filter(f => touched[f]&&errors[f]).length,
-    c4: ["antenatal_steroids","steroid_drug","steroid_beta_doses","steroid_dexa_doses","lddi_known","lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
+    c4: ["antenatal_steroids","steroid_drug","steroid_beta_doses","steroid_dexa_doses","lddi_known","lddi_hours","steroid_beta_lddi_known","steroid_beta_lddi_hours","steroid_dexa_lddi_known","steroid_dexa_lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
     c5: ["medical_disorders","other_medical_disorder"].filter(f => touched[f]&&errors[f]).length,
     c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
     c7: ["pprom","pprom_duration","preterm_labor","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
@@ -1274,7 +1399,7 @@ export default function FormC() {
                   <div className="form-group">
                     <label>2. Mother's Age (years)<span className="required">*</span></label>
                     <input type="number" name="mother_age" value={formData.mother_age||""}
-                      onChange={handleChange} onBlur={handleBlur} min="15" max="55"
+                      onChange={handleChange} onBlur={handleBlur} min="15" max="70"
                       readOnly={!isFieldEditable}
                       className={E("mother_age")?"input-error":""}
                       onInput={ev=>{ if(ev.target.value.length>2) ev.target.value=ev.target.value.slice(0,2); }}/>
@@ -1378,8 +1503,22 @@ export default function FormC() {
                         onChange={ev => {
                           const v = ev.target.value;
                           if (/^\d{0,2}$/.test(v)&&(v===""||Number(v)<=max)) {
+                            const nextData = {...formData,[name]:v};
                             set({[name]:v}); touchField(name);
-                            setErrors(p=>({...p,[name]:validateField(name,v,{...formData,[name]:v})}));
+                            // Recompute all 5 GPAL fields together — e.g. lowering
+                            // Gravida must re-flag an already-entered Parity/Abortions
+                            // that's now too high, not just the field being typed into.
+                            setErrors(p=>({...p, ...computeGpalErrors(nextData)}));
+                            // Surface that on any GPAL field that already has a value,
+                            // so the error shows immediately instead of staying hidden
+                            // until that other field is individually blurred.
+                            setTouched(t => {
+                              const next = {...t};
+                              ["gravida","parity","abortions","live","still"].forEach(f => {
+                                if (nextData[f] !== "" && nextData[f] != null) next[f] = true;
+                              });
+                              return next;
+                            });
                           }
                         }}/>
                       <FieldError msg={E(name)}/>
@@ -1578,61 +1717,141 @@ export default function FormC() {
 
                     {(hasSteroidDrug(formData.steroid_drug, "Betamethasone")
                       || hasSteroidDrug(formData.steroid_drug, "Dexamethasone")) && (
-                      <div className="form-grid-2" style={{marginTop:12}}>
-                        {(() => {
-                          const betaInfo = hasSteroidDrug(formData.steroid_drug, "Betamethasone")
-                            ? computeSteroidCourse("Betamethasone", formData.steroid_beta_doses)
-                            : null;
-                          const dexaInfo = hasSteroidDrug(formData.steroid_drug, "Dexamethasone")
-                            ? computeSteroidCourse("Dexamethasone", formData.steroid_dexa_doses)
-                            : null;
-                          return (
-                            <>
-                              {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
-                                <div className="form-group">
-                                  <label>22a. Betamethasone Course <span className="auto-tag">AUTO</span></label>
-                                  <input
-                                    readOnly
-                                    className="readonly-input"
-                                    value={betaInfo ? formatSteroidCourseLabel(betaInfo) : ""}
-                                    placeholder="Enter doses in 21a"
-                                  />
-                                </div>
-                              )}
-                              {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
-                                <div className="form-group">
-                                  <label>22b. Dexamethasone Course <span className="auto-tag">AUTO</span></label>
-                                  <input
-                                    readOnly
-                                    className="readonly-input"
-                                    value={dexaInfo ? formatSteroidCourseLabel(dexaInfo) : ""}
-                                    placeholder="Enter doses in 21b"
-                                  />
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
+                      <>
+                        {/* 22: Course Complete / Incomplete status */}
+                        <div className="form-grid-2" style={{marginTop:12}}>
+                          {(() => {
+                            const betaInfo = hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+                              ? computeSteroidCourse("Betamethasone", formData.steroid_beta_doses)
+                              : null;
+                            const dexaInfo = hasSteroidDrug(formData.steroid_drug, "Dexamethasone")
+                              ? computeSteroidCourse("Dexamethasone", formData.steroid_dexa_doses)
+                              : null;
+                            return (
+                              <>
+                                {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
+                                  <div className="form-group">
+                                    <label>22a. Betamethasone Course — Complete/Incomplete <span className="auto-tag"> (AUTO) </span></label>
+                                    <input
+                                      readOnly
+                                      className="readonly-input"
+                                      value={betaInfo ? formatSteroidStatusLabel(betaInfo) : ""}
+                                      placeholder="Enter doses in 21a"
+                                    />
+                                  </div>
+                                )}
+                                {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
+                                  <div className="form-group">
+                                    <label>22b. Dexamethasone Course — Complete/Incomplete <span className="auto-tag">(AUTO)</span></label>
+                                    <input
+                                      readOnly
+                                      className="readonly-input"
+                                      value={dexaInfo ? formatSteroidStatusLabel(dexaInfo) : ""}
+                                      placeholder="Enter doses in 21b"
+                                    />
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+
+                        {/* 23: Number of courses completed */}
+                        <div className="form-grid-2" style={{marginTop:12}}>
+                          {(() => {
+                            const betaInfo = hasSteroidDrug(formData.steroid_drug, "Betamethasone")
+                              ? computeSteroidCourse("Betamethasone", formData.steroid_beta_doses)
+                              : null;
+                            const dexaInfo = hasSteroidDrug(formData.steroid_drug, "Dexamethasone")
+                              ? computeSteroidCourse("Dexamethasone", formData.steroid_dexa_doses)
+                              : null;
+                            return (
+                              <>
+                                {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
+                                  <div className="form-group">
+                                    <label>23a. Betamethasone — No. of Courses <span className="auto-tag">(AUTO)</span></label>
+                                    <input
+                                      readOnly
+                                      className="readonly-input"
+                                      value={betaInfo ? formatSteroidCoursesCountLabel(betaInfo) : ""}
+                                      placeholder="Enter doses in 21a"
+                                    />
+                                  </div>
+                                )}
+                                {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
+                                  <div className="form-group">
+                                    <label>23b. Dexamethasone — No. of Courses <span className="auto-tag">(AUTO)</span></label>
+                                    <input
+                                      readOnly
+                                      className="readonly-input"
+                                      value={dexaInfo ? formatSteroidCoursesCountLabel(dexaInfo) : ""}
+                                      placeholder="Enter doses in 21b"
+                                    />
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </>
                     )}
 
-                    <div className="form-grid-2" style={{marginTop:12}}>
-                      <div className="form-group">
-                        <label>24. LDDI<span className="required">*</span></label>
-                        <Toggle name="lddi_known" value={formData.lddi_known}
-                          options={["Known","Not known"]}
-                          onChange={handleToggle} disabled={!isFieldEditable} error={E("lddi_known")}/>
-                      </div>
-                      {formData.lddi_known==="Known" && (
-                        <div className="form-group">
-                          <label>25. If known: hrs<span className="required">*</span></label>
-                          <input type="number" name="lddi_hours" value={formData.lddi_hours||""}
-                            onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
-                            readOnly={!isFieldEditable} className={E("lddi_hours")?"input-error":""}/>
-                          <FieldError msg={E("lddi_hours")}/>
+                    {bothSteroidDrugsSelected(formData.steroid_drug) ? (
+                      <>
+                        <div className="form-grid-2" style={{marginTop:12}}>
+                          <div className="form-group">
+                            <label>24a. LDDI — Betamethasone<span className="required">*</span></label>
+                            <Toggle name="steroid_beta_lddi_known" value={formData.steroid_beta_lddi_known}
+                              options={["Known","Not known"]}
+                              onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_beta_lddi_known")}/>
+                          </div>
+                          {formData.steroid_beta_lddi_known==="Known" && (
+                            <div className="form-group">
+                              <label>25a. If known: hrs<span className="required">*</span></label>
+                              <input type="number" name="steroid_beta_lddi_hours" value={formData.steroid_beta_lddi_hours||""}
+                                onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
+                                readOnly={!isFieldEditable} className={E("steroid_beta_lddi_hours")?"input-error":""}/>
+                              <FieldError msg={E("steroid_beta_lddi_hours")}/>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                        <div className="form-grid-2" style={{marginTop:12}}>
+                          <div className="form-group">
+                            <label>24b. LDDI — Dexamethasone<span className="required">*</span></label>
+                            <Toggle name="steroid_dexa_lddi_known" value={formData.steroid_dexa_lddi_known}
+                              options={["Known","Not known"]}
+                              onChange={handleToggle} disabled={!isFieldEditable} error={E("steroid_dexa_lddi_known")}/>
+                          </div>
+                          {formData.steroid_dexa_lddi_known==="Known" && (
+                            <div className="form-group">
+                              <label>25b. If known: hrs<span className="required">*</span></label>
+                              <input type="number" name="steroid_dexa_lddi_hours" value={formData.steroid_dexa_lddi_hours||""}
+                                onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
+                                readOnly={!isFieldEditable} className={E("steroid_dexa_lddi_hours")?"input-error":""}/>
+                              <FieldError msg={E("steroid_dexa_lddi_hours")}/>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="form-grid-2" style={{marginTop:12}}>
+                        <div className="form-group">
+                          <label>24. LDDI<span className="required">*</span></label>
+                          <Toggle name="lddi_known" value={formData.lddi_known}
+                            options={["Known","Not known"]}
+                            onChange={handleToggle} disabled={!isFieldEditable} error={E("lddi_known")}/>
+                        </div>
+                        {formData.lddi_known==="Known" && (
+                          <div className="form-group">
+                            <label>25. If known: hrs<span className="required">*</span></label>
+                            <input type="number" name="lddi_hours" value={formData.lddi_hours||""}
+                              onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
+                              readOnly={!isFieldEditable} className={E("lddi_hours")?"input-error":""}/>
+                            <FieldError msg={E("lddi_hours")}/>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

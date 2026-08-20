@@ -5,7 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 import random, string
 from models import RespiratoryLog
 from auth import hash_password, verify_password
@@ -1530,6 +1530,29 @@ def update_postnatal_day1(
 # FORM E  -  NICU ADMISSION ENDPOINTS
 # ============================================================================
 
+def _validate_admission_after_birth(db: Session, enrollment_id: str, admission_datetime):
+    """Reject NICU admission date/time earlier than the baby's recorded date/time of birth (Form B)."""
+    if admission_datetime is None:
+        return
+    birth = db.query(BirthResuscitation).filter(
+        BirthResuscitation.enrollment_id == enrollment_id
+    ).first()
+    if not birth or not birth.date_of_birth:
+        return
+    birth_dt = datetime.combine(
+        birth.date_of_birth,
+        birth.time_of_birth if birth.time_of_birth else time(0, 0, 0),
+    )
+    admission_dt = admission_datetime
+    if admission_dt.tzinfo is not None:
+        admission_dt = admission_dt.replace(tzinfo=None)
+    if admission_dt < birth_dt:
+        raise HTTPException(
+            status_code=422,
+            detail="Admission date/time cannot be before Date & Time of Birth (Form B).",
+        )
+
+
 @app.post("/nicu-admission/", response_model=NICUAdmissionOut)
 def create_nicu_admission(
     data: NICUAdmissionCreate,
@@ -1537,6 +1560,7 @@ def create_nicu_admission(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(data.enrollment_id, db, current_user)
+    _validate_admission_after_birth(db, data.enrollment_id, data.admission_datetime)
     payload = split_and_store_pii(
         db,
         data.model_dump(exclude_unset=True),
@@ -1591,6 +1615,7 @@ def update_nicu_admission(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
+    _validate_admission_after_birth(db, enrollment_id, data.admission_datetime)
     payload = split_and_store_pii(
         db,
         data.model_dump(exclude_unset=True),

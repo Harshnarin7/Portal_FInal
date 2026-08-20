@@ -1009,11 +1009,8 @@ export default function FormD() {
                     })()}
                   </div>
                   <div className="form-group">
-                    <label>6. Gender</label>
-                    <SegmentedToggle name="gender" value={formData.gender}
-                      options={["Male","Female","DSD"]}
-                      onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
-                      disabled={!isFieldEditable}/>
+                    <label>6. Gender <span className="field-note">(from Form B)</span></label>
+                    <input value={formData.gender || ""} readOnly className="readonly-input" placeholder="Auto-filled" />
                   </div>
                 </div>
                 <div className="form-grid-2">

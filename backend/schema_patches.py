@@ -320,6 +320,13 @@ MATERNAL_DETAILS_COLUMN_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_doses INTEGER",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_courses INTEGER",
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_courses INTEGER",
+    # Form C — per-drug LDDI (last dose to delivery interval), used when both
+    # Betamethasone and Dexamethasone were given, since combined LDDI is
+    # ambiguous once the two drugs' last doses can fall on different days
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_lddi_known VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_beta_lddi_hours VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_lddi_known VARCHAR",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS steroid_dexa_lddi_hours VARCHAR",
 ]
 
 SCREENING_SAVE_STATE_PATCHES = [

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import "./styles/global.css";
 import "./styles/FormA.css";
+import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
@@ -263,6 +264,18 @@ const cordClampElapsedSeconds = (timeOfBirth, cordClampedAt) => {
   return elapsed;
 };
 
+/** Inverse of the above: birth clock + elapsed seconds → clamp clock (HH:MM:SS),
+    wrapping past midnight if the birth was late enough in the day. */
+const clampTimestampFromElapsed = (timeOfBirth, elapsedSeconds) => {
+  const birth = clockTimeToSeconds(timeOfBirth);
+  if (birth === null || elapsedSeconds === null || elapsedSeconds === "" || Number.isNaN(Number(elapsedSeconds))) return null;
+  const totalSeconds = ((birth + Number(elapsedSeconds)) % 86400 + 86400) % 86400;
+  const hh = Math.floor(totalSeconds / 3600);
+  const mm = Math.floor((totalSeconds % 3600) / 60);
+  const ss = totalSeconds % 60;
+  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
+};
+
 function DurationColumn({ label, options, active, onPick, listRef }) {
   return (
     <div className="duration-picker-col">
@@ -362,10 +375,49 @@ function DurationPicker({ mode = "hms", value, onChange, disabled = false }) {
   );
 }
 
+/** Max value allowed per 2-digit segment, matching the picker's own ranges
+    (DurationPicker offers HH 00-99, MM/SS 00-59). */
+const DURATION_SEGMENT_MAX = { hms: [99, 59, 59], ms: [59, 59] };
+
+/** Live "auto-colon" formatter for duration inputs, like a card-expiry
+    field: strips whatever the user typed down to raw digits, caps them
+    to the field's digit budget, then re-inserts colons every 2 digits
+    as they type — so "0130" becomes "01:30" immediately, not just
+    after the field loses focus. Typing a colon yourself is harmless
+    (it gets stripped and re-inserted in the right place).
+    Each segment is also range-checked live: a leading digit that could
+    never complete into a valid segment (e.g. "7" for minutes/seconds,
+    since 7X can never be ≤59) is rejected outright, and a completed
+    2-digit segment is clamped to its max (so minutes/seconds can't
+    exceed 59, hours can't exceed 99). Returns null if the keystroke
+    can't lead anywhere valid, so the caller should leave the field
+    unchanged. */
+const autoFormatDurationInput = (raw, mode) => {
+  const digitsOnly = String(raw || "").replace(/\D/g, "");
+  const segMaxes = DURATION_SEGMENT_MAX[mode] || DURATION_SEGMENT_MAX.ms;
+  const maxDigits = segMaxes.length * 2;
+  const capped = digitsOnly.slice(0, maxDigits);
+
+  const groups = [];
+  for (let i = 0; i < capped.length; i += 2) groups.push(capped.slice(i, i + 2));
+
+  const formattedGroups = [];
+  for (let i = 0; i < groups.length; i++) {
+    const max = segMaxes[i];
+    const g = groups[i];
+    if (g.length === 1) {
+      const leadDigit = Number(g);
+      if (leadDigit * 10 > max) return null; // e.g. "7" for a 0-59 segment — no valid completion
+      formattedGroups.push(g);
+    } else {
+      const n = Math.min(Number(g), max);
+      formattedGroups.push(String(n).padStart(2, "0"));
+    }
+  }
+  return formattedGroups.join(":");
+};
+
 function DurationField({ mode, name, value, onChange, disabled, placeholder, maxLength, hasError }) {
-  const pattern = mode === "hms"
-    ? /^\d{0,3}:?[0-5]?\d?:?[0-5]?\d?$/
-    : /^\d{0,3}:?[0-5]?\d?$/;
   const formatOnBlur = () => {
     if (!value) return;
     const formatted = mode === "hms" ? formatDurationHms(value) : formatDurationMs(value);
@@ -378,7 +430,10 @@ function DurationField({ mode, name, value, onChange, disabled, placeholder, max
         inputMode="numeric" maxLength={maxLength} placeholder={placeholder}
         readOnly={disabled}
         className={`duration-field-input${hasError ? " input-error" : ""}`}
-        onChange={e => { const v = e.target.value; if (pattern.test(v)) onChange(v); }}
+        onChange={e => {
+          const formatted = autoFormatDurationInput(e.target.value, mode);
+          if (formatted !== null) onChange(formatted);
+        }}
         onBlur={formatOnBlur}/>
       <DurationPicker mode={mode} value={value} disabled={disabled} onChange={onChange}/>
     </div>
@@ -515,7 +570,7 @@ export default function BirthResuscitationForm() {
     interface_used:"", ppv_duration:"", device_ppv:"",
     intubation:"",
     chest_compression:"", cc_duration:"",
-    adrenaline:"", adrenaline_dilution:"", adrenaline_route:"",
+    adrenaline:"", adrenaline_dilution:"", adrenaline_route:[],
     med_doses:"", adrenaline_cumulative:"",
     fluid_bolus:"", fluid_bolus_doses:"", fluid_bolus_cumulative:"",
     placental_transfusion:"", transfusion_method:"",
@@ -587,6 +642,39 @@ export default function BirthResuscitationForm() {
     });
   };
 
+  /* Earliest calendar day the baby could have been born — the day of
+     screening (Form A). Feeds DatePicker's minDate so dates before
+     screening are greyed out and cannot be clicked at all. */
+  const screeningDateOnly = formData.screening_datetime
+    ? new Date(`${String(formData.screening_datetime).slice(0, 10)}T00:00:00`)
+    : null;
+
+  /* Guarded Time of Birth setter: if Date of Birth is the same calendar
+     day as screening, block any H:M:S combination that would land before
+     the exact screening time (rather than only flagging it after the
+     fact). Different (later) days are always fine at the time level —
+     the DatePicker already stops earlier days from being chosen. */
+  const handleTimeOfBirthChange = (h, m, s) => {
+    if (formData.date_of_birth && formData.screening_datetime) {
+      const screeningMoment = new Date(formData.screening_datetime);
+      if (!isNaN(screeningMoment)) {
+        const hh = String(h ?? 0).padStart(2, "0");
+        const mm = String(m ?? 0).padStart(2, "0");
+        const ss = String(s ?? 0).padStart(2, "0");
+        const candidate = new Date(`${formData.date_of_birth}T${hh}:${mm}:${ss}`);
+        if (!isNaN(candidate) && candidate < screeningMoment) {
+          setErrors(p => ({
+            ...p,
+            time_of_birth: "Cannot be before the Screening Date & Time (Form A)",
+          }));
+          return; // reject — don't commit an earlier-than-screening time
+        }
+      }
+    }
+    setErrors(p => (p.time_of_birth ? { ...p, time_of_birth: "" } : p));
+    handleTimeChange("time_of_birth", h, m, s);
+  };
+
   const endParticipation = formData.required_resuscitation === "No";
   const times = ["1","5","10","15","20"];
   const yn  = v => v === "Yes" ? true : v === "No" ? false : null;
@@ -639,7 +727,7 @@ export default function BirthResuscitationForm() {
   /* ── Gestation at randomization (screening GA + elapsed calendar days) ── */
   useEffect(() => {
     if (!formData.date_of_birth || !formData.screening_datetime || !formData.gestation_weeks) return;
-    const screeningGA = Number(formData.gestation_weeks) * 7 + Number(formData.gestation_days || 0);
+    const screeningGA = Number(formData.gestation_weeks) * 7 + Number(formData.gestation_days ?? 0);
     const screeningDay = new Date(formData.screening_datetime);
     const birthDay = new Date(`${formData.date_of_birth}T00:00:00`);
     screeningDay.setHours(0, 0, 0, 0);
@@ -703,6 +791,15 @@ export default function BirthResuscitationForm() {
     const computedStrata = totalDays < (28 * 7) ? "< 28 weeks" : "≥ 28 – 31 weeks";
     if (formData.strata !== computedStrata) set({ strata: computedStrata });
   }, [formData.randomised, formData.gestation_rand_weeks, formData.gestation_rand_days]); // eslint-disable-line
+
+  /* ── Guard: "Responded to resuscitation" is not a valid exit reason once
+     Resuscitation failure (Q55) = Yes — covers records loaded from the
+     server that predate this rule, not just live edits. ── */
+  useEffect(() => {
+    if (formData.resus_failure === "Yes" && formData.reason_exit_trial_gas === "Responded to resuscitation") {
+      set({ reason_exit_trial_gas: "" });
+    }
+  }, [formData.resus_failure]); // eslint-disable-line
 
   /* ── Blender Unit ID (field 60) from Enrollment ID letter ── */
   useEffect(() => {
@@ -858,7 +955,7 @@ export default function BirthResuscitationForm() {
       cc_duration:         optionalNum(fd.cc_duration),
       adrenaline:          yn(fd.adrenaline),
       adrenaline_dilution: fd.adrenaline_dilution || null,
-      adrenaline_route:    fd.adrenaline_route || null,
+      adrenaline_route:    (fd.adrenaline_route || []).join(", ") || null,
       med_doses:           optionalNum(fd.med_doses),
       adrenaline_cumulative: optionalNum(fd.adrenaline_cumulative),
       fluid_bolus:         yn(fd.fluid_bolus),
@@ -993,7 +1090,7 @@ export default function BirthResuscitationForm() {
       if(!formData.adrenaline)      add("B4. Epinephrine",            "adrenaline");
       if(formData.adrenaline==="Yes" && !formData.adrenaline_dilution)
         add("B4. Epinephrine Dilution", "adrenaline_dilution");
-      if(formData.adrenaline==="Yes" && !formData.adrenaline_route)
+      if(formData.adrenaline==="Yes" && !(formData.adrenaline_route||[]).length)
         add("B4. Epinephrine Route", "adrenaline_route");
       if(!formData.fluid_bolus)     add("B4. Fluid Bolus",            "fluid_bolus");
       if(formData.fluid_bolus==="Yes" && !formData.fluid_bolus_doses)
@@ -1398,6 +1495,9 @@ export default function BirthResuscitationForm() {
           indication_for_delivery: typeof d.indication_for_delivery==="string"
             ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.indication_for_delivery || []),
+          adrenaline_route: typeof d.adrenaline_route==="string"
+            ? d.adrenaline_route.split(",").map(v=>v.trim()).filter(Boolean)
+            : (d.adrenaline_route || []),
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
           blender_letter:    blenderLetterFromEnrollmentId(d.enrollment_id)
             || (["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : ""),
@@ -1489,8 +1589,8 @@ export default function BirthResuscitationForm() {
           maternal_uid:        pii.maternal_uid||"",
           mother_name_first:   pii.mother_first_name||"",
           mother_name_surname: pii.mother_surname||"",
-          gestation_weeks:     d.gestation_weeks||"",
-          gestation_days:      d.gestation_days||"",
+          gestation_weeks:     d.gestation_weeks??"",
+          gestation_days:      d.gestation_days??"",
           screening_datetime: d.screening_datetime||"",
           contact_mother:  pii.mother_contact||pii.contact_mother||"",
           contact_husband: pii.husband_contact||pii.contact_husband||"",
@@ -1700,10 +1800,20 @@ export default function BirthResuscitationForm() {
                     <label>8. Date of Birth<span className="required">*</span></label>
                     <DatePicker
                       selected={formData.date_of_birth?parseDateOnly(formData.date_of_birth):null}
-                      onChange={d=>set({date_of_birth:d?toDateOnlyValue(d):""})}
+                      onChange={d=>{
+                        if (!d) { set({date_of_birth:""}); return; }
+                        if (screeningDateOnly) {
+                          const picked = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                          if (picked < screeningDateOnly) return; // reject — cannot predate screening
+                        }
+                        setErrors(p => (p.date_of_birth ? { ...p, date_of_birth: "" } : p));
+                        set({date_of_birth:toDateOnlyValue(d)});
+                      }}
+                      minDate={screeningDateOnly || undefined}
                       maxDate={new Date()}
                       dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                       readOnly={!isFieldEditable}/>
+                    {errors.date_of_birth && <div className="field-error">{errors.date_of_birth}</div>}
                   </div>
                   <div className="form-group">
                     <label>9. Time of Birth<span className="required">*</span></label>
@@ -1711,8 +1821,9 @@ export default function BirthResuscitationForm() {
                       hour={getTimePart("time_of_birth","h")}
                       minute={getTimePart("time_of_birth","m")}
                       second={getTimePart("time_of_birth","s")}
-                      onChange={(h,m,s)=>handleTimeChange("time_of_birth", h, m, s)}
+                      onChange={handleTimeOfBirthChange}
                       disabled={!isFieldEditable}/>
+                    {errors.time_of_birth && <div className="field-error">{errors.time_of_birth}</div>}
                   </div>
                   <div className="form-group">
                     <label>10. Gender<span className="required">*</span></label>
@@ -1736,7 +1847,7 @@ export default function BirthResuscitationForm() {
                   <div className="form-group">
                     <label>11. Gestation at Screening (auto)</label>
                     <input readOnly className="readonly-input"
-                      value={formData.gestation_weeks ? `${formData.gestation_weeks}w ${formData.gestation_days||0}d` : "—"} placeholder="From Form A"/>
+                      value={formData.gestation_weeks ? `${formData.gestation_weeks}w ${formData.gestation_days??0}d` : "—"} placeholder="From Form A"/>
                   </div>
                   <div className="form-group">
                     <label>12. Gestation at Randomization (auto from Form A and DOB)</label>
@@ -2167,29 +2278,34 @@ export default function BirthResuscitationForm() {
                   {/* 35–37. Epinephrine */}
                   <YesNoToggle label={<>35. Epinephrine{requiredMark}</>}
                     name="adrenaline" value={formData.adrenaline}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:""}); }}
+                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({adrenaline_dilution:"",adrenaline_route:[]}); }}
                     disabled={!isFieldEditable}/>
                   {formData.adrenaline==="Yes" && (
                     <div className="followup-box">
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label>36. Dilution{requiredMark}</label>
-                          <select name="adrenaline_dilution" value={formData.adrenaline_dilution||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="1:10000">1:10,000</option>
-                            <option value="1:1000">1:1,000</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label>37. Route{requiredMark}</label>
-                          <select name="adrenaline_route" value={formData.adrenaline_route||""}
-                            disabled={!isFieldEditable} onChange={handleChange}>
-                            <option value="">-- Select --</option>
-                            <option value="Umbilical vein">Umbilical vein</option>
-                            <option value="Peripheral vein">Peripheral vein</option>
-                            <option value="Intratracheal">Intratracheal</option>
-                          </select>
+                      <div className="form-group">
+                        <label>36. Dilution{requiredMark}</label>
+                        <select name="adrenaline_dilution" value={formData.adrenaline_dilution||""}
+                          disabled={!isFieldEditable} onChange={handleChange}>
+                          <option value="">-- Select --</option>
+                          <option value="1:10000">1:10,000</option>
+                          <option value="1:1000">1:1,000</option>
+                        </select>
+                      </div>
+                      <div className="form-group" style={{marginTop:12}}>
+                        <label>37. Route{requiredMark} <span className="field-note">(select all that apply)</span></label>
+                        <div className="rcn-pills">
+                          {["Umbilical vein","Peripheral vein","Intratracheal"].map(opt => (
+                            <button
+                              key={opt}
+                              type="button"
+                              className={`rcn-pill rcn-pill--drug${(formData.adrenaline_route||[]).includes(opt) ? " rcn-pill--drug-on" : ""}`}
+                              disabled={!isFieldEditable}
+                              onClick={()=>{
+                                const cur = formData.adrenaline_route||[];
+                                const next = cur.includes(opt) ? cur.filter(x=>x!==opt) : [...cur,opt];
+                                set({adrenaline_route:next});
+                              }}>{opt}</button>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -2252,7 +2368,7 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at</span></label>
+                      <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at — or type here to auto-fill 43</span></label>
                       <input type="text" name="cord_clamp_time"
                         value={formData.cord_clamp_time === 0 || formData.cord_clamp_time === "0"
                           ? "0"
@@ -2260,9 +2376,17 @@ export default function BirthResuscitationForm() {
                         inputMode="numeric" maxLength={3} placeholder="0–300"
                         readOnly={!isFieldEditable}
                         className={errors.cord_clamp_time?"input-error":""}
-                        onChange={e=>{const v=e.target.value;if(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))set({cord_clamp_time:v});}}/>
+                        onChange={e=>{
+                          const v=e.target.value;
+                          if(!(/^\d{0,3}$/.test(v)&&(v===""||Number(v)<=300))) return;
+                          if (formData.time_of_birth && v !== "") {
+                            const derivedTimestamp = clampTimestampFromElapsed(formData.time_of_birth, v);
+                            if (derivedTimestamp) { set({ cord_clamp_time:v, cord_clamp_timestamp:derivedTimestamp }); return; }
+                          }
+                          set({cord_clamp_time:v});
+                        }}/>
                       {errors.cord_clamp_time&&<div className="field-error">{errors.cord_clamp_time}</div>}
-                      {!formData.time_of_birth && formData.cord_clamp_timestamp && (
+                      {!formData.time_of_birth && (formData.cord_clamp_timestamp || formData.cord_clamp_time) && (
                         <div className="field-error">Enter 9. Time of Birth first to auto-calculate.</div>
                       )}
                     </div>
@@ -2464,7 +2588,16 @@ export default function BirthResuscitationForm() {
 
                   <YesNoToggle label={<>55. Resuscitation failure{requiredMark}</>}
                     name="resus_failure" value={formData.resus_failure}
-                    onChange={handleChange} disabled={!isFieldEditable}/>
+                    onChange={e=>{
+                      handleChange(e);
+                      // If resuscitation failed, "Responded to resuscitation" is no
+                      // longer a valid exit reason — drop it from the options and
+                      // clear it out if it was already selected.
+                      if (e.target.value === "Yes" && formData.reason_exit_trial_gas === "Responded to resuscitation") {
+                        set({ reason_exit_trial_gas: "" });
+                      }
+                    }}
+                    disabled={!isFieldEditable}/>
 
                   <div className="form-grid-2" style={{marginTop:14}}>
                     <div className="form-group">
@@ -2498,7 +2631,11 @@ export default function BirthResuscitationForm() {
                         value={formData.reason_exit_trial_gas||""}
                         disabled={!isFieldEditable} onChange={handleChange}>
                         <option value="">-- Select --</option>
-                        <option value="Responded to resuscitation">Responded to resuscitation</option>
+                        {/* When resuscitation has failed (Q55 = Yes), the baby did not
+                            respond to resuscitation — so that option is not offered. */}
+                        {formData.resus_failure !== "Yes" && (
+                          <option value="Responded to resuscitation">Responded to resuscitation</option>
+                        )}
                         <option value="Required override to 100% O2 or CC">Required override to 100% O2 or CC</option>
                         <option value="Other">Other</option>
                       </select>
