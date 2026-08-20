@@ -38,7 +38,9 @@ from models import User
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger(__name__)
 
-ALL_SITES = ["PGIMER", "GMCH", "GMCH-A", "AMC", "AFMC", "IOG"]
+# Canonical order — must match CANONICAL_SITE_ID_MAP in main.py (01-06,
+# used for screening/enrollment IDs), not alphabetical or insertion order.
+ALL_SITES = ["PGIMER", "GMCH", "IOG", "AFMC", "GMCH-A", "AMC"]
 GRACE_DAYS = 28
 
 # Pre-screening barriers (Box 2). A record with any of these exclusion_reasons
@@ -1319,8 +1321,9 @@ def get_safety(
         else:
             morb_by_site[sn] = _build_morb(r)
 
-    # Sites list (from denominator)
-    sites = [k for k in denom_overall if k not in (None, "__overall__")]
+    # Sites list, restricted to those with any randomised patient (from
+    # denominator) but ordered canonically, not by arbitrary SQL row order.
+    sites = [s for s in ALL_SITES if s in denom_overall]
 
     return {
         "generated_at": datetime.utcnow().isoformat(),

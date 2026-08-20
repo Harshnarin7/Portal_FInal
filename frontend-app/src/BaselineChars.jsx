@@ -1,6 +1,7 @@
 // BaselineChars.jsx — Section 4: Baseline Characteristics / Potential Confounders
 import React, { useEffect, useState } from "react";
 import api from "./api/axios";
+import { siteShortCode, sortSitesCanonically } from "./utils/siteNames";
 import "./ClinicalQuality.css";
 
 function fmtPct(val) {
@@ -39,7 +40,7 @@ function PanelTable({ title, sites, overall, bySite = {}, metrics, denomKey = "n
               </th>
               {sites.map(s => (
                 <th key={s}>
-                  {s}<br />
+                  {siteShortCode(s)}<br />
                   <span className="cq-n">n={bySite[s]?.[denomKey] ?? 0}</span>
                 </th>
               ))}
@@ -77,7 +78,13 @@ export default function BaselineChars() {
   if (error)   return <div className="cq-state cq-error">{error}</div>;
   if (!data)   return null;
 
-  const sites = Object.keys(data.infant?.by_site || {});
+  // Union site keys across both panels — a site can have antenatal data
+  // (Form C) without infant data (Form B) yet, or vice versa, so keying
+  // off a single panel silently drops it from the whole section.
+  const sites = sortSitesCanonically([...new Set([
+    ...Object.keys(data.infant?.by_site || {}),
+    ...Object.keys(data.antenatal?.by_site || {}),
+  ])]);
 
   const infantMetrics = [
     { key: "ga_weeks",       label: "Gestational age — median (IQR) weeks", format: v => fmtMedianIQR(v, "wk") },
