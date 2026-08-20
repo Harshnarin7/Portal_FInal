@@ -1,6 +1,7 @@
 // ClinicalQuality.jsx — Section 3: Neonatal Clinical Care Quality
 import React, { useEffect, useState } from "react";
 import api from "./api/axios";
+import { siteShortCode, sortSitesCanonically } from "./utils/siteNames";
 import "./ClinicalQuality.css";
 
 function fmtPct(val) {
@@ -38,7 +39,7 @@ function PanelTable({ title, sites, overall, bySite = {}, metrics, denomKey = "n
               </th>
               {sites.map(s => (
                 <th key={s}>
-                  {s}<br />
+                  {siteShortCode(s)}<br />
                   <span className="cq-n">n={bySite[s]?.[denomKey] ?? 0}</span>
                 </th>
               ))}
@@ -76,7 +77,16 @@ export default function ClinicalQuality() {
   if (error)   return <div className="cq-state cq-error">{error}</div>;
   if (!data)   return null;
 
-  const sites = Object.keys(data.delivery_room?.by_site || {});
+  // Union site keys across all 5 panels — a site can have data in one panel
+  // (e.g. respiratory) without having any in another (e.g. delivery_room),
+  // so keying off a single panel silently drops it from the whole section.
+  const sites = sortSitesCanonically([...new Set([
+    ...Object.keys(data.delivery_room?.by_site || {}),
+    ...Object.keys(data.golden_hour?.by_site || {}),
+    ...Object.keys(data.respiratory?.by_site || {}),
+    ...Object.keys(data.nutrition?.by_site || {}),
+    ...Object.keys(data.infection?.by_site || {}),
+  ])]);
 
   const drMetrics = [
     { key: "placental_transfusion", label: "Placental transfusion (DCC / Milking)", format: fmtPct },
