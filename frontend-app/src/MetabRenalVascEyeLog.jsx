@@ -62,7 +62,6 @@ const TABLE_VIEW_FIELD_GROUPS = [
     section: "Renal",
     rows: [
       { key: "aki_suspected",         label: "AKI Suspected", bool: true },
-      { key: "aki_stage",             label: "AKI (KDIGO stage)" },
       { key: "creatinine_value",      label: "Serum Creatinine" },
       { key: "urine_output_8am_2pm",  label: "UO 8am–2pm", suffix: " ml/kg/hr" },
       { key: "urine_output_2pm_8pm",  label: "UO 2pm–8pm", suffix: " ml/kg/hr" },
@@ -218,9 +217,11 @@ function ReadonlyAutoField({ label, value, unit, autofilled }) {
 
 const pad2 = n => String(n).padStart(2, "0");
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 function blankReading(extra = {}) {
-  return { id: uid(), ...extra };
+  const d = new Date();
+  return { id: uid(), date: toDateOnlyValue(d), time: nowTime(d), ...extra };
 }
 
 function parseJsonArray(raw) {
@@ -272,19 +273,22 @@ function computeUrineTotal(a, b, c) {
 }
 
 function migrateAkiFromLegacy(d) {
+  // KDIGO stage is no longer captured on this form (removed) — this only
+  // derives aki_suspected, including from older rows that pre-date the
+  // aki_suspected/aki_stage split and only had a combined "N"/"Stage X" value.
   if (d.aki_suspected === true || d.aki_suspected === false) {
-    return { aki_suspected: d.aki_suspected, aki_stage: d.aki_stage || null };
+    return { aki_suspected: d.aki_suspected };
   }
-  if (d.aki_stage === "N") return { aki_suspected: false, aki_stage: null };
+  if (d.aki_stage === "N") return { aki_suspected: false };
   if (d.aki_stage && String(d.aki_stage).startsWith("Stage")) {
-    return { aki_suspected: true, aki_stage: d.aki_stage };
+    return { aki_suspected: true };
   }
-  return { aki_suspected: null, aki_stage: d.aki_stage || null };
+  return { aki_suspected: null };
 }
 
-/** Helper-5-style multi-entry block (value field(s) only — no date/time). */
+/** Helper-5-style multi-entry block (date/time + value field(s)). */
 function ReadingsBlock({
-  code, entries, onAdd, onRemove, disabled, blankFactory, children,
+  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
 }) {
   const list = entries?.length ? entries : [blankFactory ? blankFactory() : blankReading()];
   return (
@@ -294,17 +298,25 @@ function ReadingsBlock({
       </div>
       {list.map((entry, idx) => (
         <div className="mml-entry" key={entry.id || idx}>
-          {list.length > 1 && (
-            <div className="mml-entry-head">
-              <div className="mml-entry-meta">
-                <span className="mml-entry-badge">#{idx + 1}</span>
-              </div>
-              {!disabled && (
-                <button type="button" className="mml-remove-btn" title="Remove this reading"
-                  onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
-              )}
+          <div className="mml-entry-head">
+            <div className="mml-entry-meta">
+              {list.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
+              <label className="mml-meta-field">
+                <span>Date</span>
+                <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
+                  disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
+              </label>
+              <label className="mml-meta-field">
+                <span>Time</span>
+                <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
+                  disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
+              </label>
             </div>
-          )}
+            {list.length > 1 && !disabled && (
+              <button type="button" className="mml-remove-btn" title="Remove this reading"
+                onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
+            )}
+          </div>
           <div className="rcn-grid-3">{children(entry, idx)}</div>
         </div>
       ))}
@@ -403,6 +415,9 @@ function computeGlucoseAutofill(readings) {
 function isEmptyMetabField(v) {
   return v === null || v === undefined || v === "";
 }
+
+const listToString = v => Array.isArray(v) ? v.join(",") : (v || "");
+const stringToList = v => Array.isArray(v) ? v : String(v || "").split(",").map(s => s.trim()).filter(Boolean);
 
 /* Grade/Stage selection cards — same pattern as IVH Grade in Helper Form 2 */
 function StageCards({ options, value, onChange, disabled }) {
@@ -654,7 +669,6 @@ export default function MetabRenalVascEyeLog() {
   // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
     aki_suspected:          null, // #11 Yes/No
-    aki_stage:              null, // KDIGO when #11 Yes
     creatinine_value:       null, // #12 string | Not Tested | Awaited
     urine_output_8am_2pm:   null,
     urine_output_2pm_8pm:   null,
@@ -670,7 +684,7 @@ export default function MetabRenalVascEyeLog() {
 
   // 📍 LOCATION & OUTCOME (4.6, 4.7)
   const [tailData, setTailData] = useState({
-    location:               null, // DR, NICU, Step-down/Nursery, KMC-N, Other
+    location:               [], // DR, NICU, Step-down/Nursery, KMC-N, Other — multi-select
     survived_the_day:       null,
   });
 
@@ -759,7 +773,12 @@ export default function MetabRenalVascEyeLog() {
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
   const isFieldEditable =
     (!isSubmitted || isOverrideActiveDay) &&
-    (!isSaved || isEditing);
+    (!isSaved || isEditing) &&
+    !isFutureActiveDay &&
+    // Same fix as Helper Forms 2/3: a past day's window has closed unless
+    // it's in the late-entry grace period or a superadmin override reopened
+    // it. Without this, fields/Save stayed live on any locked past day.
+    (!isPastActiveDay || isLateGraceActiveDay || isOverrideActiveDay);
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving.
@@ -785,7 +804,6 @@ export default function MetabRenalVascEyeLog() {
     vascData.peripheral_iv === true || vascData.peripheral_arterial === true;
   const ropDue = eyeData.rop_screening_due === true;
   const ropScreenedYes = eyeData.rop_screened === true;
-  const akiSuspectedYes = renalData.aki_suspected === true;
 
   const METAB_BASE = [
     "lowest_glucose", "hypoglycemia_episodes",
@@ -799,10 +817,9 @@ export default function MetabRenalVascEyeLog() {
   const metabTotal   = METAB_BASE.length;
   const metabAnswered= METAB_BASE.filter(k => ans(metabData[k])).length;
 
-  // Renal: #11 Yes/No (+ stage when Yes), #12 creatinine_value, #13 any urine window, #14
+  // Renal: #11 Yes/No, #12 creatinine_value, #13 any urine window, #14
   const RENAL_KEYS = [
     "aki_suspected",
-    ...(akiSuspectedYes ? ["aki_stage"] : []),
     "creatinine_value",
     "urine_output_total",
     "dialysis_crrt",
@@ -908,7 +925,6 @@ export default function MetabRenalVascEyeLog() {
     if (!isFieldEditable) return;
     setRenalData(p => {
       const next = { ...p, [k]: v };
-      if (k === "aki_suspected" && v !== true) next.aki_stage = null;
       if (
         k === "urine_output_8am_2pm"
         || k === "urine_output_2pm_8pm"
@@ -1167,7 +1183,6 @@ export default function MetabRenalVascEyeLog() {
           setMetabData(loadedMetab);
           setRenalData({
             aki_suspected:          aki.aki_suspected,
-            aki_stage:              aki.aki_stage,
             creatinine_value:       creatVal,
             urine_output_8am_2pm:   d.urine_output_8am_2pm ?? null,
             urine_output_2pm_8pm:   d.urine_output_2pm_8pm ?? null,
@@ -1197,7 +1212,7 @@ export default function MetabRenalVascEyeLog() {
             rop_treatment:     d.rop_treatment     ?? null,
           });
           setTailData({
-            location:          d.location          || null,
+            location:          stringToList(d.location),
             survived_the_day:  d.survived_the_day  ?? null,
           });
           const st = d.submission_status || STATUS.DRAFT;
@@ -1303,7 +1318,7 @@ export default function MetabRenalVascEyeLog() {
       highest_glucose: false,
     });
     setRenalData({
-      aki_suspected:null, aki_stage:null, creatinine_value:null,
+      aki_suspected:null, creatinine_value:null,
       urine_output_8am_2pm:null, urine_output_2pm_8pm:null, urine_output_8pm_8am:null,
       urine_output_total:null, dialysis_crrt:null,
     });
@@ -1311,7 +1326,7 @@ export default function MetabRenalVascEyeLog() {
     setVascData({ picc_in_situ:null,uvc_in_situ:null,uac_in_situ:null,peripheral_iv:null,
       peripheral_arterial:null,extravasation_injury:null,line_complication:null });
     setEyeData({ rop_screening_due:null,rop_screened:null,rop_detected:null,rop_stage:null,plus_disease:null,rop_treatment:null });
-    setTailData({ location:null,survived_the_day:null });
+    setTailData({ location:[],survived_the_day:null });
     setIsSaved(false); setIsEditing(false);
     setSavedAt(null); setSavedBy(""); setSubmittedAt(null); setSubmittedBy("");
     setOverrideUntil(null);
@@ -1355,7 +1370,6 @@ export default function MetabRenalVascEyeLog() {
       potassium_readings_json: JSON.stringify(kReadings),
       calcium_readings_json: JSON.stringify(caReadings),
       aki_suspected: renalData.aki_suspected,
-      aki_stage: renalData.aki_suspected === true ? renalData.aki_stage : null,
       creatinine_value: creatVal,
       creatinine: creatNum,
       urine_output_8am_2pm: renalData.urine_output_8am_2pm,
@@ -1367,6 +1381,7 @@ export default function MetabRenalVascEyeLog() {
       ...vascData,
       ...eyeData,
       ...tailData,
+      location: listToString(tailData.location),
       submission_status: STATUS.DRAFT,
       saved_at: now,
       saved_by: user?.name || user?.username || "Nurse",
@@ -1462,7 +1477,6 @@ export default function MetabRenalVascEyeLog() {
       });
       setRenalData({
         aki_suspected: aki.aki_suspected,
-        aki_stage: aki.aki_stage,
         creatinine_value: d.creatinine_value
           ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null),
         urine_output_8am_2pm: d.urine_output_8am_2pm??null,
@@ -1480,7 +1494,7 @@ export default function MetabRenalVascEyeLog() {
       setEyeData({ rop_screening_due: d.rop_screening_due??null, rop_screened: d.rop_screened??null,
         rop_detected: d.rop_detected??null, rop_stage: d.rop_stage||null,
         plus_disease: d.plus_disease??null, rop_treatment: d.rop_treatment??null });
-      setTailData({ location: d.location||null, survived_the_day: d.survived_the_day??null });
+      setTailData({ location: stringToList(d.location), survived_the_day: d.survived_the_day??null });
       setGlucoseAutofilled({
         lowest_glucose: false,
         hypoglycemia_episodes: false,
@@ -1870,7 +1884,8 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.ph_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ ph: "" })}
-                                        onAdd={blank => addReading("ph_readings", blank, "ph")}
+                    onChangeEntry={(i, k, v) => setReadingField("ph_readings", i, k, v, "ph")}
+                    onAdd={blank => addReading("ph_readings", blank, "ph")}
                     onRemove={i => removeReading("ph_readings", i, "ph")}
                   >
                     {(e, i) => (
@@ -1904,7 +1919,8 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.sodium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                                        onAdd={blank => addReading("sodium_readings", blank)}
+                    onChangeEntry={(i, k, v) => setReadingField("sodium_readings", i, k, v)}
+                    onAdd={blank => addReading("sodium_readings", blank)}
                     onRemove={i => removeReading("sodium_readings", i)}
                   >
                     {(e, i) => (
@@ -1929,7 +1945,8 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.potassium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                                        onAdd={blank => addReading("potassium_readings", blank)}
+                    onChangeEntry={(i, k, v) => setReadingField("potassium_readings", i, k, v)}
+                    onAdd={blank => addReading("potassium_readings", blank)}
                     onRemove={i => removeReading("potassium_readings", i)}
                   >
                     {(e, i) => (
@@ -1954,7 +1971,8 @@ export default function MetabRenalVascEyeLog() {
                     entries={metabData.calcium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
-                                        onAdd={blank => addReading("calcium_readings", blank)}
+                    onChangeEntry={(i, k, v) => setReadingField("calcium_readings", i, k, v)}
+                    onAdd={blank => addReading("calcium_readings", blank)}
                     onRemove={i => removeReading("calcium_readings", i)}
                   >
                     {(e, i) => (
@@ -1984,17 +2002,6 @@ export default function MetabRenalVascEyeLog() {
                 <YNRow label="11. AKI suspected" value={renalData.aki_suspected}
                   onChange={v=>setRenal("aki_suspected",v)} disabled={!isFieldEditable}/>
               </div>
-              {akiSuspectedYes && (
-                <div className="rcn-conditional-block" style={{ marginTop: 10 }}>
-                  <div className="rcn-subsection-title">KDIGO stage</div>
-                  <PillSingle
-                    options={["Stage 1", "Stage 2", "Stage 3"]}
-                    value={renalData.aki_stage}
-                    onChange={v => setRenal("aki_stage", v)}
-                    disabled={!isFieldEditable}
-                  />
-                </div>
-              )}
 
               <div className="rcn-yn-list" style={{ marginTop: 12 }}>
                 <GlucoseTextRow
@@ -2092,9 +2099,9 @@ export default function MetabRenalVascEyeLog() {
             {/* ════ 4.6 LOCATION ════ */}
             <SectionCard iconEmoji="📍" title="4.6 Location"
               answered={ans(tailData.location) ? 1 : 0} total={1} defaultOpen={true}>
-              <PillSingle
+              <PillMulti
                 options={["DR","NICU","Step-down/Nursery","KMC-N","Other"]}
-                value={tailData.location}
+                value={tailData.location || []}
                 onChange={v => setTail("location", v)}
                 disabled={!isFieldEditable}
               />

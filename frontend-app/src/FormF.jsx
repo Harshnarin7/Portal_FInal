@@ -337,6 +337,13 @@ export default function FormF() {
   };
 
   const isFieldEditable = !isSubmitted && (!isSaved || isEditing);
+  // Adding the very first scan shouldn't require an extra "Edit" click —
+  // there's nothing to protect when the scan list is empty, even if a
+  // Form F row already exists in the DB (e.g. completion/complication
+  // fields were saved before any scan was ever added). Editing an
+  // *existing* scan, or any other already-saved field, still correctly
+  // requires Edit — this only widens the gate for adding the first one.
+  const canRecordScan = !isSubmitted && (!isSaved || isEditing || scanEntries.length === 0);
 
   /* ── Load ── */
   useEffect(() => {
@@ -617,7 +624,7 @@ export default function FormF() {
                 <div className="cu-card-icon"><Activity size={17} /></div>
                 <h3 className="cu-card-title">F1. Ultrasound Screening Record</h3>
               </div>
-              {isFieldEditable && (
+              {canRecordScan && (
                 <button type="button" className="cu-btn-add"
                   disabled={scanEntries.length >= MAX_SCANS}
                   onClick={() => { setEditingScan(null); setShowScanModal(true); }}>
@@ -630,7 +637,7 @@ export default function FormF() {
               <div className="cu-empty">
                 <Activity size={22} className="cu-empty-icon" />
                 <p>No cranial ultrasound scans recorded yet.</p>
-                {isFieldEditable && (
+                {canRecordScan && (
                   <button type="button" className="cu-btn cu-btn--primary"
                     onClick={() => { setEditingScan(null); setShowScanModal(true); }}>
                     <Plus size={14} /> Record First Scan

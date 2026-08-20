@@ -90,7 +90,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "hs_pda",              label: "HS PDA", bool: true },
       { key: "shock",               label: "Shock", bool: true },
       { key: "vasoactive_support",  label: "Vasoactive Support", bool: true },
-      { key: "fluid_bolus",         label: "Fluid Bolus", bool: true },
+      { key: "fluid_bolus",         label: "Fluid Bolus" },
       { key: "vasoactive_drugs",    label: "Vasoactive Drugs" },
     ],
   },
@@ -98,7 +98,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
     section: "Neurological",
     rows: [
       { key: "cranial_usg",           label: "Cranial USG", bool: true },
-      { key: "ivh",                   label: "IVH", bool: true },
+      { key: "ivh",                   label: "IVH", ivh: true },
       { key: "pvl_suspected",         label: "PVL Suspected", bool: true },
       { key: "cpvl_confirmed",        label: "cPVL Confirmed", bool: true },
       { key: "ventriculomegaly",      label: "Ventriculomegaly", bool: true },
@@ -119,6 +119,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
 
 /* Formats a single field's value for one day's data object `d`. */
 function formatTableViewValue(d, row) {
+  if (row.ivh) {
+    return d.ivh === true ? (d.ivh_grade ? `Yes (Gr ${d.ivh_grade})` : "Yes")
+      : d.ivh === false ? "No" : "—";
+  }
   const v = d[row.key];
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (v === null || v === undefined || v === "") return "—";
@@ -210,7 +214,7 @@ function validatePh(value) {
   if (value === "" || value === null || value === undefined) return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return "Enter a valid number";
-  if (num < 6.6 || num > 7.8) return "pH must be between 6.6 and 7.8";
+  if (num < 6.6 || num > 7.8) return "pH is usually 6.6–7.8 — please double-check this value";
   return null;
 }
 
@@ -220,7 +224,7 @@ function validateBloodGasValue(value, { min, max, label }) {
   if (value === "" || value === null || value === undefined) return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return "Enter a valid number";
-  if (num < min || num > max) return `${label} must be between ${min} and ${max} mmHg`;
+  if (num < min || num > max) return `${label} is usually ${min}–${max} mmHg — please double-check`;
   return null;
 }
 
@@ -241,40 +245,22 @@ function validateCount(value, { max = 50, label } = {}) {
   if (!Number.isFinite(num)) return "Enter a valid number";
   if (!Number.isInteger(num)) return "Enter a whole number";
   if (num < 0) return "Value can't be negative";
-  if (num > max) return `${label ? label + " " : ""}can't be more than ${max}`;
+  if (num > max) return `${label ? label + " " : ""}seems unusually high — please double-check`;
   return null;
 }
 
-/* Restricts a numeric text input LIVE so it can never be typed past `max`
-   (more digits can only make a number bigger, so this is always safely
-   enforceable as the person types) and, for integer fields, blocks
-   non-digit characters (including "-") outright. Returns the accepted
-   string, or null to reject the keystroke and leave the field unchanged.
-   The lower bound (`min`) is enforced on save via the paired *Error
-   validator below, since a low-looking prefix (e.g. "1" while typing
-   "150") is often still mid-entry and can't safely be blocked live. */
-function clampToRange(raw, { max, integer = false } = {}) {
-  if (raw === "") return "";
-  const pattern = integer ? /^\d*$/ : /^\d*\.?\d*$/;
-  if (!pattern.test(raw)) return null;
-  if (raw === ".") return integer ? null : raw;
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return raw;
-  if (num > max) return null;
-  return raw;
-}
-
-/* Normalizes the Fluid Bolus field for display: legacy records stored it
-   as free text (e.g. "10ml/kg NS"); newer records store a plain boolean. */
-function normalizeFluidBolus(v) {
-  if (v === true || v === false) return v;
-  if (v === null || v === undefined || v === "") return null;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (s === "true" || s === "yes") return true;
-    if (s === "false" || s === "no") return false;
-    return true; // any other legacy free-text value means a bolus was recorded
-  }
+/* Validates the free-text Fluid Bolus field (#29). Expects a volume
+   expressed as "Xml/kg", optionally followed by the fluid type
+   (e.g. "10ml/kg NS"). Returns an error string, or null when
+   valid / empty (field is optional). */
+function validateFluidBolus(str) {
+  if (!str || !str.trim()) return null;
+  const trimmed = str.trim();
+  const m = trimmed.match(/^(\d+(?:\.\d+)?)\s*m[Ll]\s*\/\s*kg\b/);
+  if (!m) return 'Use the format "Xml/kg" — e.g. 10ml/kg NS';
+  const num = parseFloat(m[1]);
+  if (num <= 0) return "Bolus volume must be greater than 0";
+  if (num > 30) return "Fluid bolus is usually 5–30ml/kg — please double-check this value";
   return null;
 }
 
@@ -591,23 +577,6 @@ export default function RespCVNeuroLog() {
   const [apneaCount, setApneaCount]             = useState(""); // #13
   const [desatCount, setDesatCount]             = useState(""); // #14
   const [severeDesatCount, setSevereDesatCount] = useState(""); // #15
-
-  /* Live range-guarded setters — reject any keystroke that would push the
-     value past its physiological ceiling (see clampToRange above). */
-  const handlePhChange = (raw) => {
-    const c = clampToRange(raw, { max: 7.8 });
-    if (c === null) return;
-    // pH only ever has one digit before the decimal point, so a leading
-    // digit below 6 can never become valid (6.6–7.8) — block it live too.
-    if (c.length === 1 && !c.includes(".") && Number(c) < 6) return;
-    setLowestPh(c);
-  };
-  const handlePao2LowChange  = (raw) => { const c = clampToRange(raw, { max: 600 }); if (c !== null) setPao2Low(c); };
-  const handlePao2HighChange = (raw) => { const c = clampToRange(raw, { max: 600 }); if (c !== null) setPao2High(c); };
-  const handlePaco2LowChange  = (raw) => { const c = clampToRange(raw, { max: 150 }); if (c !== null) setPaco2Low(c); };
-  const handlePaco2HighChange = (raw) => { const c = clampToRange(raw, { max: 150 }); if (c !== null) setPaco2High(c); };
-  const handleApneaCountChange = (raw) => { const c = clampToRange(raw, { max: 50, integer: true }); if (c !== null) setApneaCount(c); };
-  const handleSevereDesatCountChange = (raw) => { const c = clampToRange(raw, { max: 50, integer: true }); if (c !== null) setSevereDesatCount(c); };
   const [respEvents, setRespEvents]     = useState({
     supp_o2: null, surfactant: null, caffeine: null,
     extub_attempted: null, extub_failure: null,
@@ -618,13 +587,14 @@ export default function RespCVNeuroLog() {
   /* ── Cardiovascular state ── */
   const [cvData, setCvData] = useState({
     pda_suspected: null, echo_done: null, hs_pda: null,
-    shock: null, vasoactive_support: null, fluid_bolus: null,
+    shock: null, vasoactive_support: null,
   });
+  const [fluidBolus, setFluidBolus] = useState(""); // #29
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
-    cranial_usg: null, ivh: null,
+    cranial_usg: null, ivh: null, ivh_grade: null,
     pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
     clinical_seizures: null, eeg_seizures: null, aeds_given: null,
     non_ivh_ich: null, meningitis_suspected: null,
@@ -681,7 +651,12 @@ export default function RespCVNeuroLog() {
 
   const isFieldEditable  =
     (!isSubmitted || isOverrideActiveDay) &&
-    (!isSaved || isEditing);
+    (!isSaved || isEditing) &&
+    !isFutureActiveDay &&
+    // Same fix as Helper Forms 3/4: a past day's window has closed unless
+    // it's in the late-entry grace period or a superadmin override reopened
+    // it. Without this, fields/Save stayed live on any locked past day.
+    (!isPastActiveDay || isLateGraceActiveDay || isOverrideActiveDay);
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving —
@@ -844,12 +819,13 @@ export default function RespCVNeuroLog() {
             pda_medical_rx:   d.pda_medical_rx   ?? null,
             shock:            d.shock            ?? null,
             vasoactive_support: d.vasoactive_support ?? null,
-            fluid_bolus:      normalizeFluidBolus(d.fluid_bolus),
           });
+          setFluidBolus(d.fluid_bolus || "");
           setVasoactiveDrugs(d.vasoactive_drugs ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
           setNeuroData({
             cranial_usg:        d.cranial_usg        ?? null,
             ivh:                d.ivh                ?? null,
+            ivh_grade:          d.ivh_grade          || null,
             pvl_suspected:      d.pvl_suspected      ?? null,
             cpvl_confirmed:     d.cpvl_confirmed     ?? null,
             ventriculomegaly:   d.ventriculomegaly   ?? null,
@@ -902,9 +878,10 @@ export default function RespCVNeuroLog() {
       pulm_hemorrhage: null, pneumothorax: null, chest_drain: null,
       pphn: null, postnatal_steroids: null });
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
-      pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus: null });
+      pda_medical_rx: null, shock: null, vasoactive_support: null });
+    setFluidBolus("");
     setVasoactiveDrugs([]);
-    setNeuroData({ cranial_usg: null, ivh: null,
+    setNeuroData({ cranial_usg: null, ivh: null, ivh_grade: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
       clinical_seizures: null, eeg_seizures: null, aeds_given: null,
       non_ivh_ich: null, meningitis_suspected: null });
@@ -951,13 +928,6 @@ export default function RespCVNeuroLog() {
     || ((desatCount !== "" && severeDesatCount !== "" && Number(severeDesatCount) > Number(desatCount))
       ? "Severe desaturations can't exceed total desaturations (#14)"
       : null);
-  // These readings must fall within their physiological range before the
-  // day can be saved — out-of-range values block Save entirely.
-  const hasBlockingError = Boolean(
-    phError || pao2LowError || pao2HighError || pao2OrderError ||
-    paco2LowError || paco2HighError || paco2OrderError ||
-    apneaCountError || severeDesatCountError
-  );
   const respTotal    = 23 + (isMapCpapBoth ? 1 : 0); // weight(2.1) + items 1-22 (+4b when both CPAP & MAP selected)
   const respAnswered = Math.min(
     (weightKg !== "" ? 1 : 0)                      // 2.1 weight
@@ -986,10 +956,11 @@ export default function RespCVNeuroLog() {
   // Conditional: vasoactive_drugs(28) — only counts when vasoactive_support === true.
   const CV_KEYS = ["pda_suspected","echo_done","hs_pda","shock","vasoactive_support"];
   const vasoactiveVisible = cvData.vasoactive_support === true;
+  const fluidBolusError = validateFluidBolus(fluidBolus);
   const cvTotal    = vasoactiveVisible ? 7 : 6;
   const cvAnswered = Math.min(
     CV_KEYS.filter(k => cvData[k] !== null).length
-    + (cvData.fluid_bolus !== null ? 1 : 0)
+    + (fluidBolus !== "" ? 1 : 0)
     + (vasoactiveVisible && vasoactiveDrugs.length > 0 ? 1 : 0),
     cvTotal
   );
@@ -999,15 +970,18 @@ export default function RespCVNeuroLog() {
   //   eeg_seizures(35), aeds_given(36), non_ivh_ich(37) = 5 fields
   // Conditional on cranial_usg === true: ivh(31), cpvl_confirmed(32),
   //   ventriculomegaly(33) (+3 fields)
+  // Further conditional on ivh === true: ivh_grade (+1 field)
   const NEURO_BASE_KEYS = [
     "cranial_usg","clinical_seizures","eeg_seizures","aeds_given","non_ivh_ich",
   ]; // exactly 5
   const NEURO_USG_GATED_KEYS = ["ivh","cpvl_confirmed","ventriculomegaly"]; // exactly 3
   const cranialUsgYes = neuroData.cranial_usg === true;
-  const neuroTotal    = 5 + (cranialUsgYes ? 3 : 0);
+  const ivhGradeVisible = cranialUsgYes && neuroData.ivh === true;
+  const neuroTotal    = 5 + (cranialUsgYes ? 3 : 0) + (ivhGradeVisible ? 1 : 0);
   const neuroAnswered = Math.min(
     NEURO_BASE_KEYS.filter(k => neuroData[k] !== null).length
-    + (cranialUsgYes ? NEURO_USG_GATED_KEYS.filter(k => neuroData[k] !== null).length : 0),
+    + (cranialUsgYes ? NEURO_USG_GATED_KEYS.filter(k => neuroData[k] !== null).length : 0)
+    + (ivhGradeVisible && neuroData.ivh_grade ? 1 : 0),
     neuroTotal
   );
 
@@ -1017,7 +991,7 @@ export default function RespCVNeuroLog() {
   const completionPct = totalFields > 0
     ? Math.min(100, Math.round((totalAnswered / totalFields) * 100))
     : 0;
-  const canSubmit = completionPct === 100 && !isSubmitted && !hasBlockingError;
+  const canSubmit = completionPct === 100 && !isSubmitted;
 
   /* ── Helpers ── */
   const toggleMode = (mode) => {
@@ -1047,11 +1021,6 @@ export default function RespCVNeuroLog() {
     if (!force && !isFieldEditable) return false;
     if (isSubmitted && !isOverrideActiveDay) return false;
     if (isFutureActiveDay) return false;
-    if (hasBlockingError) {
-      setMessage("❌ Fix out-of-range values (pH / PaO₂ / PaCO₂ / episode counts) before saving");
-      setTimeout(() => setMessage(""), 4000);
-      return false;
-    }
     const now = new Date().toISOString();
     const payload = {
       enrollment_id:       enrollmentId,
@@ -1072,6 +1041,7 @@ export default function RespCVNeuroLog() {
       severe_desaturation_count: severeDesatCount || null,
       ...respEvents,
       ...cvData,
+      fluid_bolus:         fluidBolus || null,
       vasoactive_drugs:    vasoactiveDrugs.join(", "),
       ...neuroData,
       submission_status:   STATUS.DRAFT,
@@ -1209,13 +1179,14 @@ export default function RespCVNeuroLog() {
         pda_medical_rx:     d.pda_medical_rx     ?? null,
         shock:              d.shock              ?? null,
         vasoactive_support: d.vasoactive_support ?? null,
-        fluid_bolus:        normalizeFluidBolus(d.fluid_bolus),
       });
+      setFluidBolus(d.fluid_bolus || "");
       setVasoactiveDrugs(d.vasoactive_drugs
         ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
       setNeuroData({
         cranial_usg:          d.cranial_usg          ?? null,
         ivh:                  d.ivh                  ?? null,
+        ivh_grade:            d.ivh_grade            || null,
         pvl_suspected:        d.pvl_suspected        ?? null,
         cpvl_confirmed:       d.cpvl_confirmed       ?? null,
         ventriculomegaly:     d.ventriculomegaly     ?? null,
@@ -1778,7 +1749,7 @@ export default function RespCVNeuroLog() {
                   <input
                     type="number" placeholder="7.25" step="0.01"
                     value={lowestPh}
-                    onChange={e => isFieldEditable && handlePhChange(e.target.value)}
+                    onChange={e => isFieldEditable && setLowestPh(e.target.value)}
                     readOnly={!isFieldEditable}
                   />
                 </div>
@@ -1814,7 +1785,7 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Lowest"
                           value={pao2Low}
-                          onChange={e => isFieldEditable && handlePao2LowChange(e.target.value)}
+                          onChange={e => isFieldEditable && setPao2Low(e.target.value)}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -1823,7 +1794,7 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Highest"
                           value={pao2High}
-                          onChange={e => isFieldEditable && handlePao2HighChange(e.target.value)}
+                          onChange={e => isFieldEditable && setPao2High(e.target.value)}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -1865,7 +1836,7 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Lowest"
                           value={paco2Low}
-                          onChange={e => isFieldEditable && handlePaco2LowChange(e.target.value)}
+                          onChange={e => isFieldEditable && setPaco2Low(e.target.value)}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -1874,7 +1845,7 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Highest"
                           value={paco2High}
-                          onChange={e => isFieldEditable && handlePaco2HighChange(e.target.value)}
+                          onChange={e => isFieldEditable && setPaco2High(e.target.value)}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -1901,9 +1872,9 @@ export default function RespCVNeuroLog() {
                   <label className="rcn-field-label">13. No of Apnea episodes</label>
                   <div className={`rcn-num-input${apneaCountError ? " rcn-num-input--error" : ""}`}>
                     <input
-                      type="number" placeholder="0" min="0" max="50" step="1"
+                      type="number" placeholder="0" min="0" step="1"
                       value={apneaCount}
-                      onChange={e => isFieldEditable && handleApneaCountChange(e.target.value)}
+                      onChange={e => isFieldEditable && setApneaCount(e.target.value)}
                       readOnly={!isFieldEditable}
                     />
                   </div>
@@ -1925,9 +1896,9 @@ export default function RespCVNeuroLog() {
                   <label className="rcn-field-label">15. No of severe desaturations (&lt;80%)</label>
                   <div className={`rcn-num-input${severeDesatCountError ? " rcn-num-input--error" : ""}`}>
                     <input
-                      type="number" placeholder="0" min="0" max="50" step="1"
+                      type="number" placeholder="0" min="0" step="1"
                       value={severeDesatCount}
-                      onChange={e => isFieldEditable && handleSevereDesatCountChange(e.target.value)}
+                      onChange={e => isFieldEditable && setSevereDesatCount(e.target.value)}
                       readOnly={!isFieldEditable}
                     />
                   </div>
@@ -2000,9 +1971,13 @@ export default function RespCVNeuroLog() {
                 </div>
               )}
 
-              <div className="rcn-yn-list">
-                <YNRow label="29. Fluid bolus given" value={cvData.fluid_bolus}
-                  onChange={v => setCv("fluid_bolus", v)} disabled={!isFieldEditable} />
+              <div className="rcn-field-group">
+                <label className="rcn-field-label">29. Fluid bolus</label>
+                <input type="text" placeholder="e.g. 10ml/kg NS"
+                  className={`rcn-text-input${fluidBolusError ? " rcn-text-input--error" : ""}`}
+                  value={fluidBolus} onChange={e => isFieldEditable && setFluidBolus(e.target.value)}
+                  readOnly={!isFieldEditable} />
+                {fluidBolusError && <span className="rcn-field-error">{fluidBolusError}</span>}
               </div>
             </SectionCard>
 
@@ -2031,6 +2006,24 @@ export default function RespCVNeuroLog() {
                         onChange={v => setNeuro(k, v)} disabled={!isFieldEditable} />
                     ))}
                   </div>
+
+                  {neuroData.ivh === true && (
+                    <div className="rcn-subsection">
+                      <div className="rcn-subsection-title">IVH Grade</div>
+                      <div className="rcn-grade-grid">
+                        {["I","II","III","IV"].map(g => (
+                          <div
+                            key={g}
+                            className={`rcn-grade-card${neuroData.ivh_grade === g ? " rcn-grade-card--on" : ""}${!isFieldEditable ? " rcn-grade-card--disabled" : ""}`}
+                            onClick={() => isFieldEditable && setNeuro("ivh_grade", neuroData.ivh_grade === g ? null : g)}
+                          >
+                            <span className="rcn-grade-roman">{g}</span>
+                            <span className="rcn-grade-label">Grade</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2264,8 +2257,7 @@ export default function RespCVNeuroLog() {
         {/* Save — always visible when editing */}
         {isFieldEditable && (
           <button type="button" className="btn btn-save btn-outline-blue"
-            onClick={handleSave} disabled={hasBlockingError}
-            title={hasBlockingError ? "Fix out-of-range values before saving" : undefined}>
+            onClick={handleSave}>
             <Save size={15} /> Save
           </button>
         )}
@@ -2294,7 +2286,7 @@ export default function RespCVNeuroLog() {
                 <Shield size={15} /> Submit Day {activeDay}
               </button>
             ) : (
-              <button type="button" className="btn btn-draft" onClick={handleSave} disabled={hasBlockingError}>
+              <button type="button" className="btn btn-draft" onClick={handleSave}>
                 <Save size={15} /> Save Correction
               </button>
             )}
@@ -2314,8 +2306,8 @@ export default function RespCVNeuroLog() {
               <Shield size={15} /> Submit Day {activeDay} (Late)
             </button>
           ) : (
-            <button type="button" className="btn btn-draft" onClick={handleSave} disabled={hasBlockingError}
-              title={hasBlockingError ? "Fix out-of-range values before saving" : `Grace window open until ${RCN_LATE_GRACE_HOUR}:00 AM`}>
+            <button type="button" className="btn btn-draft" onClick={handleSave}
+              title={`Grace window open until ${RCN_LATE_GRACE_HOUR}:00 AM`}>
               <Save size={15} /> Save (Late Entry)
             </button>
           )
@@ -2346,8 +2338,7 @@ export default function RespCVNeuroLog() {
           </button>
         ) : (
           <button type="button" className="btn btn-draft"
-            onClick={handleSave} disabled={hasBlockingError}
-            title={hasBlockingError ? "Fix out-of-range values before saving" : undefined}>
+            onClick={handleSave}>
             <Save size={15} /> Save for Later
           </button>
         )}

@@ -274,8 +274,8 @@ export default function ScreeningForm() {
            that the migration's best-effort backfill didn't cover — new
            saves always have d.gestation_known set directly. */
         gestation_known:    d.gestation_known || (d.gestation_method ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : "")),
-        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks ?? "") : "",
-        best_ga_days:       d.gestation_method ? (d.gestation_days  ?? "") : "",
+        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks || "") : "",
+        best_ga_days:       d.gestation_method ? (d.gestation_days  || "") : "",
         gestation_method:   d.gestation_method || "",
         ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         /* Prefer EDD derived from LMP so a stale expected_delivery_date cannot skew GA. */
@@ -524,9 +524,18 @@ export default function ScreeningForm() {
   }, [formData.lmp_date, formData.gestation_known, formData.gestation_method, formData.ga_source, dataLoaded]); // eslint-disable-line
 
   /* GA helpers — LMP path uses LMP directly; EDD path uses EDD. Never trust a
-     stale expected_delivery_date when LMP is present. */
-  const computeAutoGaFromEdd = (eddDateStr) => gestAgeFromEdd(eddDateStr);
-  const computeAutoGaFromLmp = (lmpDateStr) => gestAgeFromLmp(lmpDateStr);
+     stale expected_delivery_date when LMP is present.
+     Anchored to the actual screening date/time (screening_datetime), not
+     "right now" — otherwise every day this record is reopened after the
+     fact, the displayed GA silently climbs past the true GA-at-screening,
+     drifting out of sync with Form B's DOB-anchored gestation figures
+     (which is exactly what was happening: a case screened weeks ago, then
+     reopened for review, showed today's GA instead of the GA on the day
+     it was actually screened). Falls back to "now" only when no
+     screening_datetime has been set yet (i.e. filling the form live today). */
+  const gaAsOf = formData.screening_datetime ? new Date(formData.screening_datetime) : new Date();
+  const computeAutoGaFromEdd = (eddDateStr) => gestAgeFromEdd(eddDateStr, gaAsOf);
+  const computeAutoGaFromLmp = (lmpDateStr) => gestAgeFromLmp(lmpDateStr, gaAsOf);
 
   /* Keep auto_ga_* in sync for save/eligibility */
   useEffect(() => {
@@ -542,7 +551,7 @@ export default function ScreeningForm() {
       if (p.auto_ga_weeks === ga.weeks && p.auto_ga_days === ga.days) return p;
       return { ...p, auto_ga_weeks: ga.weeks, auto_ga_days: ga.days };
     });
-  }, [formData.lmp_date, formData.edd_date, formData.ga_source, formData.gestation_known, dataLoaded]); // eslint-disable-line
+  }, [formData.lmp_date, formData.edd_date, formData.ga_source, formData.gestation_known, formData.screening_datetime, dataLoaded]); // eslint-disable-line
 
   /* ─── Derived flags ── */
   const derivedAutoGa = (() => {

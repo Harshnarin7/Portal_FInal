@@ -283,6 +283,23 @@ function PillMulti({ options, value=[], onChange, disabled }) {
   );
 }
 
+/* Single-select pills (for NEC Confirmed Stage — Bell's staging IA/IB/IIA/IIB/IIIA/IIIB;
+   only one stage applies at a time, same pattern as ROP Stage / AKI Stage elsewhere). */
+function PillSingle({ options, value, onChange, disabled }) {
+  return (
+    <div className="rcn-pills">
+      {options.map(opt => (
+        <button key={opt} type="button"
+          className={`rcn-pill${value === opt ? " rcn-pill--on" : ""}`}
+          onClick={() => !disabled && onChange(value === opt ? null : opt)}
+          disabled={disabled}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
@@ -592,7 +609,14 @@ export default function InfectGIHemaLog() {
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
   const isFieldEditable =
     (!isSubmitted || isOverrideActiveDay) &&
-    (!isSaved || isEditing);
+    (!isSaved || isEditing) &&
+    !isFutureActiveDay &&
+    // A past day's window has closed unless it's still within this
+    // morning's late-entry grace period, or a superadmin has temporarily
+    // reopened it via override. Without this check, fields stayed editable
+    // and Save kept working on any past/"permanently locked" day even
+    // though the footer already showed a "Locked (Past Day)" badge.
+    (!isPastActiveDay || isLateGraceActiveDay || isOverrideActiveDay);
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving.
@@ -1449,17 +1473,12 @@ export default function InfectGIHemaLog() {
                   <div className="rcn-yn-list">
                     <div className="rcn-yn-row">
                       <span className="rcn-yn-label">NEC Confirmed Stage</span>
-                      <select
-                        className="rcn-status-select"
-                        value={giData.nec_confirmed_stage || ""}
+                      <PillSingle
+                        options={["IA", "IB", "IIA", "IIB", "IIIA", "IIIB"]}
+                        value={giData.nec_confirmed_stage}
+                        onChange={v => setGi("nec_confirmed_stage", v)}
                         disabled={!isFieldEditable}
-                        onChange={e => setGi("nec_confirmed_stage", e.target.value || null)}
-                      >
-                        <option value="">Select stage</option>
-                        <option value="Stage I">Stage I</option>
-                        <option value="Stage II">Stage II</option>
-                        <option value="Stage III">Stage III</option>
-                      </select>
+                      />
                     </div>
                   </div>
                 </div>
