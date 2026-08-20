@@ -8,7 +8,7 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
-import { toDateOnlyValue } from "./utils/datetime";
+import { toDateOnlyValue, formatDateToDDMMYYYY } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
@@ -518,7 +518,7 @@ function EntryBlock({
               <tbody>
                 {history.slice().reverse().map(({ entry, idx }) => (
                   <tr key={entry.id || idx}>
-                    <td>{entry.date || "—"}</td>
+                    <td>{entry.date ? formatDateToDDMMYYYY(entry.date) : "—"}</td>
                     <td>{entry.time || "—"}</td>
                     {fieldsMeta.map(f => <td key={f.key}>{formatCell(f, entry)}</td>)}
                     {!disabled && (
@@ -1273,7 +1273,7 @@ export default function MinimalMonitoringLog() {
               Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers
             </p>
             <p className="mml-sheet-note">
-              Today's sheet{sheetDate ? ` (${sheetDate})` : ""} — clears automatically after 8:00 AM
+              Today's sheet{sheetDate ? ` (${formatDateToDDMMYYYY(sheetDate)})` : ""} — clears automatically after 8:00 AM
             </p>
           </div>
           <div className="rcn-patient-cards">
