@@ -230,6 +230,10 @@ function countProgress(entries) {
     (list || []).forEach(entry => {
       Object.entries(entry).forEach(([k, v]) => {
         if (k === "id") return;
+        // date/time are auto-stamped to "now" on every new entry (see freshEntry) —
+        // they are bookkeeping metadata, not a clinical answer, so they must not
+        // count toward "filled" progress.
+        if (k === "date" || k === "time") return;
         // Conditional slots
         if (k === "steroid_other" && !(entry.postnatal_steroids || []).includes("Other")) return;
         if (k === "symptomatic_detail" && entry.symptomatic_status !== "symptomatic") return;
@@ -469,6 +473,10 @@ export default function MinimalMonitoringLog() {
   const [saveTick, setSaveTick] = useState(0);
   const hydratedRef = useRef(false);
   const autosaveTimer = useRef(null);
+  // Tracks whether the user has made a real edit since the last successful
+  // save — used so navigating away or an incidental background save does not
+  // get treated as "the user changed something".
+  const dirtyRef = useRef(false);
 
   /* Drill-down navigation: sections → fields (within a section) → detail (a single field) */
   const [view, setView] = useState("sections"); // "sections" | "fields" | "detail"
@@ -491,11 +499,13 @@ export default function MinimalMonitoringLog() {
     });
     setErrors(prev => ({ ...prev, [`${block}.${idx}.${key}`]: null }));
     setSaveTick((t) => t + 1);
+    dirtyRef.current = true;
   };
 
   const addEntry = (block, blank) => {
     setEntries(prev => ({ ...prev, [block]: [...(prev[block] || []), blank] }));
     setSaveTick((t) => t + 1);
+    dirtyRef.current = true;
   };
 
   const removeEntry = (block, idx) => {
@@ -506,6 +516,7 @@ export default function MinimalMonitoringLog() {
       return { ...prev, [block]: list };
     });
     setSaveTick((t) => t + 1);
+    dirtyRef.current = true;
   };
 
   useEffect(() => {
@@ -623,7 +634,11 @@ export default function MinimalMonitoringLog() {
         { params: { boundary_hour: MML_BOUNDARY_HOUR } }
       );
       if (res?.data?.record_date) setSheetDate(res.data.record_date);
-      markFormCompleted("minimal_monitoring");
+      dirtyRef.current = false;
+      // Only tick the sidebar "completed" checkmark once real clinical data
+      // has actually been entered — a background/navigation-triggered save
+      // of an untouched, still-blank sheet must not show as complete.
+      if (counts.done > 0) markFormCompleted("minimal_monitoring");
       if (!silent) {
         setMessage("Today's sheet saved");
         setTimeout(() => setMessage(""), 3000);
@@ -646,7 +661,7 @@ export default function MinimalMonitoringLog() {
     navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
   };
 
-  useRegisterActiveFormSession(true, () => persist({ silent: true, runValidate: false }));
+  useRegisterActiveFormSession(() => dirtyRef.current, () => persist({ silent: true, runValidate: false }));
 
   /* Debounced autosave (~1.5s) after hydrate */
   useEffect(() => {

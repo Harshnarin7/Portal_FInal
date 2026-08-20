@@ -1083,13 +1083,19 @@ export default function RespCVNeuroLog() {
   };
 
   const handlePrevious = async () => {
-    if (isFieldEditable) {
+    if (isFieldEditable && completionPct > 0) {
       try { await handleSave(); } catch (err) { console.error("Save before back failed:", err); }
     }
     navigate(`/fio2-auc/${enrollmentId}`);
   };
 
-  useRegisterActiveFormSession(() => isFieldEditable, handleSave);
+  useRegisterActiveFormSession(() => isFieldEditable, () => {
+    // A navigation-triggered flush must not create a phantom blank draft —
+    // that silently marks the day non-empty and locks Day 1 Date before the
+    // user has entered anything. Only auto-save when something real exists.
+    if (completionPct === 0) return Promise.resolve(true);
+    return handleSave();
+  });
 
   /* ── Submit ── */
   const handleSubmit = async () => {
