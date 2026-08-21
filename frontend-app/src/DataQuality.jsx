@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
+import { siteShortCode } from "./utils/siteNames";
 import "./DataQuality.css";
 
 const PCT_CLASS = (pct) => {
@@ -44,7 +45,7 @@ function CompletionMatrix({ data, sites }) {
           <tr>
             <th className="dq-th-label">Form</th>
             <th className="dq-th-num">Overall</th>
-            {sites.map(s => <th key={s} className="dq-th-num">{s}</th>)}
+            {sites.map(s => <th key={s} className="dq-th-num">{siteShortCode(s)}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -117,7 +118,7 @@ function DailyLogStatus({ data, sites }) {
             </div>
             {sites.map(s => (
               <div key={s} className="dq-log-site-row">
-                <span className="dq-site-name">{s}</span>
+                <span className="dq-site-name">{siteShortCode(s)}</span>
                 <StatusBar statusObj={tbl.by_site[s] || {}} />
                 <span className="dq-bar-total">{Object.values(tbl.by_site[s] || {}).reduce((a,b)=>a+b,0)}</span>
               </div>
@@ -137,7 +138,7 @@ function Timeliness({ data, sites }) {
           <tr>
             <th className="dq-th-label">Form / Log</th>
             <th className="dq-th-num">Overall median (IQR)</th>
-            {sites.map(s => <th key={s} className="dq-th-num">{s}</th>)}
+            {sites.map(s => <th key={s} className="dq-th-num">{siteShortCode(s)}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -216,7 +217,7 @@ function SiteActivity({ data, sites }) {
         <tbody>
           {sites.map(s => (
             <tr key={s} className="dq-tr">
-              <td className="dq-td-label">{s}</td>
+              <td className="dq-td-label">{siteShortCode(s)}</td>
               <td className="dq-td-num">{last_entry[s] || <span className="dq-na">—</span>}</td>
               <td className="dq-td-num">
                 {inactive_flags[s]

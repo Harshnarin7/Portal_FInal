@@ -1,6 +1,7 @@
 // SafetyEvents.jsx — Section 5: Adverse Events, SAEs & Major Morbidities
 import React, { useEffect, useState } from "react";
 import api from "./api/axios";
+import { siteShortCode } from "./utils/siteNames";
 import "./ClinicalQuality.css";
 
 function fmtPct(val) {
@@ -27,7 +28,7 @@ function SaeSummary({ sites, overall, bySite }) {
             <tr>
               <th className="cq-metric-col">Metric</th>
               <th>Overall</th>
-              {sites.map(s => <th key={s}>{s}</th>)}
+              {sites.map(s => <th key={s}>{siteShortCode(s)}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -68,7 +69,7 @@ function MortalityPanel({ sites, overall, bySite }) {
               </th>
               {sites.map(s => (
                 <th key={s}>
-                  {s}<br/>
+                  {siteShortCode(s)}<br/>
                   <span className="cq-n">n={bySite[s]?.n ?? 0}</span>
                 </th>
               ))}
@@ -116,7 +117,7 @@ function MorbidityPanel({ sites, overall, bySite }) {
               </th>
               {sites.map(s => (
                 <th key={s}>
-                  {s}<br/>
+                  {siteShortCode(s)}<br/>
                   <span className="cq-n">n={bySite[s]?.n ?? 0}</span>
                 </th>
               ))}

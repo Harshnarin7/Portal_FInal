@@ -5,6 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import { siteShortCode } from "./utils/siteNames";
 import "./TrialMonitoringDashboard.css";
 import DataQuality from "./DataQuality";
 import ClinicalQuality from "./ClinicalQuality";
@@ -126,7 +127,7 @@ export default function TrialMonitoringDashboard() {
                     <th className="tmd-label-cell">Label</th>
                     <th className="tmd-num">Overall</th>
                     {consortData.sites.map((site) => (
-                      <th key={site} className="tmd-num">{site}</th>
+                      <th key={site} className="tmd-num">{siteShortCode(site)}</th>
                     ))}
                   </tr>
                 </thead>
