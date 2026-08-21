@@ -524,7 +524,7 @@ export default function FormF() {
       isSaved
         ? await api.put(`/form-h/${enrollmentId}`, payload)
         : await api.post("/form-h/", payload);
-      markFormCompleted("form_h");
+      markFormCompleted("form_f");
       setIsSaved(true); setIsEditing(false);
       setShowSaveSuccess(true);
       setMessage("Form F saved successfully.");
@@ -552,7 +552,7 @@ export default function FormF() {
         isSaved
           ? await api.put(`/form-h/${enrollmentId}`, payload)
           : await api.post("/form-h/", payload);
-        markFormCompleted("form_h");
+        markFormCompleted("form_f");
         setIsSaved(true);
       }
     } catch (_) {

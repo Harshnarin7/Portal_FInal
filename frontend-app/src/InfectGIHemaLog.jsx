@@ -438,7 +438,7 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
 export default function InfectGIHemaLog() {
   const { enrollmentId } = useParams();
   const navigate         = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { patientData }  = usePatient();
   const { user }         = useAuth();
   const userRole         = user?.role || "site_user";
@@ -907,7 +907,11 @@ export default function InfectGIHemaLog() {
       isSaved
         ? await api.put(`/infect-gi-hema/${enrollmentId}/${activeDay}`, payload)
         : await api.post("/infect-gi-hema/", payload);
-      markFormCompleted("infect_gi_hema");
+      // Keep the sidebar tick in sync with the *current* state, not just
+      // whether it was ever true — data added then deleted before the
+      // next save must un-tick the helper, not leave it stuck complete.
+      if (completionPct > 0) markFormCompleted("infect_gi_hema");
+      else unmarkFormCompleted("infect_gi_hema");
       setIsSaved(true); setIsEditing(false);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
       const newSt = completionPct === 100 ? STATUS.COMPLETE : STATUS.DRAFT;
@@ -962,7 +966,11 @@ export default function InfectGIHemaLog() {
 
   /* ── Next Form (save before navigate) ── */
   const handleNext = async () => {
-    await handleSave();
+    // Same phantom-blank-draft guard as handlePrevious — clicking Next on
+    // an untouched day must not silently POST an empty record.
+    if (isFieldEditable && completionPct > 0) {
+      try { await handleSave(); } catch (err) { console.error("Save before next failed:", err); }
+    }
     navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
   };
 

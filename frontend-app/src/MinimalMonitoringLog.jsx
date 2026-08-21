@@ -619,7 +619,7 @@ export default function MinimalMonitoringLog() {
   const params = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const enrollmentId = params.enrollmentId || localStorage.getItem("current_enrollment_id") || "";
 
   const [entries, setEntries] = useState(emptyEntries);
@@ -810,10 +810,11 @@ export default function MinimalMonitoringLog() {
       );
       if (res?.data?.record_date) setSheetDate(res.data.record_date);
       dirtyRef.current = false;
-      // Only tick the sidebar "completed" checkmark once real clinical data
-      // has actually been entered — a background/navigation-triggered save
-      // of an untouched, still-blank sheet must not show as complete.
+      // Keep the sidebar tick in sync with the *current* state, not just
+      // whether it was ever true — a reading added then deleted before the
+      // next save must un-tick the helper, not leave it stuck complete.
       if (counts.done > 0) markFormCompleted("minimal_monitoring");
+      else unmarkFormCompleted("minimal_monitoring");
       if (!silent) {
         setMessage("Today's sheet saved");
         setTimeout(() => setMessage(""), 3000);

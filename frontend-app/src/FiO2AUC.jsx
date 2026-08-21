@@ -185,7 +185,7 @@ function WindowCard({ title, rows, onRowChange, onAddRow, onDelRow }) {
  */
 export default function Fio2AUCForm() {
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { enrollmentId }      = useParams();
   const { patientData }       = usePatient();
 
@@ -642,7 +642,11 @@ export default function Fio2AUCForm() {
         await api.post("/fio2-auc/", payload);
       }
       lastServerLogsRef.current = fio2_logs.map(l => ({ ...l }));
-      markFormCompleted("fio2_auc");
+      // Keep the sidebar tick in sync with the *current* state, not just
+      // whether it was ever true — hours logged then cleared before the
+      // next save must un-tick the helper, not leave it stuck complete.
+      if (hoursLoggedSoFar > 0) markFormCompleted("fio2_auc");
+      else unmarkFormCompleted("fio2_auc");
       setMessage("FiO2 data saved successfully");
       setIsSaved(true);
       setHasUnsavedChanges(false);

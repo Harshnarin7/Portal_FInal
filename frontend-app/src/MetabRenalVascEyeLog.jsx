@@ -575,7 +575,7 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
 export default function MetabRenalVascEyeLog() {
   const { enrollmentId } = useParams();
   const navigate         = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { patientData }  = usePatient();
   const { user }         = useAuth();
   const userRole         = user?.role || "site_user";
@@ -1397,7 +1397,11 @@ export default function MetabRenalVascEyeLog() {
       isSaved
         ? await api.put(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`, payload)
         : await api.post("/metab-renal-vasc-eye/", payload);
-      markFormCompleted("metab_renal_vasc_eye");
+      // Keep the sidebar tick in sync with the *current* state, not just
+      // whether it was ever true — data added then deleted before the next
+      // save must un-tick the helper, not leave it stuck complete.
+      if (completionPct > 0) markFormCompleted("metab_renal_vasc_eye");
+      else unmarkFormCompleted("metab_renal_vasc_eye");
       setIsSaved(true); setIsEditing(false);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
       const newSt = completionPct===100 ? STATUS.COMPLETE : STATUS.DRAFT;
@@ -1448,7 +1452,12 @@ export default function MetabRenalVascEyeLog() {
 
   /* ── Next Form (save before navigate) ── */
   const handleNext = async () => {
-    await handleSave();
+    // Same phantom-blank-draft guard as handlePrevious / the autosave
+    // session flush — clicking Next on an untouched day must not silently
+    // POST an empty record and tick the sidebar as complete.
+    if (isFieldEditable && completionPct > 0) {
+      try { await handleSave(); } catch (err) { console.error("Save before next failed:", err); }
+    }
     navigate(`/form-f/${enrollmentId}`);
   };
 

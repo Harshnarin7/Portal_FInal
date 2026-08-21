@@ -1336,6 +1336,7 @@ def create_maternal_details(
     existing = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == data.enrollment_id)
+        .order_by(MaternalDetails.id.desc())
         .first()
     )
     if existing:
@@ -1364,6 +1365,7 @@ def update_maternal_details(
     record = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == enrollment_id)
+        .order_by(MaternalDetails.id.desc())
         .first()
     )
     if not record:
@@ -1391,6 +1393,7 @@ def get_maternal_details(
     record = (
         db.query(MaternalDetails)
         .filter(MaternalDetails.enrollment_id == enrollment_id)
+        .order_by(MaternalDetails.id.desc())
         .first()
     )
     if not record:
@@ -1496,7 +1499,7 @@ def update_postnatal_day1(
     require_enrollment_access(enrollment_id, db, current_user)
     record = db.query(PostnatalDay1).filter(
         PostnatalDay1.enrollment_id == enrollment_id
-    ).first()
+    ).order_by(PostnatalDay1.id.desc()).first()
 
     if not record:
         # No existing record  -  create new one (upsert)
@@ -2664,7 +2667,24 @@ def get_enrollment_status(
         .filter(BirthResuscitation.enrollment_id == enrollment_id)
         .first()
     )
-    form_b = birth is not None
+    # Row existence alone is not "complete" — the 10s background autosave can
+    # silently persist an in-progress draft (e.g. once baby_uid is typed)
+    # before the user ever clicks Save. explicitly_saved is set only by the
+    # explicit Save button; legacy rows saved before that flag existed still
+    # count if they carry real clinical data, not just identifiers autosave
+    # writes early. Mirrors the form_e fix below.
+    form_b = bool(
+        birth
+        and (
+            birth.explicitly_saved is True
+            or (
+                birth.gestation_weeks is not None
+                or birth.birth_weight is not None
+                or (birth.delivery_mode not in (None, ""))
+                or birth.required_resuscitation is not None
+            )
+        )
+    )
     # PPV / resuscitation not required ? stop after Forms A?C
     no_ppv = form_b and birth.required_resuscitation is False
 

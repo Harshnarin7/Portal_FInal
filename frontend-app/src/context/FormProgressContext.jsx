@@ -129,6 +129,28 @@ export function FormProgressProvider({ children }) {
     });
   }, []);
 
+  // Counterpart to markFormCompleted for forms whose "done" state can go
+  // backwards — e.g. a helper log where the user adds a reading (ticks it),
+  // then deletes that reading before saving again. Without this, the tick
+  // is permanently stuck true once counts.done crosses 0 a single time,
+  // because markFormCompleted only ever appends and never removes.
+  const unmarkFormCompleted = useCallback((formId) => {
+    setCompletedForms((prev) => {
+      if (!prev.includes(formId)) return prev;
+      const updated = prev.filter((f) => f !== formId);
+      const rawEid = localStorage.getItem("current_enrollment_id");
+      const enrollmentId = isUsableEnrollmentId(rawEid) ? String(rawEid).trim() : null;
+      const screeningId = validId(localStorage.getItem("current_screening_id"));
+      const key = progressStorageKey(enrollmentId, screeningId);
+      if (key) {
+        localStorage.setItem(key, JSON.stringify(updated));
+        setActiveKey(key);
+        skipNextPersist.current = true;
+      }
+      return updated;
+    });
+  }, []);
+
   const resetProgress = useCallback(() => {
     const enrollmentId = validId(localStorage.getItem("current_enrollment_id"));
     const screeningId = validId(localStorage.getItem("current_screening_id"));
@@ -197,6 +219,7 @@ export function FormProgressProvider({ children }) {
     <FormProgressContext.Provider value={{
       completedForms,
       markFormCompleted,
+      unmarkFormCompleted,
       resetProgress,
       progress,
       fetchProgress,

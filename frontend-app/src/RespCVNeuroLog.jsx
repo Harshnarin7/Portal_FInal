@@ -488,7 +488,7 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
 export default function RespCVNeuroLog() {
   const { enrollmentId } = useParams();
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { patientData } = usePatient();
   const { user } = useAuth();
   const userRole    = user?.role || "site_user";
@@ -1055,7 +1055,11 @@ export default function RespCVNeuroLog() {
       } else {
         res = await api.post("/resp-cv-neuro/", payload);
       }
-      markFormCompleted("vs6_1");
+      // Keep the sidebar tick in sync with the *current* state, not just
+      // whether it was ever true — data added then deleted before the
+      // next save must un-tick the helper, not leave it stuck complete.
+      if (completionPct > 0) markFormCompleted("vs6_1");
+      else unmarkFormCompleted("vs6_1");
       setIsSaved(true);
       setIsEditing(false);
       setSavedAt(now);
@@ -1131,7 +1135,11 @@ export default function RespCVNeuroLog() {
   };
 
   const handleNext = async () => {
-    await handleSave();
+    // Same phantom-blank-draft guard as handlePrevious — clicking Next on
+    // an untouched day must not silently POST an empty record.
+    if (isFieldEditable && completionPct > 0) {
+      try { await handleSave(); } catch (err) { console.error("Save before next failed:", err); }
+    }
     navigate(`/infect-gi-hema-log/${enrollmentId}`);
   };
 
