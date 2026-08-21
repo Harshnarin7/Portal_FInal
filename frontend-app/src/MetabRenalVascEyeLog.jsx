@@ -772,6 +772,11 @@ export default function MetabRenalVascEyeLog() {
 
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
   const isFieldEditable =
+    // Day 1 Date is mandatory — nurses must set it before any daily field
+    // can be filled in, so it's no longer possible to save Day 1 (or any
+    // day) data and forget the date. See handleSave for the same guard on
+    // the actual save call (independent of `force`).
+    !!day1Date &&
     (!isSubmitted || isOverrideActiveDay) &&
     (!isSaved || isEditing) &&
     !isFutureActiveDay &&
@@ -782,9 +787,28 @@ export default function MetabRenalVascEyeLog() {
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving.
+  // IMPORTANT: only apply that lock once a date has actually been set.
+  // Older records where daily data was saved before a date existed (the
+  // exact bug this guards against) must stay editable so the nurse can
+  // go back and fill it in, instead of being permanently stuck.
   const day1DateLockedLocal = completedDays.length > 0 ||
     Object.values(dayStatuses).some(st => st && st !== STATUS.EMPTY);
-  const day1DateLocked = (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
+  const day1DateLocked = !!day1Date && (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
+
+  // Day 1 Date entry window: today, or yesterday until 11:00 AM — matches
+  // the backend's DAY1_DATE_ENTRY_GRACE_HOUR so a nurse can't pick some
+  // unrelated day, and mirrors the same late-shift grace period used for
+  // day locking above.
+  const day1DateBounds = useMemo(() => {
+    const now = new Date();
+    const todayStr = toDateOnlyValue(now);
+    if (now.getHours() < MRVE_LATE_GRACE_HOUR) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { min: toDateOnlyValue(yesterday), max: todayStr };
+    }
+    return { min: todayStr, max: todayStr };
+  }, []);
 
   /* ═══════════════════════════════════════
      PROGRESS — hidden fields excluded
@@ -1390,6 +1414,10 @@ export default function MetabRenalVascEyeLog() {
   /* ── Save ── */
   const handleSave = async () => {
     if (!enrollmentId) return;
+    if (!day1Date) {
+      setMessage("⚠️ Please set Day 1 Date above before saving");
+      return;
+    }
     if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     try {
@@ -1625,9 +1653,10 @@ export default function MetabRenalVascEyeLog() {
             >
               <History size={13} /> Table View
             </button>
-            <div className="rcn-day1-picker">
+            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}>
               <label className="rcn-day1-picker-label">
-                Day 1 Date {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
+                Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
+                {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
               </label>
               <input
                 type="date"
@@ -1635,12 +1664,22 @@ export default function MetabRenalVascEyeLog() {
                 value={day1Date}
                 readOnly={day1DateLocked}
                 disabled={day1DateLocked}
+                min={day1EditArmed ? undefined : day1DateBounds.min}
+                max={day1EditArmed ? undefined : day1DateBounds.max}
+                required
                 title={day1DateLocked
                   ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                  : "Set once, from the baby's date of birth"}
+                  : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
                 onChange={async e => {
                   if (day1DateLocked) return;
                   const v = e.target.value;
+                  if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
+                    setMessage(
+                      `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
+                    );
+                    setTimeout(() => setMessage(""), 4000);
+                    return;
+                  }
                   setDay1Date(v);
                   if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
                   try {
@@ -1670,6 +1709,17 @@ export default function MetabRenalVascEyeLog() {
               )}
             </div>
           </div>
+
+          {/* ── Day 1 Date required alert — data entry is blocked below until this is set ── */}
+          {!day1Date && (
+            <div className="rcn-missed-banner">
+              <AlertOctagon size={13} />
+              <span>
+                Set <strong>Day 1 Date</strong> above before entering data — it's required and
+                can't be added later once a day has been saved without it.
+              </span>
+            </div>
+          )}
           <div className="rcn-timeline">
             {days.map(d => {
               const isActive    = d === activeDay;

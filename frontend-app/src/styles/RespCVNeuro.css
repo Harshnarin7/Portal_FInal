@@ -379,6 +379,14 @@
 .rcn-day1-picker--locked {
   background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
 }
+.rcn-day1-picker--required {
+  background: linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%);
+  border-color: #FCA5A5;
+}
+.rcn-day1-picker-required-mark {
+  color: #DC2626;
+  font-weight: 800;
+}
 .rcn-day1-picker-icon {
   display: flex;
   align-items: center;

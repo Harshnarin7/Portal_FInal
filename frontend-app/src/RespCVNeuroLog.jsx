@@ -650,6 +650,11 @@ export default function RespCVNeuroLog() {
   }, [todayNicuDay]);
 
   const isFieldEditable  =
+    // Day 1 Date is mandatory — nurses must set it before any daily field
+    // can be filled in, so it's no longer possible to save Day 1 (or any
+    // day) data and forget the date. See handleSave for the same guard on
+    // the actual save call (independent of `force`).
+    !!day1Date &&
     (!isSubmitted || isOverrideActiveDay) &&
     (!isSaved || isEditing) &&
     !isFutureActiveDay &&
@@ -662,9 +667,28 @@ export default function RespCVNeuroLog() {
   // lock above, so once any daily data exists it must stop moving —
   // editing it after the fact would silently reshuffle which days are
   // "past" vs "future" and could unlock/relock the wrong records.
+  // IMPORTANT: only apply that lock once a date has actually been set.
+  // Older records where daily data was saved before a date existed (the
+  // exact bug this guards against) must stay editable so the nurse can
+  // go back and fill it in, instead of being permanently stuck.
   const day1DateLockedLocal = completedDays.length > 0 ||
     Object.values(dayStatuses).some(st => st && st !== STATUS.EMPTY);
-  const day1DateLocked = (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
+  const day1DateLocked = !!day1Date && (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
+
+  // Day 1 Date entry window: today, or yesterday until 11:00 AM — matches
+  // the backend's DAY1_DATE_ENTRY_GRACE_HOUR so a nurse can't pick some
+  // unrelated day, and mirrors the same late-shift grace period used for
+  // day locking above.
+  const day1DateBounds = useMemo(() => {
+    const now = new Date();
+    const todayStr = toDateOnlyValue(now);
+    if (now.getHours() < RCN_LATE_GRACE_HOUR) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { min: toDateOnlyValue(yesterday), max: todayStr };
+    }
+    return { min: todayStr, max: todayStr };
+  }, []);
 
   /* ── Load patient info ── */
   useEffect(() => {
@@ -1017,6 +1041,13 @@ export default function RespCVNeuroLog() {
   /* ── Save (Nurse) ── */
   const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return false;
+    // Day 1 Date is mandatory before anything can be saved — checked here
+    // independently of `force` so the Submit path (which force-saves) can't
+    // bypass it either.
+    if (!day1Date) {
+      setMessage("⚠️ Please set Day 1 Date above before saving");
+      return false;
+    }
     // force: re-save while viewing a saved draft (Submit path) without requiring Edit.
     if (!force && !isFieldEditable) return false;
     if (isSubmitted && !isOverrideActiveDay) return false;
@@ -1347,11 +1378,11 @@ export default function RespCVNeuroLog() {
             >
               <History size={13} /> Table View
             </button>
-            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}`}>
+            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}>
               <span className="rcn-day1-picker-icon">📅</span>
               <div className="rcn-day1-picker-body">
                 <label className="rcn-day1-picker-label">
-                  Day 1 Date
+                  Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
                   {day1DateLocked && <Lock size={10} className="rcn-day1-picker-lock" />}
                 </label>
                 <input
@@ -1360,12 +1391,25 @@ export default function RespCVNeuroLog() {
                   value={day1Date}
                   readOnly={day1DateLocked}
                   disabled={day1DateLocked}
+                  min={day1EditArmed ? undefined : day1DateBounds.min}
+                  max={day1EditArmed ? undefined : day1DateBounds.max}
+                  required
                   title={day1DateLocked
                     ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                    : "Set once, from the baby's date of birth"}
+                    : `Required — today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`}
                   onChange={async e => {
                     if (day1DateLocked) return;
                     const v = e.target.value;
+                    // Nurses may only pick today, or (until the late-grace
+                    // cutoff) yesterday — prevents an accidental unrelated
+                    // date; superadmin corrections (day1EditArmed) skip this.
+                    if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
+                      setMessage(
+                        `⚠️ Day 1 Date must be today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`
+                      );
+                      setTimeout(() => setMessage(""), 4000);
+                      return;
+                    }
                     setDay1Date(v);
                     if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
                     try {
@@ -1482,6 +1526,17 @@ export default function RespCVNeuroLog() {
               <span>
                 {missedDays.length} day{missedDays.length > 1 ? "s" : ""} with no data entered
                 (Day {missedDays.join(", Day ")}) — these are now permanently locked.
+              </span>
+            </div>
+          )}
+
+          {/* ── Day 1 Date required alert — data entry is blocked below until this is set ── */}
+          {!day1Date && (
+            <div className="rcn-missed-banner">
+              <AlertOctagon size={13} />
+              <span>
+                Set <strong>Day 1 Date</strong> above before entering data — it's required and
+                can't be added later once a day has been saved without it.
               </span>
             </div>
           )}

@@ -1651,6 +1651,23 @@ class Day1DateUpdate(BaseModel):
     day1_date: date
 
 
+# Nurses may only record Day 1 Date as "today", or as "yesterday" up until
+# this local hour — mirrors the RCN/IGH/MRVE_LATE_GRACE_HOUR used on the
+# frontend so a nurse finishing an overnight shift can still log yesterday's
+# date, without allowing arbitrary/backdated entries afterwards.
+DAY1_DATE_ENTRY_GRACE_HOUR = 11
+
+
+def _day1_date_within_allowed_range(value: date) -> bool:
+    now = datetime.now()
+    today = now.date()
+    if value == today:
+        return True
+    if value == today - timedelta(days=1) and now.hour < DAY1_DATE_ENTRY_GRACE_HOUR:
+        return True
+    return False
+
+
 def _day1_date_is_locked(db: Session, enrollment_id: str) -> bool:
     """Day 1 Date locks once any daily log has been entered for this baby,
     since changing it afterwards would reshuffle which days are past/future."""
@@ -1679,10 +1696,15 @@ def get_day1_date(
     record = db.query(NICUAdmission).filter(
         NICUAdmission.enrollment_id == enrollment_id
     ).first()
+    day1_date_value = record.day1_date if record else None
     return {
-        "day1_date": record.day1_date if record else None,
+        "day1_date": day1_date_value,
         "day1_date_set_by": record.day1_date_set_by if record else None,
-        "locked": _day1_date_is_locked(db, enrollment_id),
+        # Only lock once a date has actually been set — a record with daily
+        # data but no Day 1 Date yet (e.g. it was skipped when the day was
+        # first saved) must stay editable so a nurse can go back and fill
+        # it in, rather than being permanently stuck without one.
+        "locked": bool(day1_date_value) and _day1_date_is_locked(db, enrollment_id),
     }
 
 
@@ -1695,15 +1717,29 @@ def update_day1_date(
 ):
     require_enrollment_access(enrollment_id, db, current_user)
 
-    if _day1_date_is_locked(db, enrollment_id) and not is_superadmin(current_user):
+    record = db.query(NICUAdmission).filter(
+        NICUAdmission.enrollment_id == enrollment_id
+    ).first()
+    already_set = bool(record and record.day1_date)
+
+    if already_set and _day1_date_is_locked(db, enrollment_id) and not is_superadmin(current_user):
         raise HTTPException(
             status_code=409,
             detail="Day 1 Date is locked because daily data already exists for this baby.",
         )
 
-    record = db.query(NICUAdmission).filter(
-        NICUAdmission.enrollment_id == enrollment_id
-    ).first()
+    # Superadmin corrections (explicit unlock) are allowed to set any date;
+    # everyday entry by nurses is restricted to today / yesterday-before-11am
+    # so the date can't be fat-fingered to some unrelated day.
+    if not is_superadmin(current_user) and not _day1_date_within_allowed_range(data.day1_date):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Day 1 Date can only be set to today's date, or yesterday's "
+                f"date before {DAY1_DATE_ENTRY_GRACE_HOUR}:00 AM."
+            ),
+        )
+
     if not record:
         record = NICUAdmission(enrollment_id=enrollment_id)
         db.add(record)
