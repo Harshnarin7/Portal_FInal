@@ -1880,6 +1880,91 @@ def get_vascular_access_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/metabolic-prefill/{enrollment_id}")
+def get_metabolic_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Metabolic Disturbances section (H4.1, CRF #95-112). The day-log's
+    glucose/electrolyte fields are only populated on a day when a reading
+    is actually out of range (see MetabRenalVascEyeDayLog's column
+    comments), so a non-blank value on any day already means "this
+    happened at least once" — sodium/potassium/ionized-calcium values are
+    also numerically thresholded here (same cutoffs as the day-log
+    comments) to split into the hypo-/hyper- checkboxes Form H uses.
+    Symptom/status detail (#106-111) and the osteopenia lab values
+    (#113-115 — ALP/total Ca/phosphorus) have no matching day-log source
+    and are never touched here; only fields with a genuine source are
+    returned. Same never-overwrite discipline as vascular-access-prefill:
+    the frontend only fills fields the clinician hasn't touched yet."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def numeric_values(attr):
+        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
+
+    def sum_int(attr):
+        total = 0
+        for l in logs:
+            try:
+                total += int(getattr(l, attr) or 0)
+            except (TypeError, ValueError):
+                pass
+        return total
+
+    glucose_low = numeric_values("lowest_glucose")
+    glucose_high = numeric_values("highest_glucose")
+    sodium_vals = numeric_values("sodium_value")
+    potassium_vals = numeric_values("potassium_value")
+    calcium_vals = numeric_values("ionized_calcium_value")
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hypoglycemia": "Yes" if glucose_low else "No",
+        "hypoglycemia_episodes": sum_int("hypoglycemia_episodes"),
+        "hypoglycemia_lowest": min(glucose_low) if glucose_low else None,
+        "hypoglycemia_rx": "Yes" if any_day("hypoglycemia_rx") else "No",
+        "hypoglycemia_rx_duration": count_days("hypoglycemia_rx"),
+        "hyperglycemia": "Yes" if glucose_high else "No",
+        "hyperglycemia_highest": max(glucose_high) if glucose_high else None,
+        "hyperglycemia_rx": "Yes" if any_day("insulin") else "No",
+        "metabolic_acidosis": "Yes" if any_day("metabolic_acidosis") else "No",
+        "dyselectrolytemia": "Yes" if (sodium_vals or potassium_vals or calcium_vals) else "No",
+        "dyselectro_na": bool(sodium_vals),
+        "dyselectro_k": bool(potassium_vals),
+        "dyselectro_ca": bool(calcium_vals),
+        "hyponatremia": any(v < 135 for v in sodium_vals),
+        "hypernatremia": any(v > 142 for v in sodium_vals),
+        "hypokalemia": any(v < 3.5 for v in potassium_vals),
+        "hyperkalemia": any(v > 6 for v in potassium_vals),
+        "hypocalcemia": any(v < 0.9 for v in calcium_vals),
+        "hypercalcemia": any(v > 1.2 for v in calcium_vals),
+        "osteopenia": "Yes" if any_day("osteopenia_suspected") else "No",
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================

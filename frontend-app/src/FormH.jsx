@@ -65,6 +65,11 @@ const [openSection, setOpenSection] = useState("ivh"); // default open
 // clinician edits that field.
 const [vascularPrefill, setVascularPrefill] = useState(null);
 const [vascularAutoFilled, setVascularAutoFilled] = useState({});
+
+// Metabolic Disturbances (H4.1) auto-fill — same pattern as Vascular
+// Access above, from /neonatal-morbidities/metabolic-prefill.
+const [metabolicPrefill, setMetabolicPrefill] = useState(null);
+const [metabolicAutoFilled, setMetabolicAutoFilled] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -621,12 +626,18 @@ useEffect(() => {
       }
     };
 
-    // Chained, not a separate effect: the prefill must only ever run AFTER
-    // the real saved record has finished loading into formData, win or
-    // lose. Two independent effects racing on the same fields is exactly
-    // the bug fixed 2026-08-22 (dead fetchResp clobbering a correctly
-    // loaded record) — don't reintroduce that shape.
-    loadExistingFormH().then(fetchVascularAccessPrefill);
+    // Chained, not a separate effect: every prefill must only ever run
+    // AFTER the real saved record has finished loading into formData, win
+    // or lose. Two independent effects racing on the same fields is
+    // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
+    // correctly loaded record) — don't reintroduce that shape. The two
+    // prefills below are independent of each other (disjoint fields), so
+    // no need to sequence them relative to one another, only relative to
+    // the record load.
+    loadExistingFormH().then(() => {
+      fetchVascularAccessPrefill();
+      fetchMetabolicPrefill();
+    });
   }, [enrollmentId]);
 
   const yesNoToBool = (v) => {
@@ -1800,6 +1811,66 @@ const clearVascularAutoFilled = (name) => {
 
 const handleVascularChange = (e) => {
   clearVascularAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// Metabolic Disturbances (H4.1) auto-fill — same pattern as Vascular
+// Access above. Includes both the Yes/No toggle fields (string "Yes"/"No")
+// and the Type-checkbox / hypo-hyper checkbox fields (real booleans) —
+// isBlank treats an unset value the same way for both, since every one of
+// these NeonatalMorbidities columns is nullable with no default (verified
+// against models.py before wiring this up).
+const METABOLIC_PREFILL_FIELDS = [
+  "hypoglycemia", "hypoglycemia_episodes", "hypoglycemia_lowest",
+  "hypoglycemia_rx", "hypoglycemia_rx_duration",
+  "hyperglycemia", "hyperglycemia_highest", "hyperglycemia_rx",
+  "metabolic_acidosis",
+  "dyselectrolytemia", "dyselectro_na", "dyselectro_k", "dyselectro_ca",
+  "hyponatremia", "hypernatremia",
+  "hypokalemia", "hyperkalemia",
+  "hypocalcemia", "hypercalcemia",
+  "osteopenia",
+];
+
+const fetchMetabolicPrefill = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/metabolic-prefill/${enrollmentId}`);
+    const data = res.data;
+    setMetabolicPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      METABOLIC_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(prev[field]) && !isBlank(value)) {
+          next[field] = value;
+          filled[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setMetabolicAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+  } catch (err) {
+    console.log("Error fetching metabolic prefill", err);
+  }
+};
+
+const clearMetabolicAutoFilled = (name) => {
+  setMetabolicAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleMetabolicChange = (e) => {
+  clearMetabolicAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -6195,6 +6266,16 @@ const peripheralStatus= getPeripheralStatus();
 {/* ================= METABOLIC ================= */}
 <div className="form-section soft-blue">
   <h3><Activity size={17} className="sec-icon" /> <span className="sec-num">H4</span> METABOLIC</h3>
+  {metabolicPrefill?.has_data && (
+    <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+      Daily logs available ({metabolicPrefill.log_days_count} day{metabolicPrefill.log_days_count === 1 ? "" : "s"} recorded).
+      Empty fields below were filled from them automatically — verify before saving.
+      {" "}
+      <button type="button" className="link-button" onClick={fetchMetabolicPrefill}>
+        Refill empty fields from daily logs
+      </button>
+    </div>
+  )}
 
   {/* ================= METABOLIC DISTURBANCES ================= */}
   <div className="card">
@@ -6224,7 +6305,8 @@ const peripheralStatus= getPeripheralStatus();
 
         {/* ---------------- HYPOGLYCEMIA (95-99) ---------------- */}
         <div className="form-group">
-          <YesNoToggle label="95. Hypoglycemia" name="hypoglycemia" value={formData.hypoglycemia} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="95. Hypoglycemia" name="hypoglycemia" value={formData.hypoglycemia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+          {metabolicAutoFilled.hypoglycemia && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.hypoglycemia && errors.hypoglycemia && <div className="error-text">{errors.hypoglycemia}</div>}
         </div>
 
@@ -6234,19 +6316,22 @@ const peripheralStatus= getPeripheralStatus();
               <div className="form-group">
                 <label><span className="field-num">96.</span> No. of episodes<span className="required">*</span></label>
                 <input type="number" name="hypoglycemia_episodes" value={formData.hypoglycemia_episodes || ""}
-                  onChange={handleChange} onBlur={handleBlur} min="0" max="50" placeholder="0–50" />
+                  onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="50" placeholder="0–50" />
+                {metabolicAutoFilled.hypoglycemia_episodes && <span className="field-hint-auto-inline">from daily logs</span>}
                 {touched.hypoglycemia_episodes && errors.hypoglycemia_episodes && <div className="error-text">{errors.hypoglycemia_episodes}</div>}
               </div>
 
               <div className="form-group">
                 <label><span className="field-num">97.</span> Lowest value (mg/dL)<span className="required">*</span></label>
                 <input type="number" name="hypoglycemia_lowest" value={formData.hypoglycemia_lowest || ""}
-                  onChange={handleChange} onBlur={handleBlur} min="0" max="200" placeholder="0–200" />
+                  onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="200" placeholder="0–200" />
+                {metabolicAutoFilled.hypoglycemia_lowest && <span className="field-hint-auto-inline">from daily logs</span>}
                 {touched.hypoglycemia_lowest && errors.hypoglycemia_lowest && <div className="error-text">{errors.hypoglycemia_lowest}</div>}
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="98. Rx" name="hypoglycemia_rx" value={formData.hypoglycemia_rx} onChange={handleChange} onBlur={handleBlur} required />
+                <YesNoToggle label="98. Rx" name="hypoglycemia_rx" value={formData.hypoglycemia_rx} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+                {metabolicAutoFilled.hypoglycemia_rx && <span className="field-hint-auto-inline">from daily logs</span>}
                 {touched.hypoglycemia_rx && errors.hypoglycemia_rx && <div className="error-text">{errors.hypoglycemia_rx}</div>}
               </div>
             </div>
@@ -6256,7 +6341,8 @@ const peripheralStatus= getPeripheralStatus();
                 <div className="form-group">
                   <label><span className="field-num">99.</span> Duration of Rx (days)<span className="required">*</span></label>
                   <input type="number" name="hypoglycemia_rx_duration" value={formData.hypoglycemia_rx_duration || ""}
-                    onChange={handleChange} onBlur={handleBlur} min="0" max="60" placeholder="0–60" />
+                    onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="60" placeholder="0–60" />
+                  {metabolicAutoFilled.hypoglycemia_rx_duration && <span className="field-hint-auto-inline">from daily logs</span>}
                   {touched.hypoglycemia_rx_duration && errors.hypoglycemia_rx_duration && <div className="error-text">{errors.hypoglycemia_rx_duration}</div>}
                 </div>
               </div>
@@ -6266,7 +6352,8 @@ const peripheralStatus= getPeripheralStatus();
 
         {/* ---------------- HYPERGLYCEMIA (100-102) ---------------- */}
         <div className="form-group">
-          <YesNoToggle label="100. Hyperglycemia" name="hyperglycemia" value={formData.hyperglycemia} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="100. Hyperglycemia" name="hyperglycemia" value={formData.hyperglycemia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+          {metabolicAutoFilled.hyperglycemia && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.hyperglycemia && errors.hyperglycemia && <div className="error-text">{errors.hyperglycemia}</div>}
         </div>
 
@@ -6275,12 +6362,14 @@ const peripheralStatus= getPeripheralStatus();
             <div className="form-group">
               <label><span className="field-num">101.</span> Highest value (mg/dL)<span className="required">*</span></label>
               <input type="number" name="hyperglycemia_highest" value={formData.hyperglycemia_highest || ""}
-                onChange={handleChange} onBlur={handleBlur} min="0" max="500" placeholder="0–500" />
+                onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="500" placeholder="0–500" />
+              {metabolicAutoFilled.hyperglycemia_highest && <span className="field-hint-auto-inline">from daily logs</span>}
               {touched.hyperglycemia_highest && errors.hyperglycemia_highest && <div className="error-text">{errors.hyperglycemia_highest}</div>}
             </div>
 
             <div className="form-group">
-              <YesNoToggle label="102. Rx (insulin)" name="hyperglycemia_rx" value={formData.hyperglycemia_rx} onChange={handleChange} onBlur={handleBlur} required />
+              <YesNoToggle label="102. Rx (insulin)" name="hyperglycemia_rx" value={formData.hyperglycemia_rx} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+              {metabolicAutoFilled.hyperglycemia_rx && <span className="field-hint-auto-inline">from daily logs</span>}
               {touched.hyperglycemia_rx && errors.hyperglycemia_rx && <div className="error-text">{errors.hyperglycemia_rx}</div>}
             </div>
           </div>
@@ -6288,13 +6377,15 @@ const peripheralStatus= getPeripheralStatus();
 
         {/* ---------------- METABOLIC ACIDOSIS (103) ---------------- */}
         <div className="form-group">
-          <YesNoToggle label="103. Metabolic Acidosis (pH &lt; 7.2)" name="metabolic_acidosis" value={formData.metabolic_acidosis} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="103. Metabolic Acidosis (pH &lt; 7.2)" name="metabolic_acidosis" value={formData.metabolic_acidosis} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+          {metabolicAutoFilled.metabolic_acidosis && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.metabolic_acidosis && errors.metabolic_acidosis && <div className="error-text">{errors.metabolic_acidosis}</div>}
         </div>
 
         {/* ---------------- DYSELECTROLYTEMIA (104-111) ---------------- */}
         <div className="form-group">
-          <YesNoToggle label="104. Dyselectrolytemia" name="dyselectrolytemia" value={formData.dyselectrolytemia} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="104. Dyselectrolytemia" name="dyselectrolytemia" value={formData.dyselectrolytemia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+          {metabolicAutoFilled.dyselectrolytemia && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.dyselectrolytemia && errors.dyselectrolytemia && <div className="error-text">{errors.dyselectrolytemia}</div>}
         </div>
 
@@ -6304,16 +6395,19 @@ const peripheralStatus= getPeripheralStatus();
               <div className="adverse-title"><span className="field-num">105.</span> Type<span className="required">*</span></div>
               <div className="pn-checkbox-grid">
                 <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_na" checked={formData.dyselectro_na || false} onChange={handleChange} />
+                  <input type="checkbox" name="dyselectro_na" checked={formData.dyselectro_na || false} onChange={handleMetabolicChange} />
                   Na abnormality
+                  {metabolicAutoFilled.dyselectro_na && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_k" checked={formData.dyselectro_k || false} onChange={handleChange} />
+                  <input type="checkbox" name="dyselectro_k" checked={formData.dyselectro_k || false} onChange={handleMetabolicChange} />
                   K abnormality
+                  {metabolicAutoFilled.dyselectro_k && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_ca" checked={formData.dyselectro_ca || false} onChange={handleChange} />
+                  <input type="checkbox" name="dyselectro_ca" checked={formData.dyselectro_ca || false} onChange={handleMetabolicChange} />
                   Ionized Ca abnormality
+                  {metabolicAutoFilled.dyselectro_ca && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
               </div>
               {errors.dyselectro_group && <div className="error-text">{errors.dyselectro_group}</div>}
@@ -6324,8 +6418,9 @@ const peripheralStatus= getPeripheralStatus();
                 <div className="adverse-title">If Na</div>
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hyponatremia" checked={formData.hyponatremia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hyponatremia" checked={formData.hyponatremia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">106.</span> Hyponatremia
+                  {metabolicAutoFilled.hyponatremia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hyponatremia && (
                   <div className="form-row">
@@ -6350,8 +6445,9 @@ const peripheralStatus= getPeripheralStatus();
                 )}
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hypernatremia" checked={formData.hypernatremia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hypernatremia" checked={formData.hypernatremia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">107.</span> Hypernatremia
+                  {metabolicAutoFilled.hypernatremia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hypernatremia && (
                   <div className="form-row">
@@ -6382,8 +6478,9 @@ const peripheralStatus= getPeripheralStatus();
                 <div className="adverse-title">If K</div>
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hypokalemia" checked={formData.hypokalemia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hypokalemia" checked={formData.hypokalemia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">108.</span> Hypokalaemia
+                  {metabolicAutoFilled.hypokalemia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hypokalemia && (
                   <div className="form-row">
@@ -6408,8 +6505,9 @@ const peripheralStatus= getPeripheralStatus();
                 )}
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hyperkalemia" checked={formData.hyperkalemia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hyperkalemia" checked={formData.hyperkalemia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">109.</span> Hyperkalaemia
+                  {metabolicAutoFilled.hyperkalemia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hyperkalemia && (
                   <div className="form-row">
@@ -6440,8 +6538,9 @@ const peripheralStatus= getPeripheralStatus();
                 <div className="adverse-title">If Ionized Ca</div>
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hypocalcemia" checked={formData.hypocalcemia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hypocalcemia" checked={formData.hypocalcemia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">110.</span> Hypocalcemia
+                  {metabolicAutoFilled.hypocalcemia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hypocalcemia && (
                   <div className="form-row">
@@ -6466,8 +6565,9 @@ const peripheralStatus= getPeripheralStatus();
                 )}
 
                 <label className="checkbox-item">
-                  <input type="checkbox" name="hypercalcemia" checked={formData.hypercalcemia || false} onChange={handleChange} />
+                  <input type="checkbox" name="hypercalcemia" checked={formData.hypercalcemia || false} onChange={handleMetabolicChange} />
                   <span className="field-num">111.</span> Hypercalcemia
+                  {metabolicAutoFilled.hypercalcemia && <span className="field-hint-auto-inline">from daily logs</span>}
                 </label>
                 {formData.hypercalcemia && (
                   <div className="form-row">
@@ -6497,7 +6597,8 @@ const peripheralStatus= getPeripheralStatus();
 
         {/* ---------------- OSTEOPENIA (112-115) ---------------- */}
         <div className="form-group">
-          <YesNoToggle label="112. Osteopenia" name="osteopenia" value={formData.osteopenia} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="112. Osteopenia" name="osteopenia" value={formData.osteopenia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
+          {metabolicAutoFilled.osteopenia && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.osteopenia && errors.osteopenia && <div className="error-text">{errors.osteopenia}</div>}
         </div>
 
