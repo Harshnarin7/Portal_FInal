@@ -922,13 +922,15 @@ export default function InfectGIHemaLog() {
   });
 
   /* ── Save ── */
-  const handleSave = async () => {
+  const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return;
     if (!day1Date) {
       setMessage("⚠️ Please set Day 1 Date above before saving");
       return;
     }
-    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+    // force: re-save while viewing a saved draft (Submit path) without
+    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
@@ -974,7 +976,15 @@ export default function InfectGIHemaLog() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      if (!isSaved) await handleSave();
+      // Always save fresh state before locking — `isSaved` only means "this
+      // record has been saved at least once," not "nothing has changed
+      // since." Skipping the save here silently discarded edits made after
+      // a prior save whenever the day reached 100% (same bug found and
+      // fixed in Helper Form 4 / MetabRenalVascEyeLog.jsx, 2026-08-23 — the
+      // UI shows only a Submit button at 100% completion, no separate Save,
+      // so the stale isSaved=true from an earlier save skipped saving the
+      // clinician's latest edits before the day locked).
+      await handleSave({ force: true });
       const now = new Date().toISOString();
       await api.patch(`/infect-gi-hema/${enrollmentId}/${activeDay}/submit`, {
         submission_status: STATUS.SUBMITTED,
