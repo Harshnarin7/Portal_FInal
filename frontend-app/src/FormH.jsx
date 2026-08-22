@@ -70,6 +70,11 @@ const [vascularAutoFilled, setVascularAutoFilled] = useState({});
 // Access above, from /neonatal-morbidities/metabolic-prefill.
 const [metabolicPrefill, setMetabolicPrefill] = useState(null);
 const [metabolicAutoFilled, setMetabolicAutoFilled] = useState({});
+
+// Renal / AKI (H7.1) auto-fill — same pattern as Vascular Access above,
+// from /neonatal-morbidities/renal-prefill.
+const [renalPrefill, setRenalPrefill] = useState(null);
+const [renalAutoFilled, setRenalAutoFilled] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -630,13 +635,14 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The two
+    // correctly loaded record) — don't reintroduce that shape. The three
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load.
     loadExistingFormH().then(() => {
       fetchVascularAccessPrefill();
       fetchMetabolicPrefill();
+      fetchRenalPrefill();
     });
   }, [enrollmentId]);
 
@@ -1871,6 +1877,59 @@ const clearMetabolicAutoFilled = (name) => {
 
 const handleMetabolicChange = (e) => {
   clearMetabolicAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// Renal / AKI (H7.1) auto-fill — same pattern as Vascular Access and
+// Metabolic above. aki_oliguria is deliberately excluded: there's no
+// reliable day-log source for it (see backend endpoint docstring), so it
+// always stays manual and is never listed here.
+const RENAL_PREFILL_FIELDS = [
+  "aki", "aki_date",
+  "aki_stage1", "aki_stage2", "aki_stage3",
+  "aki_peak_creatinine",
+  "aki_dialysis",
+];
+
+const fetchRenalPrefill = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/renal-prefill/${enrollmentId}`);
+    const data = res.data;
+    setRenalPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      RENAL_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(prev[field]) && !isBlank(value)) {
+          next[field] = value;
+          filled[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setRenalAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+  } catch (err) {
+    console.log("Error fetching renal prefill", err);
+  }
+};
+
+const clearRenalAutoFilled = (name) => {
+  setRenalAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleRenalChange = (e) => {
+  clearRenalAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -7877,6 +7936,17 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-section soft-blue">
 
 <h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H7</span> RENAL</h3>
+{renalPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({renalPrefill.log_days_count} day{renalPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    Oliguria has no daily-log source and always needs manual entry.
+    {" "}
+    <button type="button" className="link-button" onClick={fetchRenalPrefill}>
+      Refill empty fields from daily logs
+    </button>
+  </div>
+)}
 <div className="card">
   <div
     className="card-header-row"
@@ -7904,7 +7974,8 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
 
   <div className="form-group">
-    <YesNoToggle label="173. AKI" name="aki" value={formData.aki} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="173. AKI" name="aki" value={formData.aki} onChange={handleRenalChange} onBlur={handleBlur} required />
+    {renalAutoFilled.aki && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.aki && <div className="error-text">{errors.aki}</div>}
   </div>
 
@@ -7915,9 +7986,10 @@ const peripheralStatus= getPeripheralStatus();
         type="date"
         name="aki_date"
         value={formData.aki_date || ""}
-        onChange={handleChange}
+        onChange={handleRenalChange}
         onBlur={handleBlur}
       />
+      {renalAutoFilled.aki_date && <span className="field-hint-auto-inline">from daily logs</span>}
       {errors.aki_date && (
         <div className="error-text">{errors.aki_date}</div>
       )}
@@ -7943,9 +8015,10 @@ const peripheralStatus= getPeripheralStatus();
             type="checkbox"
             name="aki_stage1"
             checked={formData.aki_stage1 || false}
-            onChange={handleChange}
+            onChange={handleRenalChange}
           />
           Stage 1
+          {renalAutoFilled.aki_stage1 && <span className="field-hint-auto-inline">from daily logs</span>}
         </label>
 
         <label className="checkbox-item">
@@ -7953,9 +8026,10 @@ const peripheralStatus= getPeripheralStatus();
             type="checkbox"
             name="aki_stage2"
             checked={formData.aki_stage2 || false}
-            onChange={handleChange}
+            onChange={handleRenalChange}
           />
           Stage 2
+          {renalAutoFilled.aki_stage2 && <span className="field-hint-auto-inline">from daily logs</span>}
         </label>
 
         <label className="checkbox-item">
@@ -7963,9 +8037,10 @@ const peripheralStatus= getPeripheralStatus();
             type="checkbox"
             name="aki_stage3"
             checked={formData.aki_stage3 || false}
-            onChange={handleChange}
+            onChange={handleRenalChange}
           />
           Stage 3
+          {renalAutoFilled.aki_stage3 && <span className="field-hint-auto-inline">from daily logs</span>}
         </label>
 
       </div>
@@ -7990,15 +8065,18 @@ const peripheralStatus= getPeripheralStatus();
             max="20"
             name="aki_peak_creatinine"
             value={formData.aki_peak_creatinine || ""}
-            onChange={handleChange}
+            onChange={handleRenalChange}
             onBlur={handleBlur}
           />
+          {renalAutoFilled.aki_peak_creatinine && <span className="field-hint-auto-inline">from daily logs</span>}
           {errors.aki_peak_creatinine && (
             <div className="error-text">{errors.aki_peak_creatinine}</div>
           )}
         </div>
 
         <div className="form-group">
+          {/* No day-log source for oliguria — always manual, see the
+              renal-prefill endpoint docstring for why. */}
           <YesNoToggle label="177. Oliguria" name="aki_oliguria" value={formData.aki_oliguria} onChange={handleChange} onBlur={handleBlur} required />
           {errors.aki_oliguria && (
             <div className="error-text">{errors.aki_oliguria}</div>
@@ -8012,7 +8090,8 @@ const peripheralStatus= getPeripheralStatus();
     <div className="form-row">
 
       <div className="form-group">
-        <YesNoToggle label="178. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="178. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleRenalChange} onBlur={handleBlur} required />
+        {renalAutoFilled.aki_dialysis && <span className="field-hint-auto-inline">from daily logs</span>}
         {errors.aki_dialysis && (
           <div className="error-text">{errors.aki_dialysis}</div>
         )}

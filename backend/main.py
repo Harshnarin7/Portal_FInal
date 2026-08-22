@@ -1965,6 +1965,91 @@ def get_metabolic_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/renal-prefill/{enrollment_id}")
+def get_renal_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Renal / AKI section (H7.1, CRF #173-178).
+
+    - aki / aki_dialysis: direct any-day booleans (aki_suspected,
+      dialysis_crrt).
+    - aki_stage1/2/3: derived from the day log's KDIGO stage string,
+      checked against both the current aki_stage column and the legacy
+      aki_kdigo_stage column (older records may only have the latter).
+    - aki_peak_creatinine: highest creatinine recorded across the
+      admission, preferring the current creatinine_value column per row
+      and falling back to the legacy numeric creatinine column when that
+      row's creatinine_value isn't a parseable number (e.g. "Not Tested").
+    - aki_date: earliest NICU day AKI was suspected, converted to a
+      calendar date via NICUAdmission.day1_date — only returned when
+      day1_date has actually been set for this baby.
+    - aki_oliguria: intentionally NEVER auto-filled. The only related
+      day-log column (urine_output_low) is explicitly legacy/superseded,
+      and computing true oliguria needs a rate threshold against body
+      weight that isn't available from this table — always left for
+      manual clinical entry."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def stage_match(stage_num):
+        target = f"stage {stage_num}"
+        return any(
+            (l.aki_stage or "").strip().lower() == target
+            or (l.aki_kdigo_stage or "").strip().lower() == target
+            for l in logs
+        )
+
+    creatinine_values = []
+    for l in logs:
+        v = to_float(l.creatinine_value)
+        if v is None:
+            v = l.creatinine
+        if v is not None:
+            creatinine_values.append(v)
+
+    aki_date = None
+    aki_days = [l.nicu_day for l in logs if l.aki_suspected is True]
+    if aki_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            aki_date = (nicu.day1_date + timedelta(days=min(aki_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "aki": "Yes" if any_day("aki_suspected") else "No",
+        "aki_date": aki_date,
+        "aki_stage1": stage_match(1),
+        "aki_stage2": stage_match(2),
+        "aki_stage3": stage_match(3),
+        "aki_peak_creatinine": max(creatinine_values) if creatinine_values else None,
+        "aki_dialysis": "Yes" if any_day("dialysis_crrt") else "No",
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
