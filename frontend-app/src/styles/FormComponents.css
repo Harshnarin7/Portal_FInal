@@ -482,3 +482,33 @@
   color: #64748b;
   margin-top: 2px;
 }
+/* Auto-fill-from-daily-logs banner/badge (Form H Vascular Access, and any
+   future domain following the same pattern). */
+.field-hint-auto {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.field-hint-auto-inline {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #1d4ed8;
+  text-decoration: underline;
+  font-size: 12px;
+  cursor: pointer;
+}

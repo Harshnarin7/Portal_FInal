@@ -1829,6 +1829,57 @@ def get_neonatal_morbidities(
         .all()
     )
 
+
+@app.get("/neonatal-morbidities/vascular-access-prefill/{enrollment_id}")
+def get_vascular_access_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Vascular Access section (H10.1/H10.2, CRF #206-216). Unlike most Form H
+    domains, every field here is a deterministic day-count or any-day
+    boolean — no clinical judgment call needed, which is why this domain
+    was picked as the first to auto-fill. The frontend only uses this to
+    fill fields the clinician hasn't touched yet; it never overwrites an
+    existing value (see the loadExistingFormH/fetchResp ordering bug fixed
+    2026-08-22 for why that discipline matters)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "picc": "Yes" if any_day("picc_in_situ") else "No",
+        "picc_days": count_days("picc_in_situ"),
+        "uvc": "Yes" if any_day("uvc_in_situ") else "No",
+        "uvc_days": count_days("uvc_in_situ"),
+        "uac": "Yes" if any_day("uac_in_situ") else "No",
+        "uac_days": count_days("uac_in_situ"),
+        "peripheral_venous": "Yes" if any_day("peripheral_iv") else "No",
+        "peripheral_arterial": "Yes" if any_day("peripheral_arterial") else "No",
+        "extravasation": "Yes" if any_day("extravasation_injury") else "No",
+        # Day logs record only whether a complication happened, not which
+        # type (phlebitis/infection) — that detail genuinely needs a
+        # clinician's judgment, so this is surfaced as an advisory note in
+        # the UI rather than auto-checking a specific complication type.
+        "line_complication_any": any_day("line_complication"),
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
