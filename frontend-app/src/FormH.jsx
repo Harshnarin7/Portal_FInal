@@ -86,17 +86,23 @@ aed_other: "",
 etiology: "",
 etiology_other: "",
 cpap_used:"",
+cpap: "",
 cpap_days:"",
 nippv_used:"",
+nippv: "",
 nippv_days:"",
 hfnc_used: "",          // NEW
-hfnc_days: "", 
+hfnc: "",
+hfnc_days: "",
 imv_used:"",
+invasive_ventilation: "",
 imv_days:"",
 nasal_cannula_used: "",      // NEW
+nasal_cannula: "",
 nasal_cannula_days: "",
 oxygen_exposure:"",
 postnatal_steroids:"",
+steroid_age_days: "",
 steroid_drug:"",
 steroid_drug_other:"",
 age_steroid:"",
@@ -104,6 +110,10 @@ steroid_dose:"",
 steroid_dose_2:"",
 steroid_indication:"",
 steroid_indication_other:"",
+pulmonary_hemorrhage: "",
+pulmonary_hypertension: "",
+pneumothorax: "",
+chest_drain: "",
 
 // PVL
 pvl_present: "",
@@ -1719,63 +1729,6 @@ const validateShock = (name, value, updatedForm = formData) => {
 };
 
 
-const fetchResp = async () => {
-  if (!enrollmentId) return;
-
-  // 1) Get summary (keep existing)
-  const res = await api.get(`/respiratory-summary/${enrollmentId}`);
-  const data = res.data;
-
-  // 2) Get raw logs for IMV calculation
-  const logRes = await api.get(`/respiratory-log/${enrollmentId}`);
-  const logs = logRes.data || [];
-
-  // 3) Calculate IMV from frontend (robust)
-  const normalize = (v) =>
-    (v || "").toString().toUpperCase().replace(/\s+/g, "_");
-
-  const imvDays = logs.filter((l) =>
-    ["IMV", "SIMV", "HFOV"].includes(normalize(l.support_mode))
-  ).length;
-
-  // 4) Set form data
-  setFormData((prev) => ({
-    ...prev,
-
-    // CPAP
-    cpap: data.cpap_days > 0 ? "Yes" : "No",
-    cpap_days: data.cpap_days,
-
-    // NIPPV
-    nippv: data.nippv_days > 0 ? "Yes" : "No",
-    nippv_days: data.nippv_days,
-
-    // HFNC
-    hfnc: data.hfnc_days > 0 ? "Yes" : "No",
-    hfnc_days: data.hfnc_days,
-
-    // Nasal Cannula
-    nasal_cannula: data.nasal_cannula_days > 0 ? "Yes" : "No",
-    nasal_cannula_days: data.nasal_cannula_days,
-
-    // ✅ OVERRIDE IMV (frontend-calculated)
-    invasive_ventilation: imvDays > 0 ? "Yes" : "No",
-    invasive_ventilation_days: imvDays,
-    steroid_age_days: data.steroid_age_days || "",
-    postnatal_steroids: data.steroid_age_days ? "Yes" : "No",
-    pulmonary_hemorrhage: data.pulmonary_hemorrhage || "No",
-    pulmonary_hypertension: data.pulmonary_hypertension || "No",
-    pneumothorax: data.pneumothorax || "No",
-    chest_drain: data.chest_drain || "No",
-    extubation_failure:
-    data.extubation_failure || "No",
-
-    extubation_failure_episodes:
-    data.extubation_failure_episodes || 0,
-  }));
-};
-
-
 const validateMetabolic = (name, value, updatedForm = formData) => {
   let error = "";
 
@@ -2462,25 +2415,6 @@ useEffect(() => {
 }, [formData.ventriculomegaly_present]);
 
 useEffect(() => {
-  fetchResp();
-}, [enrollmentId]);
-
-useEffect(() => {
-
-  const handleUpdate = () => {
-    console.log("🔥 Form H updating...");
-    fetchResp();
-  };
-
-  window.addEventListener("respiratoryUpdated", handleUpdate);
-
-  return () => {
-    window.removeEventListener("respiratoryUpdated", handleUpdate);
-  };
-
-}, []);
-
-useEffect(() => {
   if (formData.picc === "No") {
     setFormData(prev => ({ ...prev, picc_days: "" }));
   }
@@ -3111,37 +3045,6 @@ useEffect(() => {
     }));
   }
 }, [formData.pneumothorax]);
-
-useEffect(() => {
-
-  const fetchResp = async () => {
-    if (!enrollmentId) return;
-
-    try {
-      const res = await api.get(`/respiratory-summary/${enrollmentId}`);
-      const data = res.data;
-
-      setFormData(prev => ({
-        ...prev,
-
-       cpap: data.cpap_days > 0 ? "Yes" : "No",
-cpap_days: data.cpap_days,
-
-        nippv: data.nippv,
-        nippv_days: data.nippv_days,
-
-        invasive_ventilation: data.imv,
-        invasive_ventilation_days: data.imv_days
-      }));
-
-    } catch (err) {
-      console.log("Error fetching respiratory data", err);
-    }
-  };
-
-  fetchResp();
-
-}, [enrollmentId]);
 
 
 
