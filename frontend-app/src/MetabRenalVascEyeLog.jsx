@@ -1412,13 +1412,15 @@ export default function MetabRenalVascEyeLog() {
     };
   };
   /* ── Save ── */
-  const handleSave = async () => {
+  const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return;
     if (!day1Date) {
       setMessage("⚠️ Please set Day 1 Date above before saving");
       return;
     }
-    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+    // force: re-save while viewing a saved draft (Submit path) without
+    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     try {
       const payload = buildPayload(now);
@@ -1462,7 +1464,16 @@ export default function MetabRenalVascEyeLog() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      if (!isSaved) await handleSave();
+      // Always save fresh state before locking — `isSaved` only means "this
+      // record has been saved at least once," not "nothing has changed
+      // since." Skipping the save here silently discarded edits made after
+      // a prior save whenever the day reached 100% (confirmed 2026-08-23 on
+      // enrollment 01-A-456: Hypoglycemia Rx + Ionized Calcium were entered,
+      // completion hit 100%, the UI shows only a Submit button at that
+      // point — no separate Save — and the submit locked the stale
+      // pre-edit data because isSaved was already true from an earlier
+      // save).
+      await handleSave({ force: true });
       const now = new Date().toISOString();
       await api.patch(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}/submit`, {
         submission_status: STATUS.SUBMITTED,
