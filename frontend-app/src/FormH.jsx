@@ -97,6 +97,12 @@ const [hemeStale, setHemeStale] = useState({});
 const [neuroPrefill, setNeuroPrefill] = useState(null);
 const [neuroAutoFilled, setNeuroAutoFilled] = useState({});
 const [neuroStale, setNeuroStale] = useState({});
+
+// Gastrointestinal (H3) auto-fill — same pattern as the other domains
+// above, from /neonatal-morbidities/gi-prefill.
+const [giPrefill, setGiPrefill] = useState(null);
+const [giAutoFilled, setGiAutoFilled] = useState({});
+const [giStale, setGiStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -657,7 +663,7 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The five
+    // correctly loaded record) — don't reintroduce that shape. The six
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load.
@@ -667,6 +673,7 @@ useEffect(() => {
       fetchRenalPrefill();
       fetchHemePrefill();
       fetchNeuroPrefill();
+      fetchGiPrefill();
     });
   }, [enrollmentId]);
 
@@ -1808,6 +1815,8 @@ const PREFILL_FIELD_LABELS = {
   platelets: "Platelet Transfusion", ffp_cryo: "FFP/Cryo Transfusion",
   ivh_present: "IVH", pvl_present: "cPVL",
   ventriculomegaly_present: "Ventriculomegaly", seizures: "Seizures",
+  feed_intolerance: "Feed Intolerance", nec: "NEC",
+  pn: "PN", probiotic: "Probiotic", cholestasis: "Cholestasis",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2200,6 +2209,86 @@ const clearNeuroAutoFilled = (name) => {
 
 const handleNeuroChange = (e) => {
   clearNeuroAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// Gastrointestinal (H3) auto-fill — same pattern as the other domains
+// above. nec is driven by the day log's `nec_suspected` flag, the same
+// "suspected drives the top-level Yes/No, clinician reviews/can uncheck"
+// convention already used for Renal's AKI. nec_stage/surgery detail,
+// age_full_feeds, PN adverse-effect breakdown, probiotic strain detail,
+// tpn_associated, max_direct_bilirubin, and the feed-intolerance symptom
+// checkboxes all have no day-log source and stay manual — see the
+// backend endpoint docstring.
+const GI_PREFILL_FIELDS = [
+  "feed_intolerance",
+  "nec", "nec_date", "nec_age_days",
+  "age_first_feed",
+  "pdhm_days", "ebm_days", "fm_days",
+  "pn", "pn_days",
+  "probiotic",
+  "cholestasis",
+];
+
+// Only the 5 Yes/No fields get checked for staleness — nec_date/
+// nec_age_days/age_first_feed/pdhm_days/ebm_days/fm_days/pn_days are
+// excluded on purpose, same reasoning as every other domain: those keep
+// drifting naturally as more daily-log entries come in, so flagging them
+// would be noise, not a meaningful "review this" signal.
+const GI_STALE_CHECK_FIELDS = [
+  "feed_intolerance", "nec", "pn", "probiotic", "cholestasis",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchGiPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/gi-prefill/${enrollmentId}`);
+    const data = res.data;
+    setGiPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      GI_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && GI_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setGiAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setGiStale(stale);
+  } catch (err) {
+    console.log("Error fetching GI prefill", err);
+  }
+};
+
+const clearGiAutoFilled = (name) => {
+  setGiAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleGiChange = (e) => {
+  clearGiAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -6236,9 +6325,34 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "fi" && (
     <div className="card-body">
 
+{giPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({giPrefill.log_days_count} day{giPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchGiPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Gastrointestinal", fetchGiPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(giStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(giStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="68. Feed Intolerance" name="feed_intolerance" value={formData.feed_intolerance} onChange={handleChange} />
+      <YesNoToggle label="68. Feed Intolerance" name="feed_intolerance" value={formData.feed_intolerance} onChange={handleGiChange} />
+      {giAutoFilled.feed_intolerance && <span className="field-hint-auto-inline">from daily logs</span>}
       <div className="field-hint">Record First Event</div>
     </div>
   </div>
@@ -6336,8 +6450,33 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "nec" && (
     <div className="card-body">
 
+{giPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({giPrefill.log_days_count} day{giPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchGiPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Gastrointestinal", fetchGiPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(giStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(giStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 <div className="form-group">
-  <YesNoToggle label="70. NEC" name="nec" value={formData.nec} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="70. NEC" name="nec" value={formData.nec} onChange={handleGiChange} onBlur={handleBlur} required />
+  {giAutoFilled.nec && <span className="field-hint-auto-inline">from daily logs</span>}
 
   {touched.nec && errors.nec && (
     <div className="error-text">{errors.nec}</div>
@@ -6381,9 +6520,10 @@ const peripheralStatus= getPeripheralStatus();
           type="date"
           name="nec_date"
           value={formData.nec_date || ""}
-          onChange={handleChange}
+          onChange={handleGiChange}
           onBlur={handleBlur}
         />
+        {giAutoFilled.nec_date && <span className="field-hint-auto-inline">from daily logs</span>}
 
         {touched.nec_date && errors.nec_date && (
           <div className="error-text">{errors.nec_date}</div>
@@ -6400,9 +6540,10 @@ const peripheralStatus= getPeripheralStatus();
           name="nec_age_days"
           value={formData.nec_age_days || ""}
           placeholder="0–120"
-          onChange={handleChange}
+          onChange={handleGiChange}
           onBlur={handleBlur}
         />
+        {giAutoFilled.nec_age_days && <span className="field-hint-auto-inline">from daily logs</span>}
 
         {touched.nec_age_days && errors.nec_age_days && (
           <div className="error-text">{errors.nec_age_days}</div>
@@ -6512,6 +6653,30 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "feeding" && (
     <div className="card-body">
 
+{giPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({giPrefill.log_days_count} day{giPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchGiPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Gastrointestinal", fetchGiPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(giStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(giStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 {/* ---------------- BASIC FIELDS ---------------- */}
 <div className="form-row">
   <div className="form-group">
@@ -6520,11 +6685,12 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="age_first_feed"
       value={formData.age_first_feed || ""}
-      onChange={handleChange}
+      onChange={handleGiChange}
       onBlur={handleBlur}
       min="0"
       max="60"
     />
+    {giAutoFilled.age_first_feed && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.age_first_feed && <div className="error-text">{errors.age_first_feed}</div>}
   </div>
 
@@ -6550,11 +6716,12 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="pdhm_days"
       value={formData.pdhm_days || ""}
-      onChange={handleChange}
+      onChange={handleGiChange}
       onBlur={handleBlur}
       min="0"
       max="365"
     />
+    {giAutoFilled.pdhm_days && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.pdhm_days && <div className="error-text">{errors.pdhm_days}</div>}
   </div>
 
@@ -6564,11 +6731,12 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="ebm_days"
       value={formData.ebm_days || ""}
-      onChange={handleChange}
+      onChange={handleGiChange}
       onBlur={handleBlur}
       min="0"
       max="365"
     />
+    {giAutoFilled.ebm_days && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.ebm_days && <div className="error-text">{errors.ebm_days}</div>}
   </div>
 
@@ -6578,18 +6746,20 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="fm_days"
       value={formData.fm_days || ""}
-      onChange={handleChange}
+      onChange={handleGiChange}
       onBlur={handleBlur}
       min="0"
       max="365"
     />
+    {giAutoFilled.fm_days && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.fm_days && <div className="error-text">{errors.fm_days}</div>}
   </div>
 </div>
 
 {/* ---------------- PN ---------------- */}
 <div className="form-group">
-  <YesNoToggle label="84. PN" name="pn" value={formData.pn} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="84. PN" name="pn" value={formData.pn} onChange={handleGiChange} onBlur={handleBlur} required />
+  {giAutoFilled.pn && <span className="field-hint-auto-inline">from daily logs</span>}
   {errors.pn && <div className="error-text">{errors.pn}</div>}
 </div>
 
@@ -6601,11 +6771,12 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="pn_days"
         value={formData.pn_days || ""}
-        onChange={handleChange}
+        onChange={handleGiChange}
         onBlur={handleBlur}
         min="0"
         max="365"
       />
+      {giAutoFilled.pn_days && <span className="field-hint-auto-inline">from daily logs</span>}
       {errors.pn_days && <div className="error-text">{errors.pn_days}</div>}
     </div>
 
@@ -6643,7 +6814,8 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* ---------------- PROBIOTIC ---------------- */}
     <div className="probiotic-card">
-      <YesNoToggle label="88. Probiotic" name="probiotic" value={formData.probiotic} onChange={handleChange} required />
+      <YesNoToggle label="88. Probiotic" name="probiotic" value={formData.probiotic} onChange={handleGiChange} required />
+      {giAutoFilled.probiotic && <span className="field-hint-auto-inline">from daily logs</span>}
 
       {formData.probiotic === "Yes" && (
         <>
@@ -6674,7 +6846,8 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* ---------------- CHOLESTASIS ---------------- */}
     <div className="form-group">
-      <YesNoToggle label="92. Cholestasis" name="cholestasis" value={formData.cholestasis} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="92. Cholestasis" name="cholestasis" value={formData.cholestasis} onChange={handleGiChange} onBlur={handleBlur} required />
+      {giAutoFilled.cholestasis && <span className="field-hint-auto-inline">from daily logs</span>}
 
       {errors.cholestasis && (
         <div className="error-text">{errors.cholestasis}</div>

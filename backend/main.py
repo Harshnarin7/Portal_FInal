@@ -2203,6 +2203,114 @@ def get_neuro_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/gi-prefill/{enrollment_id}")
+def get_gi_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Infect/GI/Hema helper daily logs into Form H's
+    Gastrointestinal section (H3, CRF #68-94).
+
+    - feed_intolerance / pn / probiotic / cholestasis: direct any-day
+      booleans from the day log's identically-scoped fields.
+    - nec: any-day `nec_suspected` — same "suspected flag drives the
+      top-level Yes/No, clinician reviews/can uncheck" convention already
+      used for Renal's AKI (`aki_suspected`).
+    - nec_date / nec_age_days: derived from the earliest day
+      `nec_suspected` was true. nec_date uses the usual
+      NICUAdmission.day1_date cross-table pattern; nec_age_days is just
+      that same earliest day minus 1 (nicu_day 1 == age 0), no join
+      needed — a NICU day number *is* an age in days once day1 is fixed.
+    - nec_stage is deliberately NOT filled: the day log's
+      `nec_confirmed_stage` is coarse ("Stage I/II/III") while Form H's
+      nec_stage is the 6-way Bell staging (IA/IB/IIA/IIB/IIIA/IIIB) —
+      guessing the A/B subdivision would be inventing data, not deriving it.
+      nec_surgery/nec_surgery_type/nec_resection(_length)/nec_stoma have no
+      day-log equivalent at all (the log only flags NEC was suspected, not
+      what was done about it).
+    - age_first_feed: earliest day `enteral_feeds_received` was true,
+      same earliest-day-minus-1 pattern as nec_age_days.
+    - pdhm_days / ebm_days / fm_days: day log's `feed_type` is a
+      comma-separated string per day (e.g. "PDHM,EBM") — same format as
+      `support_modes` elsewhere in this file — so each is a day-count of
+      how many rows list that feed type, not a simple any-day boolean.
+    - pn_days: day-count of `parenteral_nutrition` being true, same
+      day-count-as-proxy convention as Heme's dvet_number/prbc_number
+      (can undercount multiple same-day events, but there's only ever one
+      PN status per day here so it's exact, not just a proxy).
+    - age_full_feeds is deliberately NOT filled: the day log has no
+      "full feeds achieved" flag, only raw ml/kg/day volumes
+      (`cumulative_feed_volume`/`feed_volume`), and picking a volume
+      threshold to call "full feeds" would be a clinical/protocol
+      judgment call this endpoint shouldn't make.
+    - pn_adverse (+ its Cholestasis/Electrolyte/Acidosis/Hypercapnia/Other
+      breakdown), probiotic strain type, Lactobacillus/Bifidobacterium,
+      tpn_associated, max_direct_bilirubin, and the feed-intolerance
+      symptom checkboxes (#69) all have no day-log source — the log only
+      has flat top-level booleans, never this level of detail.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def count_days_with_feed_type(token):
+        count = 0
+        for l in logs:
+            types = [t.strip() for t in (l.feed_type or "").split(",") if t.strip()]
+            if token in types:
+                count += 1
+        return count
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    nec_date = None
+    nec_age_days = None
+    nec_days = [l.nicu_day for l in logs if l.nec_suspected is True]
+    if nec_days:
+        nec_age_days = min(nec_days) - 1
+        if nicu and nicu.day1_date:
+            nec_date = (nicu.day1_date + timedelta(days=nec_age_days)).isoformat()
+
+    age_first_feed = None
+    feed_days = [l.nicu_day for l in logs if l.enteral_feeds_received is True]
+    if feed_days:
+        age_first_feed = min(feed_days) - 1
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "feed_intolerance": "Yes" if any_day("feed_intolerance") else "No",
+        "nec": "Yes" if any_day("nec_suspected") else "No",
+        "nec_date": nec_date,
+        "nec_age_days": nec_age_days,
+        "age_first_feed": age_first_feed,
+        "pdhm_days": count_days_with_feed_type("PDHM") or None,
+        "ebm_days": count_days_with_feed_type("EBM") or None,
+        "fm_days": count_days_with_feed_type("FM") or None,
+        "pn": "Yes" if any_day("parenteral_nutrition") else "No",
+        "pn_days": count_days("parenteral_nutrition") or None,
+        "probiotic": "Yes" if any_day("probiotic") else "No",
+        "cholestasis": "Yes" if any_day("cholestasis") else "No",
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
