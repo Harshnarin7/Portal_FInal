@@ -569,6 +569,17 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
   );
 }
 
+// Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
+// serialize to JSON with no 'Z'/offset suffix even though the value is UTC
+// (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
+// parses that as LOCAL browser time per the JS spec, not UTC — in IST
+// (UTC+5:30) that made a just-created 2-hour override compare as already
+// expired. Treat any timestamp with no explicit offset as UTC.
+function parseUtcTimestamp(value) {
+  if (!value) return null;
+  return /[Zz]|[+-]\d{2}:?\d{2}$/.test(value) ? new Date(value) : new Date(value + "Z");
+}
+
 /* ══════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════ */
@@ -756,7 +767,7 @@ export default function MetabRenalVascEyeLog() {
     new Date().getHours() < MRVE_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
-    overrideUntil != null && new Date() < new Date(overrideUntil);
+    overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
   // Default which day's tab opens on first load: before 11am, default to
   // yesterday's (still-open) day; from 11am on, default to today's day.
@@ -1249,7 +1260,7 @@ export default function MetabRenalVascEyeLog() {
           // silently re-lock the fields — isFieldEditable requires isEditing
           // whenever isSaved is true, and this effect always sets isSaved
           // true for an existing record.
-          const overrideStillActive = !!d.override_unlocked_until && new Date(d.override_unlocked_until) > new Date();
+          const overrideStillActive = !!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date();
           setIsEditing(overrideStillActive);
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
