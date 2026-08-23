@@ -103,6 +103,12 @@ const [neuroStale, setNeuroStale] = useState({});
 const [giPrefill, setGiPrefill] = useState(null);
 const [giAutoFilled, setGiAutoFilled] = useState({});
 const [giStale, setGiStale] = useState({});
+
+// ROP + Thermoregulation (H8/H9) auto-fill — same pattern as the other
+// domains above, from /neonatal-morbidities/rop-thermoreg-prefill.
+const [ropThermoPrefill, setRopThermoPrefill] = useState(null);
+const [ropThermoAutoFilled, setRopThermoAutoFilled] = useState({});
+const [ropThermoStale, setRopThermoStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -663,7 +669,7 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The six
+    // correctly loaded record) — don't reintroduce that shape. The seven
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load.
@@ -674,6 +680,7 @@ useEffect(() => {
       fetchHemePrefill();
       fetchNeuroPrefill();
       fetchGiPrefill();
+      fetchRopThermoPrefill();
     });
   }, [enrollmentId]);
 
@@ -1817,6 +1824,8 @@ const PREFILL_FIELD_LABELS = {
   ventriculomegaly_present: "Ventriculomegaly", seizures: "Seizures",
   feed_intolerance: "Feed Intolerance", nec: "NEC",
   pn: "PN", probiotic: "Probiotic", cholestasis: "Cholestasis",
+  hypothermia: "Hypothermia", hyperthermia: "Hyperthermia",
+  rop_screened: "ROP Screened", rop: "ROP Diagnosed",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2289,6 +2298,82 @@ const clearGiAutoFilled = (name) => {
 
 const handleGiChange = (e) => {
   clearGiAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// ROP (H8) + Thermoregulation (H9) auto-fill — same pattern as the other
+// domains above. Only the top-level any-day Yes/No + earliest-day-derived
+// onset date are safe: the day log's rop_stage/plus_disease/rop_treatment
+// are single flat fields with no left/right split, so per-eye detail
+// can't be assigned without guessing a side — same reasoning as IVH/PVL
+// in the Neuro domain. Severity/location/etiology checkboxes under
+// Thermoregulation have no day-log source either, see the backend
+// endpoint docstring.
+const ROP_THERMO_PREFILL_FIELDS = [
+  "hypothermia", "hypothermia_lowest_temp",
+  "hyperthermia", "hyperthermia_temp",
+  "rop_screened", "rop_first_screen_date",
+  "rop", "rop_diagnosis_date",
+];
+
+// Only the 4 Yes/No fields get checked for staleness — the temperature
+// extremes and onset dates are excluded on purpose, same reasoning as
+// every other domain: those keep drifting or are one-time facts once
+// set, not a meaningful "review this" signal.
+const ROP_THERMO_STALE_CHECK_FIELDS = [
+  "hypothermia", "hyperthermia", "rop_screened", "rop",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchRopThermoPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/rop-thermoreg-prefill/${enrollmentId}`);
+    const data = res.data;
+    setRopThermoPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      ROP_THERMO_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && ROP_THERMO_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setRopThermoAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setRopThermoStale(stale);
+  } catch (err) {
+    console.log("Error fetching ROP/thermoregulation prefill", err);
+  }
+};
+
+const clearRopThermoAutoFilled = (name) => {
+  setRopThermoAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleRopThermoChange = (e) => {
+  clearRopThermoAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -8791,9 +8876,34 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "rop" && (
     <div className="card-body">
 
+{ropThermoPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({ropThermoPrefill.log_days_count} day{ropThermoPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRopThermoPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("ROP/Thermoregulation", fetchRopThermoPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(ropThermoStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(ropThermoStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
       {/* ---------------- SCREENING (179-181) ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="179. Screened" name="rop_screened" value={formData.rop_screened} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="179. Screened" name="rop_screened" value={formData.rop_screened} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+        {ropThermoAutoFilled.rop_screened && <span className="field-hint-auto-inline">from daily logs</span>}
         {touched.rop_screened && errors.rop_screened && <div className="error-text">{errors.rop_screened}</div>}
       </div>
 
@@ -8817,9 +8927,10 @@ const peripheralStatus= getPeripheralStatus();
               type="date"
               name="rop_first_screen_date"
               value={formData.rop_first_screen_date || ""}
-              onChange={handleChange}
+              onChange={handleRopThermoChange}
               onBlur={handleBlur}
             />
+            {ropThermoAutoFilled.rop_first_screen_date && <span className="field-hint-auto-inline">from daily logs</span>}
             {touched.rop_first_screen_date && errors.rop_first_screen_date && <div className="error-text">{errors.rop_first_screen_date}</div>}
           </div>
         </div>
@@ -8827,7 +8938,8 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- DIAGNOSIS (182-184) ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="182. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="182. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+        {ropThermoAutoFilled.rop && <span className="field-hint-auto-inline">from daily logs</span>}
         {touched.rop && errors.rop && <div className="error-text">{errors.rop}</div>}
       </div>
 
@@ -8840,9 +8952,10 @@ const peripheralStatus= getPeripheralStatus();
                 type="date"
                 name="rop_diagnosis_date"
                 value={formData.rop_diagnosis_date || ""}
-                onChange={handleChange}
+                onChange={handleRopThermoChange}
                 onBlur={handleBlur}
               />
+              {ropThermoAutoFilled.rop_diagnosis_date && <span className="field-hint-auto-inline">from daily logs</span>}
               {touched.rop_diagnosis_date && errors.rop_diagnosis_date && <div className="error-text">{errors.rop_diagnosis_date}</div>}
             </div>
 
@@ -9040,9 +9153,34 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "thermo" && (
     <div className="card-body">
 
+{ropThermoPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({ropThermoPrefill.log_days_count} day{ropThermoPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRopThermoPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("ROP/Thermoregulation", fetchRopThermoPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(ropThermoStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(ropThermoStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
       {/* ---------------- HYPOTHERMIA (197-201) ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="197. Hypothermia (&lt;36.5°C)" name="hypothermia" value={formData.hypothermia} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="197. Hypothermia (&lt;36.5°C)" name="hypothermia" value={formData.hypothermia} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+        {ropThermoAutoFilled.hypothermia && <span className="field-hint-auto-inline">from daily logs</span>}
         {touched.hypothermia && errors.hypothermia && <div className="error-text">{errors.hypothermia}</div>}
       </div>
 
@@ -9055,9 +9193,10 @@ const peripheralStatus= getPeripheralStatus();
                 type="number" step="0.1" min="20" max="40"
                 name="hypothermia_lowest_temp"
                 value={formData.hypothermia_lowest_temp || ""}
-                onChange={handleChange} onBlur={handleBlur}
+                onChange={handleRopThermoChange} onBlur={handleBlur}
                 placeholder="20–40"
               />
+              {ropThermoAutoFilled.hypothermia_lowest_temp && <span className="field-hint-auto-inline">from daily logs</span>}
               {touched.hypothermia_lowest_temp && errors.hypothermia_lowest_temp && <div className="error-text">{errors.hypothermia_lowest_temp}</div>}
             </div>
           </div>
@@ -9110,7 +9249,8 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- HYPERTHERMIA (202-205) ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="202. Hyperthermia (&gt;37.5°C)" name="hyperthermia" value={formData.hyperthermia} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="202. Hyperthermia (&gt;37.5°C)" name="hyperthermia" value={formData.hyperthermia} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+        {ropThermoAutoFilled.hyperthermia && <span className="field-hint-auto-inline">from daily logs</span>}
         {touched.hyperthermia && errors.hyperthermia && <div className="error-text">{errors.hyperthermia}</div>}
       </div>
 
@@ -9123,9 +9263,10 @@ const peripheralStatus= getPeripheralStatus();
                 type="number" step="0.1" min="35" max="42"
                 name="hyperthermia_temp"
                 value={formData.hyperthermia_temp || ""}
-                onChange={handleChange} onBlur={handleBlur}
+                onChange={handleRopThermoChange} onBlur={handleBlur}
                 placeholder="35–42"
               />
+              {ropThermoAutoFilled.hyperthermia_temp && <span className="field-hint-auto-inline">from daily logs</span>}
               {touched.hyperthermia_temp && errors.hyperthermia_temp && <div className="error-text">{errors.hyperthermia_temp}</div>}
             </div>
           </div>

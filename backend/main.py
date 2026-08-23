@@ -2311,6 +2311,96 @@ def get_gi_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/rop-thermoreg-prefill/{enrollment_id}")
+def get_rop_thermoreg_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Ophthalmology (H8, CRF #179-196) and Thermoregulation (H9, CRF
+    #197-205) sections.
+
+    Thermoregulation:
+    - hypothermia / hyperthermia: direct any-day booleans.
+    - hypothermia_lowest_temp / hyperthermia_temp: admission-wide MIN/MAX
+      of `axillary_temperature` (stored as a string but a genuine numeric
+      °C reading per day, per MetabRenalVascEyeLog.jsx's NumRow usage) —
+      same admission-wide-extremum convention as Renal's peak creatinine
+      / Heme's lowest Hb, not conditioned on which day the boolean was
+      also true.
+    - Severity (mild/moderate/severe), location (DR/Transport/NICU), and
+      etiology (sepsis/environment/immaturity/IVH/other) checkboxes have
+      no day-log source. The day log does have its own `location` field
+      (DR/NICU/Step-down/Nursery/KMC-N/Other), but that tracks where the
+      baby was *that day* in general — using it to infer where a specific
+      thermal event happened would be an inference the data doesn't
+      actually support, not a derivation.
+
+    Ophthalmology / ROP:
+    - rop_screened / rop: direct any-day booleans from the day log's
+      `rop_screened` / `rop_detected`.
+    - rop_first_screen_date / rop_diagnosis_date: earliest day
+      `rop_screened` / `rop_detected` was true, via the usual
+      NICUAdmission.day1_date cross-table pattern.
+    - rop_method, rop_side, and every per-eye field (stage/plus/zone/
+      A-ROP/treatment/treatment-type, right and left) are deliberately
+      NOT filled: the day log's `rop_stage`/`plus_disease`/`rop_treatment`
+      are single flat fields with no left/right split, so there's no way
+      to know which eye (or both) they refer to — same side-ambiguity
+      reasoning as IVH/PVL in the Neuro domain. Zone and A-ROP have no
+      day-log field at all.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def numeric_values(attr):
+        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    def earliest_date(attr):
+        days = [l.nicu_day for l in logs if getattr(l, attr) is True]
+        if not days or not nicu or not nicu.day1_date:
+            return None
+        return (nicu.day1_date + timedelta(days=min(days) - 1)).isoformat()
+
+    temps = numeric_values("axillary_temperature")
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hypothermia": "Yes" if any_day("hypothermia") else "No",
+        "hypothermia_lowest_temp": min(temps) if temps else None,
+        "hyperthermia": "Yes" if any_day("hyperthermia") else "No",
+        "hyperthermia_temp": max(temps) if temps else None,
+        "rop_screened": "Yes" if any_day("rop_screened") else "No",
+        "rop_first_screen_date": earliest_date("rop_screened"),
+        "rop": "Yes" if any_day("rop_detected") else "No",
+        "rop_diagnosis_date": earliest_date("rop_detected"),
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
