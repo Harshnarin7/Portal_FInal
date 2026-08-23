@@ -2401,6 +2401,95 @@ def get_rop_thermoreg_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/cv-prefill/{enrollment_id}")
+def get_cv_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Cardiovascular section (H5, CRF #117-146; H5.1 Structural Heart
+    Disease has no day-log source at all and is skipped entirely).
+
+    - hs_pda / shock / inotropes: direct any-day booleans from the day
+      log's hs_pda / shock / vasoactive_support.
+    - pda_medical_rx: any-day boolean from the day log's own
+      `pda_medical_rx` column — note this column is marked legacy/
+      superseded in the day log's own schema (no longer part of the
+      current numbered field sequence), so it may simply be blank on
+      every row logged after the helper-form redesign. Using it is safe
+      either way (a blank/never-True column just contributes nothing),
+      but don't expect it to catch newer entries.
+    - fluid_bolus / fluid_bolus_number: the day log's `fluid_bolus` is a
+      free-text description ("10ml/kg NS"), not a boolean or count —
+      "Yes" is derived from any day having a non-blank value, and the
+      count is the number of days with a non-blank value (the log can't
+      distinguish two boluses given the same day from one, same
+      day-count-as-proxy caveat as other domains' *_number fields).
+    - inotrope_duration: day-count of vasoactive_support being true.
+    - inotrope_dopa/dobu/adr/nadr/milri/vaso: whether each drug name
+      ("Dopamine"/"Dobutamine"/"Adrenaline"/"Noradrenaline"/"Milrinone"/
+      "Vasopressin") ever appears in the day log's comma-separated
+      `vasoactive_drugs` field — same CSV-token technique as GI's
+      pdhm/ebm/fm_days, applied here to a boolean-per-token instead of a
+      day-count.
+    - Everything else has no day-log source: PDA diagnosis method
+      (clinical/echo/both) and all clinical-exam/echo-measurement detail
+      (murmur, TDD, peak velocity, pattern, shunt, LA:Ao, systemic steal,
+      LPA velocity — `echo_done` only confirms an echo happened, not what
+      it showed), PDA agent/courses/dose/intervention/ligation-or-device
+      age, hypotension (the day log has no hypotension field at all, only
+      shock), SBP/DBP/MAP (those live in the Minimal Monitoring helper
+      log, a 4th table outside this auto-fill project's scope), VIS score
+      (needs dose-weighted values the day log doesn't capture), and
+      hydrocortisone-for-BP + its timing (the day log's
+      `postnatal_steroids` is a BPD/lung indication, a different clinical
+      purpose — reusing it here would misrepresent why the drug was
+      given).
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    bolus_days = [l for l in logs if (l.fluid_bolus or "").strip()]
+
+    all_drug_tokens = set()
+    for l in logs:
+        all_drug_tokens.update(
+            t.strip() for t in (l.vasoactive_drugs or "").split(",") if t.strip()
+        )
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hs_pda": "Yes" if any_day("hs_pda") else "No",
+        "pda_medical_rx": "Yes" if any_day("pda_medical_rx") else "No",
+        "shock": "Yes" if any_day("shock") else "No",
+        "fluid_bolus": "Yes" if bolus_days else "No",
+        "fluid_bolus_number": len(bolus_days) or None,
+        "inotropes": "Yes" if any_day("vasoactive_support") else "No",
+        "inotrope_duration": count_days("vasoactive_support") or None,
+        "inotrope_dopa": "Dopamine" in all_drug_tokens,
+        "inotrope_dobu": "Dobutamine" in all_drug_tokens,
+        "inotrope_adr": "Adrenaline" in all_drug_tokens,
+        "inotrope_nadr": "Noradrenaline" in all_drug_tokens,
+        "inotrope_milri": "Milrinone" in all_drug_tokens,
+        "inotrope_vaso": "Vasopressin" in all_drug_tokens,
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================

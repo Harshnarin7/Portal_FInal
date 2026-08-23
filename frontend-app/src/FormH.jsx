@@ -109,6 +109,12 @@ const [giStale, setGiStale] = useState({});
 const [ropThermoPrefill, setRopThermoPrefill] = useState(null);
 const [ropThermoAutoFilled, setRopThermoAutoFilled] = useState({});
 const [ropThermoStale, setRopThermoStale] = useState({});
+
+// Cardiovascular (H5) auto-fill — same pattern as the other domains
+// above, from /neonatal-morbidities/cv-prefill.
+const [cvPrefill, setCvPrefill] = useState(null);
+const [cvAutoFilled, setCvAutoFilled] = useState({});
+const [cvStale, setCvStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -669,7 +675,7 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The seven
+    // correctly loaded record) — don't reintroduce that shape. The eight
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load.
@@ -681,6 +687,7 @@ useEffect(() => {
       fetchNeuroPrefill();
       fetchGiPrefill();
       fetchRopThermoPrefill();
+      fetchCvPrefill();
     });
   }, [enrollmentId]);
 
@@ -1826,6 +1833,11 @@ const PREFILL_FIELD_LABELS = {
   pn: "PN", probiotic: "Probiotic", cholestasis: "Cholestasis",
   hypothermia: "Hypothermia", hyperthermia: "Hyperthermia",
   rop_screened: "ROP Screened", rop: "ROP Diagnosed",
+  hs_pda: "HS-PDA", pda_medical_rx: "PDA Medical Rx", shock: "Shock",
+  fluid_bolus: "Fluid Bolus", inotropes: "Vasoactives",
+  inotrope_dopa: "Dopamine", inotrope_dobu: "Dobutamine",
+  inotrope_adr: "Adrenaline", inotrope_nadr: "Noradrenaline",
+  inotrope_milri: "Milrinone", inotrope_vaso: "Vasopressin",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2374,6 +2386,82 @@ const clearRopThermoAutoFilled = (name) => {
 
 const handleRopThermoChange = (e) => {
   clearRopThermoAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// Cardiovascular (H5) auto-fill — same pattern as the other domains
+// above. Structural Heart Disease has no day-log source at all so isn't
+// represented here. Every PDA/hypotension/VIS-score clinical/echo detail
+// field stays manual — see the backend endpoint docstring.
+const CV_PREFILL_FIELDS = [
+  "hs_pda", "pda_medical_rx",
+  "shock",
+  "fluid_bolus", "fluid_bolus_number",
+  "inotropes", "inotrope_duration",
+  "inotrope_dopa", "inotrope_dobu", "inotrope_adr",
+  "inotrope_nadr", "inotrope_milri", "inotrope_vaso",
+];
+
+// The Yes/No fields plus the 6 individual drug checkboxes get checked for
+// staleness (drug checkboxes are simple booleans, same as Metabolic's
+// dyselectro_na/k/ca) — fluid_bolus_number/inotrope_duration are excluded
+// on purpose, same reasoning as every other domain's day-count fields.
+const CV_STALE_CHECK_FIELDS = [
+  "hs_pda", "pda_medical_rx", "shock", "fluid_bolus", "inotropes",
+  "inotrope_dopa", "inotrope_dobu", "inotrope_adr",
+  "inotrope_nadr", "inotrope_milri", "inotrope_vaso",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchCvPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/cv-prefill/${enrollmentId}`);
+    const data = res.data;
+    setCvPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      CV_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && CV_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setCvAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setCvStale(stale);
+  } catch (err) {
+    console.log("Error fetching CV prefill", err);
+  }
+};
+
+const clearCvAutoFilled = (name) => {
+  setCvAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleCvChange = (e) => {
+  clearCvAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -7427,11 +7515,36 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "pda" && (
     <div className="card-body">
 
+{cvPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({cvPrefill.log_days_count} day{cvPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCvPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Cardiovascular", fetchCvPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cvStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(cvStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 <div className="pn-adverse-card">
 
   {/* HS-PDA */}
   <div className="form-group">
-    <YesNoToggle label="117. HS-PDA" name="hs_pda" value={formData.hs_pda} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="117. HS-PDA" name="hs_pda" value={formData.hs_pda} onChange={handleCvChange} onBlur={handleBlur} required />
+    {cvAutoFilled.hs_pda && <span className="field-hint-auto-inline">from daily logs</span>}
 
     {errors.hs_pda && (
       <div className="error-text">{errors.hs_pda}</div>
@@ -7656,7 +7769,8 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- MEDICAL ---------------- */}
       <div className="form-group">
-        <YesNoToggle label="127. Medical Rx" name="pda_medical_rx" value={formData.pda_medical_rx} onChange={handleChange} />
+        <YesNoToggle label="127. Medical Rx" name="pda_medical_rx" value={formData.pda_medical_rx} onChange={handleCvChange} />
+        {cvAutoFilled.pda_medical_rx && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
 
       {formData.pda_medical_rx === "Yes" && (
@@ -7807,13 +7921,38 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "shock" && (
     <div className="card-body">
 
+{cvPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({cvPrefill.log_days_count} day{cvPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCvPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Cardiovascular", fetchCvPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cvStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(cvStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 <div className="pn-adverse-card">
 
   <div className="form-row">
 
     {/* Shock */}
     <div className="form-group">
-      <YesNoToggle label="134. Shock" name="shock" value={formData.shock} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="134. Shock" name="shock" value={formData.shock} onChange={handleCvChange} onBlur={handleBlur} required />
+      {cvAutoFilled.shock && <span className="field-hint-auto-inline">from daily logs</span>}
       {errors.shock && <div className="error-text">{errors.shock}</div>}
     </div>
 
@@ -7931,7 +8070,8 @@ const peripheralStatus= getPeripheralStatus();
   <div className="form-row">
 
     <div className="form-group">
-      <YesNoToggle label="139. Required fluid bolus" name="fluid_bolus" value={formData.fluid_bolus} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="139. Required fluid bolus" name="fluid_bolus" value={formData.fluid_bolus} onChange={handleCvChange} onBlur={handleBlur} required />
+      {cvAutoFilled.fluid_bolus && <span className="field-hint-auto-inline">from daily logs</span>}
       {errors.fluid_bolus && (
         <div className="error-text">{errors.fluid_bolus}</div>
       )}
@@ -7944,11 +8084,12 @@ const peripheralStatus= getPeripheralStatus();
           type="number"
           name="fluid_bolus_number"
           value={formData.fluid_bolus_number || ""}
-          onChange={handleChange}
+          onChange={handleCvChange}
           onBlur={handleBlur}
           min="0"
           max="10"
         />
+        {cvAutoFilled.fluid_bolus_number && <span className="field-hint-auto-inline">from daily logs</span>}
         {errors.fluid_bolus_number && (
           <div className="error-text">{errors.fluid_bolus_number}</div>
         )}
@@ -7959,7 +8100,8 @@ const peripheralStatus= getPeripheralStatus();
 
   {/* Vasoactives */}
   <div className="form-group">
-    <YesNoToggle label="141. Vasoactives required" name="inotropes" value={formData.inotropes} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="141. Vasoactives required" name="inotropes" value={formData.inotropes} onChange={handleCvChange} onBlur={handleBlur} required />
+    {cvAutoFilled.inotropes && <span className="field-hint-auto-inline">from daily logs</span>}
     {errors.inotropes && (
       <div className="error-text">{errors.inotropes}</div>
     )}
@@ -7973,12 +8115,12 @@ const peripheralStatus= getPeripheralStatus();
 
       <div className="pn-checkbox-grid">
 
-        <label><input type="checkbox" name="inotrope_dopa" checked={formData.inotrope_dopa || false} onChange={handleChange}/> Dopa</label>
-        <label><input type="checkbox" name="inotrope_dobu" checked={formData.inotrope_dobu || false} onChange={handleChange}/> Dobu</label>
-        <label><input type="checkbox" name="inotrope_adr" checked={formData.inotrope_adr || false} onChange={handleChange}/> Adr</label>
-        <label><input type="checkbox" name="inotrope_nadr" checked={formData.inotrope_nadr || false} onChange={handleChange}/> NAdr</label>
-        <label><input type="checkbox" name="inotrope_milri" checked={formData.inotrope_milri || false} onChange={handleChange}/> Milri</label>
-        <label><input type="checkbox" name="inotrope_vaso" checked={formData.inotrope_vaso || false} onChange={handleChange}/> Vaso</label>
+        <label><input type="checkbox" name="inotrope_dopa" checked={formData.inotrope_dopa || false} onChange={handleCvChange}/> Dopa{cvAutoFilled.inotrope_dopa && <span className="field-hint-auto-inline">from daily logs</span>}</label>
+        <label><input type="checkbox" name="inotrope_dobu" checked={formData.inotrope_dobu || false} onChange={handleCvChange}/> Dobu{cvAutoFilled.inotrope_dobu && <span className="field-hint-auto-inline">from daily logs</span>}</label>
+        <label><input type="checkbox" name="inotrope_adr" checked={formData.inotrope_adr || false} onChange={handleCvChange}/> Adr{cvAutoFilled.inotrope_adr && <span className="field-hint-auto-inline">from daily logs</span>}</label>
+        <label><input type="checkbox" name="inotrope_nadr" checked={formData.inotrope_nadr || false} onChange={handleCvChange}/> NAdr{cvAutoFilled.inotrope_nadr && <span className="field-hint-auto-inline">from daily logs</span>}</label>
+        <label><input type="checkbox" name="inotrope_milri" checked={formData.inotrope_milri || false} onChange={handleCvChange}/> Milri{cvAutoFilled.inotrope_milri && <span className="field-hint-auto-inline">from daily logs</span>}</label>
+        <label><input type="checkbox" name="inotrope_vaso" checked={formData.inotrope_vaso || false} onChange={handleCvChange}/> Vaso{cvAutoFilled.inotrope_vaso && <span className="field-hint-auto-inline">from daily logs</span>}</label>
 
       </div>
 
@@ -7995,11 +8137,12 @@ const peripheralStatus= getPeripheralStatus();
               type="number"
               name="inotrope_duration"
               value={formData.inotrope_duration || ""}
-              onChange={handleChange}
+              onChange={handleCvChange}
               onBlur={handleBlur}
               min="0"
               max="60"
             />
+            {cvAutoFilled.inotrope_duration && <span className="field-hint-auto-inline">from daily logs</span>}
             {errors.inotrope_duration && (
               <div className="error-text">{errors.inotrope_duration}</div>
             )}
