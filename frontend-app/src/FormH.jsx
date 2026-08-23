@@ -65,16 +65,26 @@ const [openSection, setOpenSection] = useState("ivh"); // default open
 // clinician edits that field.
 const [vascularPrefill, setVascularPrefill] = useState(null);
 const [vascularAutoFilled, setVascularAutoFilled] = useState({});
+// Fields that are already answered in Form H but now disagree with what
+// the daily logs currently show (e.g. Form H was answered before the
+// daily logs had the relevant data, or the daily logs were corrected
+// afterward). Recomputed on every fetch — including a plain page load —
+// from the live comparison, not stored anywhere; a normal (non-force)
+// refill deliberately leaves these fields untouched and only surfaces
+// them here so the clinician can decide whether to Force Refill.
+const [vascularStale, setVascularStale] = useState({});
 
 // Metabolic Disturbances (H4.1) auto-fill — same pattern as Vascular
 // Access above, from /neonatal-morbidities/metabolic-prefill.
 const [metabolicPrefill, setMetabolicPrefill] = useState(null);
 const [metabolicAutoFilled, setMetabolicAutoFilled] = useState({});
+const [metabolicStale, setMetabolicStale] = useState({});
 
 // Renal / AKI (H7.1) auto-fill — same pattern as Vascular Access above,
 // from /neonatal-morbidities/renal-prefill.
 const [renalPrefill, setRenalPrefill] = useState(null);
 const [renalAutoFilled, setRenalAutoFilled] = useState({});
+const [renalStale, setRenalStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -1761,6 +1771,26 @@ const validateShock = (name, value, updatedForm = formData) => {
 };
 
 
+// Human-readable names for the auto-fill "may be outdated" warning below —
+// only needs entries for fields actually listed in a *_STALE_CHECK_FIELDS
+// array (the day-count/date/numeric detail fields are deliberately never
+// stale-checked, see the comment above each _STALE_CHECK_FIELDS list).
+const PREFILL_FIELD_LABELS = {
+  picc: "PICC", uvc: "UVC", uac: "UAC",
+  peripheral_venous: "Peripheral Venous", peripheral_arterial: "Peripheral Arterial",
+  extravasation: "Extravasation",
+  hypoglycemia: "Hypoglycemia", hypoglycemia_rx: "Hypoglycemia Rx",
+  hyperglycemia: "Hyperglycemia", hyperglycemia_rx: "Hyperglycemia Rx",
+  metabolic_acidosis: "Metabolic Acidosis", dyselectrolytemia: "Dyselectrolytemia",
+  dyselectro_na: "Na Abnormality", dyselectro_k: "K Abnormality", dyselectro_ca: "Ca Abnormality",
+  hyponatremia: "Hyponatremia", hypernatremia: "Hypernatremia",
+  hypokalemia: "Hypokalemia", hyperkalemia: "Hyperkalemia",
+  hypocalcemia: "Hypocalcemia", hypercalcemia: "Hypercalcemia",
+  osteopenia: "Osteopenia",
+  aki: "AKI", aki_stage1: "AKI Stage 1", aki_stage2: "AKI Stage 2", aki_stage3: "AKI Stage 3",
+  aki_dialysis: "Dialysis/CRRT",
+};
+
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
 // currently empty — never overwrites a value the clinician (or a previous
 // save) already put there. Safe to call more than once (e.g. the "Refill
@@ -1772,6 +1802,16 @@ const VASCULAR_PREFILL_FIELDS = [
   "peripheral_venous",
   "peripheral_arterial",
   "extravasation",
+];
+
+// Only the Yes/No fields get checked for "does Form H's saved answer still
+// match the daily logs" — day-count fields (picc_days etc.) are excluded
+// on purpose: those grow every day a line stays in, so they'd "disagree"
+// constantly for any still-admitted baby and the warning would lose all
+// signal. A flipped Yes/No is a genuine fact to review; a bigger day count
+// is just expected drift.
+const VASCULAR_STALE_CHECK_FIELDS = [
+  "picc", "uvc", "uac", "peripheral_venous", "peripheral_arterial", "extravasation",
 ];
 
 const isBlank = (v) => v === "" || v === undefined || v === null;
@@ -1790,13 +1830,21 @@ const fetchVascularAccessPrefill = async ({ force = false } = {}) => {
     if (!data || !data.has_data) return;
 
     const filled = {};
+    const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
       VASCULAR_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if ((force || isBlank(prev[field])) && !isBlank(value)) {
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && VASCULAR_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
           next[field] = value;
           filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
         }
       });
       return next;
@@ -1804,6 +1852,7 @@ const fetchVascularAccessPrefill = async ({ force = false } = {}) => {
     if (Object.keys(filled).length) {
       setVascularAutoFilled((prev) => ({ ...prev, ...filled }));
     }
+    setVascularStale(stale);
   } catch (err) {
     console.log("Error fetching vascular access prefill", err);
   }
@@ -1843,6 +1892,20 @@ const METABOLIC_PREFILL_FIELDS = [
   "osteopenia",
 ];
 
+// Only the Yes/No + Type-checkbox fields get checked for staleness — the
+// numeric detail fields (episode counts, lowest/highest readings, Rx
+// duration) are excluded on purpose, same reasoning as
+// VASCULAR_STALE_CHECK_FIELDS: those are expected to keep changing as more
+// daily-log entries come in, so flagging them would be constant noise, not
+// a signal that Form H's *answer* is now wrong.
+const METABOLIC_STALE_CHECK_FIELDS = [
+  "hypoglycemia", "hypoglycemia_rx", "hyperglycemia", "hyperglycemia_rx",
+  "metabolic_acidosis", "dyselectrolytemia",
+  "dyselectro_na", "dyselectro_k", "dyselectro_ca",
+  "hyponatremia", "hypernatremia", "hypokalemia", "hyperkalemia",
+  "hypocalcemia", "hypercalcemia", "osteopenia",
+];
+
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
 // already-answered fields instead of only blank ones.
 const fetchMetabolicPrefill = async ({ force = false } = {}) => {
@@ -1854,13 +1917,21 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
     if (!data || !data.has_data) return;
 
     const filled = {};
+    const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
       METABOLIC_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if ((force || isBlank(prev[field])) && !isBlank(value)) {
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && METABOLIC_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
           next[field] = value;
           filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
         }
       });
       return next;
@@ -1868,6 +1939,7 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
     if (Object.keys(filled).length) {
       setMetabolicAutoFilled((prev) => ({ ...prev, ...filled }));
     }
+    setMetabolicStale(stale);
   } catch (err) {
     console.log("Error fetching metabolic prefill", err);
   }
@@ -1898,6 +1970,16 @@ const RENAL_PREFILL_FIELDS = [
   "aki_dialysis",
 ];
 
+// Only the Yes/No + stage checkboxes get checked for staleness — aki_date
+// and aki_peak_creatinine are excluded on purpose, same reasoning as
+// VASCULAR_STALE_CHECK_FIELDS: peak creatinine only ever goes up as more
+// readings come in, and the onset date is a one-time fact once set, so
+// neither would be a meaningful "review this" signal the way a changed
+// AKI status or stage is.
+const RENAL_STALE_CHECK_FIELDS = [
+  "aki", "aki_stage1", "aki_stage2", "aki_stage3", "aki_dialysis",
+];
+
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
 // already-answered fields instead of only blank ones.
 const fetchRenalPrefill = async ({ force = false } = {}) => {
@@ -1909,13 +1991,21 @@ const fetchRenalPrefill = async ({ force = false } = {}) => {
     if (!data || !data.has_data) return;
 
     const filled = {};
+    const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
       RENAL_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if ((force || isBlank(prev[field])) && !isBlank(value)) {
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && RENAL_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
           next[field] = value;
           filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
         }
       });
       return next;
@@ -1923,6 +2013,7 @@ const fetchRenalPrefill = async ({ force = false } = {}) => {
     if (Object.keys(filled).length) {
       setRenalAutoFilled((prev) => ({ ...prev, ...filled }));
     }
+    setRenalStale(stale);
   } catch (err) {
     console.log("Error fetching renal prefill", err);
   }
@@ -3542,22 +3633,22 @@ const getIVHSummary = () => {
   // whether Side is Right, Left, or Bilateral.
   if (formData.ivh_side === "Bilateral") {
     if (formData.ivh_grade_left && formData.ivh_grade_right) {
-      parts.push(`L${formData.ivh_grade_left}/R${formData.ivh_grade_right}`);
+      parts.push(`Right Grade ${formData.ivh_grade_right}, Left Grade ${formData.ivh_grade_left}`);
     } else if (formData.ivh_grade_right) {
-      parts.push(`R${formData.ivh_grade_right}`);
+      parts.push(`Right Grade ${formData.ivh_grade_right}`);
     } else if (formData.ivh_grade_left) {
-      parts.push(`L${formData.ivh_grade_left}`);
+      parts.push(`Left Grade ${formData.ivh_grade_left}`);
     }
   } else if (formData.ivh_side === "Right" && formData.ivh_grade_right) {
-    parts.push(`R${formData.ivh_grade_right}`);
+    parts.push(`Right Grade ${formData.ivh_grade_right}`);
   } else if (formData.ivh_side === "Left" && formData.ivh_grade_left) {
-    parts.push(`L${formData.ivh_grade_left}`);
+    parts.push(`Left Grade ${formData.ivh_grade_left}`);
   }
 
   // PVHI / PHH / Shunt
   if (formData.pvhi === "Yes") parts.push("PVHI");
   if (formData.phh === "Yes") parts.push("PHH");
-  if (formData.vp_shunt === "Yes") parts.push("Shunt");
+  if (formData.vp_shunt === "Yes") parts.push("VP Shunt");
 
   return parts.join(" • ");
 };
@@ -3706,11 +3797,11 @@ const usedSupports = [
 
 const getFeedingSummary = () => {
   if (!formData.pn) return "Not filled";
-  if (formData.pn === "No") return "No PN";
+  if (formData.pn === "No") return "No Parenteral Nutrition";
   if (formData.pn === "Yes") {
     return formData.pn_days
-      ? `${formData.pn_days} days`
-      : "PN Given";
+      ? `Parenteral Nutrition — ${formData.pn_days} days`
+      : "Parenteral Nutrition Given";
   }
 };
 
@@ -3740,10 +3831,10 @@ const getDyselectroSummary = () => {
 // (fields 95-115), mirroring getIVHSummary()'s style for H1.1.
 const getMetabolicSummary = () => {
   const parts = [];
-  if (formData.hypoglycemia === "Yes") parts.push(formData.hypoglycemia_lowest ? `Hypo ${formData.hypoglycemia_lowest}` : "Hypo");
-  if (formData.hyperglycemia === "Yes") parts.push(formData.hyperglycemia_highest ? `Hyper ${formData.hyperglycemia_highest}` : "Hyper");
-  if (formData.metabolic_acidosis === "Yes") parts.push("Acidosis");
-  if (formData.dyselectrolytemia === "Yes") parts.push(`Dyselectro: ${getDyselectroSummary()}`);
+  if (formData.hypoglycemia === "Yes") parts.push(formData.hypoglycemia_lowest ? `Hypoglycemia (lowest ${formData.hypoglycemia_lowest} mg/dL)` : "Hypoglycemia");
+  if (formData.hyperglycemia === "Yes") parts.push(formData.hyperglycemia_highest ? `Hyperglycemia (highest ${formData.hyperglycemia_highest} mg/dL)` : "Hyperglycemia");
+  if (formData.metabolic_acidosis === "Yes") parts.push("Metabolic Acidosis");
+  if (formData.dyselectrolytemia === "Yes") parts.push(`Dyselectrolytemia (${getDyselectroSummary()} abnormal)`);
   if (formData.osteopenia === "Yes") parts.push("Osteopenia");
   if (!parts.length) {
     if (!formData.hypoglycemia && !formData.hyperglycemia && !formData.metabolic_acidosis
@@ -3758,17 +3849,17 @@ const getPDASummary = () => {
   if (!formData.hs_pda) return "Not filled";
   if (formData.hs_pda === "No") return "No";
 
-  let summary = "Yes";
+  let summary = "PDA";
 
   // diagnosis
-  if (formData.pda_echo) summary = "Echo";
-  else if (formData.pda_clinical) summary = "Clinical";
-  else if (formData.pda_both) summary = "Clinical + Echo";
+  if (formData.pda_echo) summary += " • Diagnosed by Echo";
+  else if (formData.pda_clinical) summary += " • Diagnosed Clinically";
+  else if (formData.pda_both) summary += " • Diagnosed Clinically + Echo";
 
   // treatment
-  if (formData.pda_medical_rx === "Yes") summary += " • Medical";
-  if (formData.pda_intervention_rx === "Ligation") summary += " • Ligation";
-  if (formData.pda_intervention_rx === "Device closure") summary += " • Device closure";
+  if (formData.pda_medical_rx === "Yes") summary += " • Medical Treatment";
+  if (formData.pda_intervention_rx === "Ligation") summary += " • Surgical Ligation";
+  if (formData.pda_intervention_rx === "Device closure") summary += " • Device Closure";
 
   return summary;
 };
@@ -3782,11 +3873,11 @@ const getShockSummary = () => {
   if (formData.hypotension === "Yes") parts.push("Hypotension");
 
   if (formData.inotropes === "Yes") {
-    parts.push(`Inotropes (${formData.inotrope_duration || "?"}d)`);
+    parts.push(`Inotropes (${formData.inotrope_duration || "?"} days)`);
   }
 
   if (formData.fluid_bolus === "Yes") {
-    parts.push(`Bolus x${formData.fluid_bolus_number || "?"}`);
+    parts.push(`Fluid Bolus x${formData.fluid_bolus_number || "?"}`);
   }
 
   return parts.length ? parts.join(" • ") : "No";
@@ -4057,16 +4148,16 @@ const getInfectionEntrySummary = (entry) => {
   if (entry.sepsis === "No") return "No";
 
   let parts = [];
-  if (entry.sepsis_clinical) parts.push("Clinical");
-  if (entry.sepsis_screen) parts.push("Screen+");
-  if (entry.sepsis_culture) parts.push("Culture+");
-  if (entry.gram_positive) parts.push("G+");
-  if (entry.gram_negative) parts.push("G-");
+  if (entry.sepsis_clinical) parts.push("Clinical Sepsis");
+  if (entry.sepsis_screen) parts.push("Screen Positive");
+  if (entry.sepsis_culture) parts.push("Culture Positive");
+  if (entry.gram_positive) parts.push("Gram Positive");
+  if (entry.gram_negative) parts.push("Gram Negative");
   if (entry.fungus) parts.push("Fungal");
   if (entry.clabsi === "Yes") parts.push("CLABSI");
   if (entry.vap === "Yes") parts.push("VAP");
-  if (entry.mdr === "Yes") parts.push("MDR");
-  if (entry.xdr === "Yes") parts.push("XDR");
+  if (entry.mdr === "Yes") parts.push("MDR Organism");
+  if (entry.xdr === "Yes") parts.push("XDR Organism");
 
   return parts.length ? parts.join(" • ") : "Yes";
 };
@@ -4107,7 +4198,7 @@ const getTransfusionSummary = () => {
     }
 
     if (formData.ffp_cryo === "Yes") {
-      parts.push(`FFP x${formData.ffp_number || 1}`);
+      parts.push(`FFP/Cryo x${formData.ffp_number || 1}`);
     }
 
     return parts.join(" • ") || "Yes";
@@ -4126,9 +4217,9 @@ const getAnemiaSummary = () => {
   if (!formData.anemia) return "Not filled";
   if (formData.anemia === "No") return "No";
 
-  let parts = ["Yes"];
+  let parts = ["Anemia"];
 
-  if (formData.lowest_hb) parts.push(`${formData.lowest_hb}`);
+  if (formData.lowest_hb) parts.push(`Lowest Hb/Hct ${formData.lowest_hb}`);
   if (formData.anemia_etiology) parts.push(formData.anemia_etiology);
 
   return parts.join(" • ");
@@ -4138,10 +4229,10 @@ const getJaundiceSummary = () => {
   if (!formData.jaundice_type) return "Not filled";
 
   if (formData.jaundice_type === "Unconjugated") {
-    let parts = ["Unconj"];
+    let parts = ["Unconjugated"];
 
-    if (formData.peak_tsb) parts.push(`${formData.peak_tsb} mg/dL`);
-    if (formData.phototherapy === "Yes") parts.push("Photo");
+    if (formData.peak_tsb) parts.push(`Peak TSB ${formData.peak_tsb} mg/dL`);
+    if (formData.phototherapy === "Yes") parts.push("Phototherapy");
     if (formData.dvet === "Yes") parts.push(`DVET x${formData.dvet_number || 1}`);
     if (formData.ivig === "Yes") parts.push("IVIG");
 
@@ -4170,7 +4261,7 @@ const getROPSummary = () => {
     if (!stage && plus !== "Yes" && !zone) return null;
     const bits = [];
     if (stage) bits.push(`Stage ${stage}`);
-    if (plus === "Yes") bits.push("+");
+    if (plus === "Yes") bits.push("Plus Disease");
     if (zone) bits.push(`Zone ${zone}`);
     return bits.join(" ");
   };
@@ -4201,7 +4292,7 @@ const getAKISummary = () => {
 
   // Creatinine
   if (formData.aki_peak_creatinine) {
-    parts.push(`${formData.aki_peak_creatinine} mg/dL`);
+    parts.push(`Peak Creatinine ${formData.aki_peak_creatinine} mg/dL`);
   }
 
   // Oliguria
@@ -4222,16 +4313,16 @@ const getHyperSummary = () => {
   if (!formData.hyperthermia) return "Not filled";
   if (formData.hyperthermia === "No") return "No";
 
-  let parts = ["Hyper"];
+  let parts = ["Hyperthermia"];
 
   if (formData.hyperthermia_temp) {
     parts.push(`${formData.hyperthermia_temp}°C`);
   }
 
-  if (formData.hyperthermia_location_dr) parts.push("DR");
+  if (formData.hyperthermia_location_dr) parts.push("Delivery Room");
   else if (formData.hyperthermia_location_nicu) parts.push("NICU");
 
-  if (formData.hyperthermia_equipment) parts.push("Equipment");
+  if (formData.hyperthermia_equipment) parts.push("Equipment-related");
 
   return parts.join(" • ");
 };
@@ -4239,7 +4330,7 @@ const getHypoSummary = () => {
   if (!formData.hypothermia) return "Not filled";
   if (formData.hypothermia === "No") return "No";
 
-  let parts = ["Hypo"];
+  let parts = ["Hypothermia"];
 
   // Severity priority
   if (formData.hypothermia_severe) parts.push("Severe");
@@ -4252,11 +4343,11 @@ const getHypoSummary = () => {
   }
 
   // Location
-  if (formData.hypothermia_location_dr) parts.push("DR");
+  if (formData.hypothermia_location_dr) parts.push("Delivery Room");
   else if (formData.hypothermia_location_nicu) parts.push("NICU");
 
   // Etiology
-  if (formData.hypothermia_sepsis) parts.push("Sepsis");
+  if (formData.hypothermia_sepsis) parts.push("Sepsis-related");
 
   return parts.join(" • ");
 };
@@ -4292,13 +4383,13 @@ const getPeripheralSummary = () => {
   if (hasYes) {
     let parts = [];
 
-    if (formData.peripheral_venous === "Yes") parts.push("Venous");
-    if (formData.peripheral_arterial === "Yes") parts.push("Arterial");
+    if (formData.peripheral_venous === "Yes") parts.push("Peripheral Venous");
+    if (formData.peripheral_arterial === "Yes") parts.push("Peripheral Arterial");
 
     if (formData.arterial_radial) parts.push("Radial");
-    if (formData.arterial_posterior_tibial) parts.push("PT");
+    if (formData.arterial_posterior_tibial) parts.push("Posterior Tibial");
 
-    if (formData.extravasation === "Yes") parts.push("Extravasation");
+    if (formData.extravasation === "Yes") parts.push("Extravasation Injury");
 
     return parts.join(" • ") || "Yes";
   }
@@ -6371,6 +6462,14 @@ const peripheralStatus= getPeripheralStatus();
       </button>
     </div>
   )}
+  {Object.keys(metabolicStale).length > 0 && (
+    <div className="field-hint field-hint-warning">
+      ⚠ The daily logs now disagree with the saved answer for:{" "}
+      {Object.keys(metabolicStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+      This can happen if Form H was answered before the daily logs had this
+      data. Use "Force refill" above if the daily logs are correct.
+    </div>
+  )}
 
   {/* ================= METABOLIC DISTURBANCES ================= */}
   <div className="card">
@@ -7991,6 +8090,14 @@ const peripheralStatus= getPeripheralStatus();
     </button>
   </div>
 )}
+{Object.keys(renalStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(renalStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
 <div className="card">
   <div
     className="card-header-row"
@@ -8581,6 +8688,14 @@ const peripheralStatus= getPeripheralStatus();
     >
       Force refill (overwrite existing answers)
     </button>
+  </div>
+)}
+{Object.keys(vascularStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(vascularStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
 <div className="card">
