@@ -91,6 +91,12 @@ const [renalStale, setRenalStale] = useState({});
 const [hemePrefill, setHemePrefill] = useState(null);
 const [hemeAutoFilled, setHemeAutoFilled] = useState({});
 const [hemeStale, setHemeStale] = useState({});
+
+// Neurological (H1) auto-fill — same pattern as Vascular Access/Metabolic/
+// Renal/Heme above, from /neonatal-morbidities/neuro-prefill.
+const [neuroPrefill, setNeuroPrefill] = useState(null);
+const [neuroAutoFilled, setNeuroAutoFilled] = useState({});
+const [neuroStale, setNeuroStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -651,7 +657,7 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The four
+    // correctly loaded record) — don't reintroduce that shape. The five
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load.
@@ -660,6 +666,7 @@ useEffect(() => {
       fetchMetabolicPrefill();
       fetchRenalPrefill();
       fetchHemePrefill();
+      fetchNeuroPrefill();
     });
   }, [enrollmentId]);
 
@@ -1799,6 +1806,8 @@ const PREFILL_FIELD_LABELS = {
   jaundice_intervention: "Jaundice", phototherapy: "Phototherapy",
   dvet: "Exchange Transfusion", prbc: "PRBC Transfusion",
   platelets: "Platelet Transfusion", ffp_cryo: "FFP/Cryo Transfusion",
+  ivh_present: "IVH", pvl_present: "cPVL",
+  ventriculomegaly_present: "Ventriculomegaly", seizures: "Seizures",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2118,6 +2127,79 @@ const clearHemeAutoFilled = (name) => {
 
 const handleHemeChange = (e) => {
   clearHemeAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// Neurological (H1) auto-fill — same pattern as the other domains above.
+// The day log only records flat booleans with no side and no grade, so
+// only the top-level "was X ever present" Yes/No for IVH/cPVL/
+// Ventriculomegaly/Seizures can be safely derived — everything that
+// requires reading an actual scan or EEG trace (side, grade, per-side
+// date/age, ventriculomegaly measurements, seizure type/EEG result/AEDs/
+// etiology) stays manual, see the backend endpoint docstring.
+const NEURO_PREFILL_FIELDS = [
+  "ivh_present", "pvl_present", "ventriculomegaly_present",
+  "seizures", "seizure_date",
+];
+
+// All 4 Yes/No fields get checked for staleness — seizure_date is
+// excluded on purpose, same reasoning as the other domains' onset dates:
+// it's a one-time fact once set, not something that keeps changing in a
+// way that would make "disagrees" a meaningful signal.
+const NEURO_STALE_CHECK_FIELDS = [
+  "ivh_present", "pvl_present", "ventriculomegaly_present", "seizures",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchNeuroPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/neuro-prefill/${enrollmentId}`);
+    const data = res.data;
+    setNeuroPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      NEURO_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && NEURO_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setNeuroAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setNeuroStale(stale);
+  } catch (err) {
+    console.log("Error fetching neuro prefill", err);
+  }
+};
+
+const clearNeuroAutoFilled = (name) => {
+  setNeuroAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleNeuroChange = (e) => {
+  clearNeuroAutoFilled(e.target.name);
   handleChange(e);
 };
 
@@ -4628,8 +4710,33 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "ivh" && (
       <div className="card-body">
 
+{neuroPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(neuroStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
         <div className="form-group">
-          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          {neuroAutoFilled.ivh_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
 
@@ -4807,8 +4914,33 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "pvl" && (
       <div className="card-body">
 
+{neuroPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(neuroStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
         <div className="form-group">
-          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleChange} onBlur={handleBlur} required />
+          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          {neuroAutoFilled.pvl_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
 
@@ -4963,9 +5095,34 @@ const peripheralStatus= getPeripheralStatus();
   {openSection === "vm" && (
     <div className="card-body">
 
+{neuroPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(neuroStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
       {/* Present */}
       <div className="form-group">
-        <YesNoToggle label="21. Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleChange} onBlur={handleBlur} required />
+        <YesNoToggle label="21. Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+        {neuroAutoFilled.ventriculomegaly_present && <span className="field-hint-auto-inline">from daily logs</span>}
 
         {touched.ventriculomegaly_present &&
           errors.ventriculomegaly_present && (
@@ -5122,8 +5279,33 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "seizure" && (
       <div className="card-body">
 
+{neuroPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(neuroStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
         <div className="form-group">
-          <YesNoToggle label="27. Seizures" name="seizures" value={formData.seizures} onChange={handleChange} required />
+          <YesNoToggle label="27. Seizures" name="seizures" value={formData.seizures} onChange={handleNeuroChange} required />
+          {neuroAutoFilled.seizures && <span className="field-hint-auto-inline">from daily logs</span>}
         </div>
 
         {formData.seizures === "Yes" && (
@@ -5133,16 +5315,18 @@ const peripheralStatus= getPeripheralStatus();
                 <label><span className="field-num">28.</span> Date<span className="required">*</span></label>
                 <DatePicker
   selected={formData.seizure_date ? parseDateOnly(formData.seizure_date) : null}
-  onChange={(date) =>
+  onChange={(date) => {
+    clearNeuroAutoFilled("seizure_date");
     setFormData(prev => ({
       ...prev,
       seizure_date: date ? toDateOnlyValue(date) : ""
-    }))
-  }
+    }));
+  }}
   dateFormat="dd-MM-yyyy"
   placeholderText="Select date"
   className="date-picker-input"
 />
+                {neuroAutoFilled.seizure_date && <span className="field-hint-auto-inline">from daily logs</span>}
               </div>
 
               <div className="form-group">

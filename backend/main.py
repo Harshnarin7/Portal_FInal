@@ -2132,6 +2132,77 @@ def get_heme_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/neuro-prefill/{enrollment_id}")
+def get_neuro_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Neurological section (H1, CRF #1-34).
+
+    The day log only records "did cranial USG/EEG show X on this day" as a
+    flat boolean, with no side and no grade — so only the top-level "was X
+    ever present" Yes/No for each of IVH / cPVL / Ventriculomegaly /
+    Seizures can be safely derived. Everything that requires reading an
+    actual scan or EEG trace (IVH/PVL side, grade, per-side date/age;
+    ventriculomegaly severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG
+    result, status epilepticus, AEDs, etiology) stays manual — the day log
+    has no equivalent field, and guessing a grade or laterality from a
+    single "yes/no" flag would be actively wrong, not just incomplete.
+
+    - ivh_present / pvl_present / ventriculomegaly_present / seizures:
+      any-day booleans from ivh / cpvl_confirmed / ventriculomegaly /
+      clinical_seizures respectively.
+    - seizure_date: the one Neuro onset date Form H stores as a single
+      (non-side-specific) field, so — unlike IVH/PVL's per-side dates —
+      it can use the same cross-table day1_date + earliest-true-day pattern
+      as Renal's aki_date / Heme's jaundice_onset.
+    - eeg_seizures and aeds_given (both booleans on the day log) are
+      deliberately not mapped to anything: Form H's `eeg` field is a
+      Not done/Normal/Abnormal select, a different question than "did the
+      EEG show a seizure", and aed_number/aed_type need the actual drugs
+      given, which the day log doesn't capture.
+    - non_ivh_ich on the day log has no corresponding Form H field at all
+      (Form H tracks non_ivh_ich but it isn't rendered/used in the current
+      H1 JSX), so it's left out entirely rather than filling a field
+      nothing displays.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    seizure_date = None
+    seizure_days = [l.nicu_day for l in logs if l.clinical_seizures is True]
+    if seizure_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            seizure_date = (nicu.day1_date + timedelta(days=min(seizure_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "ivh_present": "Yes" if any_day("ivh") else "No",
+        "pvl_present": "Yes" if any_day("cpvl_confirmed") else "No",
+        "ventriculomegaly_present": "Yes" if any_day("ventriculomegaly") else "No",
+        "seizures": "Yes" if any_day("clinical_seizures") else "No",
+        "seizure_date": seizure_date,
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
