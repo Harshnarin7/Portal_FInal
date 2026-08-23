@@ -2050,6 +2050,88 @@ def get_renal_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/heme-prefill/{enrollment_id}")
+def get_heme_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Infect/GI/Hema helper daily logs into Form H's
+    Hematology section (H6, CRF #147-172).
+
+    - jaundice_intervention / phototherapy / dvet ("Exchange transfusion")
+      / prbc / platelets / ffp_cryo: direct any-day booleans from the day
+      log's own identically-scoped fields (jaundice, phototherapy,
+      exchange_transfusion, prbc_transfusion, platelet_transfusion,
+      ffp_cryo).
+    - peak_tsb: highest value recorded across the admission.
+    - lowest_hb: lowest value recorded across the admission — filled even
+      though the parent "Anemia" Yes/No is never auto-derived (see below),
+      so it's ready the moment a clinician marks Anemia Yes.
+    - dvet_number / prbc_number / platelet_number: day-count of days the
+      respective boolean was true, as a proxy for "number of transfusions/
+      exchanges" — the day log can't tell multiple same-day events apart
+      from one, so this can undercount, same caveat as Metabolic's
+      hypoglycemia_rx_duration.
+    - jaundice_onset: earliest NICU day jaundice was true, converted to a
+      calendar date via NICUAdmission.day1_date — same pattern as Renal's
+      aki_date, only returned when day1_date has been set.
+    - jaundice_type (Conjugated/Unconjugated), bind, ivig, jaundice_etiology,
+      anemia (the Yes/No itself — no fixed Hb cutoff works across every
+      gestation/postnatal age, this needs real clinical judgement),
+      anemia_onset/etiology/symptoms, prbc_volume, cmv_screened,
+      leukoreduced, irradiated: all intentionally never auto-filled — no
+      day-log source, or (for anemia) a diagnosis call the day log's raw
+      Hb number can't substitute for."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    tsb_values = [l.peak_tsb for l in logs if l.peak_tsb is not None]
+    hb_values = [l.hb_value for l in logs if l.hb_value is not None]
+
+    jaundice_onset = None
+    jaundice_days = [l.nicu_day for l in logs if l.jaundice is True]
+    if jaundice_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            jaundice_onset = (nicu.day1_date + timedelta(days=min(jaundice_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "jaundice_intervention": "Yes" if any_day("jaundice") else "No",
+        "jaundice_onset": jaundice_onset,
+        "peak_tsb": max(tsb_values) if tsb_values else None,
+        "phototherapy": "Yes" if any_day("phototherapy") else "No",
+        "dvet": "Yes" if any_day("exchange_transfusion") else "No",
+        "dvet_number": count_days("exchange_transfusion") or None,
+        "lowest_hb": min(hb_values) if hb_values else None,
+        "prbc": "Yes" if any_day("prbc_transfusion") else "No",
+        "prbc_number": count_days("prbc_transfusion") or None,
+        "platelets": "Yes" if any_day("platelet_transfusion") else "No",
+        "platelet_number": count_days("platelet_transfusion") or None,
+        "ffp_cryo": "Yes" if any_day("ffp_cryo") else "No",
+        "ffp_number": count_days("ffp_cryo") or None,
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
