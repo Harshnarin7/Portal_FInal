@@ -512,3 +512,9 @@
   font-size: 12px;
   cursor: pointer;
 }
+/* Destructive variant — actions that can overwrite an already-entered
+   answer (e.g. Form H's "Force refill" from daily logs), not just fill a
+   blank field. */
+.link-button-danger {
+  color: #b91c1c;
+}

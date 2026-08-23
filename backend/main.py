@@ -3376,8 +3376,11 @@ def update_resp_cv_neuro_day(
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
 
-    # Block edits on submitted days
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock) — a stale/expired override
+    # doesn't count, so this is re-checked on every write, not just once.
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -3417,7 +3420,86 @@ def submit_resp_cv_neuro_day(
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 
-#  -  PATCH discharge  - 
+
+class OverrideUnlockRequest(BaseModel):
+    reason: str
+    hours: int = 2
+
+
+def _override_unlock_day(
+    db: Session,
+    model,
+    table_name: str,
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    current_user: User,
+):
+    """Shared logic behind the /override-unlock endpoints on Helper Forms
+    2/3/4 (Resp-CV-Neuro, Infect-GI-Hema, Metab-Renal-Vasc-Eye) —
+    superadmin-only, time-boxed reopen of a locked day (past-calendar OR
+    submitted), with a mandatory reason recorded both on the row
+    (override_reason/override_by/override_unlocked_until) and in the audit
+    trail. The matching PUT endpoint for each form checks
+    override_unlocked_until as an alternative to "not submitted" before
+    accepting an edit while this window is open — see its "Block edits"
+    guard. Frontend modals for all three forms already called this
+    endpoint before it existed; only the backend side and the trigger
+    button for a *submitted* (not just past-calendar-locked) day were
+    missing until 2026-08-23."""
+    if not is_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    reason = (data.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=400, detail="A reason (at least 5 characters) is required")
+    if not (1 <= data.hours <= 24):
+        raise HTTPException(status_code=400, detail="hours must be between 1 and 24")
+
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(model)
+        .filter(model.enrollment_id == enrollment_id, model.nicu_day == nicu_day)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+
+    old_values = row_snapshot(record)
+    until = datetime.utcnow() + timedelta(hours=data.hours)
+    record.override_unlocked_until = until
+    record.override_reason = reason
+    record.override_by = current_user.username
+    db.flush()
+    record_audit(
+        db,
+        user_id=current_user.id,
+        username=current_user.username,
+        action="OVERRIDE_UNLOCK",
+        table_name=table_name,
+        record_id=record.id,
+        enrollment_id=enrollment_id,
+        old_values=old_values,
+        new_values={**row_snapshot(record), "reason": reason, "hours": data.hours},
+    )
+    db.commit()
+    return {"override_unlocked_until": until.isoformat()}
+
+
+@app.patch("/resp-cv-neuro/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_resp_cv_neuro_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, RespCVNeuroDayLog, "resp_cv_neuro_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
+
+
+#  -  PATCH discharge  -
 @app.patch("/enrollment/{enrollment_id}/discharge")
 def discharge_enrollment(
     enrollment_id: str,
@@ -3684,7 +3766,10 @@ def update_infect_gi_hema_day(
     )
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock).
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -3696,7 +3781,7 @@ def update_infect_gi_hema_day(
     return record
 
 
-#  -  PATCH submit day  - 
+#  -  PATCH submit day  -
 @app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/submit")
 def submit_infect_gi_hema_day(
     enrollment_id: str,
@@ -3723,6 +3808,22 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+@app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, InfectGIHemaDayLog, "infect_gi_hema_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
+
+
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 3. ADD TO main.py  (imports + routes)
 #
@@ -3893,14 +3994,17 @@ def update_metab_renal_vasc_eye_day(
     ).first()
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock).
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
             setattr(record, key, value)
     db.commit(); db.refresh(record); return record
- 
- 
+
+
 @app.patch("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}/submit")
 def submit_metab_renal_vasc_eye_day(
     enrollment_id: str, nicu_day: int,
@@ -3920,6 +4024,20 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+@app.patch("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_metab_renal_vasc_eye_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, MetabRenalVascEyeDayLog, "metab_renal_vasc_eye_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
 
 
 MINIMAL_MONITORING_CORE_FIELDS = [

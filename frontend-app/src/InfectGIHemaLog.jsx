@@ -435,6 +435,17 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
 /* ══════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════ */
+// Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
+// serialize to JSON with no 'Z'/offset suffix even though the value is UTC
+// (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
+// parses that as LOCAL browser time per the JS spec, not UTC — in IST
+// (UTC+5:30) that made a just-created 2-hour override compare as already
+// expired. Treat any timestamp with no explicit offset as UTC.
+function parseUtcTimestamp(value) {
+  if (!value) return null;
+  return /[Zz]|[+-]\d{2}:?\d{2}$/.test(value) ? new Date(value) : new Date(value + "Z");
+}
+
 export default function InfectGIHemaLog() {
   const { enrollmentId } = useParams();
   const navigate         = useNavigate();
@@ -592,7 +603,7 @@ export default function InfectGIHemaLog() {
     new Date().getHours() < IGH_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
-    overrideUntil != null && new Date() < new Date(overrideUntil);
+    overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
   // Default which day's tab opens on first load: before 11am, default to
   // yesterday's (still-open) day; from 11am on, default to today's day.
@@ -882,7 +893,12 @@ export default function InfectGIHemaLog() {
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
-          setIsSaved(true); setIsEditing(false);
+          setIsSaved(true);
+          // A reload/revisit during a still-active override window must not
+          // silently re-lock the fields — isFieldEditable requires isEditing
+          // whenever isSaved is true, which this effect always sets true for
+          // an existing record.
+          setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else { resetFormState(); }
@@ -922,13 +938,15 @@ export default function InfectGIHemaLog() {
   });
 
   /* ── Save ── */
-  const handleSave = async () => {
+  const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return;
     if (!day1Date) {
       setMessage("⚠️ Please set Day 1 Date above before saving");
       return;
     }
-    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+    // force: re-save while viewing a saved draft (Submit path) without
+    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
@@ -974,7 +992,15 @@ export default function InfectGIHemaLog() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      if (!isSaved) await handleSave();
+      // Always save fresh state before locking — `isSaved` only means "this
+      // record has been saved at least once," not "nothing has changed
+      // since." Skipping the save here silently discarded edits made after
+      // a prior save whenever the day reached 100% (same bug found and
+      // fixed in Helper Form 4 / MetabRenalVascEyeLog.jsx, 2026-08-23 — the
+      // UI shows only a Submit button at 100% completion, no separate Save,
+      // so the stale isSaved=true from an earlier save skipped saving the
+      // clinician's latest edits before the day locked).
+      await handleSave({ force: true });
       const now = new Date().toISOString();
       await api.patch(`/infect-gi-hema/${enrollmentId}/${activeDay}/submit`, {
         submission_status: STATUS.SUBMITTED,
@@ -1721,6 +1747,11 @@ export default function InfectGIHemaLog() {
                       { reason: overrideReason.trim(), hours: 2 }
                     );
                     setOverrideUntil(res?.data?.override_unlocked_until || null);
+                    // isFieldEditable also requires isEditing when isSaved is
+                    // true (always true for a submitted day) — without this,
+                    // the override succeeds server-side but fields still
+                    // render read-only and every setter silently no-ops.
+                    setIsEditing(true);
                     setOverrideReason("");
                     setShowOverrideModal(false);
                     setMessage(`🔓 Day ${activeDay} reopened for 2 hours`);
@@ -1782,9 +1813,21 @@ export default function InfectGIHemaLog() {
             )}
           </>
         ) : isSubmitted ? (
-          <div className="rcn-locked-badge">
-            <Lock size={13} /> Day {activeDay} Locked
-          </div>
+          <>
+            <div className="rcn-locked-badge">
+              <Lock size={13} /> Day {activeDay} Locked
+            </div>
+            {isSuperadmin && (
+              <button
+                type="button"
+                className="rcn-override-btn"
+                onClick={() => setShowOverrideModal(true)}
+                title="Reopen this submitted day temporarily for a correction"
+              >
+                <Unlock size={13}/> Override &amp; Unlock
+              </button>
+            )}
+          </>
         ) : isFutureActiveDay ? (
           <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
             <Lock size={13} /> Day {activeDay} Not Available Yet

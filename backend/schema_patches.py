@@ -170,6 +170,13 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8am_2pm DOUBLE PRECISION",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_2pm_8pm DOUBLE PRECISION",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8pm_8am DOUBLE PRECISION",
+    # Superadmin override: temporarily reopens a locked (past/submitted) day
+    # for correction — same columns as resp_cv_neuro_day_logs, added here
+    # 2026-08-23 alongside the matching backend endpoint (this form never
+    # had one despite the frontend already calling it).
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_by VARCHAR",
 ]
 
 MINIMAL_MONITORING_TABLE_PATCHES = [
@@ -377,6 +384,13 @@ INFECT_GI_HEMA_COLUMN_PATCHES = [
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS iv_fluids BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cholestasis BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS hb_value DOUBLE PRECISION",
+    # Superadmin override: temporarily reopens a locked (past/submitted) day
+    # for correction — same columns as resp_cv_neuro_day_logs, added here
+    # 2026-08-23 alongside the matching backend endpoint (this form never
+    # had one despite the frontend already calling it).
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_by VARCHAR",
 ]
 # Form H (Neonatal Morbidities) — full CRF field set, applied 2026-07-28
 # via migrate_neonatal_morbidities.sql; mirrored here so future fresh/stale

@@ -1894,6 +1894,11 @@ class InfectGIHemaDayLog(Base):
     submitted_at      = Column(DateTime, nullable=True)
     submitted_by      = Column(String,   nullable=True)
 
+    # ── SUPERADMIN OVERRIDE (temporary reopen of a locked/submitted day) ──
+    override_unlocked_until = Column(DateTime, nullable=True)
+    override_reason         = Column(Text, nullable=True)
+    override_by             = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -1988,7 +1993,12 @@ class MetabRenalVascEyeDayLog(Base):
     saved_by          = Column(String,   nullable=True)
     submitted_at      = Column(DateTime, nullable=True)
     submitted_by      = Column(String,   nullable=True)
- 
+
+    # ── SUPERADMIN OVERRIDE (temporary reopen of a locked/submitted day) ──
+    override_unlocked_until = Column(DateTime, nullable=True)
+    override_reason         = Column(Text, nullable=True)
+    override_by             = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
  

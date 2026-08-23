@@ -485,6 +485,17 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
   );
 }
 
+// Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
+// serialize to JSON with no 'Z'/offset suffix even though the value is UTC
+// (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
+// parses that as LOCAL browser time per the JS spec, not UTC — in IST
+// (UTC+5:30) that made a just-created 2-hour override compare as already
+// expired. Treat any timestamp with no explicit offset as UTC.
+function parseUtcTimestamp(value) {
+  if (!value) return null;
+  return /[Zz]|[+-]\d{2}:?\d{2}$/.test(value) ? new Date(value) : new Date(value + "Z");
+}
+
 export default function RespCVNeuroLog() {
   const { enrollmentId } = useParams();
   const navigate = useNavigate();
@@ -632,7 +643,7 @@ export default function RespCVNeuroLog() {
     new Date().getHours() < RCN_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
-    overrideUntil != null && new Date() < new Date(overrideUntil);
+    overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
   // Default which day's tab opens on first load, following the same
   // 11am rule as the lock above: before 11am, default to yesterday's
@@ -868,7 +879,11 @@ export default function RespCVNeuroLog() {
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
           setIsSaved(true);
-          setIsEditing(false);
+          // A reload/revisit during a still-active override window must not
+          // silently re-lock the fields — isFieldEditable requires isEditing
+          // whenever isSaved is true, which this effect always sets true for
+          // an existing record.
+          setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else {
@@ -2297,6 +2312,11 @@ export default function RespCVNeuroLog() {
                       { reason: overrideReason.trim(), hours: 2 }
                     );
                     setOverrideUntil(res?.data?.override_unlocked_until || null);
+                    // isFieldEditable also requires isEditing when isSaved is
+                    // true (always true for a submitted day) — without this,
+                    // the override succeeds server-side but fields still
+                    // render read-only and every setter silently no-ops.
+                    setIsEditing(true);
                     setOverrideReason("");
                     setShowOverrideModal(false);
                     setMessage(`🔓 Day ${activeDay} reopened for 2 hours`);
@@ -2361,9 +2381,21 @@ export default function RespCVNeuroLog() {
             )}
           </>
         ) : isSubmitted ? (
-          <div className="rcn-locked-badge">
-            <Lock size={13} /> Day {activeDay} Locked
-          </div>
+          <>
+            <div className="rcn-locked-badge">
+              <Lock size={13} /> Day {activeDay} Locked
+            </div>
+            {isSuperadmin && (
+              <button
+                type="button"
+                className="rcn-override-btn"
+                onClick={() => setShowOverrideModal(true)}
+                title="Reopen this submitted day temporarily for a correction"
+              >
+                <Unlock size={13}/> Override &amp; Unlock
+              </button>
+            )}
+          </>
         ) : isFutureActiveDay ? (
           <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
             <Lock size={13} /> Day {activeDay} Not Available Yet
