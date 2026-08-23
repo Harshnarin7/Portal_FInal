@@ -4,6 +4,10 @@ import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
+// Repeatable-entry list styling (mml-*) — same component the Metabolic
+// helper form (Helper 4) uses for its pH/sodium/potassium/calcium
+// readings lists, reused here for sepsis screens.
+import "./styles/MinimalMonitoring.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
@@ -13,8 +17,27 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Shield, FileCheck, Copy, Edit,
-  AlertOctagon, History, Unlock,
+  AlertOctagon, History, Unlock, Plus, Trash2,
 } from "lucide-react";
+
+const pad2ig = n => String(n).padStart(2, "0");
+const uidIg = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const nowTimeIg = (d = new Date()) => `${pad2ig(d.getHours())}:${pad2ig(d.getMinutes())}`;
+
+function blankSepsisScreen() {
+  const d = new Date();
+  return { id: uidIg(), date: toDateOnlyValue(d), time: nowTimeIg(d), type: "CRP", value: "", result: "" };
+}
+
+function parseJsonArrayIg(raw) {
+  if (!raw) return null;
+  try {
+    const p = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(p) && p.length ? p : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS — identical to Helper Form 2
@@ -523,6 +546,10 @@ export default function InfectGIHemaLog() {
     meningitis_type:         null,  // 7 (Probable/Proven - conditional on meningitis=Yes)
     clabsi:                  null,  // 8
     vap:                     null,  // 9
+    // Not part of the original numbered CRF sequence — added 2026-08-23 to
+    // feed Form H's Infection auto-fill (see sepsis_screens comment below).
+    sepsis_screen_sent:      null,
+    sepsis_screens:          [blankSepsisScreen()],
   });
 
   /* ════════════════════════════════════════════════
@@ -562,6 +589,7 @@ export default function InfectGIHemaLog() {
   const sepsisYes    = infData.sepsis_suspected === true;
   const bloodCultureSentYes = infData.blood_culture_sent === true;
   const meningitisYes = infData.meningitis === true;
+  const sepsisScreenSentYes = infData.sepsis_screen_sent === true;
   const npoNo        = giData.npo === false;
   const enteralYes   = giData.enteral_feeds_received === true;
   const necYes       = giData.nec_suspected === true;
@@ -732,6 +760,30 @@ export default function InfectGIHemaLog() {
   const setGi   = (k, v) => isFieldEditable && setGiData(p => ({ ...p, [k]: v }));
   const setHema = (k, v) => isFieldEditable && setHemaData(p => ({ ...p, [k]: v }));
 
+  /* ── Sepsis screen list (repeatable, same shape as Helper 4's readings lists) ── */
+  const setSepsisScreenField = (idx, key, value) => {
+    if (!isFieldEditable) return;
+    setInfData(p => {
+      const list = [...(p.sepsis_screens || [])];
+      list[idx] = { ...list[idx], [key]: value };
+      return { ...p, sepsis_screens: list };
+    });
+  };
+  const addSepsisScreen = () => {
+    if (!isFieldEditable) return;
+    setInfData(p => ({ ...p, sepsis_screens: [...(p.sepsis_screens || []), blankSepsisScreen()] }));
+  };
+  const removeSepsisScreen = (idx) => {
+    if (!isFieldEditable) return;
+    setInfData(p => {
+      const list = p.sepsis_screens || [];
+      if (list.length <= 1) return p;
+      const next = [...list];
+      next.splice(idx, 1);
+      return { ...p, sepsis_screens: next };
+    });
+  };
+
   /* ── Load patient info ── */
   useEffect(() => {
     if (!enrollmentId) return;
@@ -857,6 +909,8 @@ export default function InfectGIHemaLog() {
             meningitis_type:         d.meningitis_type         ?? null,
             clabsi:                  d.clabsi                  ?? null,
             vap:                     d.vap                     ?? null,
+            sepsis_screen_sent:      d.sepsis_screen_sent      ?? null,
+            sepsis_screens:          parseJsonArrayIg(d.sepsis_screens_json) || [blankSepsisScreen()],
           });
           setGiData({
             npo:                     d.npo                     ?? null,
@@ -912,7 +966,8 @@ export default function InfectGIHemaLog() {
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
       antibiotics: null, lp_done: null, meningitis: null, meningitis_type: null,
-      clabsi: null, vap: null });
+      clabsi: null, vap: null,
+      sepsis_screen_sent: null, sepsis_screens: [blankSepsisScreen()] });
     setGiData({ npo: null, men: null, enteral_feeds_received: null, feed_type: [],
       cumulative_feed_volume: null, feed_volume: null, iv_fluids: null,
       parenteral_nutrition: null, probiotic: null, feed_intolerance: null,
@@ -926,16 +981,20 @@ export default function InfectGIHemaLog() {
     setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.EMPTY }));
   };
 
-  const getPayload = () => ({
-    enrollment_id: enrollmentId, nicu_day: activeDay,
-    ...infData,
-    ...giData,
-    feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
-    ...hemaData,
-    submission_status: STATUS.DRAFT,
-    saved_at: new Date().toISOString(),
-    saved_by: user?.name || user?.username || "Nurse",
-  });
+  const getPayload = () => {
+    const { sepsis_screens, ...infDataFlat } = infData;
+    return {
+      enrollment_id: enrollmentId, nicu_day: activeDay,
+      ...infDataFlat,
+      sepsis_screens_json: JSON.stringify(sepsis_screens || []),
+      ...giData,
+      feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
+      ...hemaData,
+      submission_status: STATUS.DRAFT,
+      saved_at: new Date().toISOString(),
+      saved_by: user?.name || user?.username || "Nurse",
+    };
+  };
 
   /* ── Save ── */
   const handleSave = async ({ force = false } = {}) => {
@@ -1044,7 +1103,9 @@ export default function InfectGIHemaLog() {
         blood_culture_positive: d.blood_culture_positive ?? null,
         antibiotics: d.antibiotics ?? null, lp_done: d.lp_done ?? null,
         meningitis: d.meningitis ?? null, meningitis_type: d.meningitis_type ?? null,
-        clabsi: d.clabsi ?? null, vap: d.vap ?? null });
+        clabsi: d.clabsi ?? null, vap: d.vap ?? null,
+        sepsis_screen_sent: d.sepsis_screen_sent ?? null,
+        sepsis_screens: parseJsonArrayIg(d.sepsis_screens_json) || [blankSepsisScreen()] });
       setGiData({ npo: d.npo ?? null, men: d.men ?? null,
         enteral_feeds_received: d.enteral_feeds_received ?? null,
         feed_type: d.feed_type
@@ -1456,6 +1517,87 @@ export default function InfectGIHemaLog() {
                       </div>
                     </div>
                   )}
+
+                  {/* Not part of the original numbered CRF sequence — added
+                      2026-08-23 so Form H's Infection auto-fill can
+                      distinguish clinical vs. screen-positive vs.
+                      culture-positive sepsis (PI-specified rule) without a
+                      fixed antibiotic-duration proxy for screen result. */}
+                  <div className="rcn-subsection">
+                    <div className="rcn-yn-list">
+                      <YNRow label="Sepsis Screen Sent" value={infData.sepsis_screen_sent}
+                        onChange={v => {
+                          setInf("sepsis_screen_sent", v);
+                          if (v !== true) setInfData(p => ({ ...p, sepsis_screens: [blankSepsisScreen()] }));
+                        }} disabled={!isFieldEditable} />
+                    </div>
+
+                    {sepsisScreenSentYes && (
+                      <div className="mml-subblock">
+                        <div className="mml-subblock-head">
+                          <span className="mml-subblock-code">Sepsis Screens</span>
+                        </div>
+                        {(infData.sepsis_screens?.length ? infData.sepsis_screens : [blankSepsisScreen()]).map((entry, idx) => (
+                          <div className="mml-entry" key={entry.id || idx}>
+                            <div className="mml-entry-head">
+                              <div className="mml-entry-meta">
+                                {infData.sepsis_screens.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
+                                <label className="mml-meta-field">
+                                  <span>Date</span>
+                                  <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
+                                    disabled={!isFieldEditable} onChange={e => setSepsisScreenField(idx, "date", e.target.value)} />
+                                </label>
+                                <label className="mml-meta-field">
+                                  <span>Time</span>
+                                  <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
+                                    disabled={!isFieldEditable} onChange={e => setSepsisScreenField(idx, "time", e.target.value)} />
+                                </label>
+                              </div>
+                              {infData.sepsis_screens.length > 1 && isFieldEditable && (
+                                <button type="button" className="mml-remove-btn" title="Remove this screen"
+                                  onClick={() => removeSepsisScreen(idx)}><Trash2 size={14} /></button>
+                              )}
+                            </div>
+                            <div className="rcn-grid-3">
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Type</span>
+                                <select className="rcn-status-select" value={entry.type || "CRP"}
+                                  disabled={!isFieldEditable}
+                                  onChange={e => setSepsisScreenField(idx, "type", e.target.value)}>
+                                  <option value="CRP">CRP</option>
+                                  <option value="PCT">PCT</option>
+                                  <option value="Hematological">Hematological</option>
+                                </select>
+                              </div>
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Value</span>
+                                <div className="rcn-num-input" style={{ width: 140 }}>
+                                  <input type="number" step="0.01" value={entry.value ?? ""}
+                                    disabled={!isFieldEditable}
+                                    onChange={e => setSepsisScreenField(idx, "value", e.target.value === "" ? "" : Number(e.target.value))} />
+                                </div>
+                              </div>
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Result</span>
+                                <select className="rcn-status-select" value={entry.result || ""}
+                                  disabled={!isFieldEditable}
+                                  onChange={e => setSepsisScreenField(idx, "result", e.target.value)}>
+                                  <option value="">Select</option>
+                                  <option value="Positive">Positive</option>
+                                  <option value="Negative">Negative</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {isFieldEditable && (
+                          <button type="button" className="mml-add-btn" onClick={addSepsisScreen}>
+                            <Plus size={14} /> Add screen
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

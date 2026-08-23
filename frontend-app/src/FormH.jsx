@@ -48,7 +48,7 @@ export default function FormH() {
   const location = useLocation();
   const navigate = useNavigate();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const [errors, setErrors] = useState({});
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
@@ -115,6 +115,11 @@ const [ropThermoStale, setRopThermoStale] = useState({});
 const [cvPrefill, setCvPrefill] = useState(null);
 const [cvAutoFilled, setCvAutoFilled] = useState({});
 const [cvStale, setCvStale] = useState({});
+
+// Infection (H11) — detection-only, never fills a field directly. See
+// fetchInfectionWindows below for why this domain is architecturally
+// different from every other one above.
+const [infectionWindows, setInfectionWindows] = useState([]);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -661,6 +666,9 @@ useEffect(() => {
               }
               return list.length ? list : (prev.infections || []);
             })(),
+            infection_flags_reviewed: Array.isArray(existing.infection_flags_reviewed)
+              ? existing.infection_flags_reviewed
+              : (prev.infection_flags_reviewed || []),
             enrollment_id: enrollmentId,
             _record_id: existing.id || null,
           };
@@ -678,7 +686,8 @@ useEffect(() => {
     // correctly loaded record) — don't reintroduce that shape. The eight
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
-    // the record load.
+    // the record load. fetchInfectionWindows is detection-only (see its
+    // own comment) but still chained the same way for consistency.
     loadExistingFormH().then(() => {
       fetchVascularAccessPrefill();
       fetchMetabolicPrefill();
@@ -688,6 +697,7 @@ useEffect(() => {
       fetchGiPrefill();
       fetchRopThermoPrefill();
       fetchCvPrefill();
+      fetchInfectionWindows();
     });
   }, [enrollmentId]);
 
@@ -2465,6 +2475,70 @@ const handleCvChange = (e) => {
   handleChange(e);
 };
 
+// Infection (H11) — detection-only. Unlike every domain above, this
+// never fills a Form H field on its own: Form H's Infection section is a
+// dynamic array of clinician-judged episodes, and the day log has no
+// concept of an episode at all (only flat per-day flags), so deciding
+// "how many episodes, where do they start/end" is a genuine clinical
+// judgment call the PI confirmed can't be ruled. What IS safe: detecting
+// which daily-log windows meet the PI-specified trigger rule (culture
+// positive / screen positive / antibiotics >5 continuous days / meningitis
+// / CLABSI / VAP) and surfacing them for review — see the backend
+// endpoint's docstring for the full rule and priority order.
+const fetchInfectionWindows = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/infection-detect/${enrollmentId}`);
+    const data = res.data;
+    setInfectionWindows(data && data.has_data ? (data.windows || []) : []);
+  } catch (err) {
+    console.log("Error fetching infection windows", err);
+  }
+};
+
+const isInfectionFlagReviewed = (signature) =>
+  (formData.infection_flags_reviewed || []).includes(signature);
+
+const toggleInfectionFlagReviewed = (signature) => {
+  setFormData((prev) => {
+    const current = prev.infection_flags_reviewed || [];
+    const next = current.includes(signature)
+      ? current.filter((s) => s !== signature)
+      : [...current, signature];
+    return { ...prev, infection_flags_reviewed: next };
+  });
+};
+
+// Only fires from an explicit clinician click on a specific detected
+// window — never automatically. Pre-fills the new entry's sepsis type /
+// CLABSI / VAP flags from that one window (editable, not locked), same
+// verify-before-saving discipline as every other domain's auto-fill.
+// Deliberately does NOT pre-fill sepsis_onset_age: the day log only has
+// day-granularity data, and inventing an hour-precision value from that
+// would be a fabrication, not a derivation, for a field CRF explicitly
+// asks for in hours.
+const addInfectionFromWindow = (detectedWindow) => {
+  const nextIdx = (formData.infections || []).length;
+  const prefill = { ...emptyInfection(), sepsis: "Yes" };
+  if (detectedWindow.suggested_type === "culture") prefill.sepsis_culture = true;
+  else if (detectedWindow.suggested_type === "screen") prefill.sepsis_screen = true;
+  else if (detectedWindow.suggested_type === "clinical") prefill.sepsis_clinical = true;
+  if (detectedWindow.clabsi) prefill.clabsi = "Yes";
+  if (detectedWindow.vap) prefill.vap = "Yes";
+  setFormData((prev) => ({
+    ...prev,
+    infections: [...(prev.infections || []), prefill],
+  }));
+  toggleInfectionFlagReviewed(detectedWindow.signature);
+  setOpenSection(`infection-${nextIdx}`);
+};
+
+// Gates the "Form H complete" tick (see saveFormH/handleSubmit below) —
+// staff can always save partial progress, this only blocks the
+// completed status while a detected trigger window hasn't been either
+// reviewed or acted on.
+const allInfectionFlagsReviewed = infectionWindows.every((w) => isInfectionFlagReviewed(w.signature));
+
 // Shared confirm gate for the "Force refill" actions below — this is
 // the one action in the auto-fill machinery that can genuinely destroy a
 // clinician's entered answer (replacing it with a daily-log-derived value),
@@ -3953,6 +4027,7 @@ const num = (v) => {
       discharge_weight: num(formData.discharge_weight),
 
       infections: infectionsList,
+      infection_flags_reviewed: formData.infection_flags_reviewed || [],
     };
   };
 
@@ -3968,7 +4043,14 @@ const num = (v) => {
           setFormData((prev) => ({ ...prev, _record_id: res.data.id }));
         }
       }
-      markFormCompleted("form_h");
+      // Detected infection trigger windows (see fetchInfectionWindows)
+      // must be reviewed/addressed before Form H counts as complete —
+      // this never blocks saving, only the "done" tick.
+      if (allInfectionFlagsReviewed) {
+        markFormCompleted("form_h");
+      } else {
+        unmarkFormCompleted("form_h");
+      }
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -4000,6 +4082,21 @@ const num = (v) => {
     e.preventDefault();
 
     console.log("🚀 Form H submit clicked");
+
+    // Submit represents a finalized, complete form — unlike Save, this
+    // actually blocks until every detected infection trigger window has
+    // been reviewed or acted on (Add Infection / Mark reviewed in the
+    // H11 banner). Save above still works freely for partial progress.
+    if (!allInfectionFlagsReviewed) {
+      alert(
+        "This form can't be submitted yet — the Infection section has "
+        + `${infectionWindows.filter(w => !isInfectionFlagReviewed(w.signature)).length} `
+        + "daily-log flag(s) not yet reviewed. Scroll to H11 Infection, "
+        + "review each flagged item, and add an infection episode or mark "
+        + "it reviewed before submitting."
+      );
+      return;
+    }
 
     try {
       const payload = buildPayload();
@@ -9799,6 +9896,44 @@ const peripheralStatus= getPeripheralStatus();
   <p className="infection-section-hint">
     Infections can occur more than once. Use <strong>+</strong> to add Infection 1, 2, 3… (CRF H11).
   </p>
+
+  {infectionWindows.length > 0 && (
+    <div className="field-hint field-hint-warning" style={{ marginBottom: "12px" }}>
+      ⚠ Daily logs show possible infection events not yet fully addressed here.
+      This form can't be submitted until every item below is reviewed.
+      <ul style={{ margin: "8px 0 0", paddingLeft: "20px" }}>
+        {infectionWindows.map((w) => {
+          const reviewed = isInfectionFlagReviewed(w.signature);
+          const dayLabel = w.nicu_day_start === w.nicu_day_end
+            ? `Day ${w.nicu_day_start}`
+            : `Day ${w.nicu_day_start}–${w.nicu_day_end}`;
+          return (
+            <li key={w.signature} style={{ marginBottom: "6px", opacity: reviewed ? 0.6 : 1 }}>
+              <label style={{ cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={reviewed}
+                  onChange={() => toggleInfectionFlagReviewed(w.signature)}
+                  style={{ marginRight: "6px" }}
+                />
+                <strong>{w.reason}</strong> — {dayLabel}
+                {w.date_start && ` (${w.date_start}${w.date_end !== w.date_start ? ` – ${w.date_end}` : ""})`}
+                {reviewed ? " — reviewed" : ""}
+              </label>
+              {!reviewed && (
+                <>
+                  {" "}
+                  <button type="button" className="link-button" onClick={() => addInfectionFromWindow(w)}>
+                    Add Infection for this
+                  </button>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  )}
 
   {(formData.infections || []).length === 0 && (
     <div className="infection-empty-state">
