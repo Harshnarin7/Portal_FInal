@@ -1776,7 +1776,12 @@ const VASCULAR_PREFILL_FIELDS = [
 
 const isBlank = (v) => v === "" || v === undefined || v === null;
 
-const fetchVascularAccessPrefill = async () => {
+// force: overwrite fields that already hold an answer, not just blank ones.
+// Needed when Form H was answered before the day logs had the data yet —
+// the normal empty-fields-only fill can never self-correct that (an
+// already-answered field is never "blank" again), so it's a separate,
+// explicit, opt-in action rather than something that happens automatically.
+const fetchVascularAccessPrefill = async ({ force = false } = {}) => {
   if (!enrollmentId) return;
   try {
     const res = await api.get(`/neonatal-morbidities/vascular-access-prefill/${enrollmentId}`);
@@ -1789,7 +1794,7 @@ const fetchVascularAccessPrefill = async () => {
       const next = { ...prev };
       VASCULAR_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if (isBlank(prev[field]) && !isBlank(value)) {
+        if ((force || isBlank(prev[field])) && !isBlank(value)) {
           next[field] = value;
           filled[field] = true;
         }
@@ -1838,7 +1843,9 @@ const METABOLIC_PREFILL_FIELDS = [
   "osteopenia",
 ];
 
-const fetchMetabolicPrefill = async () => {
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchMetabolicPrefill = async ({ force = false } = {}) => {
   if (!enrollmentId) return;
   try {
     const res = await api.get(`/neonatal-morbidities/metabolic-prefill/${enrollmentId}`);
@@ -1851,7 +1858,7 @@ const fetchMetabolicPrefill = async () => {
       const next = { ...prev };
       METABOLIC_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if (isBlank(prev[field]) && !isBlank(value)) {
+        if ((force || isBlank(prev[field])) && !isBlank(value)) {
           next[field] = value;
           filled[field] = true;
         }
@@ -1891,7 +1898,9 @@ const RENAL_PREFILL_FIELDS = [
   "aki_dialysis",
 ];
 
-const fetchRenalPrefill = async () => {
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchRenalPrefill = async ({ force = false } = {}) => {
   if (!enrollmentId) return;
   try {
     const res = await api.get(`/neonatal-morbidities/renal-prefill/${enrollmentId}`);
@@ -1904,7 +1913,7 @@ const fetchRenalPrefill = async () => {
       const next = { ...prev };
       RENAL_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
-        if (isBlank(prev[field]) && !isBlank(value)) {
+        if ((force || isBlank(prev[field])) && !isBlank(value)) {
           next[field] = value;
           filled[field] = true;
         }
@@ -1931,6 +1940,25 @@ const clearRenalAutoFilled = (name) => {
 const handleRenalChange = (e) => {
   clearRenalAutoFilled(e.target.name);
   handleChange(e);
+};
+
+// Shared confirm gate for the three "Force refill" actions below — this is
+// the one action in the auto-fill machinery that can genuinely destroy a
+// clinician's entered answer (replacing it with a daily-log-derived value),
+// so it always requires an explicit confirmation, unlike the empty-fields
+// refill which is always safe to re-run.
+const confirmForceRefill = (domainLabel, fetchFn) => {
+  if (
+    window.confirm(
+      `Overwrite already-answered ${domainLabel} fields with the latest daily-log data?\n\n` +
+      "This replaces existing answers, not just blank ones — use this only when Form H " +
+      "was filled in before the daily logs had this data (or the daily logs were corrected " +
+      "afterward). Any field you've entered manually and that now differs from the daily " +
+      "logs will be overwritten."
+    )
+  ) {
+    fetchFn({ force: true });
+  }
 };
 
 const validateMetabolic = (name, value, updatedForm = formData) => {
@@ -6330,8 +6358,16 @@ const peripheralStatus= getPeripheralStatus();
       Daily logs available ({metabolicPrefill.log_days_count} day{metabolicPrefill.log_days_count === 1 ? "" : "s"} recorded).
       Empty fields below were filled from them automatically — verify before saving.
       {" "}
-      <button type="button" className="link-button" onClick={fetchMetabolicPrefill}>
+      <button type="button" className="link-button" onClick={() => fetchMetabolicPrefill()}>
         Refill empty fields from daily logs
+      </button>
+      {" · "}
+      <button
+        type="button"
+        className="link-button link-button-danger"
+        onClick={() => confirmForceRefill("Metabolic", fetchMetabolicPrefill)}
+      >
+        Force refill (overwrite existing answers)
       </button>
     </div>
   )}
@@ -7942,8 +7978,16 @@ const peripheralStatus= getPeripheralStatus();
     Empty fields below were filled from them automatically — verify before saving.
     Oliguria has no daily-log source and always needs manual entry.
     {" "}
-    <button type="button" className="link-button" onClick={fetchRenalPrefill}>
+    <button type="button" className="link-button" onClick={() => fetchRenalPrefill()}>
       Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button
+      type="button"
+      className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Renal", fetchRenalPrefill)}
+    >
+      Force refill (overwrite existing answers)
     </button>
   </div>
 )}
@@ -8526,8 +8570,16 @@ const peripheralStatus= getPeripheralStatus();
     Daily logs available ({vascularPrefill.log_days_count} day{vascularPrefill.log_days_count === 1 ? "" : "s"} recorded).
     Empty fields below were filled from them automatically — verify before saving.
     {" "}
-    <button type="button" className="link-button" onClick={fetchVascularAccessPrefill}>
+    <button type="button" className="link-button" onClick={() => fetchVascularAccessPrefill()}>
       Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button
+      type="button"
+      className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Vascular Access", fetchVascularAccessPrefill)}
+    >
+      Force refill (overwrite existing answers)
     </button>
   </div>
 )}
