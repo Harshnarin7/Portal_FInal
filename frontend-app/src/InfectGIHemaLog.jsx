@@ -882,7 +882,12 @@ export default function InfectGIHemaLog() {
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
-          setIsSaved(true); setIsEditing(false);
+          setIsSaved(true);
+          // A reload/revisit during a still-active override window must not
+          // silently re-lock the fields — isFieldEditable requires isEditing
+          // whenever isSaved is true, which this effect always sets true for
+          // an existing record.
+          setIsEditing(!!d.override_unlocked_until && new Date(d.override_unlocked_until) > new Date());
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else { resetFormState(); }
@@ -1731,6 +1736,11 @@ export default function InfectGIHemaLog() {
                       { reason: overrideReason.trim(), hours: 2 }
                     );
                     setOverrideUntil(res?.data?.override_unlocked_until || null);
+                    // isFieldEditable also requires isEditing when isSaved is
+                    // true (always true for a submitted day) — without this,
+                    // the override succeeds server-side but fields still
+                    // render read-only and every setter silently no-ops.
+                    setIsEditing(true);
                     setOverrideReason("");
                     setShowOverrideModal(false);
                     setMessage(`🔓 Day ${activeDay} reopened for 2 hours`);
@@ -1792,9 +1802,21 @@ export default function InfectGIHemaLog() {
             )}
           </>
         ) : isSubmitted ? (
-          <div className="rcn-locked-badge">
-            <Lock size={13} /> Day {activeDay} Locked
-          </div>
+          <>
+            <div className="rcn-locked-badge">
+              <Lock size={13} /> Day {activeDay} Locked
+            </div>
+            {isSuperadmin && (
+              <button
+                type="button"
+                className="rcn-override-btn"
+                onClick={() => setShowOverrideModal(true)}
+                title="Reopen this submitted day temporarily for a correction"
+              >
+                <Unlock size={13}/> Override &amp; Unlock
+              </button>
+            )}
+          </>
         ) : isFutureActiveDay ? (
           <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
             <Lock size={13} /> Day {activeDay} Not Available Yet
