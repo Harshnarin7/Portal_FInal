@@ -512,3 +512,81 @@
   font-size: 12px;
   cursor: pointer;
 }
+
+/* ============================================================
+   FormH — category jump-nav. Turns the 13-section, 9000+-line
+   accordion into a one-page-at-a-time view: click a pill, that
+   organ system's cards show and every other section's cards are
+   display:none (see .cat-hidden). Nothing unmounts, so no form
+   state or scroll position within a section is ever lost.
+   ============================================================ */
+.formh-jumpnav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 10px 4px 14px;
+  margin: 0 0 24px;
+  background: linear-gradient(var(--portal-canvas, #f8fafc) 70%, transparent);
+  scrollbar-width: thin;
+}
+.formh-jumpnav::-webkit-scrollbar { height: 6px; }
+.formh-jumpnav::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
+.formh-jumpnav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--portal-border, #e2e8f0);
+  background: #fff;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  transition: border-color .15s, background .15s, color .15s, transform .12s;
+}
+.formh-jumpnav-pill:hover {
+  border-color: #93c5fd;
+  color: #1e3a5f;
+  transform: translateY(-1px);
+}
+.formh-jumpnav-pill.active {
+  background: #1e3a5f;
+  border-color: #1e3a5f;
+  color: #fff;
+}
+.formh-jumpnav-pill.active .formh-jumpnav-code { color: #bfdbfe; }
+.formh-jumpnav-icon { flex-shrink: 0; opacity: .85; }
+.formh-jumpnav-code {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: .02em;
+}
+.formh-jumpnav-status.yes { color: #22c55e; }
+.formh-jumpnav-pill.active .formh-jumpnav-status.yes { color: #86efac; }
+.formh-jumpnav-status.empty { color: #cbd5e1; }
+.formh-jumpnav-pill.active .formh-jumpnav-status.empty { color: #64748b; }
+
+/* Sections not in the active tab are fully removed from layout —
+   collapsed cards inside them no longer add to page length. */
+.cat-hidden { display: none !important; }
+
+@media (max-width: 768px) {
+  .formh-jumpnav {
+    position: static;
+    padding: 4px 0 12px;
+    margin-bottom: 16px;
+  }
+  .formh-jumpnav-pill { padding: 8px 12px; font-size: 12px; }
+  .formh-jumpnav-label { display: none; }
+  .formh-jumpnav-code { display: none; }
+}
