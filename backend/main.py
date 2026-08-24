@@ -2323,13 +2323,27 @@ def get_rop_thermoreg_prefill(
     #197-205) sections.
 
     Thermoregulation:
-    - hypothermia / hyperthermia: direct any-day booleans.
+    - hypothermia / hyperthermia: derived from the axillary_temperature
+      *value* itself (<36.5 / >37.5, the same thresholds already shown
+      in both the day log's own field label and Form H's own field
+      labels), NOT from the day log's dedicated `hypothermia`/
+      `hyperthermia` boolean columns. Those columns exist in the schema
+      but are never populated by the current MetabRenalVascEyeLog.jsx
+      UI — it only ever sends `axillary_temperature`, confirmed via a
+      live DB check showing 100% of rows have both columns NULL
+      regardless of the recorded temperature (bug found 2026-08-24 via
+      beta-tester feedback: a 38.7°C reading still showed Form H's
+      Hyperthermia as "No", because `any_day("hyperthermia")` was
+      reading a column nothing ever writes to). Falls back to the
+      boolean columns only when no day has a parseable temperature at
+      all, in case a future data-entry path populates them directly.
     - hypothermia_lowest_temp / hyperthermia_temp: admission-wide MIN/MAX
       of `axillary_temperature` (stored as a string but a genuine numeric
       °C reading per day, per MetabRenalVascEyeLog.jsx's NumRow usage) —
       same admission-wide-extremum convention as Renal's peak creatinine
       / Heme's lowest Hb, not conditioned on which day the boolean was
-      also true.
+      also true. (This half of the endpoint was already correct — only
+      the Yes/No flags above were reading a dead column.)
     - Severity (mild/moderate/severe), location (DR/Transport/NICU), and
       etiology (sepsis/environment/immaturity/IVH/other) checkboxes have
       no day-log source. The day log does have its own `location` field
@@ -2387,13 +2401,15 @@ def get_rop_thermoreg_prefill(
         return (nicu.day1_date + timedelta(days=min(days) - 1)).isoformat()
 
     temps = numeric_values("axillary_temperature")
+    hypothermia_from_temp = any(t < 36.5 for t in temps)
+    hyperthermia_from_temp = any(t > 37.5 for t in temps)
 
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "hypothermia": "Yes" if any_day("hypothermia") else "No",
+        "hypothermia": "Yes" if (hypothermia_from_temp or (not temps and any_day("hypothermia"))) else "No",
         "hypothermia_lowest_temp": min(temps) if temps else None,
-        "hyperthermia": "Yes" if any_day("hyperthermia") else "No",
+        "hyperthermia": "Yes" if (hyperthermia_from_temp or (not temps and any_day("hyperthermia"))) else "No",
         "hyperthermia_temp": max(temps) if temps else None,
         "rop_screened": "Yes" if any_day("rop_screened") else "No",
         "rop_first_screen_date": earliest_date("rop_screened"),
