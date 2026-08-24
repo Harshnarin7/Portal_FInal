@@ -2772,6 +2772,46 @@ def get_resp_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/survival-check/{enrollment_id}")
+def get_survival_check(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Checks whether any Metab/Renal/Vasc/Eye helper daily log
+    (`survived_the_day`, the only day log with this field) recorded that
+    the baby did not survive that day.
+
+    Used to surface a one-time prompt on Form H: if the baby died, the
+    normal only-fill-if-blank auto-fill discipline undersells the daily
+    logs — a field answered "No" early in the admission, before things
+    got worse, never gets revisited on its own. This endpoint doesn't
+    fill anything itself; the frontend uses it to show a banner offering
+    to run Force Refill (already-built, per-domain, overwrite-aware)
+    across every domain at once, not to invent any new auto-fill logic.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    death_days = sorted({l.nicu_day for l in logs if l.survived_the_day is False})
+    if not death_days:
+        return {"did_not_survive": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    day = min(death_days)
+    date = (nicu.day1_date + timedelta(days=day - 1)).isoformat() if nicu and nicu.day1_date else None
+
+    return {"did_not_survive": True, "day": day, "date": date}
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================

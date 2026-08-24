@@ -165,6 +165,12 @@ const [infectionWindows, setInfectionWindows] = useState([]);
 const [respPrefill, setRespPrefill] = useState(null);
 const [respAutoFilled, setRespAutoFilled] = useState({});
 const [respStale, setRespStale] = useState({});
+
+// "Did not survive" prompt — see fetchSurvivalCheck below. Doesn't fill
+// anything on its own; only offers to run every domain's existing Force
+// Refill at once.
+const [survivalAlert, setSurvivalAlert] = useState(null);
+const [forceRefillingAll, setForceRefillingAll] = useState(false);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -744,6 +750,7 @@ useEffect(() => {
       fetchCvPrefill();
       fetchInfectionWindows();
       fetchRespPrefill();
+      fetchSurvivalCheck();
     });
   }, [enrollmentId]);
 
@@ -2692,6 +2699,56 @@ const confirmForceRefill = (domainLabel, fetchFn) => {
     )
   ) {
     fetchFn({ force: true });
+  }
+};
+
+// "Did not survive" prompt — checks the one day-log field
+// (metab_renal_vasc_eye_day_logs.survived_the_day) that records this,
+// and if any day was marked "No", offers a single button that runs
+// every domain's existing Force Refill at once. This doesn't invent any
+// new auto-fill logic — it's the same overwrite-aware mechanism used
+// throughout, just triggered in bulk instead of one section at a time,
+// because a field answered "No" early in the admission (before things
+// got worse) never gets revisited by the normal only-fill-if-blank pass.
+const fetchSurvivalCheck = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/survival-check/${enrollmentId}`);
+    const data = res.data;
+    setSurvivalAlert(data && data.did_not_survive ? data : null);
+  } catch (err) {
+    console.log("Error fetching survival check", err);
+  }
+};
+
+const forceRefillAllDomains = async () => {
+  if (
+    !window.confirm(
+      "Overwrite already-answered fields across every section (Neurological, " +
+      "Respiratory, Gastrointestinal, Metabolic, Cardiovascular, Hematology, " +
+      "Renal, Ophthalmology/Thermoregulation, Vascular Access) with the " +
+      "latest daily-log data?\n\nThis replaces existing answers, not just " +
+      "blank ones — use this to make sure the full picture from every day " +
+      "of daily logs is reflected before finalizing this record."
+    )
+  ) {
+    return;
+  }
+  setForceRefillingAll(true);
+  try {
+    await Promise.all([
+      fetchVascularAccessPrefill({ force: true }),
+      fetchMetabolicPrefill({ force: true }),
+      fetchRenalPrefill({ force: true }),
+      fetchHemePrefill({ force: true }),
+      fetchNeuroPrefill({ force: true }),
+      fetchGiPrefill({ force: true }),
+      fetchRopThermoPrefill({ force: true }),
+      fetchCvPrefill({ force: true }),
+      fetchRespPrefill({ force: true }),
+    ]);
+  } finally {
+    setForceRefillingAll(false);
   }
 };
 
@@ -5183,6 +5240,26 @@ const peripheralStatus= getPeripheralStatus();
            </div>
          </div>
        </div>
+
+       {survivalAlert && (
+         <div className="field-hint field-hint-warning" style={{ margin: "0 0 16px" }}>
+           ⚠ Daily logs indicate this baby did not survive
+           {survivalAlert.day ? ` (Day ${survivalAlert.day}${survivalAlert.date ? `, ${survivalAlert.date}` : ""})` : ""}.
+           A field answered "No" earlier in the admission, before things got
+           worse, won't be revisited by the normal auto-fill on its own —
+           use the button below to pull in the fullest picture from every
+           day of daily logs across every section before finalizing this record.
+           {" "}
+           <button
+             type="button"
+             className="link-button link-button-danger"
+             onClick={forceRefillAllDomains}
+             disabled={forceRefillingAll}
+           >
+             {forceRefillingAll ? "Refilling…" : "Force refill everything from daily logs"}
+           </button>
+         </div>
+       )}
 
      {/* ================= CATEGORY JUMP-NAV =================
          Sticky pill row so any of Form H's 13 organ-system sections is
