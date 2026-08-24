@@ -62,19 +62,35 @@ function YesNoToggle({ label, name, value, onChange, onBlur, required = false, d
   );
 }
 
+// Small "from Form B" / "from daily logs" style badge — same visual
+// language as Form H's .field-hint-auto-inline (shared FormComponents.css,
+// already imported here). Generic across whichever domain currently
+// auto-fills Form I (only Resuscitation Outcomes/Form B so far).
+function AutoFilledBadge({ name }) {
+  const { autoFilledFields } = useContext(FormIDataContext);
+  if (!autoFilledFields?.[name]) return null;
+  return <span className="field-hint-auto-inline">auto-filled</span>;
+}
+
 // ── Hoisted field components (see comment above FormIDataContext for why
 // these live here instead of inside FormI()) ──────────────────────────────
 function RYesNo({ name, required }) {
-  const { formData, setFormData } = useContext(FormIDataContext);
+  const { formData, setFormData, clearAutoFilled } = useContext(FormIDataContext);
   const value = formData[name];
   const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
-  const fire = (val) => setFormData((p) => ({ ...p, [name]: val }));
+  const fire = (val) => {
+    clearAutoFilled?.(name);
+    setFormData((p) => ({ ...p, [name]: val }));
+  };
   return (
-    <div className={`yes-no-buttons yn-pos-${pos} crf-yn`} aria-required={required}>
-      <div className="yn-thumb" aria-hidden="true" />
-      <button type="button" className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`} onClick={() => fire("Yes")}>YES</button>
-      <button type="button" className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`} onClick={() => fire("No")}>NO</button>
-    </div>
+    <>
+      <div className={`yes-no-buttons yn-pos-${pos} crf-yn`} aria-required={required}>
+        <div className="yn-thumb" aria-hidden="true" />
+        <button type="button" className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`} onClick={() => fire("Yes")}>YES</button>
+        <button type="button" className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`} onClick={() => fire("No")}>NO</button>
+      </div>
+      <AutoFilledBadge name={name} />
+    </>
   );
 }
 
@@ -89,11 +105,13 @@ function RSelect({ name, options, placeholder = "Select" }) {
 }
 
 function RNum({ name, unit, placeholder }) {
-  const { formData, handleChange } = useContext(FormIDataContext);
+  const { formData, handleChange, clearAutoFilled } = useContext(FormIDataContext);
   return (
     <div className="crf-num-wrap">
-      <input className="crf-num" type="number" step="any" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} />
+      <input className="crf-num" type="number" step="any" name={name} value={formData[name] || ""}
+        onChange={(e) => { clearAutoFilled?.(name); handleChange(e); }} placeholder={placeholder} />
       {unit && <span className="crf-unit">{unit}</span>}
+      <AutoFilledBadge name={name} />
     </div>
   );
 }
@@ -380,6 +398,8 @@ function DeathInfo({ fieldPrefix, ageLabel, nums }) {
   );
 }
 
+const isBlank = (v) => v === "" || v === undefined || v === null;
+
 /** Empty string → null; keep legitimate 0 / false. */
 const emptyToNull = (v) => (v === "" || v === undefined || v === null ? null : v);
 const numOrNull = (v) => {
@@ -436,6 +456,21 @@ export default function FormI() {
   const [openSection, setOpenSection] = useState("i1");
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+
+  // Auto-fill from other forms — generic across whichever domain currently
+  // does this (only I.1 Resuscitation Outcomes, from Form B, so far; keyed
+  // by field name so a future domain can reuse the same state/components).
+  const [autoFilledFields, setAutoFilledFields] = useState({});
+  const [staleFields, setStaleFields] = useState({});
+  const [resusPrefill, setResusPrefill] = useState(null);
+  const clearAutoFilled = (name) => {
+    setAutoFilledFields((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
 
   // Quick-nav: one ref per top-level CRF section (I.1–I.6), used to jump +
   // open a section from the sticky rail at the top of the form.
@@ -746,6 +781,13 @@ export default function FormI() {
           completion_date: existing.completion_date || "",
         } : {}),
       }));
+
+      // Chained, not a separate effect racing this one — must run after
+      // the existing-record load above has queued its setFormData, same
+      // discipline Form H uses for its own prefill fetches (see
+      // FormH.jsx's loadExistingFormH().then(...) comment for the bug
+      // this avoids).
+      fetchBirthResuscitationPrefill();
     };
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -767,6 +809,96 @@ export default function FormI() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((p) => ({ ...p, [name]: value }));
+  };
+
+  // I.1 Resuscitation Outcomes <- Form B (Birth Resuscitation), a
+  // one-time non-repeating record per enrollment (no day-log aggregation
+  // needed, unlike every Form H domain). Direct field matches:
+  // ppv_required->ventilation_required, chest_compression->
+  // resus_chest_compressions, intubation->intubation_during_resus,
+  // time_to_respiration->time_to_spontaneous_breathing (already stored in
+  // seconds on both sides, confirmed via BirthResuscitationForm.jsx's
+  // durationHmsToSeconds conversion - no unit conversion needed).
+  //
+  // Deliberately NOT filled: switched_100_o2 - Form B's only related
+  // field, reason_exit_trial_gas, has a single combined option "Required
+  // override to 100% O2 or CC" that can't be reliably disambiguated from
+  // the separate chest_compression flag (both could independently apply
+  // to the same event) - guessing would risk false positives on a
+  // clinical fact, not just an incomplete one. hie_grade - genuinely
+  // belongs to Form I's own schema (StudyOutcomes.hie_grade); no other
+  // form in the system captures HIE grading at all.
+  const RESUS_PREFILL_FIELDS = [
+    "ventilation_required", "resus_chest_compressions",
+    "intubation_during_resus", "time_to_spontaneous_breathing",
+  ];
+  // Form B is a one-time record, not a growing daily log like every Form H
+  // domain's source - so unlike those, a later disagreement here is always
+  // a genuine correction, never expected drift. All 4 fields (including
+  // the numeric one) get staleness-checked for that reason.
+  const RESUS_STALE_CHECK_FIELDS = RESUS_PREFILL_FIELDS;
+
+  const fetchBirthResuscitationPrefill = async ({ force = false } = {}) => {
+    if (!enrollmentId) return;
+    try {
+      const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
+      const d = res.data;
+      if (!d || !d.id) { setResusPrefill(null); return; }
+      setResusPrefill(d);
+
+      const mapped = {
+        ventilation_required: boolToYesNo(d.ppv_required),
+        resus_chest_compressions: boolToYesNo(d.chest_compression),
+        intubation_during_resus: boolToYesNo(d.intubation),
+        time_to_spontaneous_breathing: d.time_to_respiration ?? "",
+      };
+
+      const filled = {};
+      const stale = {};
+      setFormData((prev) => {
+        const next = { ...prev };
+        RESUS_PREFILL_FIELDS.forEach((field) => {
+          const value = mapped[field];
+          if (isBlank(value)) return;
+          const currentlyBlank = isBlank(prev[field]);
+          const disagrees = !currentlyBlank
+            && RESUS_STALE_CHECK_FIELDS.includes(field)
+            && String(prev[field]) !== String(value);
+          if (currentlyBlank || (force && disagrees)) {
+            next[field] = value;
+            filled[field] = true;
+          } else if (disagrees) {
+            stale[field] = true;
+          }
+        });
+        return next;
+      });
+      if (Object.keys(filled).length) {
+        setAutoFilledFields((prev) => ({ ...prev, ...filled }));
+      }
+      setStaleFields((prev) => {
+        const next = { ...prev };
+        RESUS_PREFILL_FIELDS.forEach((f) => {
+          if (stale[f]) next[f] = true; else delete next[f];
+        });
+        return next;
+      });
+    } catch (err) {
+      console.log("Error fetching birth resuscitation prefill", err);
+    }
+  };
+
+  const confirmForceRefillResus = () => {
+    if (
+      window.confirm(
+        "Overwrite already-answered Resuscitation Outcomes fields with the " +
+        "latest Form B (Birth Resuscitation) data?\n\nThis replaces existing " +
+        "answers, not just blank ones — use this only if Form B was corrected " +
+        "after this form was filled in."
+      )
+    ) {
+      fetchBirthResuscitationPrefill({ force: true });
+    }
   };
 
   /* ── Age-at-death auto-calc from DOB, mirrors the pattern already used
@@ -1017,7 +1149,7 @@ export default function FormI() {
   ];
 
   return (
-    <FormIDataContext.Provider value={{ formData, setFormData, handleChange }}>
+    <FormIDataContext.Provider value={{ formData, setFormData, handleChange, autoFilledFields, clearAutoFilled }}>
     <>
       <div className="form-i-page form-i-tabular">
       <form className="screening-form" onSubmit={handleSubmit}>
@@ -1068,6 +1200,34 @@ export default function FormI() {
         {/* ================= I.1 RESUSCITATION OUTCOMES ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i1}>
           <h3><Wind size={17} className="sec-icon" /> <span className="sec-num">I.1</span> Resuscitation Outcomes</h3>
+          {resusPrefill && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Form B (Birth Resuscitation) data available. Empty fields below
+              were filled from it automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchBirthResuscitationPrefill()}>
+                Refill empty fields from Form B
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={confirmForceRefillResus}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {(staleFields.ventilation_required || staleFields.resus_chest_compressions
+            || staleFields.intubation_during_resus || staleFields.time_to_spontaneous_breathing) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ Form B (Birth Resuscitation) now disagrees with the saved answer for:{" "}
+              {[
+                staleFields.ventilation_required && "Ventilation (PPV) required",
+                staleFields.resus_chest_compressions && "Required chest compressions",
+                staleFields.intubation_during_resus && "Intubation for resuscitation",
+                staleFields.time_to_spontaneous_breathing && "Time to spontaneous respiratory efforts",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before Form B was
+              finalized. Use "Force refill" above if Form B is correct.
+            </div>
+          )}
           <CrfTable>
             <CrfRow num={1} outcome="Ventilation (PPV) required" definition="Per NRP criteria"
               result={<RYesNo name="ventilation_required" required />} />
