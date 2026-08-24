@@ -4,6 +4,10 @@ import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
+// Repeatable-entry list styling (mml-*) — same component the Metabolic
+// helper form (Helper 4) uses for its pH/sodium/potassium/calcium
+// readings lists, reused here for sepsis screens.
+import "./styles/MinimalMonitoring.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
@@ -13,8 +17,27 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Shield, FileCheck, Copy, Edit,
-  AlertOctagon, History, Unlock,
+  AlertOctagon, History, Unlock, Plus, Trash2,
 } from "lucide-react";
+
+const pad2ig = n => String(n).padStart(2, "0");
+const uidIg = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const nowTimeIg = (d = new Date()) => `${pad2ig(d.getHours())}:${pad2ig(d.getMinutes())}`;
+
+function blankSepsisScreen() {
+  const d = new Date();
+  return { id: uidIg(), date: toDateOnlyValue(d), time: nowTimeIg(d), type: "CRP", value: "", result: "" };
+}
+
+function parseJsonArrayIg(raw) {
+  if (!raw) return null;
+  try {
+    const p = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(p) && p.length ? p : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS — identical to Helper Form 2
@@ -435,6 +458,17 @@ function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
 /* ══════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════ */
+// Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
+// serialize to JSON with no 'Z'/offset suffix even though the value is UTC
+// (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
+// parses that as LOCAL browser time per the JS spec, not UTC — in IST
+// (UTC+5:30) that made a just-created 2-hour override compare as already
+// expired. Treat any timestamp with no explicit offset as UTC.
+function parseUtcTimestamp(value) {
+  if (!value) return null;
+  return /[Zz]|[+-]\d{2}:?\d{2}$/.test(value) ? new Date(value) : new Date(value + "Z");
+}
+
 export default function InfectGIHemaLog() {
   const { enrollmentId } = useParams();
   const navigate         = useNavigate();
@@ -512,6 +546,10 @@ export default function InfectGIHemaLog() {
     meningitis_type:         null,  // 7 (Probable/Proven - conditional on meningitis=Yes)
     clabsi:                  null,  // 8
     vap:                     null,  // 9
+    // Not part of the original numbered CRF sequence — added 2026-08-23 to
+    // feed Form H's Infection auto-fill (see sepsis_screens comment below).
+    sepsis_screen_sent:      null,
+    sepsis_screens:          [blankSepsisScreen()],
   });
 
   /* ════════════════════════════════════════════════
@@ -551,6 +589,7 @@ export default function InfectGIHemaLog() {
   const sepsisYes    = infData.sepsis_suspected === true;
   const bloodCultureSentYes = infData.blood_culture_sent === true;
   const meningitisYes = infData.meningitis === true;
+  const sepsisScreenSentYes = infData.sepsis_screen_sent === true;
   const npoNo        = giData.npo === false;
   const enteralYes   = giData.enteral_feeds_received === true;
   const necYes       = giData.nec_suspected === true;
@@ -592,7 +631,7 @@ export default function InfectGIHemaLog() {
     new Date().getHours() < IGH_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
-    overrideUntil != null && new Date() < new Date(overrideUntil);
+    overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
   // Default which day's tab opens on first load: before 11am, default to
   // yesterday's (still-open) day; from 11am on, default to today's day.
@@ -721,6 +760,30 @@ export default function InfectGIHemaLog() {
   const setGi   = (k, v) => isFieldEditable && setGiData(p => ({ ...p, [k]: v }));
   const setHema = (k, v) => isFieldEditable && setHemaData(p => ({ ...p, [k]: v }));
 
+  /* ── Sepsis screen list (repeatable, same shape as Helper 4's readings lists) ── */
+  const setSepsisScreenField = (idx, key, value) => {
+    if (!isFieldEditable) return;
+    setInfData(p => {
+      const list = [...(p.sepsis_screens || [])];
+      list[idx] = { ...list[idx], [key]: value };
+      return { ...p, sepsis_screens: list };
+    });
+  };
+  const addSepsisScreen = () => {
+    if (!isFieldEditable) return;
+    setInfData(p => ({ ...p, sepsis_screens: [...(p.sepsis_screens || []), blankSepsisScreen()] }));
+  };
+  const removeSepsisScreen = (idx) => {
+    if (!isFieldEditable) return;
+    setInfData(p => {
+      const list = p.sepsis_screens || [];
+      if (list.length <= 1) return p;
+      const next = [...list];
+      next.splice(idx, 1);
+      return { ...p, sepsis_screens: next };
+    });
+  };
+
   /* ── Load patient info ── */
   useEffect(() => {
     if (!enrollmentId) return;
@@ -846,6 +909,8 @@ export default function InfectGIHemaLog() {
             meningitis_type:         d.meningitis_type         ?? null,
             clabsi:                  d.clabsi                  ?? null,
             vap:                     d.vap                     ?? null,
+            sepsis_screen_sent:      d.sepsis_screen_sent      ?? null,
+            sepsis_screens:          parseJsonArrayIg(d.sepsis_screens_json) || [blankSepsisScreen()],
           });
           setGiData({
             npo:                     d.npo                     ?? null,
@@ -882,7 +947,12 @@ export default function InfectGIHemaLog() {
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
-          setIsSaved(true); setIsEditing(false);
+          setIsSaved(true);
+          // A reload/revisit during a still-active override window must not
+          // silently re-lock the fields — isFieldEditable requires isEditing
+          // whenever isSaved is true, which this effect always sets true for
+          // an existing record.
+          setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else { resetFormState(); }
@@ -896,7 +966,8 @@ export default function InfectGIHemaLog() {
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
       antibiotics: null, lp_done: null, meningitis: null, meningitis_type: null,
-      clabsi: null, vap: null });
+      clabsi: null, vap: null,
+      sepsis_screen_sent: null, sepsis_screens: [blankSepsisScreen()] });
     setGiData({ npo: null, men: null, enteral_feeds_received: null, feed_type: [],
       cumulative_feed_volume: null, feed_volume: null, iv_fluids: null,
       parenteral_nutrition: null, probiotic: null, feed_intolerance: null,
@@ -910,25 +981,31 @@ export default function InfectGIHemaLog() {
     setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.EMPTY }));
   };
 
-  const getPayload = () => ({
-    enrollment_id: enrollmentId, nicu_day: activeDay,
-    ...infData,
-    ...giData,
-    feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
-    ...hemaData,
-    submission_status: STATUS.DRAFT,
-    saved_at: new Date().toISOString(),
-    saved_by: user?.name || user?.username || "Nurse",
-  });
+  const getPayload = () => {
+    const { sepsis_screens, ...infDataFlat } = infData;
+    return {
+      enrollment_id: enrollmentId, nicu_day: activeDay,
+      ...infDataFlat,
+      sepsis_screens_json: JSON.stringify(sepsis_screens || []),
+      ...giData,
+      feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
+      ...hemaData,
+      submission_status: STATUS.DRAFT,
+      saved_at: new Date().toISOString(),
+      saved_by: user?.name || user?.username || "Nurse",
+    };
+  };
 
   /* ── Save ── */
-  const handleSave = async () => {
+  const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return;
     if (!day1Date) {
       setMessage("⚠️ Please set Day 1 Date above before saving");
       return;
     }
-    if (!isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+    // force: re-save while viewing a saved draft (Submit path) without
+    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
@@ -974,7 +1051,15 @@ export default function InfectGIHemaLog() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      if (!isSaved) await handleSave();
+      // Always save fresh state before locking — `isSaved` only means "this
+      // record has been saved at least once," not "nothing has changed
+      // since." Skipping the save here silently discarded edits made after
+      // a prior save whenever the day reached 100% (same bug found and
+      // fixed in Helper Form 4 / MetabRenalVascEyeLog.jsx, 2026-08-23 — the
+      // UI shows only a Submit button at 100% completion, no separate Save,
+      // so the stale isSaved=true from an earlier save skipped saving the
+      // clinician's latest edits before the day locked).
+      await handleSave({ force: true });
       const now = new Date().toISOString();
       await api.patch(`/infect-gi-hema/${enrollmentId}/${activeDay}/submit`, {
         submission_status: STATUS.SUBMITTED,
@@ -1018,7 +1103,9 @@ export default function InfectGIHemaLog() {
         blood_culture_positive: d.blood_culture_positive ?? null,
         antibiotics: d.antibiotics ?? null, lp_done: d.lp_done ?? null,
         meningitis: d.meningitis ?? null, meningitis_type: d.meningitis_type ?? null,
-        clabsi: d.clabsi ?? null, vap: d.vap ?? null });
+        clabsi: d.clabsi ?? null, vap: d.vap ?? null,
+        sepsis_screen_sent: d.sepsis_screen_sent ?? null,
+        sepsis_screens: parseJsonArrayIg(d.sepsis_screens_json) || [blankSepsisScreen()] });
       setGiData({ npo: d.npo ?? null, men: d.men ?? null,
         enteral_feeds_received: d.enteral_feeds_received ?? null,
         feed_type: d.feed_type
@@ -1430,6 +1517,87 @@ export default function InfectGIHemaLog() {
                       </div>
                     </div>
                   )}
+
+                  {/* Not part of the original numbered CRF sequence — added
+                      2026-08-23 so Form H's Infection auto-fill can
+                      distinguish clinical vs. screen-positive vs.
+                      culture-positive sepsis (PI-specified rule) without a
+                      fixed antibiotic-duration proxy for screen result. */}
+                  <div className="rcn-subsection">
+                    <div className="rcn-yn-list">
+                      <YNRow label="Sepsis Screen Sent" value={infData.sepsis_screen_sent}
+                        onChange={v => {
+                          setInf("sepsis_screen_sent", v);
+                          if (v !== true) setInfData(p => ({ ...p, sepsis_screens: [blankSepsisScreen()] }));
+                        }} disabled={!isFieldEditable} />
+                    </div>
+
+                    {sepsisScreenSentYes && (
+                      <div className="mml-subblock">
+                        <div className="mml-subblock-head">
+                          <span className="mml-subblock-code">Sepsis Screens</span>
+                        </div>
+                        {(infData.sepsis_screens?.length ? infData.sepsis_screens : [blankSepsisScreen()]).map((entry, idx) => (
+                          <div className="mml-entry" key={entry.id || idx}>
+                            <div className="mml-entry-head">
+                              <div className="mml-entry-meta">
+                                {infData.sepsis_screens.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
+                                <label className="mml-meta-field">
+                                  <span>Date</span>
+                                  <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
+                                    disabled={!isFieldEditable} onChange={e => setSepsisScreenField(idx, "date", e.target.value)} />
+                                </label>
+                                <label className="mml-meta-field">
+                                  <span>Time</span>
+                                  <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
+                                    disabled={!isFieldEditable} onChange={e => setSepsisScreenField(idx, "time", e.target.value)} />
+                                </label>
+                              </div>
+                              {infData.sepsis_screens.length > 1 && isFieldEditable && (
+                                <button type="button" className="mml-remove-btn" title="Remove this screen"
+                                  onClick={() => removeSepsisScreen(idx)}><Trash2 size={14} /></button>
+                              )}
+                            </div>
+                            <div className="rcn-grid-3">
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Type</span>
+                                <select className="rcn-status-select" value={entry.type || "CRP"}
+                                  disabled={!isFieldEditable}
+                                  onChange={e => setSepsisScreenField(idx, "type", e.target.value)}>
+                                  <option value="CRP">CRP</option>
+                                  <option value="PCT">PCT</option>
+                                  <option value="Hematological">Hematological</option>
+                                </select>
+                              </div>
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Value</span>
+                                <div className="rcn-num-input" style={{ width: 140 }}>
+                                  <input type="number" step="0.01" value={entry.value ?? ""}
+                                    disabled={!isFieldEditable}
+                                    onChange={e => setSepsisScreenField(idx, "value", e.target.value === "" ? "" : Number(e.target.value))} />
+                                </div>
+                              </div>
+                              <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
+                                <span className="rcn-yn-label">Result</span>
+                                <select className="rcn-status-select" value={entry.result || ""}
+                                  disabled={!isFieldEditable}
+                                  onChange={e => setSepsisScreenField(idx, "result", e.target.value)}>
+                                  <option value="">Select</option>
+                                  <option value="Positive">Positive</option>
+                                  <option value="Negative">Negative</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {isFieldEditable && (
+                          <button type="button" className="mml-add-btn" onClick={addSepsisScreen}>
+                            <Plus size={14} /> Add screen
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1721,6 +1889,11 @@ export default function InfectGIHemaLog() {
                       { reason: overrideReason.trim(), hours: 2 }
                     );
                     setOverrideUntil(res?.data?.override_unlocked_until || null);
+                    // isFieldEditable also requires isEditing when isSaved is
+                    // true (always true for a submitted day) — without this,
+                    // the override succeeds server-side but fields still
+                    // render read-only and every setter silently no-ops.
+                    setIsEditing(true);
                     setOverrideReason("");
                     setShowOverrideModal(false);
                     setMessage(`🔓 Day ${activeDay} reopened for 2 hours`);
@@ -1782,9 +1955,21 @@ export default function InfectGIHemaLog() {
             )}
           </>
         ) : isSubmitted ? (
-          <div className="rcn-locked-badge">
-            <Lock size={13} /> Day {activeDay} Locked
-          </div>
+          <>
+            <div className="rcn-locked-badge">
+              <Lock size={13} /> Day {activeDay} Locked
+            </div>
+            {isSuperadmin && (
+              <button
+                type="button"
+                className="rcn-override-btn"
+                onClick={() => setShowOverrideModal(true)}
+                title="Reopen this submitted day temporarily for a correction"
+              >
+                <Unlock size={13}/> Override &amp; Unlock
+              </button>
+            )}
+          </>
         ) : isFutureActiveDay ? (
           <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
             <Lock size={13} /> Day {activeDay} Not Available Yet

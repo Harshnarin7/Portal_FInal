@@ -170,6 +170,13 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8am_2pm DOUBLE PRECISION",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_2pm_8pm DOUBLE PRECISION",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8pm_8am DOUBLE PRECISION",
+    # Superadmin override: temporarily reopens a locked (past/submitted) day
+    # for correction — same columns as resp_cv_neuro_day_logs, added here
+    # 2026-08-23 alongside the matching backend endpoint (this form never
+    # had one despite the frontend already calling it).
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS override_by VARCHAR",
 ]
 
 MINIMAL_MONITORING_TABLE_PATCHES = [
@@ -377,6 +384,19 @@ INFECT_GI_HEMA_COLUMN_PATCHES = [
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS iv_fluids BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cholestasis BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS hb_value DOUBLE PRECISION",
+    # Superadmin override: temporarily reopens a locked (past/submitted) day
+    # for correction — same columns as resp_cv_neuro_day_logs, added here
+    # 2026-08-23 alongside the matching backend endpoint (this form never
+    # had one despite the frontend already calling it).
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS override_by VARCHAR",
+    # Sepsis screen capture — added 2026-08-23 to support Form H's Infection
+    # auto-fill distinguishing clinical vs. screen-positive vs.
+    # culture-positive sepsis (PI-specified rule, no fixed antibiotic-duration
+    # proxy for screen result — needs the actual screen entered).
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS sepsis_screen_sent BOOLEAN",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS sepsis_screens_json TEXT",
 ]
 # Form H (Neonatal Morbidities) — full CRF field set, applied 2026-07-28
 # via migrate_neonatal_morbidities.sql; mirrored here so future fresh/stale
@@ -781,6 +801,9 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS discharge_hc DOUBLE PRECISION",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS total_los INTEGER",
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS infections JSON",
+    # Infection-flag review acknowledgment — added 2026-08-23 alongside the
+    # Infection auto-fill's detection-only advisory system.
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS infection_flags_reviewed JSON",
 ]
 # Form I (Study Outcome Assessment) full CRF — sections I.1-I.6, added 2026-07-28
 STUDY_OUTCOMES_COLUMN_PATCHES = [

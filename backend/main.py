@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from datetime import datetime, date, time, timedelta
 import random, string
+import json
 from models import RespiratoryLog
 from auth import hash_password, verify_password
 from core.security import create_access_token, create_refresh_token, verify_refresh_token
@@ -1880,6 +1881,772 @@ def get_vascular_access_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/metabolic-prefill/{enrollment_id}")
+def get_metabolic_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Metabolic Disturbances section (H4.1, CRF #95-112). The day-log's
+    glucose/electrolyte fields are only populated on a day when a reading
+    is actually out of range (see MetabRenalVascEyeDayLog's column
+    comments), so a non-blank value on any day already means "this
+    happened at least once" — sodium/potassium/ionized-calcium values are
+    also numerically thresholded here (same cutoffs as the day-log
+    comments) to split into the hypo-/hyper- checkboxes Form H uses.
+    Symptom/status detail (#106-111) and the osteopenia lab values
+    (#113-115 — ALP/total Ca/phosphorus) have no matching day-log source
+    and are never touched here; only fields with a genuine source are
+    returned. Same never-overwrite discipline as vascular-access-prefill:
+    the frontend only fills fields the clinician hasn't touched yet."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def numeric_values(attr):
+        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
+
+    def sum_int(attr):
+        total = 0
+        for l in logs:
+            try:
+                total += int(getattr(l, attr) or 0)
+            except (TypeError, ValueError):
+                pass
+        return total
+
+    glucose_low = numeric_values("lowest_glucose")
+    glucose_high = numeric_values("highest_glucose")
+    sodium_vals = numeric_values("sodium_value")
+    potassium_vals = numeric_values("potassium_value")
+    calcium_vals = numeric_values("ionized_calcium_value")
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hypoglycemia": "Yes" if glucose_low else "No",
+        "hypoglycemia_episodes": sum_int("hypoglycemia_episodes"),
+        "hypoglycemia_lowest": min(glucose_low) if glucose_low else None,
+        "hypoglycemia_rx": "Yes" if any_day("hypoglycemia_rx") else "No",
+        "hypoglycemia_rx_duration": count_days("hypoglycemia_rx"),
+        "hyperglycemia": "Yes" if glucose_high else "No",
+        "hyperglycemia_highest": max(glucose_high) if glucose_high else None,
+        "hyperglycemia_rx": "Yes" if any_day("insulin") else "No",
+        "metabolic_acidosis": "Yes" if any_day("metabolic_acidosis") else "No",
+        "dyselectrolytemia": "Yes" if (sodium_vals or potassium_vals or calcium_vals) else "No",
+        "dyselectro_na": bool(sodium_vals),
+        "dyselectro_k": bool(potassium_vals),
+        "dyselectro_ca": bool(calcium_vals),
+        "hyponatremia": any(v < 135 for v in sodium_vals),
+        "hypernatremia": any(v > 142 for v in sodium_vals),
+        "hypokalemia": any(v < 3.5 for v in potassium_vals),
+        "hyperkalemia": any(v > 6 for v in potassium_vals),
+        "hypocalcemia": any(v < 0.9 for v in calcium_vals),
+        "hypercalcemia": any(v > 1.2 for v in calcium_vals),
+        "osteopenia": "Yes" if any_day("osteopenia_suspected") else "No",
+    }
+
+
+@app.get("/neonatal-morbidities/renal-prefill/{enrollment_id}")
+def get_renal_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Renal / AKI section (H7.1, CRF #173-178).
+
+    - aki / aki_dialysis: direct any-day booleans (aki_suspected,
+      dialysis_crrt).
+    - aki_stage1/2/3: derived from the day log's KDIGO stage string,
+      checked against both the current aki_stage column and the legacy
+      aki_kdigo_stage column (older records may only have the latter).
+    - aki_peak_creatinine: highest creatinine recorded across the
+      admission, preferring the current creatinine_value column per row
+      and falling back to the legacy numeric creatinine column when that
+      row's creatinine_value isn't a parseable number (e.g. "Not Tested").
+    - aki_date: earliest NICU day AKI was suspected, converted to a
+      calendar date via NICUAdmission.day1_date — only returned when
+      day1_date has actually been set for this baby.
+    - aki_oliguria: intentionally NEVER auto-filled. The only related
+      day-log column (urine_output_low) is explicitly legacy/superseded,
+      and computing true oliguria needs a rate threshold against body
+      weight that isn't available from this table — always left for
+      manual clinical entry."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def stage_match(stage_num):
+        target = f"stage {stage_num}"
+        return any(
+            (l.aki_stage or "").strip().lower() == target
+            or (l.aki_kdigo_stage or "").strip().lower() == target
+            for l in logs
+        )
+
+    creatinine_values = []
+    for l in logs:
+        v = to_float(l.creatinine_value)
+        if v is None:
+            v = l.creatinine
+        if v is not None:
+            creatinine_values.append(v)
+
+    aki_date = None
+    aki_days = [l.nicu_day for l in logs if l.aki_suspected is True]
+    if aki_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            aki_date = (nicu.day1_date + timedelta(days=min(aki_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "aki": "Yes" if any_day("aki_suspected") else "No",
+        "aki_date": aki_date,
+        "aki_stage1": stage_match(1),
+        "aki_stage2": stage_match(2),
+        "aki_stage3": stage_match(3),
+        "aki_peak_creatinine": max(creatinine_values) if creatinine_values else None,
+        "aki_dialysis": "Yes" if any_day("dialysis_crrt") else "No",
+    }
+
+
+@app.get("/neonatal-morbidities/heme-prefill/{enrollment_id}")
+def get_heme_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Infect/GI/Hema helper daily logs into Form H's
+    Hematology section (H6, CRF #147-172).
+
+    - jaundice_intervention / phototherapy / dvet ("Exchange transfusion")
+      / prbc / platelets / ffp_cryo: direct any-day booleans from the day
+      log's own identically-scoped fields (jaundice, phototherapy,
+      exchange_transfusion, prbc_transfusion, platelet_transfusion,
+      ffp_cryo).
+    - peak_tsb: highest value recorded across the admission.
+    - lowest_hb: lowest value recorded across the admission — filled even
+      though the parent "Anemia" Yes/No is never auto-derived (see below),
+      so it's ready the moment a clinician marks Anemia Yes.
+    - dvet_number / prbc_number / platelet_number: day-count of days the
+      respective boolean was true, as a proxy for "number of transfusions/
+      exchanges" — the day log can't tell multiple same-day events apart
+      from one, so this can undercount, same caveat as Metabolic's
+      hypoglycemia_rx_duration.
+    - jaundice_onset: earliest NICU day jaundice was true, converted to a
+      calendar date via NICUAdmission.day1_date — same pattern as Renal's
+      aki_date, only returned when day1_date has been set.
+    - jaundice_type (Conjugated/Unconjugated), bind, ivig, jaundice_etiology,
+      anemia (the Yes/No itself — no fixed Hb cutoff works across every
+      gestation/postnatal age, this needs real clinical judgement),
+      anemia_onset/etiology/symptoms, prbc_volume, cmv_screened,
+      leukoreduced, irradiated: all intentionally never auto-filled — no
+      day-log source, or (for anemia) a diagnosis call the day log's raw
+      Hb number can't substitute for."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    tsb_values = [l.peak_tsb for l in logs if l.peak_tsb is not None]
+    hb_values = [l.hb_value for l in logs if l.hb_value is not None]
+
+    jaundice_onset = None
+    jaundice_days = [l.nicu_day for l in logs if l.jaundice is True]
+    if jaundice_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            jaundice_onset = (nicu.day1_date + timedelta(days=min(jaundice_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "jaundice_intervention": "Yes" if any_day("jaundice") else "No",
+        "jaundice_onset": jaundice_onset,
+        "peak_tsb": max(tsb_values) if tsb_values else None,
+        "phototherapy": "Yes" if any_day("phototherapy") else "No",
+        "dvet": "Yes" if any_day("exchange_transfusion") else "No",
+        "dvet_number": count_days("exchange_transfusion") or None,
+        "lowest_hb": min(hb_values) if hb_values else None,
+        "prbc": "Yes" if any_day("prbc_transfusion") else "No",
+        "prbc_number": count_days("prbc_transfusion") or None,
+        "platelets": "Yes" if any_day("platelet_transfusion") else "No",
+        "platelet_number": count_days("platelet_transfusion") or None,
+        "ffp_cryo": "Yes" if any_day("ffp_cryo") else "No",
+        "ffp_number": count_days("ffp_cryo") or None,
+    }
+
+
+@app.get("/neonatal-morbidities/neuro-prefill/{enrollment_id}")
+def get_neuro_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Neurological section (H1, CRF #1-34).
+
+    The day log only records "did cranial USG/EEG show X on this day" as a
+    flat boolean, with no side and no grade — so only the top-level "was X
+    ever present" Yes/No for each of IVH / cPVL / Ventriculomegaly /
+    Seizures can be safely derived. Everything that requires reading an
+    actual scan or EEG trace (IVH/PVL side, grade, per-side date/age;
+    ventriculomegaly severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG
+    result, status epilepticus, AEDs, etiology) stays manual — the day log
+    has no equivalent field, and guessing a grade or laterality from a
+    single "yes/no" flag would be actively wrong, not just incomplete.
+
+    - ivh_present / pvl_present / ventriculomegaly_present / seizures:
+      any-day booleans from ivh / cpvl_confirmed / ventriculomegaly /
+      clinical_seizures respectively.
+    - seizure_date: the one Neuro onset date Form H stores as a single
+      (non-side-specific) field, so — unlike IVH/PVL's per-side dates —
+      it can use the same cross-table day1_date + earliest-true-day pattern
+      as Renal's aki_date / Heme's jaundice_onset.
+    - eeg_seizures and aeds_given (both booleans on the day log) are
+      deliberately not mapped to anything: Form H's `eeg` field is a
+      Not done/Normal/Abnormal select, a different question than "did the
+      EEG show a seizure", and aed_number/aed_type need the actual drugs
+      given, which the day log doesn't capture.
+    - non_ivh_ich on the day log has no corresponding Form H field at all
+      (Form H tracks non_ivh_ich but it isn't rendered/used in the current
+      H1 JSX), so it's left out entirely rather than filling a field
+      nothing displays.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    seizure_date = None
+    seizure_days = [l.nicu_day for l in logs if l.clinical_seizures is True]
+    if seizure_days:
+        nicu = (
+            db.query(NICUAdmission)
+            .filter(NICUAdmission.enrollment_id == enrollment_id)
+            .first()
+        )
+        if nicu and nicu.day1_date:
+            seizure_date = (nicu.day1_date + timedelta(days=min(seizure_days) - 1)).isoformat()
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "ivh_present": "Yes" if any_day("ivh") else "No",
+        "pvl_present": "Yes" if any_day("cpvl_confirmed") else "No",
+        "ventriculomegaly_present": "Yes" if any_day("ventriculomegaly") else "No",
+        "seizures": "Yes" if any_day("clinical_seizures") else "No",
+        "seizure_date": seizure_date,
+    }
+
+
+@app.get("/neonatal-morbidities/gi-prefill/{enrollment_id}")
+def get_gi_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Infect/GI/Hema helper daily logs into Form H's
+    Gastrointestinal section (H3, CRF #68-94).
+
+    - feed_intolerance / pn / probiotic / cholestasis: direct any-day
+      booleans from the day log's identically-scoped fields.
+    - nec: any-day `nec_suspected` — same "suspected flag drives the
+      top-level Yes/No, clinician reviews/can uncheck" convention already
+      used for Renal's AKI (`aki_suspected`).
+    - nec_date / nec_age_days: derived from the earliest day
+      `nec_suspected` was true. nec_date uses the usual
+      NICUAdmission.day1_date cross-table pattern; nec_age_days is just
+      that same earliest day minus 1 (nicu_day 1 == age 0), no join
+      needed — a NICU day number *is* an age in days once day1 is fixed.
+    - nec_stage is deliberately NOT filled: the day log's
+      `nec_confirmed_stage` is coarse ("Stage I/II/III") while Form H's
+      nec_stage is the 6-way Bell staging (IA/IB/IIA/IIB/IIIA/IIIB) —
+      guessing the A/B subdivision would be inventing data, not deriving it.
+      nec_surgery/nec_surgery_type/nec_resection(_length)/nec_stoma have no
+      day-log equivalent at all (the log only flags NEC was suspected, not
+      what was done about it).
+    - age_first_feed: earliest day `enteral_feeds_received` was true,
+      same earliest-day-minus-1 pattern as nec_age_days.
+    - pdhm_days / ebm_days / fm_days: day log's `feed_type` is a
+      comma-separated string per day (e.g. "PDHM,EBM") — same format as
+      `support_modes` elsewhere in this file — so each is a day-count of
+      how many rows list that feed type, not a simple any-day boolean.
+    - pn_days: day-count of `parenteral_nutrition` being true, same
+      day-count-as-proxy convention as Heme's dvet_number/prbc_number
+      (can undercount multiple same-day events, but there's only ever one
+      PN status per day here so it's exact, not just a proxy).
+    - age_full_feeds is deliberately NOT filled: the day log has no
+      "full feeds achieved" flag, only raw ml/kg/day volumes
+      (`cumulative_feed_volume`/`feed_volume`), and picking a volume
+      threshold to call "full feeds" would be a clinical/protocol
+      judgment call this endpoint shouldn't make.
+    - pn_adverse (+ its Cholestasis/Electrolyte/Acidosis/Hypercapnia/Other
+      breakdown), probiotic strain type, Lactobacillus/Bifidobacterium,
+      tpn_associated, max_direct_bilirubin, and the feed-intolerance
+      symptom checkboxes (#69) all have no day-log source — the log only
+      has flat top-level booleans, never this level of detail.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def count_days_with_feed_type(token):
+        count = 0
+        for l in logs:
+            types = [t.strip() for t in (l.feed_type or "").split(",") if t.strip()]
+            if token in types:
+                count += 1
+        return count
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    nec_date = None
+    nec_age_days = None
+    nec_days = [l.nicu_day for l in logs if l.nec_suspected is True]
+    if nec_days:
+        nec_age_days = min(nec_days) - 1
+        if nicu and nicu.day1_date:
+            nec_date = (nicu.day1_date + timedelta(days=nec_age_days)).isoformat()
+
+    age_first_feed = None
+    feed_days = [l.nicu_day for l in logs if l.enteral_feeds_received is True]
+    if feed_days:
+        age_first_feed = min(feed_days) - 1
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "feed_intolerance": "Yes" if any_day("feed_intolerance") else "No",
+        "nec": "Yes" if any_day("nec_suspected") else "No",
+        "nec_date": nec_date,
+        "nec_age_days": nec_age_days,
+        "age_first_feed": age_first_feed,
+        "pdhm_days": count_days_with_feed_type("PDHM") or None,
+        "ebm_days": count_days_with_feed_type("EBM") or None,
+        "fm_days": count_days_with_feed_type("FM") or None,
+        "pn": "Yes" if any_day("parenteral_nutrition") else "No",
+        "pn_days": count_days("parenteral_nutrition") or None,
+        "probiotic": "Yes" if any_day("probiotic") else "No",
+        "cholestasis": "Yes" if any_day("cholestasis") else "No",
+    }
+
+
+@app.get("/neonatal-morbidities/rop-thermoreg-prefill/{enrollment_id}")
+def get_rop_thermoreg_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Metab/Renal/Vasc/Eye helper daily logs into Form H's
+    Ophthalmology (H8, CRF #179-196) and Thermoregulation (H9, CRF
+    #197-205) sections.
+
+    Thermoregulation:
+    - hypothermia / hyperthermia: direct any-day booleans.
+    - hypothermia_lowest_temp / hyperthermia_temp: admission-wide MIN/MAX
+      of `axillary_temperature` (stored as a string but a genuine numeric
+      °C reading per day, per MetabRenalVascEyeLog.jsx's NumRow usage) —
+      same admission-wide-extremum convention as Renal's peak creatinine
+      / Heme's lowest Hb, not conditioned on which day the boolean was
+      also true.
+    - Severity (mild/moderate/severe), location (DR/Transport/NICU), and
+      etiology (sepsis/environment/immaturity/IVH/other) checkboxes have
+      no day-log source. The day log does have its own `location` field
+      (DR/NICU/Step-down/Nursery/KMC-N/Other), but that tracks where the
+      baby was *that day* in general — using it to infer where a specific
+      thermal event happened would be an inference the data doesn't
+      actually support, not a derivation.
+
+    Ophthalmology / ROP:
+    - rop_screened / rop: direct any-day booleans from the day log's
+      `rop_screened` / `rop_detected`.
+    - rop_first_screen_date / rop_diagnosis_date: earliest day
+      `rop_screened` / `rop_detected` was true, via the usual
+      NICUAdmission.day1_date cross-table pattern.
+    - rop_method, rop_side, and every per-eye field (stage/plus/zone/
+      A-ROP/treatment/treatment-type, right and left) are deliberately
+      NOT filled: the day log's `rop_stage`/`plus_disease`/`rop_treatment`
+      are single flat fields with no left/right split, so there's no way
+      to know which eye (or both) they refer to — same side-ambiguity
+      reasoning as IVH/PVL in the Neuro domain. Zone and A-ROP have no
+      day-log field at all.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def numeric_values(attr):
+        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    def earliest_date(attr):
+        days = [l.nicu_day for l in logs if getattr(l, attr) is True]
+        if not days or not nicu or not nicu.day1_date:
+            return None
+        return (nicu.day1_date + timedelta(days=min(days) - 1)).isoformat()
+
+    temps = numeric_values("axillary_temperature")
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hypothermia": "Yes" if any_day("hypothermia") else "No",
+        "hypothermia_lowest_temp": min(temps) if temps else None,
+        "hyperthermia": "Yes" if any_day("hyperthermia") else "No",
+        "hyperthermia_temp": max(temps) if temps else None,
+        "rop_screened": "Yes" if any_day("rop_screened") else "No",
+        "rop_first_screen_date": earliest_date("rop_screened"),
+        "rop": "Yes" if any_day("rop_detected") else "No",
+        "rop_diagnosis_date": earliest_date("rop_detected"),
+    }
+
+
+@app.get("/neonatal-morbidities/cv-prefill/{enrollment_id}")
+def get_cv_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Cardiovascular section (H5, CRF #117-146; H5.1 Structural Heart
+    Disease has no day-log source at all and is skipped entirely).
+
+    - hs_pda / shock / inotropes: direct any-day booleans from the day
+      log's hs_pda / shock / vasoactive_support.
+    - pda_medical_rx: any-day boolean from the day log's own
+      `pda_medical_rx` column — note this column is marked legacy/
+      superseded in the day log's own schema (no longer part of the
+      current numbered field sequence), so it may simply be blank on
+      every row logged after the helper-form redesign. Using it is safe
+      either way (a blank/never-True column just contributes nothing),
+      but don't expect it to catch newer entries.
+    - fluid_bolus / fluid_bolus_number: the day log's `fluid_bolus` is a
+      free-text description ("10ml/kg NS"), not a boolean or count —
+      "Yes" is derived from any day having a non-blank value, and the
+      count is the number of days with a non-blank value (the log can't
+      distinguish two boluses given the same day from one, same
+      day-count-as-proxy caveat as other domains' *_number fields).
+    - inotrope_duration: day-count of vasoactive_support being true.
+    - inotrope_dopa/dobu/adr/nadr/milri/vaso: whether each drug name
+      ("Dopamine"/"Dobutamine"/"Adrenaline"/"Noradrenaline"/"Milrinone"/
+      "Vasopressin") ever appears in the day log's comma-separated
+      `vasoactive_drugs` field — same CSV-token technique as GI's
+      pdhm/ebm/fm_days, applied here to a boolean-per-token instead of a
+      day-count.
+    - Everything else has no day-log source: PDA diagnosis method
+      (clinical/echo/both) and all clinical-exam/echo-measurement detail
+      (murmur, TDD, peak velocity, pattern, shunt, LA:Ao, systemic steal,
+      LPA velocity — `echo_done` only confirms an echo happened, not what
+      it showed), PDA agent/courses/dose/intervention/ligation-or-device
+      age, hypotension (the day log has no hypotension field at all, only
+      shock), SBP/DBP/MAP (those live in the Minimal Monitoring helper
+      log, a 4th table outside this auto-fill project's scope), VIS score
+      (needs dose-weighted values the day log doesn't capture), and
+      hydrocortisone-for-BP + its timing (the day log's
+      `postnatal_steroids` is a BPD/lung indication, a different clinical
+      purpose — reusing it here would misrepresent why the drug was
+      given).
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    bolus_days = [l for l in logs if (l.fluid_bolus or "").strip()]
+
+    all_drug_tokens = set()
+    for l in logs:
+        all_drug_tokens.update(
+            t.strip() for t in (l.vasoactive_drugs or "").split(",") if t.strip()
+        )
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "hs_pda": "Yes" if any_day("hs_pda") else "No",
+        "pda_medical_rx": "Yes" if any_day("pda_medical_rx") else "No",
+        "shock": "Yes" if any_day("shock") else "No",
+        "fluid_bolus": "Yes" if bolus_days else "No",
+        "fluid_bolus_number": len(bolus_days) or None,
+        "inotropes": "Yes" if any_day("vasoactive_support") else "No",
+        "inotrope_duration": count_days("vasoactive_support") or None,
+        "inotrope_dopa": "Dopamine" in all_drug_tokens,
+        "inotrope_dobu": "Dobutamine" in all_drug_tokens,
+        "inotrope_adr": "Adrenaline" in all_drug_tokens,
+        "inotrope_nadr": "Noradrenaline" in all_drug_tokens,
+        "inotrope_milri": "Milrinone" in all_drug_tokens,
+        "inotrope_vaso": "Vasopressin" in all_drug_tokens,
+    }
+
+
+def _consecutive_day_runs(days):
+    """Collapses a sorted, deduplicated list of NICU day numbers into
+    maximal consecutive runs, e.g. [4,5,6,9,10] -> [(4,6), (9,10)]."""
+    if not days:
+        return []
+    runs = []
+    start = prev = days[0]
+    for d in days[1:]:
+        if d == prev + 1:
+            prev = d
+            continue
+        runs.append((start, prev))
+        start = prev = d
+    runs.append((start, prev))
+    return runs
+
+
+@app.get("/neonatal-morbidities/infection-detect/{enrollment_id}")
+def get_infection_detect(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Detects candidate infection episodes in the Infect/GI/Hema helper
+    daily logs for Form H's H11 Infection section, using the PI-specified
+    trigger rule (2026-08-23) — unlike every other prefill endpoint in
+    this file, this NEVER fills a Form H field directly. Form H's
+    Infection section is a dynamic array of clinician-judged episodes
+    with no day-log analog for "which episode does this day belong to",
+    and episode-boundary determination ("fresh episode vs. continuation
+    of one already being treated") is an explicit clinical judgment call
+    per the PI — not something to infer from daily flags. This endpoint
+    only surfaces candidate windows for review; the frontend uses them to
+    (a) show an advisory banner and (b) optionally pre-fill a *single*
+    new infection entry when a clinician manually clicks "Add Infection
+    for this", never auto-creating entries on its own.
+
+    Trigger rule, in priority order (culture wins over screen wins over
+    duration-based clinical diagnosis, since a positive test is a harder
+    fact than a duration pattern):
+    1. blood_culture_positive = True on any day -> "culture" window.
+    2. A sepsis_screens_json entry with result="Positive" on a day not
+       already covered by a culture window -> "screen" window. (Screen
+       result is captured directly by the nurse per screen — CRP/PCT/
+       Hematological — deliberately NOT inferred from antibiotic
+       duration, since the PI confirmed duration bands aren't fixed
+       enough to serve as a screen-result proxy.)
+    3. antibiotics = True for >5 continuous days, on days not already
+       covered by a culture or screen window -> "clinical" window.
+    4. meningitis = True (or meningitis_type set) -> "meningitis" window.
+       Form H currently has no rendered field for meningitis at all
+       (dead validateMeningitis/formData.meningitis code, no JSX renders
+       it) so this can only ever be advisory, never pre-filled.
+    5. clabsi = True -> "clabsi" window.
+    6. vap = True -> "vap" window.
+
+    Each window is a maximal run of consecutive NICU days for that
+    trigger (via NICUAdmission.day1_date, same cross-table pattern as
+    every other domain's onset dates) — never merged across different
+    trigger types, since that merging is exactly the episode-boundary
+    judgment call the PI said can't be ruled.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    def date_for(day):
+        if not nicu or not nicu.day1_date:
+            return None
+        return (nicu.day1_date + timedelta(days=day - 1)).isoformat()
+
+    def make_window(signature, reason, suggested_type, start, end, **extra):
+        return {
+            "signature": signature,
+            "reason": reason,
+            "suggested_type": suggested_type,
+            "nicu_day_start": start,
+            "nicu_day_end": end,
+            "date_start": date_for(start),
+            "date_end": date_for(end),
+            **extra,
+        }
+
+    windows = []
+
+    culture_days = sorted({l.nicu_day for l in logs if l.blood_culture_positive is True})
+    for start, end in _consecutive_day_runs(culture_days):
+        windows.append(make_window(
+            f"culture:{start}-{end}", "Blood culture positive", "culture", start, end,
+        ))
+
+    screen_positive_days = set()
+    for l in logs:
+        try:
+            screens = json.loads(l.sepsis_screens_json) if l.sepsis_screens_json else []
+        except (ValueError, TypeError):
+            screens = []
+        if any((s or {}).get("result") == "Positive" for s in screens):
+            screen_positive_days.add(l.nicu_day)
+    screen_only_days = sorted(screen_positive_days - set(culture_days))
+    for start, end in _consecutive_day_runs(screen_only_days):
+        windows.append(make_window(
+            f"screen:{start}-{end}", "Sepsis screen positive", "screen", start, end,
+        ))
+
+    covered_days = set(culture_days) | screen_positive_days
+    antibiotic_days = sorted({l.nicu_day for l in logs if l.antibiotics is True})
+    for start, end in _consecutive_day_runs(antibiotic_days):
+        if (end - start + 1) > 5 and not (set(range(start, end + 1)) & covered_days):
+            windows.append(make_window(
+                f"antibiotics:{start}-{end}", "Antibiotics >5 continuous days", "clinical", start, end,
+            ))
+
+    meningitis_days = sorted({
+        l.nicu_day for l in logs
+        if l.meningitis is True or (l.meningitis_type or "").strip()
+    })
+    for start, end in _consecutive_day_runs(meningitis_days):
+        windows.append(make_window(
+            f"meningitis:{start}-{end}", "Meningitis", None, start, end, meningitis=True,
+        ))
+
+    clabsi_days = sorted({l.nicu_day for l in logs if l.clabsi is True})
+    for start, end in _consecutive_day_runs(clabsi_days):
+        windows.append(make_window(
+            f"clabsi:{start}-{end}", "CLABSI", None, start, end, clabsi=True,
+        ))
+
+    vap_days = sorted({l.nicu_day for l in logs if l.vap is True})
+    for start, end in _consecutive_day_runs(vap_days):
+        windows.append(make_window(
+            f"vap:{start}-{end}", "VAP", None, start, end, vap=True,
+        ))
+
+    windows.sort(key=lambda w: w["nicu_day_start"])
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "windows": windows,
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
@@ -3206,8 +3973,11 @@ def update_resp_cv_neuro_day(
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
 
-    # Block edits on submitted days
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock) — a stale/expired override
+    # doesn't count, so this is re-checked on every write, not just once.
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -3247,7 +4017,86 @@ def submit_resp_cv_neuro_day(
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 
-#  -  PATCH discharge  - 
+
+class OverrideUnlockRequest(BaseModel):
+    reason: str
+    hours: int = 2
+
+
+def _override_unlock_day(
+    db: Session,
+    model,
+    table_name: str,
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    current_user: User,
+):
+    """Shared logic behind the /override-unlock endpoints on Helper Forms
+    2/3/4 (Resp-CV-Neuro, Infect-GI-Hema, Metab-Renal-Vasc-Eye) —
+    superadmin-only, time-boxed reopen of a locked day (past-calendar OR
+    submitted), with a mandatory reason recorded both on the row
+    (override_reason/override_by/override_unlocked_until) and in the audit
+    trail. The matching PUT endpoint for each form checks
+    override_unlocked_until as an alternative to "not submitted" before
+    accepting an edit while this window is open — see its "Block edits"
+    guard. Frontend modals for all three forms already called this
+    endpoint before it existed; only the backend side and the trigger
+    button for a *submitted* (not just past-calendar-locked) day were
+    missing until 2026-08-23."""
+    if not is_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    reason = (data.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=400, detail="A reason (at least 5 characters) is required")
+    if not (1 <= data.hours <= 24):
+        raise HTTPException(status_code=400, detail="hours must be between 1 and 24")
+
+    require_enrollment_access(enrollment_id, db, current_user)
+    record = (
+        db.query(model)
+        .filter(model.enrollment_id == enrollment_id, model.nicu_day == nicu_day)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Day record not found")
+
+    old_values = row_snapshot(record)
+    until = datetime.utcnow() + timedelta(hours=data.hours)
+    record.override_unlocked_until = until
+    record.override_reason = reason
+    record.override_by = current_user.username
+    db.flush()
+    record_audit(
+        db,
+        user_id=current_user.id,
+        username=current_user.username,
+        action="OVERRIDE_UNLOCK",
+        table_name=table_name,
+        record_id=record.id,
+        enrollment_id=enrollment_id,
+        old_values=old_values,
+        new_values={**row_snapshot(record), "reason": reason, "hours": data.hours},
+    )
+    db.commit()
+    return {"override_unlocked_until": until.isoformat()}
+
+
+@app.patch("/resp-cv-neuro/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_resp_cv_neuro_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, RespCVNeuroDayLog, "resp_cv_neuro_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
+
+
+#  -  PATCH discharge  -
 @app.patch("/enrollment/{enrollment_id}/discharge")
 def discharge_enrollment(
     enrollment_id: str,
@@ -3514,7 +4363,10 @@ def update_infect_gi_hema_day(
     )
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock).
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
 
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -3526,7 +4378,7 @@ def update_infect_gi_hema_day(
     return record
 
 
-#  -  PATCH submit day  - 
+#  -  PATCH submit day  -
 @app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/submit")
 def submit_infect_gi_hema_day(
     enrollment_id: str,
@@ -3553,6 +4405,22 @@ def submit_infect_gi_hema_day(
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+@app.patch("/infect-gi-hema/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_infect_gi_hema_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, InfectGIHemaDayLog, "infect_gi_hema_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
+
+
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 3. ADD TO main.py  (imports + routes)
 #
@@ -3723,14 +4591,17 @@ def update_metab_renal_vasc_eye_day(
     ).first()
     if not record:
         raise HTTPException(status_code=404, detail="Record not found  -  use POST to create")
-    if record.submission_status == "submitted":
+    # Block edits on submitted days, unless a superadmin override is
+    # currently active (see /override-unlock).
+    override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
+    if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
             setattr(record, key, value)
     db.commit(); db.refresh(record); return record
- 
- 
+
+
 @app.patch("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}/submit")
 def submit_metab_renal_vasc_eye_day(
     enrollment_id: str, nicu_day: int,
@@ -3750,6 +4621,20 @@ def submit_metab_renal_vasc_eye_day(
     record.submitted_by      = data.submitted_by
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
+
+
+@app.patch("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}/override-unlock")
+def override_unlock_metab_renal_vasc_eye_day(
+    enrollment_id: str,
+    nicu_day: int,
+    data: OverrideUnlockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return _override_unlock_day(
+        db, MetabRenalVascEyeDayLog, "metab_renal_vasc_eye_day_logs",
+        enrollment_id, nicu_day, data, current_user,
+    )
 
 
 MINIMAL_MONITORING_CORE_FIELDS = [
