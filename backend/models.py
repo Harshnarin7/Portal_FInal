@@ -1026,6 +1026,13 @@ class NeonatalMorbidities(Base):
     # ---------------- INFECTION (H10) — dynamic, repeatable episodes ----------------
     infections = Column(JSON, nullable=True, default=list)
 
+    # Signatures (e.g. "antibiotics:4-11") of daily-log-detected infection
+    # trigger windows the clinician has explicitly marked reviewed — added
+    # 2026-08-23 so Form H's Infection completeness can require every
+    # detected window be addressed before the form counts as done, without
+    # the software ever guessing which specific episode (if any) covers it.
+    infection_flags_reviewed = Column(JSON, nullable=True, default=list)
+
     created_at = Column(DateTime, default=utcnow)
 
 # ==========================================================
@@ -1861,6 +1868,15 @@ class InfectGIHemaDayLog(Base):
     meningitis_type         = Column(String,  nullable=True)  # #7 Probable/Proven
     clabsi                  = Column(Boolean, nullable=True)  # #8
     vap                     = Column(Boolean, nullable=True)  # #9
+
+    # ── SEPSIS SCREEN (added 2026-08-23, not part of the original numbered
+    #    CRF sequence — captures whether a screen was sent and, if so, each
+    #    individual screen's type/value/interpretation, so Form H's
+    #    Infection auto-fill can distinguish clinical vs. screen-positive
+    #    vs. culture-positive sepsis without guessing from antibiotic
+    #    duration alone) ──────────────────────────────────────
+    sepsis_screen_sent      = Column(Boolean, nullable=True)
+    sepsis_screens_json     = Column(Text, nullable=True)  # [{id,type,value,result}, ...]
 
     # ── GASTROINTESTINAL (Fields 10-22) ──────────────────────
     npo                        = Column(Boolean, nullable=True)  # #10

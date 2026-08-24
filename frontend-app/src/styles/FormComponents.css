@@ -518,3 +518,16 @@
 .link-button-danger {
   color: #b91c1c;
 }
+/* Answered-but-now-disagrees-with-daily-logs warning (Form H auto-fill
+   domains) — deliberately more attention-grabbing than .field-hint-auto,
+   since this means an already-saved answer may now be clinically wrong,
+   not just "here's a suggestion". */
+.field-hint-warning {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-top: 6px;
+}
