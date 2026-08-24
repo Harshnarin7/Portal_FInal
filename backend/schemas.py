@@ -2254,9 +2254,13 @@ class RespCVNeuroDayCreate(BaseModel):
     endotracheal_intubation: Optional[bool] = None  # #2
     support_modes:      Optional[str]   = None  # #3
     map_cpap:           Optional[float] = None  # #4 (MAP value, or CPAP value if CPAP is the only pressure mode)
+    map_cpap_status:    Optional[str]   = None
     map_cpap_secondary: Optional[float] = None  # #4b — CPAP value, only used when CPAP AND a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) are BOTH selected
+    map_cpap_secondary_status: Optional[str] = None
     max_fio2:           Optional[float] = None  # #5
+    max_fio2_status:    Optional[str]   = None
     max_flow:           Optional[float] = None  # #6
+    max_flow_status:    Optional[str]   = None
     supp_o2:            Optional[bool]  = None  # #7
     lowest_ph:          Optional[str]   = None  # #8
     pao2_range:         Optional[str]   = None  # #9
@@ -2387,6 +2391,7 @@ class InfectGIHemaDayCreate(BaseModel):
     sepsis_suspected:       Optional[bool]  = None  # #1
     blood_culture_sent:     Optional[bool]  = None  # #2
     blood_culture_positive: Optional[bool]  = None  # #3
+    blood_culture_status:   Optional[str]   = None  # Result Awaited
     antibiotics:            Optional[bool]  = None  # #4
     lp_done:                Optional[bool]  = None  # #5
     meningitis:             Optional[bool]  = None  # #6 Y/N
@@ -2400,7 +2405,9 @@ class InfectGIHemaDayCreate(BaseModel):
     enteral_feeds_received:  Optional[bool]  = None  # #12
     feed_type:               Optional[str]   = None  # #13 "PDHM,EBM,FM"
     cumulative_feed_volume:  Optional[float] = None  # #14 ml/kg/day
+    cumulative_feed_volume_status: Optional[str] = None
     feed_volume:             Optional[float] = None  # #15 ml/kg/day
+    feed_volume_status:      Optional[str]   = None
     iv_fluids:               Optional[bool]  = None  # #16
     parenteral_nutrition:    Optional[bool]  = None  # #17
     probiotic:               Optional[bool]  = None  # #18
@@ -2411,9 +2418,11 @@ class InfectGIHemaDayCreate(BaseModel):
 
     # ── HEMATOLOGY (Fields 23-30) ────────────────────────────
     hb_value:               Optional[float] = None  # #23 g/dL
+    hb_value_status:        Optional[str]   = None  # Result Awaited | Not Recorded / Not Done
     jaundice:               Optional[bool]  = None  # #24
     phototherapy:           Optional[bool]  = None  # #25 (conditional)
     peak_tsb:               Optional[float] = None  # #26 mg/dL
+    peak_tsb_status:        Optional[str]   = None  # Result Awaited | Not Recorded / Not Done
     exchange_transfusion:   Optional[bool]  = None  # #27
     prbc_transfusion:       Optional[bool]  = None  # #28
     platelet_transfusion:   Optional[bool]  = None  # #29

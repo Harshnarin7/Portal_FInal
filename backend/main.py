@@ -3641,6 +3641,11 @@ def _compute_completion_pct(record) -> int:
 
     def answered(val):
         return val is not None and val != ""
+    def answered_value_or_status(value_field, status_field):
+        return (
+            answered(getattr(record, value_field, None))
+            or answered(getattr(record, status_field, None))
+        )
 
     #  -  RESPIRATORY (items 1-22)  - 
     resp_bool_fields = [
@@ -3684,10 +3689,10 @@ def _compute_completion_pct(record) -> int:
         + sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
         + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
         + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
-        + (1 if (_resp_support_no or _map_cpap_na or answered(getattr(record, "map_cpap", None))) else 0)  # 4
-        + (1 if (_dual_cpap_map and answered(getattr(record, "map_cpap_secondary", None))) else 0)  # 4b
-        + (1 if (_resp_support_no or answered(getattr(record, "max_fio2", None))) else 0)   # 5
-        + (1 if (_resp_support_no or answered(getattr(record, "max_flow", None))) else 0)   # 6
+        + (1 if (_resp_support_no or _map_cpap_na or answered_value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
+        + (1 if (_dual_cpap_map and answered_value_or_status("map_cpap_secondary", "map_cpap_secondary_status")) else 0)  # 4b
+        + (1 if (_resp_support_no or answered_value_or_status("max_fio2", "max_fio2_status")) else 0)   # 5
+        + (1 if (_resp_support_no or answered_value_or_status("max_flow", "max_flow_status")) else 0)   # 6
         + (1 if (_resp_support_no or answered(getattr(record, "supp_o2", None))) else 0)    # 7
         + (1 if (not _extub_attempted_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
     )
@@ -3708,13 +3713,10 @@ def _compute_completion_pct(record) -> int:
         "cranial_usg", "ivh", "cpvl_confirmed", "ventriculomegaly",       # 30-33
         "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich",  # 34-37
     ]
-    ivh_visible = getattr(record, "ivh", None) is True
     neuro_done = sum(1 for f in neuro_base if answered(getattr(record, f, None)))
-    if ivh_visible and answered(getattr(record, "ivh_grade", None)):
-        neuro_done += 1
-    neuro_total = len(neuro_base) + (1 if ivh_visible else 0)
+    neuro_total = len(neuro_base)
 
-    total_fields = resp_total + cv_total + neuro_total  # = 37 (+1 if vasoactive/ivh visible)
+    total_fields = resp_total + cv_total + neuro_total  # = 37 (+1 if vasoactive visible)
     total_done   = resp_done + cv_done + neuro_done
 
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
@@ -4175,24 +4177,30 @@ def _infect_completion_pct(r) -> int:
     #  -  INFECTION (Fields 1-9)  - ?
     # Base fields (always visible): 6 fields
     INF_BASE = ["sepsis_suspected", "antibiotics", "lp_done", "clabsi", "vap"]  # 1,4,5,8,9
-    # Sepsis conditional fields: 2 fields (visible when sepsis_suspected = Yes)
-    INF_SEPSIS = ["blood_culture_sent", "blood_culture_positive"]  # 2,3
+    # Sepsis conditional fields: blood culture sent + result/status.
+    INF_SEPSIS = ["blood_culture_sent"]  # 2
     # Meningitis field: 1 field (visible when meningitis = Yes)
     INF_MENING = ["meningitis_type"]  # 7
 
     sepsis_yes = getattr(r, "sepsis_suspected", None) is True
+    blood_culture_sent_yes = getattr(r, "blood_culture_sent", None) is True
     meningitis_yes = getattr(r, "meningitis", None) is True
 
     inf_total = (
         len(INF_BASE)
         + 1  # meningitis Y/N (#6)
         + (len(INF_SEPSIS) if sepsis_yes else 0)
+        + (1 if sepsis_yes and blood_culture_sent_yes else 0)
         + (len(INF_MENING) if meningitis_yes else 0)
     )
     inf_done = (
         sum(1 for k in INF_BASE if ans(getattr(r, k, None)))
         + (1 if ans(getattr(r, "meningitis", None)) else 0)
         + (sum(1 for k in INF_SEPSIS if ans(getattr(r, k, None))) if sepsis_yes else 0)
+        + (1 if sepsis_yes and blood_culture_sent_yes and (
+            ans(getattr(r, "blood_culture_positive", None))
+            or ans(getattr(r, "blood_culture_status", None))
+        ) else 0)
         + (sum(1 for k in INF_MENING if ans(getattr(r, k, None))) if meningitis_yes else 0)
     )
 
@@ -4215,6 +4223,8 @@ def _infect_completion_pct(r) -> int:
     gi_total = len(GI_BASE) + 1 + (len(GI_NEC) if nec_yes else 0)  # +1 for enteral_feeds field
     gi_done = (
         sum(1 for k in GI_BASE if ans(getattr(r, k, None)))
+        + (1 if not ans(getattr(r, "cumulative_feed_volume", None)) and ans(getattr(r, "cumulative_feed_volume_status", None)) else 0)
+        + (1 if not ans(getattr(r, "feed_volume", None)) and ans(getattr(r, "feed_volume_status", None)) else 0)
         + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)  # Check either old or new field name
         + (sum(1 for k in GI_NEC if ans(getattr(r, k, None))) if nec_yes else 0)
     )
@@ -4232,6 +4242,8 @@ def _infect_completion_pct(r) -> int:
     hema_total = len(HEMA_BASE) + (len(HEMA_JAUNDICE) if jaundice_yes else 0)
     hema_done = (
         sum(1 for k in HEMA_BASE if ans(getattr(r, k, None)))
+        + (1 if not ans(getattr(r, "hb_value", None)) and ans(getattr(r, "hb_value_status", None)) else 0)
+        + (1 if not ans(getattr(r, "peak_tsb", None)) and ans(getattr(r, "peak_tsb_status", None)) else 0)
         + (sum(1 for k in HEMA_JAUNDICE if ans(getattr(r, k, None))) if jaundice_yes else 0)
     )
 
@@ -4434,7 +4446,7 @@ def _metab_completion_pct(r) -> int:
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
 
     def _is_numeric_high(v):
-        if v is None or v == "" or v in ("Not Tested", "Not High", "Not Low"):
+        if v is None or v == "" or v in ("Not Tested", "Not High", "Not Low", "Result Awaited", "Not Recorded / Not Done"):
             return False
         try:
             return float(v) > 180

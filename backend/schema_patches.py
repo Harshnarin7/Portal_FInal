@@ -122,7 +122,11 @@ RESP_CV_NEURO_DAY_COLUMN_PATCHES = [
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS respiratory_support BOOLEAN",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS endotracheal_intubation BOOLEAN",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap DOUBLE PRECISION",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap_status VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap_secondary DOUBLE PRECISION",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS map_cpap_secondary_status VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS max_fio2_status VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS max_flow_status VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS lowest_ph VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS pao2_range VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS paco2_range VARCHAR",
@@ -377,13 +381,18 @@ BIRTH_RESUSCITATION_SAVE_STATE_PATCHES = [
 INFECT_GI_HEMA_COLUMN_PATCHES = [
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS meningitis BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS meningitis_type VARCHAR",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS blood_culture_status VARCHAR",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS men BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS enteral_feeds_received BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS feed_type VARCHAR",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cumulative_feed_volume DOUBLE PRECISION",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cumulative_feed_volume_status VARCHAR",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS feed_volume_status VARCHAR",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS iv_fluids BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS cholestasis BOOLEAN",
     "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS hb_value DOUBLE PRECISION",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS hb_value_status VARCHAR",
+    "ALTER TABLE infect_gi_hema_day_logs ADD COLUMN IF NOT EXISTS peak_tsb_status VARCHAR",
     # Superadmin override: temporarily reopens a locked (past/submitted) day
     # for correction — same columns as resp_cv_neuro_day_logs, added here
     # 2026-08-23 alongside the matching backend endpoint (this form never
