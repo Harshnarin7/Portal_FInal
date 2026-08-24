@@ -1017,7 +1017,8 @@ export default function InfectGIHemaLog() {
       // next save must un-tick the helper, not leave it stuck complete.
       if (completionPct > 0) markFormCompleted("infect_gi_hema");
       else unmarkFormCompleted("infect_gi_hema");
-      setIsSaved(true); setIsEditing(false);
+      setIsSaved(true);
+      setIsEditing(true);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
       const newSt = completionPct === 100 ? STATUS.COMPLETE : STATUS.DRAFT;
       setDayStatuses(prev => ({ ...prev, [activeDay]: newSt }));

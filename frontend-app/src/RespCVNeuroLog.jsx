@@ -120,8 +120,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
 /* Formats a single field's value for one day's data object `d`. */
 function formatTableViewValue(d, row) {
   if (row.ivh) {
-    return d.ivh === true ? (d.ivh_grade ? `Yes (Gr ${d.ivh_grade})` : "Yes")
-      : d.ivh === false ? "No" : "—";
+    return d.ivh === true ? "Yes" : d.ivh === false ? "No" : "—";
   }
   const v = d[row.key];
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
@@ -605,7 +604,7 @@ export default function RespCVNeuroLog() {
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
-    cranial_usg: null, ivh: null, ivh_grade: null,
+    cranial_usg: null, ivh: null,
     pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
     clinical_seizures: null, eeg_seizures: null, aeds_given: null,
     non_ivh_ich: null, meningitis_suspected: null,
@@ -860,7 +859,6 @@ export default function RespCVNeuroLog() {
           setNeuroData({
             cranial_usg:        d.cranial_usg        ?? null,
             ivh:                d.ivh                ?? null,
-            ivh_grade:          d.ivh_grade          || null,
             pvl_suspected:      d.pvl_suspected      ?? null,
             cpvl_confirmed:     d.cpvl_confirmed     ?? null,
             ventriculomegaly:   d.ventriculomegaly   ?? null,
@@ -920,7 +918,7 @@ export default function RespCVNeuroLog() {
       pda_medical_rx: null, shock: null, vasoactive_support: null });
     setFluidBolus("");
     setVasoactiveDrugs([]);
-    setNeuroData({ cranial_usg: null, ivh: null, ivh_grade: null,
+    setNeuroData({ cranial_usg: null, ivh: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
       clinical_seizures: null, eeg_seizures: null, aeds_given: null,
       non_ivh_ich: null, meningitis_suspected: null });
@@ -1009,18 +1007,15 @@ export default function RespCVNeuroLog() {
   //   eeg_seizures(35), aeds_given(36), non_ivh_ich(37) = 5 fields
   // Conditional on cranial_usg === true: ivh(31), cpvl_confirmed(32),
   //   ventriculomegaly(33) (+3 fields)
-  // Further conditional on ivh === true: ivh_grade (+1 field)
   const NEURO_BASE_KEYS = [
     "cranial_usg","clinical_seizures","eeg_seizures","aeds_given","non_ivh_ich",
   ]; // exactly 5
   const NEURO_USG_GATED_KEYS = ["ivh","cpvl_confirmed","ventriculomegaly"]; // exactly 3
   const cranialUsgYes = neuroData.cranial_usg === true;
-  const ivhGradeVisible = cranialUsgYes && neuroData.ivh === true;
-  const neuroTotal    = 5 + (cranialUsgYes ? 3 : 0) + (ivhGradeVisible ? 1 : 0);
+  const neuroTotal    = 5 + (cranialUsgYes ? 3 : 0);
   const neuroAnswered = Math.min(
     NEURO_BASE_KEYS.filter(k => neuroData[k] !== null).length
-    + (cranialUsgYes ? NEURO_USG_GATED_KEYS.filter(k => neuroData[k] !== null).length : 0)
-    + (ivhGradeVisible && neuroData.ivh_grade ? 1 : 0),
+    + (cranialUsgYes ? NEURO_USG_GATED_KEYS.filter(k => neuroData[k] !== null).length : 0),
     neuroTotal
   );
 
@@ -1107,7 +1102,7 @@ export default function RespCVNeuroLog() {
       if (completionPct > 0) markFormCompleted("vs6_1");
       else unmarkFormCompleted("vs6_1");
       setIsSaved(true);
-      setIsEditing(false);
+      setIsEditing(true);
       setSavedAt(now);
       setSavedBy(user?.name || user?.username || "Nurse");
       // "complete" is a client-only display state (100% answered, not yet
@@ -1246,7 +1241,6 @@ export default function RespCVNeuroLog() {
       setNeuroData({
         cranial_usg:          d.cranial_usg          ?? null,
         ivh:                  d.ivh                  ?? null,
-        ivh_grade:            d.ivh_grade            || null,
         pvl_suspected:        d.pvl_suspected        ?? null,
         cpvl_confirmed:       d.cpvl_confirmed       ?? null,
         ventriculomegaly:     d.ventriculomegaly     ?? null,
@@ -2091,23 +2085,6 @@ export default function RespCVNeuroLog() {
                     ))}
                   </div>
 
-                  {neuroData.ivh === true && (
-                    <div className="rcn-subsection">
-                      <div className="rcn-subsection-title">IVH Grade</div>
-                      <div className="rcn-grade-grid">
-                        {["I","II","III","IV"].map(g => (
-                          <div
-                            key={g}
-                            className={`rcn-grade-card${neuroData.ivh_grade === g ? " rcn-grade-card--on" : ""}${!isFieldEditable ? " rcn-grade-card--disabled" : ""}`}
-                            onClick={() => isFieldEditable && setNeuro("ivh_grade", neuroData.ivh_grade === g ? null : g)}
-                          >
-                            <span className="rcn-grade-roman">{g}</span>
-                            <span className="rcn-grade-label">Grade</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 

@@ -1449,7 +1449,8 @@ export default function MetabRenalVascEyeLog() {
       // save must un-tick the helper, not leave it stuck complete.
       if (completionPct > 0) markFormCompleted("metab_renal_vasc_eye");
       else unmarkFormCompleted("metab_renal_vasc_eye");
-      setIsSaved(true); setIsEditing(false);
+      setIsSaved(true);
+      setIsEditing(true);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
       const newSt = completionPct===100 ? STATUS.COMPLETE : STATUS.DRAFT;
       setDayStatuses(prev => ({ ...prev, [activeDay]: newSt }));

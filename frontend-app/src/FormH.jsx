@@ -10,8 +10,31 @@ import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
-import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home } from "lucide-react";
+import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
+
+/* ─── FormH category map — powers the sticky jump-nav below the header.
+   Keeping this outside the component avoids re-creating the array (and
+   the icon element references) on every render. Each `key` matches the
+   id given to its corresponding top-level <div className="form-section
+   soft-blue"> section further down, and is used to show/hide that
+   section via the "cat-hidden" class instead of unmounting it (so no
+   form state is lost when switching tabs). ─── */
+const FORMH_CATEGORIES = [
+  { key: "neuro",     code: "H1",  label: "Neurological",    Icon: Brain },
+  { key: "resp",      code: "H2",  label: "Respiratory",     Icon: Wind },
+  { key: "gi",        code: "H3",  label: "Gastrointestinal", Icon: Utensils },
+  { key: "metabolic", code: "H4",  label: "Metabolic",       Icon: Activity },
+  { key: "cvs",       code: "H5",  label: "Cardiovascular",  Icon: HeartPulse },
+  { key: "heme",      code: "H6",  label: "Hematology",      Icon: Droplets },
+  { key: "renal",     code: "H7",  label: "Renal",           Icon: Droplets },
+  { key: "eye",       code: "H8",  label: "Ophthalmology",   Icon: Eye },
+  { key: "thermo",    code: "H9",  label: "Thermoregulation",Icon: Thermometer },
+  { key: "vascular",  code: "H10", label: "Vascular Access", Icon: Syringe },
+  { key: "infection", code: "H11", label: "Infection",       Icon: Bug },
+  { key: "summary",   code: "H12", label: "Hospital Course", Icon: ClipboardList },
+  { key: "completion",code: "",    label: "Review & Submit", Icon: CheckCircle2 },
+];
 
 /* ─── YesNoToggle — animated sliding segment (same component as Form A / ScreeningForm.jsx) ─── */
 function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false }) {
@@ -55,6 +78,21 @@ export default function FormH() {
   const { enrollmentId } = useParams();
 const [touched, setTouched] = useState({});
 const [openSection, setOpenSection] = useState("ivh"); // default open
+
+// Which organ-system tab is currently showing. All 13 sections still
+// live in the DOM (so nothing in formData is ever unmounted/lost) —
+// switching tabs just toggles a "cat-hidden" class, see FORMH_CATEGORIES.
+const [activeCategory, setActiveCategory] = useState("neuro");
+const jumpNavContentRef = React.useRef(null);
+const goToCategory = (key) => {
+  setActiveCategory(key);
+  // Scroll the content area (not the whole page) back to the top of
+  // the newly-shown section so switching tabs always feels like
+  // landing on a fresh page rather than jumping mid-scroll.
+  requestAnimationFrame(() => {
+    jumpNavContentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+};
 
 // Vascular Access (H10.1/H10.2) auto-fill from the Metab/Renal/Vasc/Eye
 // helper daily logs — see /neonatal-morbidities/vascular-access-prefill.
@@ -5103,6 +5141,28 @@ const getPeripheralStatus = () => {
 
   return "Not filled";
 };
+// Lightweight "has this tab been started?" check for the jump-nav dots —
+// intentionally just a handful of representative fields per organ system
+// (the same ones each section already uses for its own card-header
+// summary pill), not an exhaustive completeness check.
+const hasVal = (v) => (Array.isArray(v) ? v.length > 0 : !!v);
+const CATEGORY_MARKER_FIELDS = {
+  neuro: ["ivh_present", "pvl_present", "ventriculomegaly_present", "seizures"],
+  resp: ["bpd", "cpap_used", "nippv_used", "hfnc_used", "imv_used", "apnea"],
+  gi: ["feed_intolerance", "nec", "pn"],
+  metabolic: ["hypoglycemia", "hyperglycemia", "hyponatremia", "hypocalcemia"],
+  cvs: ["structural_heart_disease", "hs_pda", "shock", "hypotension"],
+  heme: ["anemia", "prbc", "platelets", "ffp_cryo"],
+  renal: ["aki"],
+  eye: ["rop", "rop_screened"],
+  thermo: ["hyperthermia", "hypothermia"],
+  vascular: ["picc", "peripheral_venous", "peripheral_arterial"],
+  infection: ["infections"],
+  summary: ["discharge_weight", "discharge_hc", "discharge_date"],
+};
+const categoryHasData = (key) =>
+  (CATEGORY_MARKER_FIELDS[key] || []).some((f) => hasVal(formData[f]));
+
 const centralStatus = getCentralLineStatus();
 const centralSummary = getCentralLineSummary();
 const peripheralSummary = getPeripheralSummary();
@@ -5123,6 +5183,35 @@ const peripheralStatus= getPeripheralStatus();
            </div>
          </div>
        </div>
+
+     {/* ================= CATEGORY JUMP-NAV =================
+         Sticky pill row so any of Form H's 13 organ-system sections is
+         one click away instead of a long scroll. Sections stay mounted;
+         this only toggles which one is visible (see cat-hidden below). */}
+     <div className="formh-jumpnav" role="tablist" aria-label="Form H sections">
+       {FORMH_CATEGORIES.map(({ key, code, label, Icon }) => {
+         const done = categoryHasData(key);
+         return (
+           <button
+             key={key}
+             type="button"
+             role="tab"
+             aria-selected={activeCategory === key}
+             className={`formh-jumpnav-pill${activeCategory === key ? " active" : ""}${done ? " has-data" : ""}`}
+             onClick={() => goToCategory(key)}
+           >
+             <Icon size={14} className="formh-jumpnav-icon" />
+             {code && <span className="formh-jumpnav-code">{code}</span>}
+             <span className="formh-jumpnav-label">{label}</span>
+             {done
+               ? <CheckCircle2 size={13} className="formh-jumpnav-status yes" />
+               : <Circle size={8} className="formh-jumpnav-status empty" />}
+           </button>
+         );
+       })}
+     </div>
+     <div ref={jumpNavContentRef} />
+
      {/* ================= IDENTIFICATION ================= */}
 <div className="form-section soft-blue">
   <h3>IDENTIFICATION</h3>
@@ -5144,7 +5233,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= NEUROLOGICAL ================= */}
-<div className="form-section soft-blue">
+<div id="cat-neuro" className={`form-section soft-blue${activeCategory === "neuro" ? "" : " cat-hidden"}`}>
 
   <h3><Brain size={17} className="sec-icon" /> <span className="sec-num">H1</span> NEUROLOGICAL</h3>
 
@@ -5941,7 +6030,7 @@ const peripheralStatus= getPeripheralStatus();
 
 
 {/* ================= RESPIRATORY ================= */}
-<div className="form-section soft-blue">
+<div id="cat-resp" className={`form-section soft-blue${activeCategory === "resp" ? "" : " cat-hidden"}`}>
   <h3><Wind size={17} className="sec-icon" /> <span className="sec-num">H2</span> RESPIRATORY</h3>
 
  {/* ================= BPD ================= */}
@@ -6771,7 +6860,7 @@ const peripheralStatus= getPeripheralStatus();
 
 
 {/* ================= GASTROINTESTINAL ================= */}
-<div className="form-section soft-blue">
+<div id="cat-gi" className={`form-section soft-blue${activeCategory === "gi" ? "" : " cat-hidden"}`}>
   <h3><Utensils size={17} className="sec-icon" /> <span className="sec-num">H3</span> GASTROINTESTINAL</h3>
   
   <div className="card">
@@ -7355,7 +7444,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= METABOLIC ================= */}
-<div className="form-section soft-blue">
+<div id="cat-metabolic" className={`form-section soft-blue${activeCategory === "metabolic" ? "" : " cat-hidden"}`}>
   <h3><Activity size={17} className="sec-icon" /> <span className="sec-num">H4</span> METABOLIC</h3>
   {metabolicPrefill?.has_data && (
     <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -7740,7 +7829,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= PDA ================= */}
-<div className="form-section soft-blue">
+<div id="cat-cvs" className={`form-section soft-blue${activeCategory === "cvs" ? "" : " cat-hidden"}`}>
 
   <h3><HeartPulse size={17} className="sec-icon" /> <span className="sec-num">H5</span> CARDIOVASCULAR</h3>
 
@@ -8500,7 +8589,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= HEMATOLOGY ================= */}
-<div className="form-section soft-blue">
+<div id="cat-heme" className={`form-section soft-blue${activeCategory === "heme" ? "" : " cat-hidden"}`}>
 
   <h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H6</span> HEMATOLOGY</h3>
 <div className="card">
@@ -9096,7 +9185,7 @@ const peripheralStatus= getPeripheralStatus();
 
 
 {/* ================= RENAL ================= */}
-<div className="form-section soft-blue">
+<div id="cat-renal" className={`form-section soft-blue${activeCategory === "renal" ? "" : " cat-hidden"}`}>
 
 <h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H7</span> RENAL</h3>
 {renalPrefill?.has_data && (
@@ -9286,7 +9375,7 @@ const peripheralStatus= getPeripheralStatus();
   )}
 </div></div>
 {/* ================= OPHTHALMOLOGY ================= */}
-<div className="form-section soft-blue">
+<div id="cat-eye" className={`form-section soft-blue${activeCategory === "eye" ? "" : " cat-hidden"}`}>
 
 <h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H8</span> OPHTHALMOLOGY</h3>
 
@@ -9564,7 +9653,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 </div>
 {/* ================= THERMOREGULATION ================= */}
-<div className="form-section soft-blue">
+<div id="cat-thermo" className={`form-section soft-blue${activeCategory === "thermo" ? "" : " cat-hidden"}`}>
 
 <h3><Thermometer size={17} className="sec-icon" /> <span className="sec-num">H9</span> THERMOREGULATION</h3>
 
@@ -9753,7 +9842,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= VASCULAR ACCESS ================= */}
-<div className="form-section soft-blue">
+<div id="cat-vascular" className={`form-section soft-blue${activeCategory === "vascular" ? "" : " cat-hidden"}`}>
 
 <h3><Syringe size={17} className="sec-icon" /> <span className="sec-num">H10</span> VASCULAR ACCESS</h3>
 {vascularPrefill?.has_data && (
@@ -10074,7 +10163,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 </div>
 {/* ================= INFECTION (H11) — CRF allows multiple episodes ================= */}
-<div className="form-section soft-blue">
+<div id="cat-infection" className={`form-section soft-blue${activeCategory === "infection" ? "" : " cat-hidden"}`}>
 
   <div className="infection-sec-head">
     <h3><Bug size={17} className="sec-icon" /> <span className="sec-num">H11</span> INFECTION</h3>
@@ -10475,7 +10564,7 @@ const peripheralStatus= getPeripheralStatus();
 
 
 {/* ================= HOSPITAL COURSE SUMMARY ================= */}
-<div className="form-section summary-section">
+<div id="cat-summary" className={`form-section summary-section${activeCategory === "summary" ? "" : " cat-hidden"}`}>
 
   <h3><ClipboardList size={17} className="sec-icon" /> <span className="sec-num">H12</span> HOSPITAL COURSE SUMMARY</h3>
 
@@ -10712,7 +10801,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ================= FORM COMPLETION ================= */}
-<div className="form-section soft-blue">
+<div id="cat-completion" className={`form-section soft-blue${activeCategory === "completion" ? "" : " cat-hidden"}`}>
   <h3>Form Completion</h3>
 
   <div className="form-row">

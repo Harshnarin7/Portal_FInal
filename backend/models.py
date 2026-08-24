@@ -1771,9 +1771,13 @@ class RespCVNeuroDayLog(Base):
     endotracheal_intubation = Column(Boolean, nullable=True)  # #2
     support_modes      = Column(String, nullable=True)   # "NC, HFNC, CPAP"  #3
     map_cpap           = Column(Float,  nullable=True)   # cm H2O  #4 (MAP value, or the only value when CPAP is the sole pressure mode)
+    map_cpap_status    = Column(String, nullable=True)   # "Not Recorded / Not Done"
     map_cpap_secondary = Column(Float,  nullable=True)   # cm H2O  #4b (CPAP value, only when CPAP + a MAP-generating mode are both selected)
+    map_cpap_secondary_status = Column(String, nullable=True)
     max_fio2           = Column(Float,  nullable=True)   # %  #5
+    max_fio2_status    = Column(String, nullable=True)
     max_flow           = Column(Float,  nullable=True)   # L/min  #6
+    max_flow_status    = Column(String, nullable=True)
 
     supp_o2            = Column(Boolean, nullable=True)  # #7
     lowest_ph           = Column(String, nullable=True)  # #8
@@ -1862,6 +1866,7 @@ class InfectGIHemaDayLog(Base):
     sepsis_suspected        = Column(Boolean, nullable=True)  # #1
     blood_culture_sent      = Column(Boolean, nullable=True)  # #2
     blood_culture_positive  = Column(Boolean, nullable=True)  # #3
+    blood_culture_status    = Column(String,  nullable=True)  # "Result Awaited"
     antibiotics             = Column(Boolean, nullable=True)  # #4
     lp_done                 = Column(Boolean, nullable=True)  # #5
     meningitis              = Column(Boolean, nullable=True)  # #6 Y/N
@@ -1884,7 +1889,9 @@ class InfectGIHemaDayLog(Base):
     enteral_feeds_received     = Column(Boolean, nullable=True)  # #12
     feed_type                  = Column(String,  nullable=True)  # #13 "PDHM,EBM,FM"
     cumulative_feed_volume     = Column(Float,   nullable=True)  # #14 ml/kg/day
+    cumulative_feed_volume_status = Column(String, nullable=True)
     feed_volume                = Column(Float,   nullable=True)  # #15 ml/kg/day
+    feed_volume_status         = Column(String, nullable=True)
     iv_fluids                  = Column(Boolean, nullable=True)  # #16
     parenteral_nutrition       = Column(Boolean, nullable=True)  # #17
     probiotic                  = Column(Boolean, nullable=True)  # #18
@@ -1895,9 +1902,11 @@ class InfectGIHemaDayLog(Base):
 
     # ── HEMATOLOGY (Fields 23-30) ────────────────────────────
     hb_value                = Column(Float,   nullable=True)  # #23 g/dL
+    hb_value_status         = Column(String,  nullable=True)  # "Result Awaited" | "Not Recorded / Not Done"
     jaundice                = Column(Boolean, nullable=True)  # #24
     phototherapy            = Column(Boolean, nullable=True)  # #25 (conditional)
     peak_tsb                = Column(Float,   nullable=True)  # #26 mg/dL
+    peak_tsb_status         = Column(String,  nullable=True)  # "Result Awaited" | "Not Recorded / Not Done"
     exchange_transfusion    = Column(Boolean, nullable=True)  # #27
     prbc_transfusion        = Column(Boolean, nullable=True)  # #28
     platelet_transfusion    = Column(Boolean, nullable=True)  # #29
