@@ -2812,6 +2812,138 @@ def get_survival_check(
     return {"did_not_survive": True, "day": day, "date": date}
 
 
+@app.get("/neonatal-morbidities/cranial-usg-prefill/{enrollment_id}")
+def get_cranial_usg_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates Form F (Cranial USG, `cranial_usg_records`) into Form
+    H's IVH/PVL detail (CRF #1-8, #13-20) — the side/grade/date fields
+    the Neuro domain (`get_neuro_prefill`, day-log-based) deliberately
+    left manual, because the daily nursing log has no side or grade,
+    only a flat "was IVH ever seen" boolean. Form F is a dedicated
+    serial cranial-ultrasound form with real Papile (IVH) / De Vries
+    (cPVL) grading per side per scan — a far more authoritative source
+    for exactly the detail the Neuro domain couldn't provide.
+
+    - ivh_grade_right/left, pvl_grade_right/left: the highest grade
+      (None < I < II < III < IV, same ordering Form F itself uses)
+      recorded on that side across all scans. Only returned if that
+      side's max grade is not "None" — Form H's grade selects have no
+      "None" option, and a side that never showed a finding shouldn't
+      get a value at all. PVL grades are converted from Form F's
+      Roman-numeral strings to Form H's stored "1"-"4" values (Form H
+      keeps "1"-"4" for backward compatibility with old records even
+      though the label shown is Roman numerals).
+    - ivh_date_right/left, pvl_date_right/left: the scanDate of the
+      scan where that side's max grade was first recorded.
+    - ivh_age_days_right/left, pvl_age_days_right/left: that scan's
+      `dol` (day of life — Form F already computes this per scan) minus
+      1, since DOL is 1-indexed (birth day = DOL 1) and this project's
+      day-log age fields use day1=age0 throughout.
+    - ivh_side: "Right"/"Left"/"Bilateral" depending on which side(s)
+      ever showed a grade above None. pvl_side uses the same logic but
+      returns "Both" instead of "Bilateral" — Form H's PVL side select
+      stores "Both" for backward compatibility even though it displays
+      "Bilateral".
+    - ivh_present/pvl_present: also offered here (Yes, in addition to
+      the Neuro domain's day-log-based version) — a real grade on a
+      scan is compelling evidence IVH/cPVL is present even if the day
+      log never flagged it, and the detail fields above are gated
+      behind these Yes/No values being set, so a scan-only finding
+      needs this to actually become visible. Both sources use the same
+      fill-if-blank discipline, so there's no risk of conflicting data —
+      whichever resolves first fills a still-blank field, and a real
+      disagreement between whatever ends up saved and either source
+      surfaces via each domain's own staleness check on the next load.
+    - vp_shunt: direct boolean from Form F's own `vp_shunt` flag.
+
+    Deliberately NOT filled: pvhi and phh — Form F's `phvd` (post-
+    hemorrhagic ventricular dilatation) is a related but not identical
+    concept to Form H's PHH (post-hemorrhagic hydrocephalus); mapping
+    one to the other would be a clinical judgment call, not a
+    derivation. ivh_description (free text) is not populated from Form
+    F's per-scan `findings` notes in this first pass — matching
+    unstructured text across scans/sides isn't a clean 1:1 mapping the
+    way the graded fields are. ventriculomegaly_present is intentionally
+    left to the Neuro domain alone and not duplicated here, even though
+    Form F also has a `ventriculomegaly` flag — no real benefit to a
+    second source for a single flat boolean already covered elsewhere.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record or not record.scan_entries:
+        return {"has_data": False}
+
+    GRADE_ORDER = {"None": 0, "I": 1, "II": 2, "III": 3, "IV": 4}
+    PVL_GRADE_TO_FORM_H = {"I": "1", "II": "2", "III": "3", "IV": "4"}
+
+    def best_side(grade_key):
+        best_grade = "None"
+        best_scan = None
+        for scan in record.scan_entries:
+            g = (scan or {}).get(grade_key) or "None"
+            if GRADE_ORDER.get(g, 0) > GRADE_ORDER.get(best_grade, 0):
+                best_grade = g
+                best_scan = scan
+        return best_grade, best_scan
+
+    def scan_age_days(scan):
+        dol = (scan or {}).get("dol")
+        return (dol - 1) if isinstance(dol, int) else None
+
+    ivh_r_grade, ivh_r_scan = best_side("ivhGradeRight")
+    ivh_l_grade, ivh_l_scan = best_side("ivhGradeLeft")
+    pvl_r_grade, pvl_r_scan = best_side("cpvlGradeRight")
+    pvl_l_grade, pvl_l_scan = best_side("cpvlGradeLeft")
+
+    result = {"has_data": True, "scan_count": len(record.scan_entries)}
+
+    ivh_r_found = ivh_r_grade != "None"
+    ivh_l_found = ivh_l_grade != "None"
+    if ivh_r_found or ivh_l_found:
+        result["ivh_present"] = "Yes"
+        result["ivh_side"] = (
+            "Bilateral" if (ivh_r_found and ivh_l_found)
+            else "Right" if ivh_r_found else "Left"
+        )
+    if ivh_r_found:
+        result["ivh_grade_right"] = ivh_r_grade
+        result["ivh_date_right"] = (ivh_r_scan or {}).get("scanDate")
+        result["ivh_age_days_right"] = scan_age_days(ivh_r_scan)
+    if ivh_l_found:
+        result["ivh_grade_left"] = ivh_l_grade
+        result["ivh_date_left"] = (ivh_l_scan or {}).get("scanDate")
+        result["ivh_age_days_left"] = scan_age_days(ivh_l_scan)
+
+    pvl_r_found = pvl_r_grade != "None"
+    pvl_l_found = pvl_l_grade != "None"
+    if pvl_r_found or pvl_l_found:
+        result["pvl_present"] = "Yes"
+        result["pvl_side"] = (
+            "Both" if (pvl_r_found and pvl_l_found)
+            else "Right" if pvl_r_found else "Left"
+        )
+    if pvl_r_found:
+        result["pvl_grade_right"] = PVL_GRADE_TO_FORM_H.get(pvl_r_grade)
+        result["pvl_date_right"] = (pvl_r_scan or {}).get("scanDate")
+        result["pvl_age_days_right"] = scan_age_days(pvl_r_scan)
+    if pvl_l_found:
+        result["pvl_grade_left"] = PVL_GRADE_TO_FORM_H.get(pvl_l_grade)
+        result["pvl_date_left"] = (pvl_l_scan or {}).get("scanDate")
+        result["pvl_age_days_left"] = scan_age_days(pvl_l_scan)
+
+    result["vp_shunt"] = "Yes" if record.vp_shunt is True else "No"
+
+    return result
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================

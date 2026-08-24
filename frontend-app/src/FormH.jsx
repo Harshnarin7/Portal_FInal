@@ -171,6 +171,16 @@ const [respStale, setRespStale] = useState({});
 // Refill at once.
 const [survivalAlert, setSurvivalAlert] = useState(null);
 const [forceRefillingAll, setForceRefillingAll] = useState(false);
+
+// IVH/PVL detail (grade/side/date) from Form F (Cranial USG) — see
+// fetchCranialUsgPrefill below. The Neuro domain above still owns
+// ivh_present/pvl_present/ventriculomegaly_present from the day log;
+// this domain additionally offers ivh_present/pvl_present too (see the
+// backend endpoint docstring for why that's safe) plus the grade/side/
+// date detail the day log never had.
+const [cranialUsgPrefill, setCranialUsgPrefill] = useState(null);
+const [cranialUsgAutoFilled, setCranialUsgAutoFilled] = useState({});
+const [cranialUsgStale, setCranialUsgStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -734,11 +744,15 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The nine
+    // correctly loaded record) — don't reintroduce that shape. The ten
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load. fetchInfectionWindows is detection-only (see its
     // own comment) but still chained the same way for consistency.
+    // fetchCranialUsgPrefill isn't fully disjoint from fetchNeuroPrefill
+    // (both can offer ivh_present/pvl_present) but both use the same
+    // fill-if-blank discipline, so their relative order genuinely
+    // doesn't matter — see fetchCranialUsgPrefill's own comment.
     loadExistingFormH().then(() => {
       fetchVascularAccessPrefill();
       fetchMetabolicPrefill();
@@ -751,6 +765,7 @@ useEffect(() => {
       fetchInfectionWindows();
       fetchRespPrefill();
       fetchSurvivalCheck();
+      fetchCranialUsgPrefill();
     });
   }, [enrollmentId]);
 
@@ -1906,6 +1921,9 @@ const PREFILL_FIELD_LABELS = {
   pulmonary_hemorrhage: "Pulmonary Hemorrhage", pneumothorax: "Pneumothorax",
   chest_drain: "Chest Drain", pulmonary_hypertension: "Pulmonary Hypertension",
   extubation_failure: "Extubation Failure", apnea: "Apnea", caffeine_used: "Caffeine",
+  ivh_side: "IVH Side", pvl_side: "cPVL Side", vp_shunt: "VP Shunt",
+  ivh_grade_right: "IVH Grade (Right)", ivh_grade_left: "IVH Grade (Left)",
+  pvl_grade_right: "cPVL Grade (Right)", pvl_grade_left: "cPVL Grade (Left)",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2746,10 +2764,95 @@ const forceRefillAllDomains = async () => {
       fetchRopThermoPrefill({ force: true }),
       fetchCvPrefill({ force: true }),
       fetchRespPrefill({ force: true }),
+      fetchCranialUsgPrefill({ force: true }),
     ]);
   } finally {
     setForceRefillingAll(false);
   }
+};
+
+// IVH/PVL detail from Form F (Cranial USG) — see the backend endpoint's
+// docstring for the full derivation and why offering ivh_present/
+// pvl_present here too (alongside the Neuro domain's day-log version)
+// is safe rather than a race.
+const CRANIAL_USG_PREFILL_FIELDS = [
+  "ivh_present", "ivh_side",
+  "ivh_grade_right", "ivh_date_right", "ivh_age_days_right",
+  "ivh_grade_left", "ivh_date_left", "ivh_age_days_left",
+  "pvl_present", "pvl_side",
+  "pvl_grade_right", "pvl_date_right", "pvl_age_days_right",
+  "pvl_grade_left", "pvl_date_left", "pvl_age_days_left",
+  "vp_shunt",
+];
+
+// Only the categorical fields get checked for staleness — dates/ages are
+// excluded on purpose, same reasoning as every other domain.
+const CRANIAL_USG_STALE_CHECK_FIELDS = [
+  "ivh_present", "ivh_side", "ivh_grade_right", "ivh_grade_left",
+  "pvl_present", "pvl_side", "pvl_grade_right", "pvl_grade_left",
+  "vp_shunt",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchCranialUsgPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/cranial-usg-prefill/${enrollmentId}`);
+    const data = res.data;
+    setCranialUsgPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      CRANIAL_USG_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && CRANIAL_USG_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setCranialUsgAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setCranialUsgStale(stale);
+  } catch (err) {
+    console.log("Error fetching cranial USG prefill", err);
+  }
+};
+
+const clearCranialUsgAutoFilled = (name) => {
+  setCranialUsgAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleCranialUsgChange = (e) => {
+  clearCranialUsgAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// ivh_present/pvl_present can be auto-filled by either the Neuro domain
+// (day log) or this Cranial USG domain (Form F) — clear both badges on
+// manual edit regardless of which source actually filled it.
+const handleIvhPvlPresentChange = (e) => {
+  clearNeuroAutoFilled(e.target.name);
+  clearCranialUsgAutoFilled(e.target.name);
+  handleChange(e);
 };
 
 const validateMetabolic = (name, value, updatedForm = formData) => {
@@ -5357,10 +5460,34 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+{cranialUsgPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
+    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+      Refill empty fields from Form F
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cranialUsgStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
+    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the scan data existed.
+    Use "Force refill" above if Form F is correct.
+  </div>
+)}
 
         <div className="form-group">
-          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
           {neuroAutoFilled.ivh_present && <span className="field-hint-auto-inline">from daily logs</span>}
+          {cranialUsgAutoFilled.ivh_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
 
@@ -5372,7 +5499,7 @@ const peripheralStatus= getPeripheralStatus();
                 <select
                   name="ivh_side"
                   value={formData.ivh_side || ""}
-                  onChange={handleChange}
+                  onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
                 >
                   <option value="">-- Select --</option>
@@ -5380,6 +5507,7 @@ const peripheralStatus= getPeripheralStatus();
                   <option value="Left">Left</option>
                   <option value="Bilateral">Bilateral</option>
                 </select>
+                {cranialUsgAutoFilled.ivh_side && <span className="field-hint-auto-inline">from Form F</span>}
                 {touched.ivh_side && errors.ivh_side && <div className="error-text">{errors.ivh_side}</div>}
               </div>
             </div>
@@ -5391,7 +5519,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="ivh_grade_right"
                     value={formData.ivh_grade_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5400,6 +5528,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="III">III</option>
                     <option value="IV">IV</option>
                   </select>
+                  {cranialUsgAutoFilled.ivh_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_grade_right && errors.ivh_grade_right && <div className="error-text">{errors.ivh_grade_right}</div>}
                 </div>
 
@@ -5408,6 +5537,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.ivh_date_right ? parseDateOnly(formData.ivh_date_right) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("ivh_date_right");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, ivh_date_right: v }));
                       validateIVH("ivh_date_right", v, { ...formData, ivh_date_right: v });
@@ -5416,6 +5546,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.ivh_date_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_date_right && errors.ivh_date_right && <div className="error-text">{errors.ivh_date_right}</div>}
                 </div>
 
@@ -5425,9 +5556,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="ivh_age_days_right"
                     value={formData.ivh_age_days_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.ivh_age_days_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_age_days_right && errors.ivh_age_days_right && <div className="error-text">{errors.ivh_age_days_right}</div>}
                 </div>
               </div>
@@ -5440,7 +5572,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="ivh_grade_left"
                     value={formData.ivh_grade_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5449,6 +5581,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="III">III</option>
                     <option value="IV">IV</option>
                   </select>
+                  {cranialUsgAutoFilled.ivh_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_grade_left && errors.ivh_grade_left && <div className="error-text">{errors.ivh_grade_left}</div>}
                 </div>
 
@@ -5457,6 +5590,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.ivh_date_left ? parseDateOnly(formData.ivh_date_left) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("ivh_date_left");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, ivh_date_left: v }));
                       validateIVH("ivh_date_left", v, { ...formData, ivh_date_left: v });
@@ -5465,6 +5599,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.ivh_date_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_date_left && errors.ivh_date_left && <div className="error-text">{errors.ivh_date_left}</div>}
                 </div>
 
@@ -5474,9 +5609,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="ivh_age_days_left"
                     value={formData.ivh_age_days_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.ivh_age_days_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_age_days_left && errors.ivh_age_days_left && <div className="error-text">{errors.ivh_age_days_left}</div>}
                 </div>
               </div>
@@ -5503,7 +5639,8 @@ const peripheralStatus= getPeripheralStatus();
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="12. VP Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleChange} />
+                <YesNoToggle label="12. VP Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleCranialUsgChange} />
+                {cranialUsgAutoFilled.vp_shunt && <span className="field-hint-auto-inline">from Form F</span>}
               </div>
             </div>
           </>
@@ -5561,10 +5698,34 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+{cranialUsgPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
+    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+      Refill empty fields from Form F
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cranialUsgStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
+    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the scan data existed.
+    Use "Force refill" above if Form F is correct.
+  </div>
+)}
 
         <div className="form-group">
-          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
           {neuroAutoFilled.pvl_present && <span className="field-hint-auto-inline">from daily logs</span>}
+          {cranialUsgAutoFilled.pvl_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
 
@@ -5576,7 +5737,7 @@ const peripheralStatus= getPeripheralStatus();
                 <select
                   name="pvl_side"
                   value={formData.pvl_side || ""}
-                  onChange={handleChange}
+                  onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
                 >
                   <option value="">-- Select --</option>
@@ -5586,6 +5747,7 @@ const peripheralStatus= getPeripheralStatus();
                       already-saved records — CRF label is "Bilateral" */}
                   <option value="Both">Bilateral</option>
                 </select>
+                {cranialUsgAutoFilled.pvl_side && <span className="field-hint-auto-inline">from Form F</span>}
                 {touched.pvl_side && errors.pvl_side && <div className="error-text">{errors.pvl_side}</div>}
               </div>
             </div>
@@ -5597,7 +5759,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="pvl_grade_right"
                     value={formData.pvl_grade_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5608,6 +5770,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="3">III (Extensive cysts)</option>
                     <option value="4">IV (Subcortical)</option>
                   </select>
+                  {cranialUsgAutoFilled.pvl_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_grade_right && errors.pvl_grade_right && <div className="error-text">{errors.pvl_grade_right}</div>}
                 </div>
 
@@ -5616,6 +5779,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.pvl_date_right ? parseDateOnly(formData.pvl_date_right) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("pvl_date_right");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, pvl_date_right: v }));
                     }}
@@ -5623,6 +5787,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.pvl_date_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_date_right && errors.pvl_date_right && <div className="error-text">{errors.pvl_date_right}</div>}
                 </div>
 
@@ -5632,9 +5797,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="pvl_age_days_right"
                     value={formData.pvl_age_days_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.pvl_age_days_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_age_days_right && errors.pvl_age_days_right && <div className="error-text">{errors.pvl_age_days_right}</div>}
                 </div>
               </div>
@@ -5647,7 +5813,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="pvl_grade_left"
                     value={formData.pvl_grade_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5656,6 +5822,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="3">III (Extensive cysts)</option>
                     <option value="4">IV (Subcortical)</option>
                   </select>
+                  {cranialUsgAutoFilled.pvl_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_grade_left && errors.pvl_grade_left && <div className="error-text">{errors.pvl_grade_left}</div>}
                 </div>
 
@@ -5664,6 +5831,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.pvl_date_left ? parseDateOnly(formData.pvl_date_left) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("pvl_date_left");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, pvl_date_left: v }));
                     }}
@@ -5671,6 +5839,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.pvl_date_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_date_left && errors.pvl_date_left && <div className="error-text">{errors.pvl_date_left}</div>}
                 </div>
 
@@ -5680,9 +5849,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="pvl_age_days_left"
                     value={formData.pvl_age_days_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.pvl_age_days_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_age_days_left && errors.pvl_age_days_left && <div className="error-text">{errors.pvl_age_days_left}</div>}
                 </div>
               </div>
