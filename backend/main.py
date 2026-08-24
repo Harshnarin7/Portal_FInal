@@ -2647,6 +2647,131 @@ def get_infection_detect(
     }
 
 
+@app.get("/neonatal-morbidities/resp-prefill/{enrollment_id}")
+def get_resp_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Respiratory section (H2, CRF #38-67; H2.1 BPD — #35-37 — is
+    deliberately skipped, see below).
+
+    - oxygen_days <- day-count of supp_o2.
+    - nasal_cannula/cpap/nippv/hfnc (+ their _days counts) <- whether
+      "NC"/"CPAP"/"NIPPV"/"HFNC" ever appears in the day log's
+      comma-separated support_modes field, same CSV-token technique as
+      GI's pdhm/ebm/fm_days and CV's vasoactive drug checkboxes.
+    - invasive_ventilation / imv_days <- any-day / day-count of
+      endotracheal_intubation. Deliberately NOT derived from
+      support_modes containing an invasive mode token (SIMV/AC/PSV/
+      HFOV) — endotracheal_intubation is the day log's own direct
+      answer to "was this baby on invasive ventilation," more precise
+      than reverse-engineering it from four different ventilator-mode
+      acronyms.
+    - postnatal_steroids / pulmonary_hemorrhage / pneumothorax /
+      chest_drain / pulmonary_hypertension / extubation_failure /
+      caffeine_used <- direct any-day booleans from the day log's
+      postnatal_steroids / pulm_hemorrhage / pneumothorax / chest_drain
+      / pphn / extub_failure / caffeine.
+    - extubation_episodes / caffeine_duration <- day-count of
+      extub_failure / caffeine (day-count-as-proxy, same caveat as
+      every other domain's *_number/*_days fields).
+    - apnea / apnea_onset_age: derived from apnea_count (the current
+      numbered field, #13) parsed as a number per day; any day with a
+      count > 0 counts as an apnea day. Falls back to the legacy `apnea`
+      boolean only if no day has a parseable apnea_count at all — same
+      current-field-preferred-over-legacy convention as Renal's KDIGO
+      stage. apnea_onset_age is the earliest such day minus 1 (nicu_day
+      1 == age 0), same day-granularity age pattern as GI's
+      nec_age_days — no cross-table join needed since this wants an age
+      in days, not a calendar date.
+
+    Deliberately NOT filled:
+    - bpd / bpd_support_36w / bpd_grade: BPD is a diagnosis made from
+      respiratory support status at a specific point in time (36 weeks
+      PMA), not an any-day aggregate — it needs gestational age (from a
+      different form), a PMA-date calculation, and reading the single
+      day log entry AT that calculated date, not before or after. That
+      is a meaningfully different and higher-stakes kind of derivation
+      than everything else in this endpoint and deserves its own
+      dedicated design pass rather than being folded in here.
+    - oxygen_exposure ("Integrated Oxygen Exposure"): this appears to
+      correspond to FiO2 AUC data captured in a completely different
+      helper form (fio2_auc_logs / Helper 1), outside the 3 day-log
+      tables this whole auto-fill project has used — not pulled in here.
+    - pneumothorax_side: no laterality in the day log.
+    - rx_sildenafil/rx_ino/rx_miliri/rx_vaso/rx_other(_text): no
+      specific PPHN treatment drug tracked in the day log.
+    - steroid_age_days/steroid_drug(_other)/steroid_dose/steroid_dose_2/
+      steroid_indication(_other): the day log only has a flat
+      postnatal_steroids boolean, no drug/dose/indication/age detail.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def count_days_with_mode(token):
+        count = 0
+        for l in logs:
+            modes = [m.strip() for m in (l.support_modes or "").split(",") if m.strip()]
+            if token in modes:
+                count += 1
+        return count
+
+    def to_int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return None
+
+    apnea_days = sorted({
+        l.nicu_day for l in logs
+        if (to_int(l.apnea_count) or 0) > 0
+    })
+    if not apnea_days:
+        apnea_days = sorted({l.nicu_day for l in logs if l.apnea is True})
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "oxygen_days": count_days("supp_o2") or None,
+        "nasal_cannula": "Yes" if count_days_with_mode("NC") else "No",
+        "nasal_cannula_days": count_days_with_mode("NC") or None,
+        "cpap": "Yes" if count_days_with_mode("CPAP") else "No",
+        "cpap_days": count_days_with_mode("CPAP") or None,
+        "nippv": "Yes" if count_days_with_mode("NIPPV") else "No",
+        "nippv_days": count_days_with_mode("NIPPV") or None,
+        "hfnc": "Yes" if count_days_with_mode("HFNC") else "No",
+        "hfnc_days": count_days_with_mode("HFNC") or None,
+        "invasive_ventilation": "Yes" if any_day("endotracheal_intubation") else "No",
+        "imv_days": count_days("endotracheal_intubation") or None,
+        "postnatal_steroids": "Yes" if any_day("postnatal_steroids") else "No",
+        "pulmonary_hemorrhage": "Yes" if any_day("pulm_hemorrhage") else "No",
+        "pneumothorax": "Yes" if any_day("pneumothorax") else "No",
+        "chest_drain": "Yes" if any_day("chest_drain") else "No",
+        "pulmonary_hypertension": "Yes" if any_day("pphn") else "No",
+        "extubation_failure": "Yes" if any_day("extub_failure") else "No",
+        "extubation_episodes": count_days("extub_failure") or None,
+        "apnea": "Yes" if apnea_days else "No",
+        "apnea_onset_age": (min(apnea_days) - 1) if apnea_days else None,
+        "caffeine_used": "Yes" if any_day("caffeine") else "No",
+        "caffeine_duration": count_days("caffeine") or None,
+    }
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================

@@ -120,6 +120,13 @@ const [cvStale, setCvStale] = useState({});
 // fetchInfectionWindows below for why this domain is architecturally
 // different from every other one above.
 const [infectionWindows, setInfectionWindows] = useState([]);
+
+// Respiratory (H2) auto-fill — same pattern as the other domains above,
+// from /neonatal-morbidities/resp-prefill. BPD (H2.1) is deliberately
+// not covered — see the backend endpoint docstring.
+const [respPrefill, setRespPrefill] = useState(null);
+const [respAutoFilled, setRespAutoFilled] = useState({});
+const [respStale, setRespStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -683,7 +690,7 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The eight
+    // correctly loaded record) — don't reintroduce that shape. The nine
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load. fetchInfectionWindows is detection-only (see its
@@ -698,6 +705,7 @@ useEffect(() => {
       fetchRopThermoPrefill();
       fetchCvPrefill();
       fetchInfectionWindows();
+      fetchRespPrefill();
     });
   }, [enrollmentId]);
 
@@ -1848,6 +1856,11 @@ const PREFILL_FIELD_LABELS = {
   inotrope_dopa: "Dopamine", inotrope_dobu: "Dobutamine",
   inotrope_adr: "Adrenaline", inotrope_nadr: "Noradrenaline",
   inotrope_milri: "Milrinone", inotrope_vaso: "Vasopressin",
+  nasal_cannula: "Nasal Cannula", cpap: "CPAP", nippv: "NIPPV", hfnc: "HFNC",
+  invasive_ventilation: "Invasive Ventilation", postnatal_steroids: "Postnatal Steroids",
+  pulmonary_hemorrhage: "Pulmonary Hemorrhage", pneumothorax: "Pneumothorax",
+  chest_drain: "Chest Drain", pulmonary_hypertension: "Pulmonary Hypertension",
+  extubation_failure: "Extubation Failure", apnea: "Apnea", caffeine_used: "Caffeine",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2538,6 +2551,92 @@ const addInfectionFromWindow = (detectedWindow) => {
 // completed status while a detected trigger window hasn't been either
 // reviewed or acted on.
 const allInfectionFlagsReviewed = infectionWindows.every((w) => isInfectionFlagReviewed(w.signature));
+
+// Respiratory (H2) auto-fill — same pattern as the other domains above.
+// BPD (H2.1) has no entry here at all — see the backend endpoint
+// docstring for why it needs its own dedicated design pass rather than
+// being folded into this domain.
+const RESP_PREFILL_FIELDS = [
+  "oxygen_days",
+  "nasal_cannula", "nasal_cannula_days",
+  "cpap", "cpap_days",
+  "nippv", "nippv_days",
+  "hfnc", "hfnc_days",
+  "invasive_ventilation", "imv_days",
+  "postnatal_steroids",
+  "pulmonary_hemorrhage",
+  "pneumothorax",
+  "chest_drain",
+  "pulmonary_hypertension",
+  "extubation_failure", "extubation_episodes",
+  "apnea", "apnea_onset_age",
+  "caffeine_used", "caffeine_duration",
+];
+
+// Only the Yes/No fields get checked for staleness — every *_days/
+// *_episodes/*_age field is excluded on purpose, same reasoning as
+// every other domain: those keep drifting naturally as more daily-log
+// entries come in, so flagging them would be noise, not a meaningful
+// "review this" signal.
+const RESP_STALE_CHECK_FIELDS = [
+  "nasal_cannula", "cpap", "nippv", "hfnc", "invasive_ventilation",
+  "postnatal_steroids", "pulmonary_hemorrhage", "pneumothorax",
+  "chest_drain", "pulmonary_hypertension", "extubation_failure",
+  "apnea", "caffeine_used",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchRespPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/resp-prefill/${enrollmentId}`);
+    const data = res.data;
+    setRespPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      RESP_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && RESP_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setRespAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setRespStale(stale);
+  } catch (err) {
+    console.log("Error fetching respiratory prefill", err);
+  }
+};
+
+const clearRespAutoFilled = (name) => {
+  setRespAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleRespChange = (e) => {
+  clearRespAutoFilled(e.target.name);
+  handleChange(e);
+};
 
 // Shared confirm gate for the "Force refill" actions below — this is
 // the one action in the auto-fill machinery that can genuinely destroy a
@@ -5942,6 +6041,30 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "support" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
   {/* 38. O2 Days */}
   <div className="form-group">
     <label><span className="field-num">38.</span> O2 Days</label>
@@ -5949,13 +6072,14 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="oxygen_days"
       value={formData.oxygen_days || ""}
-      onChange={handleChange}
+      onChange={handleRespChange}
       onBlur={handleBlur}
       min="0"
       max="365"
       step="1"
       placeholder="0–365"
     />
+    {respAutoFilled.oxygen_days && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.oxygen_days && errors.oxygen_days && (
       <div className="error-text">{errors.oxygen_days}</div>
     )}
@@ -5964,7 +6088,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 39/40. Nasal Cannula */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.nasal_cannula && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.nasal_cannula === "Yes" && (
@@ -5979,6 +6104,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("nasal_cannula_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, nasal_cannula_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -5993,6 +6119,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, nasal_cannula_days: num });
           }}
         />
+        {respAutoFilled.nasal_cannula_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6000,7 +6127,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 41/42. CPAP */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.cpap && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.cpap === "Yes" && (
@@ -6015,6 +6143,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("cpap_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, cpap_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6029,6 +6158,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, cpap_days: num });
           }}
         />
+        {respAutoFilled.cpap_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6036,7 +6166,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 43/44. NIPPV */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.nippv && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.nippv === "Yes" && (
@@ -6051,6 +6182,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("nippv_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, nippv_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6065,6 +6197,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, nippv_days: num });
           }}
         />
+        {respAutoFilled.nippv_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6072,7 +6205,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 45/46. HFNC */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.hfnc && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.hfnc === "Yes" && (
@@ -6087,6 +6221,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("hfnc_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, hfnc_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6101,6 +6236,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, hfnc_days: num });
           }}
         />
+        {respAutoFilled.hfnc_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6108,7 +6244,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 47/48. Invasive mechanical ventilation */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.invasive_ventilation && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.invasive_ventilation === "Yes" && (
@@ -6123,6 +6260,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("imv_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, imv_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6137,6 +6275,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, imv_days: num });
           }}
         />
+        {respAutoFilled.imv_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6172,7 +6311,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 50. Postnatal steroids */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleChange} required />
+      <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleRespChange} required />
+      {respAutoFilled.postnatal_steroids && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.postnatal_steroids && errors.postnatal_steroids && (
         <div className="error-text">{errors.postnatal_steroids}</div>
       )}
@@ -6369,9 +6509,34 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "otherResp" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 {/* 56. Pulmonary Hemorrhage */}
 <div className="form-group">
-  <YesNoToggle label="56. Pulmonary Hemorrhage" name="pulmonary_hemorrhage" value={formData.pulmonary_hemorrhage} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="56. Pulmonary Hemorrhage" name="pulmonary_hemorrhage" value={formData.pulmonary_hemorrhage} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pulmonary_hemorrhage && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pulmonary_hemorrhage && errors.pulmonary_hemorrhage && (
     <div className="error-text">{errors.pulmonary_hemorrhage}</div>
   )}
@@ -6379,7 +6544,8 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* 57. Pneumothorax */}
 <div className="form-group">
-  <YesNoToggle label="57. Pneumothorax" name="pneumothorax" value={formData.pneumothorax} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="57. Pneumothorax" name="pneumothorax" value={formData.pneumothorax} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pneumothorax && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pneumothorax && errors.pneumothorax && (
     <div className="error-text">{errors.pneumothorax}</div>
   )}
@@ -6408,7 +6574,8 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* 59. Chest drain */}
     <div className="form-group">
-      <YesNoToggle label="59. Chest drain" name="chest_drain" value={formData.chest_drain} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="59. Chest drain" name="chest_drain" value={formData.chest_drain} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.chest_drain && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.chest_drain && errors.chest_drain && (
         <div className="error-text">{errors.chest_drain}</div>
       )}
@@ -6418,7 +6585,8 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* 60. Pulmonary Hypertension */}
 <div className="form-group">
-  <YesNoToggle label="60. Pulmonary Hypertension" name="pulmonary_hypertension" value={formData.pulmonary_hypertension} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="60. Pulmonary Hypertension" name="pulmonary_hypertension" value={formData.pulmonary_hypertension} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pulmonary_hypertension && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pulmonary_hypertension && errors.pulmonary_hypertension && (
     <div className="error-text">{errors.pulmonary_hypertension}</div>
   )}
@@ -6469,7 +6637,8 @@ const peripheralStatus= getPeripheralStatus();
 {/* 62/63. Extubation Failure */}
 <div className="form-row">
   <div className="form-group">
-    <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleChange} />
+    <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleRespChange} />
+    {respAutoFilled.extubation_failure && <span className="field-hint-auto-inline">from daily logs</span>}
   </div>
 
   {formData.extubation_failure === "Yes" && (
@@ -6479,9 +6648,10 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="extubation_episodes"
         value={formData.extubation_episodes || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         placeholder="Number of episodes"
       />
+      {respAutoFilled.extubation_episodes && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
   )}
 </div>
@@ -6504,10 +6674,35 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "apnea" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 <div className="form-row">
   {/* 64. Apnea */}
   <div className="form-group">
-    <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleRespChange} onBlur={handleBlur} required />
+    {respAutoFilled.apnea && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.apnea && errors.apnea && (
       <div className="error-text">{errors.apnea}</div>
     )}
@@ -6521,13 +6716,14 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="apnea_onset_age"
         value={formData.apnea_onset_age || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         onBlur={handleBlur}
         min="0"
         max="60"
         step="1"
         placeholder="0–60"
       />
+      {respAutoFilled.apnea_onset_age && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.apnea_onset_age && errors.apnea_onset_age && (
         <div className="error-text">{errors.apnea_onset_age}</div>
       )}
@@ -6538,7 +6734,8 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
   {/* 66. Caffeine */}
   <div className="form-group">
-    <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleRespChange} onBlur={handleBlur} required />
+    {respAutoFilled.caffeine_used && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.caffeine_used && errors.caffeine_used && (
       <div className="error-text">{errors.caffeine_used}</div>
     )}
@@ -6552,13 +6749,14 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="caffeine_duration"
         value={formData.caffeine_duration || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         onBlur={handleBlur}
         min="0"
         max="60"
         step="1"
         placeholder="0–60"
       />
+      {respAutoFilled.caffeine_duration && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.caffeine_duration && errors.caffeine_duration && (
         <div className="error-text">{errors.caffeine_duration}</div>
       )}
