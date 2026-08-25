@@ -90,7 +90,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "hs_pda",              label: "HS PDA", bool: true },
       { key: "shock",               label: "Shock", bool: true },
       { key: "vasoactive_support",  label: "Vasoactive Support", bool: true },
-      { key: "fluid_bolus",         label: "Fluid Bolus" },
+      { key: "fluid_bolus_given",   label: "Fluid Bolus", bool: true },
       { key: "vasoactive_drugs",    label: "Vasoactive Drugs" },
     ],
   },
@@ -249,21 +249,6 @@ function validateCount(value, { max = 50, label } = {}) {
   if (!Number.isInteger(num)) return "Enter a whole number";
   if (num < 0) return "Value can't be negative";
   if (num > max) return `${label ? label + " " : ""}seems unusually high — please double-check`;
-  return null;
-}
-
-/* Validates the free-text Fluid Bolus field (#29). Expects a volume
-   expressed as "Xml/kg", optionally followed by the fluid type
-   (e.g. "10ml/kg NS"). Returns an error string, or null when
-   valid / empty (field is optional). */
-function validateFluidBolus(str) {
-  if (!str || !str.trim()) return null;
-  const trimmed = str.trim();
-  const m = trimmed.match(/^(\d+(?:\.\d+)?)\s*m[Ll]\s*\/\s*kg\b/);
-  if (!m) return 'Use the format "Xml/kg" — e.g. 10ml/kg NS';
-  const num = parseFloat(m[1]);
-  if (num <= 0) return "Bolus volume must be greater than 0";
-  if (num > 30) return "Fluid bolus is usually 5–30ml/kg — please double-check this value";
   return null;
 }
 
@@ -626,7 +611,6 @@ export default function RespCVNeuroLog() {
     pda_suspected: null, echo_done: null, hs_pda: null,
     shock: null, vasoactive_support: null, fluid_bolus_given: null,
   });
-  const [fluidBolus, setFluidBolus] = useState(""); // #29
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
 
   /* ── Neurological state ── */
@@ -894,7 +878,6 @@ export default function RespCVNeuroLog() {
             vasoactive_support: d.vasoactive_support ?? null,
             fluid_bolus_given: d.fluid_bolus_given ?? null,
           });
-          setFluidBolus(d.fluid_bolus || "");
           setVasoactiveDrugs(d.vasoactive_drugs ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
           setNeuroData({
             cranial_usg:        d.cranial_usg        ?? null,
@@ -961,7 +944,6 @@ export default function RespCVNeuroLog() {
       pphn: null, postnatal_steroids: null });
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
       pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus_given: null });
-    setFluidBolus("");
     setVasoactiveDrugs([]);
     setNeuroData({ cranial_usg: null, ivh: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
@@ -1035,16 +1017,12 @@ export default function RespCVNeuroLog() {
   // ── CARDIOVASCULAR (spec items 23-29) ────────────────────
   // Base always-visible: pda_suspected(23), echo_done(24), hs_pda(25), shock(26),
   //   vasoactive_support(27), fluid_bolus_given(29 Yes/No) = 6.
-  // Conditional: vasoactive_drugs(28) only when vasoactive_support===true;
-  //   fluid_bolus detail text only when fluid_bolus_given===true.
+  // Conditional: vasoactive_drugs(28) only when vasoactive_support===true.
   const CV_KEYS = ["pda_suspected","echo_done","hs_pda","shock","vasoactive_support","fluid_bolus_given"];
   const vasoactiveVisible = cvData.vasoactive_support === true;
-  const fluidBolusVisible = cvData.fluid_bolus_given === true;
-  const fluidBolusError = fluidBolusVisible ? validateFluidBolus(fluidBolus) : null;
-  const cvTotal    = (vasoactiveVisible ? 1 : 0) + (fluidBolusVisible ? 1 : 0) + CV_KEYS.length;
+  const cvTotal    = (vasoactiveVisible ? 1 : 0) + CV_KEYS.length;
   const cvAnswered = Math.min(
     CV_KEYS.filter(k => cvData[k] !== null).length
-    + (fluidBolusVisible && fluidBolus !== "" ? 1 : 0)
     + (vasoactiveVisible && vasoactiveDrugs.length > 0 ? 1 : 0),
     cvTotal
   );
@@ -1133,7 +1111,6 @@ export default function RespCVNeuroLog() {
       severe_desaturation_count: combineSingleField(severeDesatCount, severeDesatCountNotDone),
       ...respEvents,
       ...cvData,
-      fluid_bolus:         fluidBolus || null,
       vasoactive_drugs:    vasoactiveDrugs.join(", "),
       ...neuroData,
       submission_status:   STATUS.DRAFT,
@@ -1299,7 +1276,6 @@ export default function RespCVNeuroLog() {
         vasoactive_support: d.vasoactive_support ?? null,
         fluid_bolus_given:  d.fluid_bolus_given  ?? null,
       });
-      setFluidBolus(d.fluid_bolus || "");
       setVasoactiveDrugs(d.vasoactive_drugs
         ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
       setNeuroData({
@@ -2231,13 +2207,9 @@ export default function RespCVNeuroLog() {
                   { k: "hs_pda",            l: "25. HS-PDA" },
                   { k: "shock",             l: "26. Shock" },
                   { k: "vasoactive_support",l: "27. Vasoactives" },
-                  { k: "fluid_bolus_given", l: "29. Fluid bolus given" },
                 ].map(({ k, l }) => (
                   <YNRow key={k} label={l} value={cvData[k]}
-                    onChange={v => {
-                      setCv(k, v);
-                      if (k === "fluid_bolus_given" && v !== true) setFluidBolus("");
-                    }} disabled={!isFieldEditable} />
+                    onChange={v => setCv(k, v)} disabled={!isFieldEditable} />
                 ))}
               </div>
 
@@ -2258,16 +2230,10 @@ export default function RespCVNeuroLog() {
                 </div>
               )}
 
-              {cvData.fluid_bolus_given === true && (
-                <div className="rcn-field-group">
-                  <label className="rcn-field-label">29. Fluid bolus detail</label>
-                  <input type="text" placeholder="e.g. 10ml/kg NS"
-                    className={`rcn-text-input${fluidBolusError ? " rcn-text-input--error" : ""}`}
-                    value={fluidBolus} onChange={e => isFieldEditable && setFluidBolus(e.target.value)}
-                    readOnly={!isFieldEditable} />
-                  {fluidBolusError && <span className="rcn-field-error">{fluidBolusError}</span>}
-                </div>
-              )}
+              <div className="rcn-yn-list">
+                <YNRow key="fluid_bolus_given" label="29. Fluid bolus given" value={cvData.fluid_bolus_given}
+                  onChange={v => setCv("fluid_bolus_given", v)} disabled={!isFieldEditable} />
+              </div>
             </SectionCard>
 
             {/* ════ NEUROLOGICAL ════ */}

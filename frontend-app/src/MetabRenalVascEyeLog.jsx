@@ -192,7 +192,9 @@ function StatusToggleGroup({ status, onChange, disabled, allowAwaited = false })
 
 function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
   status = null, onStatusChange = null, allowAwaited = false }) {
-  const isSentinel = isStatusSentinel(status);
+  const isAwaited  = status === STATUS_AWAITED;
+  const isNotDone  = status === STATUS_NOT_DONE;
+  const isSentinel = isAwaited || isNotDone;
   const toggle = (s) => {
     if (disabled || !onStatusChange) return;
     onStatusChange(status === s ? null : s);
@@ -206,16 +208,21 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
           <StatusToggleGroup status={status} onChange={toggle} disabled={disabled} allowAwaited={allowAwaited} />
         )}
       </div>
-      <div className="rcn-num-input" style={{ width:160 }}>
-        <input type="number" min="0" step="0.01"
-          placeholder={isSentinel ? "" : placeholder}
-          value={isSentinel ? "" : (value ?? "")}
-          onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : Number(e.target.value))}
-          readOnly={disabled || isSentinel}
-        />
-        {unit && <span className="rcn-num-unit">{unit}</span>}
+      <div className={`rcn-num-input${isSentinel ? ` rcn-num-input--sentinel ${isAwaited ? "rcn-num-input--awaited" : "rcn-num-input--notdone"}` : ""}`} style={{ width:160 }}>
+        {isSentinel ? (
+          <span className="rcn-num-sentinel-text">{status}</span>
+        ) : (
+          <>
+            <input type="number" min="0" step="0.01"
+              placeholder={placeholder}
+              value={value ?? ""}
+              onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
+              readOnly={disabled}
+            />
+            {unit && <span className="rcn-num-unit">{unit}</span>}
+          </>
+        )}
       </div>
-      {isSentinel && <span className="rcn-field-sub">{status}</span>}
     </div>
   );
 }
@@ -225,6 +232,7 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
  *  toggle buttons (stored directly in the same string field). */
 function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—", allowAwaited = false, allowNotDone = false }) {
   const isSentinel = isStatusSentinel(value);
+  const isAwaited  = value === STATUS_AWAITED;
   const toggle = (s) => {
     if (disabled) return;
     onChange(value === s ? null : s);
@@ -245,15 +253,21 @@ function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, pl
           />
         )}
       </div>
-      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}`} style={{ width: 180 }}>
-        <input
-          type="text"
-          value={isSentinel ? "" : (value ?? "")}
-          onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : e.target.value)}
-          readOnly={disabled || isSentinel}
-          placeholder={isSentinel ? "" : placeholder}
-        />
-        {unit && <span className="rcn-num-unit">{unit}</span>}
+      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}${isSentinel ? ` rcn-num-input--sentinel ${isAwaited ? "rcn-num-input--awaited" : "rcn-num-input--notdone"}` : ""}`} style={{ width: 180 }}>
+        {isSentinel ? (
+          <span className="rcn-num-sentinel-text">{value}</span>
+        ) : (
+          <>
+            <input
+              type="text"
+              value={value ?? ""}
+              onChange={e => !disabled && onChange(e.target.value === "" ? null : e.target.value)}
+              readOnly={disabled}
+              placeholder={placeholder}
+            />
+            {unit && <span className="rcn-num-unit">{unit}</span>}
+          </>
+        )}
       </div>
     </div>
   );

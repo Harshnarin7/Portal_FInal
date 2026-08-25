@@ -1128,6 +1128,33 @@
 .rcn-num-input input:disabled { cursor: not-allowed; color: #94A3B8; }
 .rcn-num-input:has(input:disabled) { background: #F8FAFC; border-color: #EEF2F7; }
 
+/* Status sentinel ("Result Awaited" / "Not Recorded / Not Done") shown
+   directly inside the value box, in place of the number/text input, so
+   the selected state is obvious at a glance instead of relying on a
+   tiny caption underneath. */
+.rcn-num-input--sentinel {
+  padding: 10px 14px;
+  justify-content: center;
+}
+.rcn-num-sentinel-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  line-height: 1.35;
+}
+.rcn-num-input--notdone {
+  background: #F1F5F9;
+  border-color: #CBD5E1;
+}
+.rcn-num-input--notdone .rcn-num-sentinel-text { color: #475569; }
+.rcn-num-input--awaited {
+  background: #FFF7ED;
+  border-color: #FDBA74;
+}
+.rcn-num-input--awaited .rcn-num-sentinel-text { color: #9A3412; }
+
 .rcn-num-input--na {
   padding: 12px 14px;
   gap: 8px;

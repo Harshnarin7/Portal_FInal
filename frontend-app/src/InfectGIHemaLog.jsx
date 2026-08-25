@@ -283,22 +283,24 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", err
             </div>
           )}
         </div>
-        <div className={`rcn-num-input${error ? " rcn-num-input--error" : ""}`} style={{ width }}>
-          <input
-            type="number" min="0" step="0.1"
-            placeholder={isSentinel ? "" : placeholder}
-            value={isSentinel ? "" : (value ?? "")}
-            onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : Number(e.target.value))}
-            readOnly={disabled || isSentinel}
-          />
-          {unit && <span className="rcn-num-unit">{unit}</span>}
+        <div className={`rcn-num-input${error ? " rcn-num-input--error" : ""}${isSentinel ? ` rcn-num-input--sentinel ${isAwaited ? "rcn-num-input--awaited" : "rcn-num-input--notdone"}` : ""}`} style={{ width }}>
+          {isSentinel ? (
+            <span className="rcn-num-sentinel-text">{status}</span>
+          ) : (
+            <>
+              <input
+                type="number" min="0" step="0.1"
+                placeholder={placeholder}
+                value={value ?? ""}
+                onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
+                readOnly={disabled}
+              />
+              {unit && <span className="rcn-num-unit">{unit}</span>}
+            </>
+          )}
         </div>
       </div>
-      {isSentinel ? (
-        <span className="rcn-field-sub" style={{ display: "block", textAlign: "right", marginTop: -8, marginBottom: 8 }}>
-          {status}
-        </span>
-      ) : error && (
+      {!isSentinel && error && (
         <span className="rcn-field-error" style={{ display: "block", textAlign: "right", marginTop: -8, marginBottom: 8 }}>
           {error}
         </span>
