@@ -16,6 +16,7 @@ from config import ACCESS_TOKEN_EXPIRE_MINUTES
 from db import Base, engine, SessionLocal, get_db
 from models import SteroidData
 import models
+from ae_reference import detect_metabolic_thermal_candidates
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -4162,6 +4163,44 @@ def _ae_out_with_pii(db: Session, record: AdverseEvents, current_user: User) -> 
     except Exception:
         pass
     return data
+
+
+@app.get("/adverse-events/candidates/{enrollment_id}")
+def get_adverse_event_candidates(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AE-candidate detection — first domain of the AE/SAE auto-fill
+    project (Metabolic, Electrolyte, Thermal, AKI — the 8 AE terms in the
+    site's AE severity document that have hard numeric or clinician-staged
+    thresholds already captured in the Metab/Renal/Vasc/Eye daily helper
+    log). Returns candidate rows shaped to drop straight into
+    AdverseEventsForm's `events` list; the frontend only ever offers these
+    as suggestions to add — nothing here writes to the AE form directly.
+    Every other AE term in the document has no detector yet and simply
+    won't appear here (silently, not as an error) — this list is expected
+    to grow domain by domain, same as the Form H auto-fill project."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False, "candidates": []}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    day1_date = nicu.day1_date if nicu else None
+
+    candidates = detect_metabolic_thermal_candidates(logs, day1_date=day1_date)
+    return {"has_data": True, "candidates": candidates}
+
 
 @app.post("/sae-list/", response_model=SAEListOut)
 def create_sae_list(

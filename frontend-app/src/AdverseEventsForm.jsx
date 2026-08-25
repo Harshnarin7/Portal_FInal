@@ -20,6 +20,7 @@ import {
   Trash2,
   Maximize2,
   X,
+  ScanSearch,
 } from "lucide-react";
 
 const GRADES = ["1", "2", "3", "4", "5"];
@@ -258,6 +259,9 @@ export default function AdverseEventsForm() {
   const [saveMessage, setSaveMessage] = useState("");
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState("");
+  const [justAddedRows, setJustAddedRows] = useState(() => new Set());
 
   const set = (field, value) => {
     setIsSaved(false);
@@ -275,6 +279,12 @@ export default function AdverseEventsForm() {
 
   const updateRow = (index, field, value) => {
     setIsSaved(false);
+    setJustAddedRows((s) => {
+      if (!s.has(index)) return s;
+      const next = new Set(s);
+      next.delete(index);
+      return next;
+    });
     setFormData((p) => {
       const events = [...(p.events || [])];
       events[index] = { ...events[index], [field]: value };
@@ -289,10 +299,79 @@ export default function AdverseEventsForm() {
 
   const removeRow = (index) => {
     setIsSaved(false);
+    setJustAddedRows((s) => {
+      if (!s.size) return s;
+      const next = new Set();
+      s.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
+      return next;
+    });
     setFormData((p) => ({
       ...p,
       events: (p.events || []).filter((_, i) => i !== index),
     }));
+  };
+
+  const scanForCandidates = async () => {
+    if (!formData.enrollment_id) return;
+    setScanning(true);
+    setScanMessage("");
+    try {
+      const res = await api.get(
+        `/adverse-events/candidates/${encodeURIComponent(formData.enrollment_id)}`,
+      );
+      const candidates = Array.isArray(res.data?.candidates) ? res.data.candidates : [];
+      if (!candidates.length) {
+        setScanMessage(
+          res.data?.has_data === false
+            ? "No daily logs found for this baby yet."
+            : "No adverse-event candidates found in the metabolic/electrolyte/thermal/AKI daily-log data.",
+        );
+        setScanning(false);
+        return;
+      }
+      setFormData((p) => {
+        const existing = p.events || [];
+        const already = new Set(
+          existing.map((e) => `${e.definition_no}|${e.start_date}`),
+        );
+        const toAdd = candidates
+          .filter((c) => !already.has(`${c.definition_no}|${c.start_date || ""}`))
+          .map((c) => ({
+            description: c.description || "",
+            definition_no: c.definition_no || "",
+            start_date: c.start_date || "",
+            end_date: c.end_date || "",
+            severity_desc: c.evidence
+              ? `${c.severity_desc}\n\nEvidence (auto-detected from daily logs): ${c.evidence}`
+              : c.severity_desc || "",
+            grade: c.grade || "",
+            converted_to_sae: "",
+          }));
+        if (!toAdd.length) {
+          setScanMessage("All detected candidates are already in the list below.");
+          return p;
+        }
+        const startIdx = existing.length;
+        setJustAddedRows((s) => {
+          const next = new Set(s);
+          toAdd.forEach((_, i) => next.add(startIdx + i));
+          return next;
+        });
+        setScanMessage(
+          `Added ${toAdd.length} candidate event${toAdd.length > 1 ? "s" : ""} — review and edit before saving.`,
+        );
+        return { ...p, has_adverse_event: "Yes", events: [...existing, ...toAdd] };
+      });
+    } catch (err) {
+      console.error(err?.response?.data || err);
+      setScanMessage("Scan failed — please try again.");
+    } finally {
+      setScanning(false);
+      setTimeout(() => setScanMessage(""), 6000);
+    }
   };
 
   useEffect(() => {
@@ -496,6 +575,22 @@ export default function AdverseEventsForm() {
           <span className="ae-q">Any adverse event reported?</span>
           <YesNo value={formData.has_adverse_event} onChange={setHasAE} />
         </div>
+        <div className="ae-scan-row">
+          <button
+            type="button"
+            className="ae-scan-btn"
+            onClick={scanForCandidates}
+            disabled={scanning || !formData.enrollment_id}
+          >
+            <ScanSearch size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
+            {scanning ? "Scanning…" : "Scan daily logs for AE candidates"}
+          </button>
+          <span className="ae-scan-hint">
+            Checks metabolic, electrolyte, thermal, and AKI daily-log data (more domains coming).
+            Suggestions only — review and edit every field before saving.
+          </span>
+        </div>
+        {scanMessage && <p className="ae-scan-msg">{scanMessage}</p>}
       </SectionCard>
 
       {showEvents && (
@@ -524,9 +619,14 @@ export default function AdverseEventsForm() {
                   </tr>
                 ) : (
                   formData.events.map((row, idx) => (
-                    <tr key={idx}>
+                    <tr key={idx} className={justAddedRows.has(idx) ? "ae-row-auto" : undefined}>
                       <td className="ae-num">{idx + 1}</td>
                       <td className="ae-desc-col">
+                        {justAddedRows.has(idx) && (
+                          <span className="ae-auto-badge" title="Suggested from a daily-log scan — review before saving">
+                            auto-detected
+                          </span>
+                        )}
                         <ExpandableText
                           value={row.description}
                           onChange={(v) => updateRow(idx, "description", v)}
