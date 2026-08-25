@@ -2450,16 +2450,27 @@ def get_cv_prefill(
       `vasoactive_drugs` field — same CSV-token technique as GI's
       pdhm/ebm/fm_days, applied here to a boolean-per-token instead of a
       day-count.
+    - SBP/DBP/MAP: the lowest value ever recorded for each vital across
+      every Minimal Monitoring day sheet logged for this enrollment (a
+      4th table, separate from RespCVNeuroDayLog — Minimal Monitoring's
+      "today" sheet wipes at 8 AM, but every day's save is still a
+      permanent row keyed by record_date, so scanning all of them gives
+      the full-stay history even though only "today" is ever visible in
+      that helper form's own UI). Each of the three vitals is its own
+      independent running minimum — the reading that produced the lowest
+      SBP does not have to be the same reading, or even the same day, as
+      the one that produced the lowest DBP or MAP. See
+      `_lowest_minimal_monitoring_vital` below for how a day's multiple
+      "Log another reading" entries (and older legacy single-value rows)
+      are scanned.
     - Everything else has no day-log source: PDA diagnosis method
       (clinical/echo/both) and all clinical-exam/echo-measurement detail
       (murmur, TDD, peak velocity, pattern, shunt, LA:Ao, systemic steal,
       LPA velocity — `echo_done` only confirms an echo happened, not what
       it showed), PDA agent/courses/dose/intervention/ligation-or-device
       age, hypotension (the day log has no hypotension field at all, only
-      shock), SBP/DBP/MAP (those live in the Minimal Monitoring helper
-      log, a 4th table outside this auto-fill project's scope), VIS score
-      (needs dose-weighted values the day log doesn't capture), and
-      hydrocortisone-for-BP + its timing (the day log's
+      shock), VIS score (needs dose-weighted values the day log doesn't
+      capture), and hydrocortisone-for-BP + its timing (the day log's
       `postnatal_steroids` is a BPD/lung indication, a different clinical
       purpose — reusing it here would misrepresent why the drug was
       given).
@@ -2471,7 +2482,12 @@ def get_cv_prefill(
         .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
         .all()
     )
-    if not logs:
+    mml_logs = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs and not mml_logs:
         return {"has_data": False}
 
     def any_day(attr):
@@ -2488,22 +2504,69 @@ def get_cv_prefill(
             t.strip() for t in (l.vasoactive_drugs or "").split(",") if t.strip()
         )
 
+    def _lowest_minimal_monitoring_vital(entries_json_key, legacy_attr):
+        """Scans every Minimal Monitoring day row's 5.1.A "Vitals" multi-
+        entry block for the lowest numeric value of a given field. Rows
+        saved before the multi-entry redesign have no entries_json — for
+        those, fall back to the row's own legacy flat column (the single
+        reading that row ever held)."""
+        best = None
+        for row in mml_logs:
+            row_had_entries = False
+            if row.entries_json:
+                try:
+                    parsed = (
+                        json.loads(row.entries_json)
+                        if isinstance(row.entries_json, str)
+                        else row.entries_json
+                    )
+                    for entry in (parsed or {}).get("cv_a", []) or []:
+                        raw = entry.get(entries_json_key)
+                        if raw is None or raw == "":
+                            continue
+                        try:
+                            val = float(raw)
+                        except (TypeError, ValueError):
+                            continue
+                        row_had_entries = True
+                        if best is None or val < best:
+                            best = val
+                except (TypeError, ValueError):
+                    pass
+            if not row_had_entries:
+                legacy_val = getattr(row, legacy_attr)
+                if legacy_val is not None and (best is None or legacy_val < best):
+                    best = legacy_val
+        return best
+
+    lowest_sbp = _lowest_minimal_monitoring_vital("sbp", "sbp")
+    lowest_dbp = _lowest_minimal_monitoring_vital("dbp", "dbp")
+    lowest_map = _lowest_minimal_monitoring_vital("map_value", "map_value")
+
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "hs_pda": "Yes" if any_day("hs_pda") else "No",
-        "pda_medical_rx": "Yes" if any_day("pda_medical_rx") else "No",
-        "shock": "Yes" if any_day("shock") else "No",
-        "fluid_bolus": "Yes" if bolus_days else "No",
-        "fluid_bolus_number": len(bolus_days) or None,
-        "inotropes": "Yes" if any_day("vasoactive_support") else "No",
-        "inotrope_duration": count_days("vasoactive_support") or None,
-        "inotrope_dopa": "Dopamine" in all_drug_tokens,
-        "inotrope_dobu": "Dobutamine" in all_drug_tokens,
-        "inotrope_adr": "Adrenaline" in all_drug_tokens,
-        "inotrope_nadr": "Noradrenaline" in all_drug_tokens,
-        "inotrope_milri": "Milrinone" in all_drug_tokens,
-        "inotrope_vaso": "Vasopressin" in all_drug_tokens,
+        "mml_days_count": len(mml_logs),
+        # These stay None (not "No"/False) when there are no RespCVNeuro
+        # day logs at all — the difference between "confirmed no shock"
+        # and "no CV day-log data exists yet" matters, and the frontend's
+        # isBlank() skip only respects the former if we return None here.
+        "hs_pda": ("Yes" if any_day("hs_pda") else "No") if logs else None,
+        "pda_medical_rx": ("Yes" if any_day("pda_medical_rx") else "No") if logs else None,
+        "shock": ("Yes" if any_day("shock") else "No") if logs else None,
+        "fluid_bolus": ("Yes" if bolus_days else "No") if logs else None,
+        "fluid_bolus_number": (len(bolus_days) or None) if logs else None,
+        "inotropes": ("Yes" if any_day("vasoactive_support") else "No") if logs else None,
+        "inotrope_duration": (count_days("vasoactive_support") or None) if logs else None,
+        "inotrope_dopa": ("Dopamine" in all_drug_tokens) if logs else None,
+        "inotrope_dobu": ("Dobutamine" in all_drug_tokens) if logs else None,
+        "inotrope_adr": ("Adrenaline" in all_drug_tokens) if logs else None,
+        "inotrope_nadr": ("Noradrenaline" in all_drug_tokens) if logs else None,
+        "inotrope_milri": ("Milrinone" in all_drug_tokens) if logs else None,
+        "inotrope_vaso": ("Vasopressin" in all_drug_tokens) if logs else None,
+        "sbp": lowest_sbp,
+        "dbp": lowest_dbp,
+        "map": lowest_map,
     }
 
 

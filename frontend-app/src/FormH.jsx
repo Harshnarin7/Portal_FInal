@@ -1913,6 +1913,7 @@ const PREFILL_FIELD_LABELS = {
   rop_screened: "ROP Screened", rop: "ROP Diagnosed",
   hs_pda: "HS-PDA", pda_medical_rx: "PDA Medical Rx", shock: "Shock",
   fluid_bolus: "Fluid Bolus", inotropes: "Vasoactives",
+  sbp: "SBP", dbp: "DBP", map: "MAP",
   inotrope_dopa: "Dopamine", inotrope_dobu: "Dobutamine",
   inotrope_adr: "Adrenaline", inotrope_nadr: "Noradrenaline",
   inotrope_milri: "Milrinone", inotrope_vaso: "Vasopressin",
@@ -2486,16 +2487,24 @@ const CV_PREFILL_FIELDS = [
   "inotropes", "inotrope_duration",
   "inotrope_dopa", "inotrope_dobu", "inotrope_adr",
   "inotrope_nadr", "inotrope_milri", "inotrope_vaso",
+  "sbp", "dbp", "map",
 ];
 
 // The Yes/No fields plus the 6 individual drug checkboxes get checked for
 // staleness (drug checkboxes are simple booleans, same as Metabolic's
 // dyselectro_na/k/ca) — fluid_bolus_number/inotrope_duration are excluded
 // on purpose, same reasoning as every other domain's day-count fields.
+//
+// sbp/dbp/map ARE included here, unlike those day-count fields — each is a
+// running minimum across the whole Minimal Monitoring history, so it only
+// moves when a genuinely new lowest reading shows up (not just "another day
+// went by"), which is exactly the kind of change worth flagging for review
+// rather than silently keeping the old, now-stale, lowest-so-far value.
 const CV_STALE_CHECK_FIELDS = [
   "hs_pda", "pda_medical_rx", "shock", "fluid_bolus", "inotropes",
   "inotrope_dopa", "inotrope_dobu", "inotrope_adr",
   "inotrope_nadr", "inotrope_milri", "inotrope_vaso",
+  "sbp", "dbp", "map",
 ];
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
@@ -8554,8 +8563,10 @@ const peripheralStatus= getPeripheralStatus();
 
 {cvPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
-    Daily logs available ({cvPrefill.log_days_count} day{cvPrefill.log_days_count === 1 ? "" : "s"} recorded).
-    Empty fields below were filled from them automatically — verify before saving.
+    Daily logs available ({cvPrefill.log_days_count} Resp/CV/Neuro day{cvPrefill.log_days_count === 1 ? "" : "s"},
+    {" "}{cvPrefill.mml_days_count || 0} Minimal Monitoring day{cvPrefill.mml_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving. SBP/DBP/MAP are each the
+    lowest value ever recorded for that vital across the whole NICU stay, from Minimal Monitoring.
     {" "}
     <button type="button" className="link-button" onClick={() => fetchCvPrefill()}>
       Refill empty fields from daily logs
@@ -8572,7 +8583,9 @@ const peripheralStatus= getPeripheralStatus();
     ⚠ The daily logs now disagree with the saved answer for:{" "}
     {Object.keys(cvStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
     This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
+    data (for SBP/DBP/MAP it can also mean a new, lower reading has since
+    been logged in Minimal Monitoring). Use "Force refill" above if the
+    daily logs are correct.
   </div>
 )}
 
@@ -8658,11 +8671,12 @@ const peripheralStatus= getPeripheralStatus();
           type="number"
           name="sbp"
           value={formData.sbp || ""}
-          onChange={handleChange}
+          onChange={handleCvChange}
           onBlur={handleBlur}
           min="0"
           max="120"
         />
+        {cvAutoFilled.sbp && <span className="field-hint-auto-inline">lowest from Minimal Monitoring</span>}
         {errors.sbp && <div className="error-text">{errors.sbp}</div>}
       </div>
 
@@ -8672,11 +8686,12 @@ const peripheralStatus= getPeripheralStatus();
           type="number"
           name="dbp"
           value={formData.dbp || ""}
-          onChange={handleChange}
+          onChange={handleCvChange}
           onBlur={handleBlur}
           min="0"
           max="100"
         />
+        {cvAutoFilled.dbp && <span className="field-hint-auto-inline">lowest from Minimal Monitoring</span>}
         {errors.dbp && <div className="error-text">{errors.dbp}</div>}
       </div>
 
@@ -8686,11 +8701,12 @@ const peripheralStatus= getPeripheralStatus();
           type="number"
           name="map"
           value={formData.map || ""}
-          onChange={handleChange}
+          onChange={handleCvChange}
           onBlur={handleBlur}
           min="0"
           max="120"
         />
+        {cvAutoFilled.map && <span className="field-hint-auto-inline">lowest from Minimal Monitoring</span>}
         {errors.map && <div className="error-text">{errors.map}</div>}
       </div>
 

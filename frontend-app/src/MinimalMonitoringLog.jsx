@@ -49,7 +49,7 @@ const BLOCKS_BY_SECTION = {
 
 /** Friendly label + one-line description shown in the field-picker list. */
 const BLOCK_META = {
-  cv_a: { code: "5.1.A", label: "Vitals", desc: "Axillary temp, SBP, DBP, MAP" },
+  cv_a: { code: "5.1.A", label: "Vitals", desc: "Skin/Axillary temp, SBP, DBP, MAP" },
   cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given" },
   cv_c: { code: "5.1.C", label: "Vasoactive Drugs", desc: "Agent, dose & unit" },
   cv_d: { code: "5.1.D", label: "PDA Medical Rx", desc: "Agent for medical Rx of PDA & dose" },
@@ -360,7 +360,7 @@ function YNToggle({ value, onChange, disabled }) {
  *  Keys match the entry object keys used throughout renderBlockBody. */
 const BLOCK_FIELDS = {
   cv_a: [
-    { key: "axillary_temp", label: "Axillary Temp", unit: "°C" },
+    { key: "axillary_temp", label: "Skin/Axillary Temp", unit: "°C" },
     { key: "sbp", label: "SBP", unit: "mm Hg" },
     { key: "dbp", label: "DBP", unit: "mm Hg" },
     { key: "map_value", label: "MAP", unit: "mm Hg" },
@@ -867,7 +867,7 @@ export default function MinimalMonitoringLog() {
             blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Axillary Temp">
+                <Item n={1} label="Skin/Axillary Temp">
                   <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
                     disabled={!isEditable} unit="°C" />
                 </Item>
