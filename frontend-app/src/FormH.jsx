@@ -158,6 +158,29 @@ const [cvStale, setCvStale] = useState({});
 // fetchInfectionWindows below for why this domain is architecturally
 // different from every other one above.
 const [infectionWindows, setInfectionWindows] = useState([]);
+
+// Respiratory (H2) auto-fill — same pattern as the other domains above,
+// from /neonatal-morbidities/resp-prefill. BPD (H2.1) is deliberately
+// not covered — see the backend endpoint docstring.
+const [respPrefill, setRespPrefill] = useState(null);
+const [respAutoFilled, setRespAutoFilled] = useState({});
+const [respStale, setRespStale] = useState({});
+
+// "Did not survive" prompt — see fetchSurvivalCheck below. Doesn't fill
+// anything on its own; only offers to run every domain's existing Force
+// Refill at once.
+const [survivalAlert, setSurvivalAlert] = useState(null);
+const [forceRefillingAll, setForceRefillingAll] = useState(false);
+
+// IVH/PVL detail (grade/side/date) from Form F (Cranial USG) — see
+// fetchCranialUsgPrefill below. The Neuro domain above still owns
+// ivh_present/pvl_present/ventriculomegaly_present from the day log;
+// this domain additionally offers ivh_present/pvl_present too (see the
+// backend endpoint docstring for why that's safe) plus the grade/side/
+// date detail the day log never had.
+const [cranialUsgPrefill, setCranialUsgPrefill] = useState(null);
+const [cranialUsgAutoFilled, setCranialUsgAutoFilled] = useState({});
+const [cranialUsgStale, setCranialUsgStale] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -721,11 +744,15 @@ useEffect(() => {
     // AFTER the real saved record has finished loading into formData, win
     // or lose. Two independent effects racing on the same fields is
     // exactly the bug fixed 2026-08-22 (dead fetchResp clobbering a
-    // correctly loaded record) — don't reintroduce that shape. The eight
+    // correctly loaded record) — don't reintroduce that shape. The ten
     // prefills below are independent of each other (disjoint fields), so
     // no need to sequence them relative to one another, only relative to
     // the record load. fetchInfectionWindows is detection-only (see its
     // own comment) but still chained the same way for consistency.
+    // fetchCranialUsgPrefill isn't fully disjoint from fetchNeuroPrefill
+    // (both can offer ivh_present/pvl_present) but both use the same
+    // fill-if-blank discipline, so their relative order genuinely
+    // doesn't matter — see fetchCranialUsgPrefill's own comment.
     loadExistingFormH().then(() => {
       fetchVascularAccessPrefill();
       fetchMetabolicPrefill();
@@ -736,6 +763,9 @@ useEffect(() => {
       fetchRopThermoPrefill();
       fetchCvPrefill();
       fetchInfectionWindows();
+      fetchRespPrefill();
+      fetchSurvivalCheck();
+      fetchCranialUsgPrefill();
     });
   }, [enrollmentId]);
 
@@ -1886,6 +1916,14 @@ const PREFILL_FIELD_LABELS = {
   inotrope_dopa: "Dopamine", inotrope_dobu: "Dobutamine",
   inotrope_adr: "Adrenaline", inotrope_nadr: "Noradrenaline",
   inotrope_milri: "Milrinone", inotrope_vaso: "Vasopressin",
+  nasal_cannula: "Nasal Cannula", cpap: "CPAP", nippv: "NIPPV", hfnc: "HFNC",
+  invasive_ventilation: "Invasive Ventilation", postnatal_steroids: "Postnatal Steroids",
+  pulmonary_hemorrhage: "Pulmonary Hemorrhage", pneumothorax: "Pneumothorax",
+  chest_drain: "Chest Drain", pulmonary_hypertension: "Pulmonary Hypertension",
+  extubation_failure: "Extubation Failure", apnea: "Apnea", caffeine_used: "Caffeine",
+  ivh_side: "IVH Side", pvl_side: "cPVL Side", vp_shunt: "VP Shunt",
+  ivh_grade_right: "IVH Grade (Right)", ivh_grade_left: "IVH Grade (Left)",
+  pvl_grade_right: "cPVL Grade (Right)", pvl_grade_left: "cPVL Grade (Left)",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2577,6 +2615,92 @@ const addInfectionFromWindow = (detectedWindow) => {
 // reviewed or acted on.
 const allInfectionFlagsReviewed = infectionWindows.every((w) => isInfectionFlagReviewed(w.signature));
 
+// Respiratory (H2) auto-fill — same pattern as the other domains above.
+// BPD (H2.1) has no entry here at all — see the backend endpoint
+// docstring for why it needs its own dedicated design pass rather than
+// being folded into this domain.
+const RESP_PREFILL_FIELDS = [
+  "oxygen_days",
+  "nasal_cannula", "nasal_cannula_days",
+  "cpap", "cpap_days",
+  "nippv", "nippv_days",
+  "hfnc", "hfnc_days",
+  "invasive_ventilation", "imv_days",
+  "postnatal_steroids",
+  "pulmonary_hemorrhage",
+  "pneumothorax",
+  "chest_drain",
+  "pulmonary_hypertension",
+  "extubation_failure", "extubation_episodes",
+  "apnea", "apnea_onset_age",
+  "caffeine_used", "caffeine_duration",
+];
+
+// Only the Yes/No fields get checked for staleness — every *_days/
+// *_episodes/*_age field is excluded on purpose, same reasoning as
+// every other domain: those keep drifting naturally as more daily-log
+// entries come in, so flagging them would be noise, not a meaningful
+// "review this" signal.
+const RESP_STALE_CHECK_FIELDS = [
+  "nasal_cannula", "cpap", "nippv", "hfnc", "invasive_ventilation",
+  "postnatal_steroids", "pulmonary_hemorrhage", "pneumothorax",
+  "chest_drain", "pulmonary_hypertension", "extubation_failure",
+  "apnea", "caffeine_used",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchRespPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/resp-prefill/${enrollmentId}`);
+    const data = res.data;
+    setRespPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      RESP_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && RESP_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setRespAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setRespStale(stale);
+  } catch (err) {
+    console.log("Error fetching respiratory prefill", err);
+  }
+};
+
+const clearRespAutoFilled = (name) => {
+  setRespAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleRespChange = (e) => {
+  clearRespAutoFilled(e.target.name);
+  handleChange(e);
+};
+
 // Shared confirm gate for the "Force refill" actions below — this is
 // the one action in the auto-fill machinery that can genuinely destroy a
 // clinician's entered answer (replacing it with a daily-log-derived value),
@@ -2594,6 +2718,141 @@ const confirmForceRefill = (domainLabel, fetchFn) => {
   ) {
     fetchFn({ force: true });
   }
+};
+
+// "Did not survive" prompt — checks the one day-log field
+// (metab_renal_vasc_eye_day_logs.survived_the_day) that records this,
+// and if any day was marked "No", offers a single button that runs
+// every domain's existing Force Refill at once. This doesn't invent any
+// new auto-fill logic — it's the same overwrite-aware mechanism used
+// throughout, just triggered in bulk instead of one section at a time,
+// because a field answered "No" early in the admission (before things
+// got worse) never gets revisited by the normal only-fill-if-blank pass.
+const fetchSurvivalCheck = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/survival-check/${enrollmentId}`);
+    const data = res.data;
+    setSurvivalAlert(data && data.did_not_survive ? data : null);
+  } catch (err) {
+    console.log("Error fetching survival check", err);
+  }
+};
+
+const forceRefillAllDomains = async () => {
+  if (
+    !window.confirm(
+      "Overwrite already-answered fields across every section (Neurological, " +
+      "Respiratory, Gastrointestinal, Metabolic, Cardiovascular, Hematology, " +
+      "Renal, Ophthalmology/Thermoregulation, Vascular Access) with the " +
+      "latest daily-log data?\n\nThis replaces existing answers, not just " +
+      "blank ones — use this to make sure the full picture from every day " +
+      "of daily logs is reflected before finalizing this record."
+    )
+  ) {
+    return;
+  }
+  setForceRefillingAll(true);
+  try {
+    await Promise.all([
+      fetchVascularAccessPrefill({ force: true }),
+      fetchMetabolicPrefill({ force: true }),
+      fetchRenalPrefill({ force: true }),
+      fetchHemePrefill({ force: true }),
+      fetchNeuroPrefill({ force: true }),
+      fetchGiPrefill({ force: true }),
+      fetchRopThermoPrefill({ force: true }),
+      fetchCvPrefill({ force: true }),
+      fetchRespPrefill({ force: true }),
+      fetchCranialUsgPrefill({ force: true }),
+    ]);
+  } finally {
+    setForceRefillingAll(false);
+  }
+};
+
+// IVH/PVL detail from Form F (Cranial USG) — see the backend endpoint's
+// docstring for the full derivation and why offering ivh_present/
+// pvl_present here too (alongside the Neuro domain's day-log version)
+// is safe rather than a race.
+const CRANIAL_USG_PREFILL_FIELDS = [
+  "ivh_present", "ivh_side",
+  "ivh_grade_right", "ivh_date_right", "ivh_age_days_right",
+  "ivh_grade_left", "ivh_date_left", "ivh_age_days_left",
+  "pvl_present", "pvl_side",
+  "pvl_grade_right", "pvl_date_right", "pvl_age_days_right",
+  "pvl_grade_left", "pvl_date_left", "pvl_age_days_left",
+  "vp_shunt",
+];
+
+// Only the categorical fields get checked for staleness — dates/ages are
+// excluded on purpose, same reasoning as every other domain.
+const CRANIAL_USG_STALE_CHECK_FIELDS = [
+  "ivh_present", "ivh_side", "ivh_grade_right", "ivh_grade_left",
+  "pvl_present", "pvl_side", "pvl_grade_right", "pvl_grade_left",
+  "vp_shunt",
+];
+
+// force: see the comment on fetchVascularAccessPrefill above — overwrites
+// already-answered fields instead of only blank ones.
+const fetchCranialUsgPrefill = async ({ force = false } = {}) => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/cranial-usg-prefill/${enrollmentId}`);
+    const data = res.data;
+    setCranialUsgPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    const stale = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      CRANIAL_USG_PREFILL_FIELDS.forEach((field) => {
+        const value = data[field];
+        if (isBlank(value)) return;
+        const currentlyBlank = isBlank(prev[field]);
+        const disagrees = !currentlyBlank
+          && CRANIAL_USG_STALE_CHECK_FIELDS.includes(field)
+          && String(prev[field]) !== String(value);
+        if (currentlyBlank || (force && disagrees)) {
+          next[field] = value;
+          filled[field] = true;
+        } else if (disagrees) {
+          stale[field] = true;
+        }
+      });
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setCranialUsgAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+    setCranialUsgStale(stale);
+  } catch (err) {
+    console.log("Error fetching cranial USG prefill", err);
+  }
+};
+
+const clearCranialUsgAutoFilled = (name) => {
+  setCranialUsgAutoFilled((prev) => {
+    if (!prev[name]) return prev;
+    const next = { ...prev };
+    delete next[name];
+    return next;
+  });
+};
+
+const handleCranialUsgChange = (e) => {
+  clearCranialUsgAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// ivh_present/pvl_present can be auto-filled by either the Neuro domain
+// (day log) or this Cranial USG domain (Form F) — clear both badges on
+// manual edit regardless of which source actually filled it.
+const handleIvhPvlPresentChange = (e) => {
+  clearNeuroAutoFilled(e.target.name);
+  clearCranialUsgAutoFilled(e.target.name);
+  handleChange(e);
 };
 
 const validateMetabolic = (name, value, updatedForm = formData) => {
@@ -5085,6 +5344,26 @@ const peripheralStatus= getPeripheralStatus();
          </div>
        </div>
 
+       {survivalAlert && (
+         <div className="field-hint field-hint-warning" style={{ margin: "0 0 16px" }}>
+           ⚠ Daily logs indicate this baby did not survive
+           {survivalAlert.day ? ` (Day ${survivalAlert.day}${survivalAlert.date ? `, ${survivalAlert.date}` : ""})` : ""}.
+           A field answered "No" earlier in the admission, before things got
+           worse, won't be revisited by the normal auto-fill on its own —
+           use the button below to pull in the fullest picture from every
+           day of daily logs across every section before finalizing this record.
+           {" "}
+           <button
+             type="button"
+             className="link-button link-button-danger"
+             onClick={forceRefillAllDomains}
+             disabled={forceRefillingAll}
+           >
+             {forceRefillingAll ? "Refilling…" : "Force refill everything from daily logs"}
+           </button>
+         </div>
+       )}
+
      {/* ================= CATEGORY JUMP-NAV =================
          Sticky pill row so any of Form H's 13 organ-system sections is
          one click away instead of a long scroll. Sections stay mounted;
@@ -5181,10 +5460,34 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+{cranialUsgPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
+    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+      Refill empty fields from Form F
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cranialUsgStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
+    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the scan data existed.
+    Use "Force refill" above if Form F is correct.
+  </div>
+)}
 
         <div className="form-group">
-          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
           {neuroAutoFilled.ivh_present && <span className="field-hint-auto-inline">from daily logs</span>}
+          {cranialUsgAutoFilled.ivh_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
 
@@ -5196,7 +5499,7 @@ const peripheralStatus= getPeripheralStatus();
                 <select
                   name="ivh_side"
                   value={formData.ivh_side || ""}
-                  onChange={handleChange}
+                  onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
                 >
                   <option value="">-- Select --</option>
@@ -5204,6 +5507,7 @@ const peripheralStatus= getPeripheralStatus();
                   <option value="Left">Left</option>
                   <option value="Bilateral">Bilateral</option>
                 </select>
+                {cranialUsgAutoFilled.ivh_side && <span className="field-hint-auto-inline">from Form F</span>}
                 {touched.ivh_side && errors.ivh_side && <div className="error-text">{errors.ivh_side}</div>}
               </div>
             </div>
@@ -5215,7 +5519,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="ivh_grade_right"
                     value={formData.ivh_grade_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5224,6 +5528,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="III">III</option>
                     <option value="IV">IV</option>
                   </select>
+                  {cranialUsgAutoFilled.ivh_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_grade_right && errors.ivh_grade_right && <div className="error-text">{errors.ivh_grade_right}</div>}
                 </div>
 
@@ -5232,6 +5537,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.ivh_date_right ? parseDateOnly(formData.ivh_date_right) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("ivh_date_right");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, ivh_date_right: v }));
                       validateIVH("ivh_date_right", v, { ...formData, ivh_date_right: v });
@@ -5240,6 +5546,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.ivh_date_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_date_right && errors.ivh_date_right && <div className="error-text">{errors.ivh_date_right}</div>}
                 </div>
 
@@ -5249,9 +5556,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="ivh_age_days_right"
                     value={formData.ivh_age_days_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.ivh_age_days_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_age_days_right && errors.ivh_age_days_right && <div className="error-text">{errors.ivh_age_days_right}</div>}
                 </div>
               </div>
@@ -5264,7 +5572,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="ivh_grade_left"
                     value={formData.ivh_grade_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5273,6 +5581,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="III">III</option>
                     <option value="IV">IV</option>
                   </select>
+                  {cranialUsgAutoFilled.ivh_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_grade_left && errors.ivh_grade_left && <div className="error-text">{errors.ivh_grade_left}</div>}
                 </div>
 
@@ -5281,6 +5590,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.ivh_date_left ? parseDateOnly(formData.ivh_date_left) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("ivh_date_left");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, ivh_date_left: v }));
                       validateIVH("ivh_date_left", v, { ...formData, ivh_date_left: v });
@@ -5289,6 +5599,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.ivh_date_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_date_left && errors.ivh_date_left && <div className="error-text">{errors.ivh_date_left}</div>}
                 </div>
 
@@ -5298,9 +5609,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="ivh_age_days_left"
                     value={formData.ivh_age_days_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.ivh_age_days_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.ivh_age_days_left && errors.ivh_age_days_left && <div className="error-text">{errors.ivh_age_days_left}</div>}
                 </div>
               </div>
@@ -5327,7 +5639,8 @@ const peripheralStatus= getPeripheralStatus();
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="12. VP Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleChange} />
+                <YesNoToggle label="12. VP Shunt" name="vp_shunt" value={formData.vp_shunt} onChange={handleCranialUsgChange} />
+                {cranialUsgAutoFilled.vp_shunt && <span className="field-hint-auto-inline">from Form F</span>}
               </div>
             </div>
           </>
@@ -5385,10 +5698,34 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+{cranialUsgPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
+    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+      Refill empty fields from Form F
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cranialUsgStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
+    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the scan data existed.
+    Use "Force refill" above if Form F is correct.
+  </div>
+)}
 
         <div className="form-group">
-          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+          <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
           {neuroAutoFilled.pvl_present && <span className="field-hint-auto-inline">from daily logs</span>}
+          {cranialUsgAutoFilled.pvl_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
 
@@ -5400,7 +5737,7 @@ const peripheralStatus= getPeripheralStatus();
                 <select
                   name="pvl_side"
                   value={formData.pvl_side || ""}
-                  onChange={handleChange}
+                  onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
                 >
                   <option value="">-- Select --</option>
@@ -5410,6 +5747,7 @@ const peripheralStatus= getPeripheralStatus();
                       already-saved records — CRF label is "Bilateral" */}
                   <option value="Both">Bilateral</option>
                 </select>
+                {cranialUsgAutoFilled.pvl_side && <span className="field-hint-auto-inline">from Form F</span>}
                 {touched.pvl_side && errors.pvl_side && <div className="error-text">{errors.pvl_side}</div>}
               </div>
             </div>
@@ -5421,7 +5759,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="pvl_grade_right"
                     value={formData.pvl_grade_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5432,6 +5770,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="3">III (Extensive cysts)</option>
                     <option value="4">IV (Subcortical)</option>
                   </select>
+                  {cranialUsgAutoFilled.pvl_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_grade_right && errors.pvl_grade_right && <div className="error-text">{errors.pvl_grade_right}</div>}
                 </div>
 
@@ -5440,6 +5779,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.pvl_date_right ? parseDateOnly(formData.pvl_date_right) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("pvl_date_right");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, pvl_date_right: v }));
                     }}
@@ -5447,6 +5787,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.pvl_date_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_date_right && errors.pvl_date_right && <div className="error-text">{errors.pvl_date_right}</div>}
                 </div>
 
@@ -5456,9 +5797,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="pvl_age_days_right"
                     value={formData.pvl_age_days_right || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.pvl_age_days_right && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_age_days_right && errors.pvl_age_days_right && <div className="error-text">{errors.pvl_age_days_right}</div>}
                 </div>
               </div>
@@ -5471,7 +5813,7 @@ const peripheralStatus= getPeripheralStatus();
                   <select
                     name="pvl_grade_left"
                     value={formData.pvl_grade_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   >
                     <option value="">-- Select --</option>
@@ -5480,6 +5822,7 @@ const peripheralStatus= getPeripheralStatus();
                     <option value="3">III (Extensive cysts)</option>
                     <option value="4">IV (Subcortical)</option>
                   </select>
+                  {cranialUsgAutoFilled.pvl_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_grade_left && errors.pvl_grade_left && <div className="error-text">{errors.pvl_grade_left}</div>}
                 </div>
 
@@ -5488,6 +5831,7 @@ const peripheralStatus= getPeripheralStatus();
                   <DatePicker
                     selected={formData.pvl_date_left ? parseDateOnly(formData.pvl_date_left) : null}
                     onChange={(date) => {
+                      clearCranialUsgAutoFilled("pvl_date_left");
                       const v = date ? toDateOnlyValue(date) : "";
                       setFormData(prev => ({ ...prev, pvl_date_left: v }));
                     }}
@@ -5495,6 +5839,7 @@ const peripheralStatus= getPeripheralStatus();
                     dateFormat="dd-MM-yyyy"
                     placeholderText="Select date"
                   />
+                  {cranialUsgAutoFilled.pvl_date_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_date_left && errors.pvl_date_left && <div className="error-text">{errors.pvl_date_left}</div>}
                 </div>
 
@@ -5504,9 +5849,10 @@ const peripheralStatus= getPeripheralStatus();
                     type="number"
                     name="pvl_age_days_left"
                     value={formData.pvl_age_days_left || ""}
-                    onChange={handleChange}
+                    onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
                   />
+                  {cranialUsgAutoFilled.pvl_age_days_left && <span className="field-hint-auto-inline">from Form F</span>}
                   {touched.pvl_age_days_left && errors.pvl_age_days_left && <div className="error-text">{errors.pvl_age_days_left}</div>}
                 </div>
               </div>
@@ -6031,6 +6377,30 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "support" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
   {/* 38. O2 Days */}
   <div className="form-group">
     <label><span className="field-num">38.</span> O2 Days</label>
@@ -6038,13 +6408,14 @@ const peripheralStatus= getPeripheralStatus();
       type="number"
       name="oxygen_days"
       value={formData.oxygen_days || ""}
-      onChange={handleChange}
+      onChange={handleRespChange}
       onBlur={handleBlur}
       min="0"
       max="365"
       step="1"
       placeholder="0–365"
     />
+    {respAutoFilled.oxygen_days && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.oxygen_days && errors.oxygen_days && (
       <div className="error-text">{errors.oxygen_days}</div>
     )}
@@ -6053,7 +6424,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 39/40. Nasal Cannula */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.nasal_cannula && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.nasal_cannula === "Yes" && (
@@ -6068,6 +6440,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("nasal_cannula_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, nasal_cannula_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6082,6 +6455,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, nasal_cannula_days: num });
           }}
         />
+        {respAutoFilled.nasal_cannula_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6089,7 +6463,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 41/42. CPAP */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.cpap && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.cpap === "Yes" && (
@@ -6104,6 +6479,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("cpap_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, cpap_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6118,6 +6494,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, cpap_days: num });
           }}
         />
+        {respAutoFilled.cpap_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6125,7 +6502,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 43/44. NIPPV */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.nippv && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.nippv === "Yes" && (
@@ -6140,6 +6518,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("nippv_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, nippv_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6154,6 +6533,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, nippv_days: num });
           }}
         />
+        {respAutoFilled.nippv_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6161,7 +6541,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 45/46. HFNC */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.hfnc && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.hfnc === "Yes" && (
@@ -6176,6 +6557,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("hfnc_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, hfnc_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6190,6 +6572,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, hfnc_days: num });
           }}
         />
+        {respAutoFilled.hfnc_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6197,7 +6580,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 47/48. Invasive mechanical ventilation */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.invasive_ventilation && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
 
     {formData.invasive_ventilation === "Yes" && (
@@ -6212,6 +6596,7 @@ const peripheralStatus= getPeripheralStatus();
           max="365"
           step="1"
           onChange={(e) => {
+            clearRespAutoFilled("imv_days");
             const value = e.target.value;
             if (value === "") { setFormData({ ...formData, imv_days: "" }); return; }
             if (!/^\d+$/.test(value)) return;
@@ -6226,6 +6611,7 @@ const peripheralStatus= getPeripheralStatus();
             setFormData({ ...formData, imv_days: num });
           }}
         />
+        {respAutoFilled.imv_days && <span className="field-hint-auto-inline">from daily logs</span>}
       </div>
     )}
   </div>
@@ -6261,7 +6647,8 @@ const peripheralStatus= getPeripheralStatus();
   {/* 50. Postnatal steroids */}
   <div className="form-row">
     <div className="form-group">
-      <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleChange} required />
+      <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleRespChange} required />
+      {respAutoFilled.postnatal_steroids && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.postnatal_steroids && errors.postnatal_steroids && (
         <div className="error-text">{errors.postnatal_steroids}</div>
       )}
@@ -6458,9 +6845,34 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "otherResp" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 {/* 56. Pulmonary Hemorrhage */}
 <div className="form-group">
-  <YesNoToggle label="56. Pulmonary Hemorrhage" name="pulmonary_hemorrhage" value={formData.pulmonary_hemorrhage} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="56. Pulmonary Hemorrhage" name="pulmonary_hemorrhage" value={formData.pulmonary_hemorrhage} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pulmonary_hemorrhage && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pulmonary_hemorrhage && errors.pulmonary_hemorrhage && (
     <div className="error-text">{errors.pulmonary_hemorrhage}</div>
   )}
@@ -6468,7 +6880,8 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* 57. Pneumothorax */}
 <div className="form-group">
-  <YesNoToggle label="57. Pneumothorax" name="pneumothorax" value={formData.pneumothorax} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="57. Pneumothorax" name="pneumothorax" value={formData.pneumothorax} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pneumothorax && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pneumothorax && errors.pneumothorax && (
     <div className="error-text">{errors.pneumothorax}</div>
   )}
@@ -6497,7 +6910,8 @@ const peripheralStatus= getPeripheralStatus();
 
     {/* 59. Chest drain */}
     <div className="form-group">
-      <YesNoToggle label="59. Chest drain" name="chest_drain" value={formData.chest_drain} onChange={handleChange} onBlur={handleBlur} required />
+      <YesNoToggle label="59. Chest drain" name="chest_drain" value={formData.chest_drain} onChange={handleRespChange} onBlur={handleBlur} required />
+      {respAutoFilled.chest_drain && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.chest_drain && errors.chest_drain && (
         <div className="error-text">{errors.chest_drain}</div>
       )}
@@ -6507,7 +6921,8 @@ const peripheralStatus= getPeripheralStatus();
 
 {/* 60. Pulmonary Hypertension */}
 <div className="form-group">
-  <YesNoToggle label="60. Pulmonary Hypertension" name="pulmonary_hypertension" value={formData.pulmonary_hypertension} onChange={handleChange} onBlur={handleBlur} required />
+  <YesNoToggle label="60. Pulmonary Hypertension" name="pulmonary_hypertension" value={formData.pulmonary_hypertension} onChange={handleRespChange} onBlur={handleBlur} required />
+  {respAutoFilled.pulmonary_hypertension && <span className="field-hint-auto-inline">from daily logs</span>}
   {touched.pulmonary_hypertension && errors.pulmonary_hypertension && (
     <div className="error-text">{errors.pulmonary_hypertension}</div>
   )}
@@ -6558,7 +6973,8 @@ const peripheralStatus= getPeripheralStatus();
 {/* 62/63. Extubation Failure */}
 <div className="form-row">
   <div className="form-group">
-    <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleChange} />
+    <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleRespChange} />
+    {respAutoFilled.extubation_failure && <span className="field-hint-auto-inline">from daily logs</span>}
   </div>
 
   {formData.extubation_failure === "Yes" && (
@@ -6568,9 +6984,10 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="extubation_episodes"
         value={formData.extubation_episodes || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         placeholder="Number of episodes"
       />
+      {respAutoFilled.extubation_episodes && <span className="field-hint-auto-inline">from daily logs</span>}
     </div>
   )}
 </div>
@@ -6593,10 +7010,35 @@ const peripheralStatus= getPeripheralStatus();
     {openSection === "apnea" && (
       <div className="card-body">
 
+{respPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Daily logs available ({respPrefill.log_days_count} day{respPrefill.log_days_count === 1 ? "" : "s"} recorded).
+    Empty fields below were filled from them automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button" onClick={() => fetchRespPrefill()}>
+      Refill empty fields from daily logs
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Respiratory", fetchRespPrefill)}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(respStale).length > 0 && (
+  <div className="field-hint field-hint-warning">
+    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    {Object.keys(respStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the daily logs had this
+    data. Use "Force refill" above if the daily logs are correct.
+  </div>
+)}
+
 <div className="form-row">
   {/* 64. Apnea */}
   <div className="form-group">
-    <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleRespChange} onBlur={handleBlur} required />
+    {respAutoFilled.apnea && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.apnea && errors.apnea && (
       <div className="error-text">{errors.apnea}</div>
     )}
@@ -6610,13 +7052,14 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="apnea_onset_age"
         value={formData.apnea_onset_age || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         onBlur={handleBlur}
         min="0"
         max="60"
         step="1"
         placeholder="0–60"
       />
+      {respAutoFilled.apnea_onset_age && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.apnea_onset_age && errors.apnea_onset_age && (
         <div className="error-text">{errors.apnea_onset_age}</div>
       )}
@@ -6627,7 +7070,8 @@ const peripheralStatus= getPeripheralStatus();
 <div className="form-row">
   {/* 66. Caffeine */}
   <div className="form-group">
-    <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleChange} onBlur={handleBlur} required />
+    <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleRespChange} onBlur={handleBlur} required />
+    {respAutoFilled.caffeine_used && <span className="field-hint-auto-inline">from daily logs</span>}
     {touched.caffeine_used && errors.caffeine_used && (
       <div className="error-text">{errors.caffeine_used}</div>
     )}
@@ -6641,13 +7085,14 @@ const peripheralStatus= getPeripheralStatus();
         type="number"
         name="caffeine_duration"
         value={formData.caffeine_duration || ""}
-        onChange={handleChange}
+        onChange={handleRespChange}
         onBlur={handleBlur}
         min="0"
         max="60"
         step="1"
         placeholder="0–60"
       />
+      {respAutoFilled.caffeine_duration && <span className="field-hint-auto-inline">from daily logs</span>}
       {touched.caffeine_duration && errors.caffeine_duration && (
         <div className="error-text">{errors.caffeine_duration}</div>
       )}

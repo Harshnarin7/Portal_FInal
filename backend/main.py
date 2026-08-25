@@ -2323,13 +2323,27 @@ def get_rop_thermoreg_prefill(
     #197-205) sections.
 
     Thermoregulation:
-    - hypothermia / hyperthermia: direct any-day booleans.
+    - hypothermia / hyperthermia: derived from the axillary_temperature
+      *value* itself (<36.5 / >37.5, the same thresholds already shown
+      in both the day log's own field label and Form H's own field
+      labels), NOT from the day log's dedicated `hypothermia`/
+      `hyperthermia` boolean columns. Those columns exist in the schema
+      but are never populated by the current MetabRenalVascEyeLog.jsx
+      UI — it only ever sends `axillary_temperature`, confirmed via a
+      live DB check showing 100% of rows have both columns NULL
+      regardless of the recorded temperature (bug found 2026-08-24 via
+      beta-tester feedback: a 38.7°C reading still showed Form H's
+      Hyperthermia as "No", because `any_day("hyperthermia")` was
+      reading a column nothing ever writes to). Falls back to the
+      boolean columns only when no day has a parseable temperature at
+      all, in case a future data-entry path populates them directly.
     - hypothermia_lowest_temp / hyperthermia_temp: admission-wide MIN/MAX
       of `axillary_temperature` (stored as a string but a genuine numeric
       °C reading per day, per MetabRenalVascEyeLog.jsx's NumRow usage) —
       same admission-wide-extremum convention as Renal's peak creatinine
       / Heme's lowest Hb, not conditioned on which day the boolean was
-      also true.
+      also true. (This half of the endpoint was already correct — only
+      the Yes/No flags above were reading a dead column.)
     - Severity (mild/moderate/severe), location (DR/Transport/NICU), and
       etiology (sepsis/environment/immaturity/IVH/other) checkboxes have
       no day-log source. The day log does have its own `location` field
@@ -2387,13 +2401,15 @@ def get_rop_thermoreg_prefill(
         return (nicu.day1_date + timedelta(days=min(days) - 1)).isoformat()
 
     temps = numeric_values("axillary_temperature")
+    hypothermia_from_temp = any(t < 36.5 for t in temps)
+    hyperthermia_from_temp = any(t > 37.5 for t in temps)
 
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "hypothermia": "Yes" if any_day("hypothermia") else "No",
+        "hypothermia": "Yes" if (hypothermia_from_temp or (not temps and any_day("hypothermia"))) else "No",
         "hypothermia_lowest_temp": min(temps) if temps else None,
-        "hyperthermia": "Yes" if any_day("hyperthermia") else "No",
+        "hyperthermia": "Yes" if (hyperthermia_from_temp or (not temps and any_day("hyperthermia"))) else "No",
         "hyperthermia_temp": max(temps) if temps else None,
         "rop_screened": "Yes" if any_day("rop_screened") else "No",
         "rop_first_screen_date": earliest_date("rop_screened"),
@@ -2645,6 +2661,303 @@ def get_infection_detect(
         "log_days_count": len(logs),
         "windows": windows,
     }
+
+
+@app.get("/neonatal-morbidities/resp-prefill/{enrollment_id}")
+def get_resp_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates the Resp/CV/Neuro helper daily logs into Form H's
+    Respiratory section (H2, CRF #38-67; H2.1 BPD — #35-37 — is
+    deliberately skipped, see below).
+
+    - oxygen_days <- day-count of supp_o2.
+    - nasal_cannula/cpap/nippv/hfnc (+ their _days counts) <- whether
+      "NC"/"CPAP"/"NIPPV"/"HFNC" ever appears in the day log's
+      comma-separated support_modes field, same CSV-token technique as
+      GI's pdhm/ebm/fm_days and CV's vasoactive drug checkboxes.
+    - invasive_ventilation / imv_days <- any-day / day-count of
+      endotracheal_intubation. Deliberately NOT derived from
+      support_modes containing an invasive mode token (SIMV/AC/PSV/
+      HFOV) — endotracheal_intubation is the day log's own direct
+      answer to "was this baby on invasive ventilation," more precise
+      than reverse-engineering it from four different ventilator-mode
+      acronyms.
+    - postnatal_steroids / pulmonary_hemorrhage / pneumothorax /
+      chest_drain / pulmonary_hypertension / extubation_failure /
+      caffeine_used <- direct any-day booleans from the day log's
+      postnatal_steroids / pulm_hemorrhage / pneumothorax / chest_drain
+      / pphn / extub_failure / caffeine.
+    - extubation_episodes / caffeine_duration <- day-count of
+      extub_failure / caffeine (day-count-as-proxy, same caveat as
+      every other domain's *_number/*_days fields).
+    - apnea / apnea_onset_age: derived from apnea_count (the current
+      numbered field, #13) parsed as a number per day; any day with a
+      count > 0 counts as an apnea day. Falls back to the legacy `apnea`
+      boolean only if no day has a parseable apnea_count at all — same
+      current-field-preferred-over-legacy convention as Renal's KDIGO
+      stage. apnea_onset_age is the earliest such day minus 1 (nicu_day
+      1 == age 0), same day-granularity age pattern as GI's
+      nec_age_days — no cross-table join needed since this wants an age
+      in days, not a calendar date.
+
+    Deliberately NOT filled:
+    - bpd / bpd_support_36w / bpd_grade: BPD is a diagnosis made from
+      respiratory support status at a specific point in time (36 weeks
+      PMA), not an any-day aggregate — it needs gestational age (from a
+      different form), a PMA-date calculation, and reading the single
+      day log entry AT that calculated date, not before or after. That
+      is a meaningfully different and higher-stakes kind of derivation
+      than everything else in this endpoint and deserves its own
+      dedicated design pass rather than being folded in here.
+    - oxygen_exposure ("Integrated Oxygen Exposure"): this appears to
+      correspond to FiO2 AUC data captured in a completely different
+      helper form (fio2_auc_logs / Helper 1), outside the 3 day-log
+      tables this whole auto-fill project has used — not pulled in here.
+    - pneumothorax_side: no laterality in the day log.
+    - rx_sildenafil/rx_ino/rx_miliri/rx_vaso/rx_other(_text): no
+      specific PPHN treatment drug tracked in the day log.
+    - steroid_age_days/steroid_drug(_other)/steroid_dose/steroid_dose_2/
+      steroid_indication(_other): the day log only has a flat
+      postnatal_steroids boolean, no drug/dose/indication/age detail.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    def count_days(attr):
+        return sum(1 for l in logs if getattr(l, attr) is True)
+
+    def count_days_with_mode(token):
+        count = 0
+        for l in logs:
+            modes = [m.strip() for m in (l.support_modes or "").split(",") if m.strip()]
+            if token in modes:
+                count += 1
+        return count
+
+    def to_int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return None
+
+    apnea_days = sorted({
+        l.nicu_day for l in logs
+        if (to_int(l.apnea_count) or 0) > 0
+    })
+    if not apnea_days:
+        apnea_days = sorted({l.nicu_day for l in logs if l.apnea is True})
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "oxygen_days": count_days("supp_o2") or None,
+        "nasal_cannula": "Yes" if count_days_with_mode("NC") else "No",
+        "nasal_cannula_days": count_days_with_mode("NC") or None,
+        "cpap": "Yes" if count_days_with_mode("CPAP") else "No",
+        "cpap_days": count_days_with_mode("CPAP") or None,
+        "nippv": "Yes" if count_days_with_mode("NIPPV") else "No",
+        "nippv_days": count_days_with_mode("NIPPV") or None,
+        "hfnc": "Yes" if count_days_with_mode("HFNC") else "No",
+        "hfnc_days": count_days_with_mode("HFNC") or None,
+        "invasive_ventilation": "Yes" if any_day("endotracheal_intubation") else "No",
+        "imv_days": count_days("endotracheal_intubation") or None,
+        "postnatal_steroids": "Yes" if any_day("postnatal_steroids") else "No",
+        "pulmonary_hemorrhage": "Yes" if any_day("pulm_hemorrhage") else "No",
+        "pneumothorax": "Yes" if any_day("pneumothorax") else "No",
+        "chest_drain": "Yes" if any_day("chest_drain") else "No",
+        "pulmonary_hypertension": "Yes" if any_day("pphn") else "No",
+        "extubation_failure": "Yes" if any_day("extub_failure") else "No",
+        "extubation_episodes": count_days("extub_failure") or None,
+        "apnea": "Yes" if apnea_days else "No",
+        "apnea_onset_age": (min(apnea_days) - 1) if apnea_days else None,
+        "caffeine_used": "Yes" if any_day("caffeine") else "No",
+        "caffeine_duration": count_days("caffeine") or None,
+    }
+
+
+@app.get("/neonatal-morbidities/survival-check/{enrollment_id}")
+def get_survival_check(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Checks whether any Metab/Renal/Vasc/Eye helper daily log
+    (`survived_the_day`, the only day log with this field) recorded that
+    the baby did not survive that day.
+
+    Used to surface a one-time prompt on Form H: if the baby died, the
+    normal only-fill-if-blank auto-fill discipline undersells the daily
+    logs — a field answered "No" early in the admission, before things
+    got worse, never gets revisited on its own. This endpoint doesn't
+    fill anything itself; the frontend uses it to show a banner offering
+    to run Force Refill (already-built, per-domain, overwrite-aware)
+    across every domain at once, not to invent any new auto-fill logic.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    death_days = sorted({l.nicu_day for l in logs if l.survived_the_day is False})
+    if not death_days:
+        return {"did_not_survive": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    day = min(death_days)
+    date = (nicu.day1_date + timedelta(days=day - 1)).isoformat() if nicu and nicu.day1_date else None
+
+    return {"did_not_survive": True, "day": day, "date": date}
+
+
+@app.get("/neonatal-morbidities/cranial-usg-prefill/{enrollment_id}")
+def get_cranial_usg_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates Form F (Cranial USG, `cranial_usg_records`) into Form
+    H's IVH/PVL detail (CRF #1-8, #13-20) — the side/grade/date fields
+    the Neuro domain (`get_neuro_prefill`, day-log-based) deliberately
+    left manual, because the daily nursing log has no side or grade,
+    only a flat "was IVH ever seen" boolean. Form F is a dedicated
+    serial cranial-ultrasound form with real Papile (IVH) / De Vries
+    (cPVL) grading per side per scan — a far more authoritative source
+    for exactly the detail the Neuro domain couldn't provide.
+
+    - ivh_grade_right/left, pvl_grade_right/left: the highest grade
+      (None < I < II < III < IV, same ordering Form F itself uses)
+      recorded on that side across all scans. Only returned if that
+      side's max grade is not "None" — Form H's grade selects have no
+      "None" option, and a side that never showed a finding shouldn't
+      get a value at all. PVL grades are converted from Form F's
+      Roman-numeral strings to Form H's stored "1"-"4" values (Form H
+      keeps "1"-"4" for backward compatibility with old records even
+      though the label shown is Roman numerals).
+    - ivh_date_right/left, pvl_date_right/left: the scanDate of the
+      scan where that side's max grade was first recorded.
+    - ivh_age_days_right/left, pvl_age_days_right/left: that scan's
+      `dol` (day of life — Form F already computes this per scan) minus
+      1, since DOL is 1-indexed (birth day = DOL 1) and this project's
+      day-log age fields use day1=age0 throughout.
+    - ivh_side: "Right"/"Left"/"Bilateral" depending on which side(s)
+      ever showed a grade above None. pvl_side uses the same logic but
+      returns "Both" instead of "Bilateral" — Form H's PVL side select
+      stores "Both" for backward compatibility even though it displays
+      "Bilateral".
+    - ivh_present/pvl_present: also offered here (Yes, in addition to
+      the Neuro domain's day-log-based version) — a real grade on a
+      scan is compelling evidence IVH/cPVL is present even if the day
+      log never flagged it, and the detail fields above are gated
+      behind these Yes/No values being set, so a scan-only finding
+      needs this to actually become visible. Both sources use the same
+      fill-if-blank discipline, so there's no risk of conflicting data —
+      whichever resolves first fills a still-blank field, and a real
+      disagreement between whatever ends up saved and either source
+      surfaces via each domain's own staleness check on the next load.
+    - vp_shunt: direct boolean from Form F's own `vp_shunt` flag.
+
+    Deliberately NOT filled: pvhi and phh — Form F's `phvd` (post-
+    hemorrhagic ventricular dilatation) is a related but not identical
+    concept to Form H's PHH (post-hemorrhagic hydrocephalus); mapping
+    one to the other would be a clinical judgment call, not a
+    derivation. ivh_description (free text) is not populated from Form
+    F's per-scan `findings` notes in this first pass — matching
+    unstructured text across scans/sides isn't a clean 1:1 mapping the
+    way the graded fields are. ventriculomegaly_present is intentionally
+    left to the Neuro domain alone and not duplicated here, even though
+    Form F also has a `ventriculomegaly` flag — no real benefit to a
+    second source for a single flat boolean already covered elsewhere.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not record or not record.scan_entries:
+        return {"has_data": False}
+
+    GRADE_ORDER = {"None": 0, "I": 1, "II": 2, "III": 3, "IV": 4}
+    PVL_GRADE_TO_FORM_H = {"I": "1", "II": "2", "III": "3", "IV": "4"}
+
+    def best_side(grade_key):
+        best_grade = "None"
+        best_scan = None
+        for scan in record.scan_entries:
+            g = (scan or {}).get(grade_key) or "None"
+            if GRADE_ORDER.get(g, 0) > GRADE_ORDER.get(best_grade, 0):
+                best_grade = g
+                best_scan = scan
+        return best_grade, best_scan
+
+    def scan_age_days(scan):
+        dol = (scan or {}).get("dol")
+        return (dol - 1) if isinstance(dol, int) else None
+
+    ivh_r_grade, ivh_r_scan = best_side("ivhGradeRight")
+    ivh_l_grade, ivh_l_scan = best_side("ivhGradeLeft")
+    pvl_r_grade, pvl_r_scan = best_side("cpvlGradeRight")
+    pvl_l_grade, pvl_l_scan = best_side("cpvlGradeLeft")
+
+    result = {"has_data": True, "scan_count": len(record.scan_entries)}
+
+    ivh_r_found = ivh_r_grade != "None"
+    ivh_l_found = ivh_l_grade != "None"
+    if ivh_r_found or ivh_l_found:
+        result["ivh_present"] = "Yes"
+        result["ivh_side"] = (
+            "Bilateral" if (ivh_r_found and ivh_l_found)
+            else "Right" if ivh_r_found else "Left"
+        )
+    if ivh_r_found:
+        result["ivh_grade_right"] = ivh_r_grade
+        result["ivh_date_right"] = (ivh_r_scan or {}).get("scanDate")
+        result["ivh_age_days_right"] = scan_age_days(ivh_r_scan)
+    if ivh_l_found:
+        result["ivh_grade_left"] = ivh_l_grade
+        result["ivh_date_left"] = (ivh_l_scan or {}).get("scanDate")
+        result["ivh_age_days_left"] = scan_age_days(ivh_l_scan)
+
+    pvl_r_found = pvl_r_grade != "None"
+    pvl_l_found = pvl_l_grade != "None"
+    if pvl_r_found or pvl_l_found:
+        result["pvl_present"] = "Yes"
+        result["pvl_side"] = (
+            "Both" if (pvl_r_found and pvl_l_found)
+            else "Right" if pvl_r_found else "Left"
+        )
+    if pvl_r_found:
+        result["pvl_grade_right"] = PVL_GRADE_TO_FORM_H.get(pvl_r_grade)
+        result["pvl_date_right"] = (pvl_r_scan or {}).get("scanDate")
+        result["pvl_age_days_right"] = scan_age_days(pvl_r_scan)
+    if pvl_l_found:
+        result["pvl_grade_left"] = PVL_GRADE_TO_FORM_H.get(pvl_l_grade)
+        result["pvl_date_left"] = (pvl_l_scan or {}).get("scanDate")
+        result["pvl_age_days_left"] = scan_age_days(pvl_l_scan)
+
+    result["vp_shunt"] = "Yes" if record.vp_shunt is True else "No"
+
+    return result
 
 
 # ============================================================================
