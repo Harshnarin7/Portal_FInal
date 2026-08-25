@@ -2484,10 +2484,13 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     aki_suspected:          Optional[bool]  = None  # #11 Yes/No
     aki_stage:              Optional[str]   = None  # KDIGO stage when #11 Yes
     creatinine:             Optional[float] = None  # legacy float
-    creatinine_value:       Optional[str]   = None  # #12 numeric | Not Tested | Awaited
+    creatinine_value:       Optional[str]   = None  # #12 numeric | "Result Awaited" | "Not Recorded / Not Done"
     urine_output_8am_2pm:   Optional[float] = None
+    urine_output_8am_2pm_status: Optional[str] = None  # "Not Recorded / Not Done"
     urine_output_2pm_8pm:   Optional[float] = None
+    urine_output_2pm_8pm_status: Optional[str] = None  # "Not Recorded / Not Done"
     urine_output_8pm_8am:   Optional[float] = None
+    urine_output_8pm_8am_status: Optional[str] = None  # "Not Recorded / Not Done"
     urine_output_total:     Optional[str]   = None  # #13 summary (sum)
     dialysis_crrt:          Optional[bool]  = None  # #14
 

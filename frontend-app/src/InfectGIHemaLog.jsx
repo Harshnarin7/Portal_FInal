@@ -199,44 +199,102 @@ function ProgressRing({ percent }) {
   );
 }
 
-function YNRow({ label, value, onChange, disabled, hidden }) {
+function YNRow({ label, value, onChange, disabled, hidden, status = null, onStatusChange = null, allowAwaited = false }) {
   if (hidden) return null;
+  const isAwaited  = status === STATUS_AWAITED;
+  const isSentinel = isAwaited;
+  const toggleStatus = (s) => {
+    if (disabled || !onStatusChange) return;
+    if (status === s) { onStatusChange(null); return; }
+    onStatusChange(s);
+    if (value !== null && value !== undefined) onChange(null);
+  };
   return (
     <div className="rcn-yn-row">
-      <span className="rcn-yn-label">{label}</span>
+      <div className="rcn-field-label-row">
+        <span className="rcn-yn-label">{label}</span>
+        {onStatusChange && allowAwaited && (
+          <div className="rcn-status-toggle-group">
+            <button type="button"
+              className={`rcn-notdone-toggle rcn-awaited-toggle${isAwaited ? " rcn-awaited-toggle--on" : ""}`}
+              onClick={() => toggleStatus(STATUS_AWAITED)}
+              disabled={disabled}
+            >{isAwaited ? "Undo" : "Result Awaited"}</button>
+          </div>
+        )}
+      </div>
       <div className="rcn-yn">
         <button type="button"
           className={`rcn-yn-btn rcn-yn-yes${value === true ? " rcn-yn-active-yes" : ""}`}
-          onClick={() => !disabled && onChange(value === true ? null : true)}
-          disabled={disabled}
+          onClick={() => !disabled && !isSentinel && onChange(value === true ? null : true)}
+          disabled={disabled || isSentinel}
         >Yes</button>
         <button type="button"
           className={`rcn-yn-btn rcn-yn-no${value === false ? " rcn-yn-active-no" : ""}`}
-          onClick={() => !disabled && onChange(value === false ? null : false)}
-          disabled={disabled}
+          onClick={() => !disabled && !isSentinel && onChange(value === false ? null : false)}
+          disabled={disabled || isSentinel}
         >No</button>
       </div>
     </div>
   );
 }
 
-function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", error, width = 140 }) {
+const STATUS_AWAITED  = "Result Awaited";
+const STATUS_NOT_DONE = "Not Recorded / Not Done";
+
+/** Numeric row. Pass `status` + `onStatusChange` to enable the
+ *  "Result Awaited" (if allowAwaited) / "Not Recorded / Not Done" toggles.
+ *  When a status is active, the numeric input is cleared/disabled and the
+ *  status string — not a number — is what gets treated as the answer. */
+function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", error, width = 140,
+  status = null, onStatusChange = null, allowAwaited = false }) {
+  const isAwaited  = status === STATUS_AWAITED;
+  const isNotDone  = status === STATUS_NOT_DONE;
+  const isSentinel = isAwaited || isNotDone;
+  const toggleStatus = (s) => {
+    if (disabled || !onStatusChange) return;
+    if (status === s) { onStatusChange(null); return; }
+    onStatusChange(s);
+    if (value !== null && value !== undefined && value !== "") onChange(null);
+  };
   return (
     <>
       <div className="rcn-yn-row">
-        <span className="rcn-yn-label">{label}</span>
+        <div className="rcn-field-label-row">
+          <span className="rcn-yn-label">{label}</span>
+          {onStatusChange && (
+            <div className="rcn-status-toggle-group">
+              {allowAwaited && (
+                <button type="button"
+                  className={`rcn-notdone-toggle rcn-awaited-toggle${isAwaited ? " rcn-awaited-toggle--on" : ""}`}
+                  onClick={() => toggleStatus(STATUS_AWAITED)}
+                  disabled={disabled}
+                >{isAwaited ? "Undo" : "Result Awaited"}</button>
+              )}
+              <button type="button"
+                className={`rcn-notdone-toggle${isNotDone ? " rcn-notdone-toggle--on" : ""}`}
+                onClick={() => toggleStatus(STATUS_NOT_DONE)}
+                disabled={disabled}
+              >{isNotDone ? "Undo" : "Not Recorded / Not Done"}</button>
+            </div>
+          )}
+        </div>
         <div className={`rcn-num-input${error ? " rcn-num-input--error" : ""}`} style={{ width }}>
           <input
             type="number" min="0" step="0.1"
-            placeholder={placeholder}
-            value={value ?? ""}
-            onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
-            readOnly={disabled}
+            placeholder={isSentinel ? "" : placeholder}
+            value={isSentinel ? "" : (value ?? "")}
+            onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : Number(e.target.value))}
+            readOnly={disabled || isSentinel}
           />
           {unit && <span className="rcn-num-unit">{unit}</span>}
         </div>
       </div>
-      {error && (
+      {isSentinel ? (
+        <span className="rcn-field-sub" style={{ display: "block", textAlign: "right", marginTop: -8, marginBottom: 8 }}>
+          {status}
+        </span>
+      ) : error && (
         <span className="rcn-field-error" style={{ display: "block", textAlign: "right", marginTop: -8, marginBottom: 8 }}>
           {error}
         </span>
@@ -540,6 +598,7 @@ export default function InfectGIHemaLog() {
     sepsis_suspected:        null,  // 1
     blood_culture_sent:      null,  // 2
     blood_culture_positive:  null,  // 3 (Blood culture result)
+    blood_culture_status:    null,  // 3 status: "Result Awaited"
     antibiotics:             null,  // 4
     lp_done:                 null,  // 5
     meningitis:              null,  // 6 (Y/N)
@@ -561,7 +620,9 @@ export default function InfectGIHemaLog() {
     enteral_feeds_received:  null,  // 12 (renamed from enteral_feeds_started)
     feed_type:               [],    // 13 (PDHM, EBM, FM - multi-select)
     cumulative_feed_volume:  null,  // 14 (ml - numeric)
+    cumulative_feed_volume_status: null, // 14 status: "Not Recorded / Not Done"
     feed_volume:             null,  // 15 (ml/kg/d - auto calculated)
+    feed_volume_status:      null,  // 15 status: "Not Recorded / Not Done"
     iv_fluids:               null,  // 16
     parenteral_nutrition:    null,  // 17
     probiotic:               null,  // 18
@@ -576,9 +637,11 @@ export default function InfectGIHemaLog() {
   ════════════════════════════════════════════════ */
   const [hemaData, setHemaData] = useState({
     hb_value:                null,  // 23 (Hb value - numeric)
+    hb_value_status:         null,  // 23 status: "Result Awaited" | "Not Recorded / Not Done"
     jaundice:                null,  // 24
     phototherapy:            null,  // 25 (conditional on jaundice=Yes)
     peak_tsb:                null,  // 26 (mg/dL - numeric)
+    peak_tsb_status:         null,  // 26 status: "Result Awaited" | "Not Recorded / Not Done"
     exchange_transfusion:    null,  // 27
     prbc_transfusion:        null,  // 28
     platelet_transfusion:    null,  // 29
@@ -711,7 +774,9 @@ export default function InfectGIHemaLog() {
   const infAnswered = Math.min(
     INF_BASE.filter(k => ans(infData[k])).length
     + (sepsisYes ? INF_SEPSIS.filter(k => ans(infData[k])).length : 0)
-    + (sepsisYes && bloodCultureSentYes ? INF_CULTURE.filter(k => ans(infData[k])).length : 0)
+    + (sepsisYes && bloodCultureSentYes
+        ? (ans(infData.blood_culture_positive) || ans(infData.blood_culture_status) ? 1 : 0)
+        : 0)
     + (meningitisYes ? INF_MENING.filter(k => ans(infData[k])).length : 0),
     infTotal
   );
@@ -730,7 +795,11 @@ export default function InfectGIHemaLog() {
     + (necYes ? GI_NEC.length : 0);
   const giAnswered = Math.min(
     GI_ALWAYS.filter(k => ans(giData[k])).length
-    + (npoNo ? GI_NPO_NO.filter(k => ans(giData[k])).length : 0)
+    + (npoNo ? GI_NPO_NO.filter(k => {
+        if (k === "cumulative_feed_volume") return ans(giData.cumulative_feed_volume) || ans(giData.cumulative_feed_volume_status);
+        if (k === "feed_volume") return ans(giData.feed_volume) || ans(giData.feed_volume_status);
+        return ans(giData[k]);
+      }).length : 0)
     + (npoNo && enteralYes ? GI_FEED_TYPE.filter(k => ans(giData[k])).length : 0)
     + (necYes ? GI_NEC.filter(k => ans(giData[k])).length : 0),
     giTotal
@@ -743,7 +812,11 @@ export default function InfectGIHemaLog() {
 
   const hemaTotal    = HEMA_BASE.length + (jaundiceYes ? HEMA_JAUNDICE.length : 0);
   const hemaAnswered = Math.min(
-    HEMA_BASE.filter(k => ans(hemaData[k])).length
+    HEMA_BASE.filter(k => {
+      if (k === "hb_value") return ans(hemaData.hb_value) || ans(hemaData.hb_value_status);
+      if (k === "peak_tsb") return ans(hemaData.peak_tsb) || ans(hemaData.peak_tsb_status);
+      return ans(hemaData[k]);
+    }).length
     + (jaundiceYes ? HEMA_JAUNDICE.filter(k => ans(hemaData[k])).length : 0),
     hemaTotal
   );
@@ -903,6 +976,7 @@ export default function InfectGIHemaLog() {
             sepsis_suspected:        d.sepsis_suspected        ?? null,
             blood_culture_sent:      d.blood_culture_sent      ?? null,
             blood_culture_positive:  d.blood_culture_positive  ?? null,
+            blood_culture_status:    d.blood_culture_status    ?? null,
             antibiotics:             d.antibiotics             ?? null,
             lp_done:                 d.lp_done                 ?? null,
             meningitis:              d.meningitis              ?? null,
@@ -921,7 +995,9 @@ export default function InfectGIHemaLog() {
                 : d.feed_type.split(",").map(s=>s.trim()).filter(Boolean))
               : [],
             cumulative_feed_volume:  d.cumulative_feed_volume  ?? null,
+            cumulative_feed_volume_status: d.cumulative_feed_volume_status ?? null,
             feed_volume:             d.feed_volume             ?? null,
+            feed_volume_status:      d.feed_volume_status      ?? null,
             iv_fluids:               d.iv_fluids               ?? null,
             parenteral_nutrition:    d.parenteral_nutrition    ?? null,
             probiotic:               d.probiotic               ?? null,
@@ -932,9 +1008,11 @@ export default function InfectGIHemaLog() {
           });
           setHemaData({
             hb_value:             d.hb_value             ?? null,
+            hb_value_status:      d.hb_value_status      ?? null,
             jaundice:             d.jaundice             ?? null,
             phototherapy:         d.phototherapy         ?? null,
             peak_tsb:             d.peak_tsb             ?? null,
+            peak_tsb_status:      d.peak_tsb_status      ?? null,
             exchange_transfusion: d.exchange_transfusion ?? null,
             prbc_transfusion:     d.prbc_transfusion     ?? null,
             platelet_transfusion: d.platelet_transfusion ?? null,
@@ -965,14 +1043,17 @@ export default function InfectGIHemaLog() {
 
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
+      blood_culture_status: null,
       antibiotics: null, lp_done: null, meningitis: null, meningitis_type: null,
       clabsi: null, vap: null,
       sepsis_screen_sent: null, sepsis_screens: [blankSepsisScreen()] });
     setGiData({ npo: null, men: null, enteral_feeds_received: null, feed_type: [],
-      cumulative_feed_volume: null, feed_volume: null, iv_fluids: null,
+      cumulative_feed_volume: null, cumulative_feed_volume_status: null,
+      feed_volume: null, feed_volume_status: null, iv_fluids: null,
       parenteral_nutrition: null, probiotic: null, feed_intolerance: null,
       nec_suspected: null, nec_confirmed_stage: null, cholestasis: null });
-    setHemaData({ hb_value: null, jaundice: null, phototherapy: null, peak_tsb: null,
+    setHemaData({ hb_value: null, hb_value_status: null, jaundice: null, phototherapy: null,
+      peak_tsb: null, peak_tsb_status: null,
       exchange_transfusion: null, prbc_transfusion: null,
       platelet_transfusion: null, ffp_cryo: null });
     setIsSaved(false); setIsEditing(false);
@@ -1102,6 +1183,7 @@ export default function InfectGIHemaLog() {
       setInfData({ sepsis_suspected: d.sepsis_suspected ?? null,
         blood_culture_sent: d.blood_culture_sent ?? null,
         blood_culture_positive: d.blood_culture_positive ?? null,
+        blood_culture_status: d.blood_culture_status ?? null,
         antibiotics: d.antibiotics ?? null, lp_done: d.lp_done ?? null,
         meningitis: d.meningitis ?? null, meningitis_type: d.meningitis_type ?? null,
         clabsi: d.clabsi ?? null, vap: d.vap ?? null,
@@ -1114,12 +1196,16 @@ export default function InfectGIHemaLog() {
             : d.feed_type.split(",").map(s=>s.trim()).filter(Boolean))
           : [],
         cumulative_feed_volume: d.cumulative_feed_volume ?? null,
-        feed_volume: d.feed_volume ?? null, iv_fluids: d.iv_fluids ?? null,
+        cumulative_feed_volume_status: d.cumulative_feed_volume_status ?? null,
+        feed_volume: d.feed_volume ?? null, feed_volume_status: d.feed_volume_status ?? null,
+        iv_fluids: d.iv_fluids ?? null,
         parenteral_nutrition: d.parenteral_nutrition ?? null, probiotic: d.probiotic ?? null,
         feed_intolerance: d.feed_intolerance ?? null, nec_suspected: d.nec_suspected ?? null,
         nec_confirmed_stage: d.nec_confirmed_stage ?? null, cholestasis: d.cholestasis ?? null });
-      setHemaData({ hb_value: d.hb_value ?? null, jaundice: d.jaundice ?? null,
+      setHemaData({ hb_value: d.hb_value ?? null, hb_value_status: d.hb_value_status ?? null,
+        jaundice: d.jaundice ?? null,
         phototherapy: d.phototherapy ?? null, peak_tsb: d.peak_tsb ?? null,
+        peak_tsb_status: d.peak_tsb_status ?? null,
         exchange_transfusion: d.exchange_transfusion ?? null,
         prbc_transfusion: d.prbc_transfusion ?? null, platelet_transfusion: d.platelet_transfusion ?? null,
         ffp_cryo: d.ffp_cryo ?? null });
@@ -1514,7 +1600,10 @@ export default function InfectGIHemaLog() {
                     <div className="rcn-subsection">
                       <div className="rcn-yn-list">
                         <YNRow label="3. Blood Culture Positive" value={infData.blood_culture_positive}
-                          onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable} />
+                          onChange={v => setInf("blood_culture_positive", v)} disabled={!isFieldEditable}
+                          status={infData.blood_culture_status}
+                          onStatusChange={v => setInf("blood_culture_status", v)}
+                          allowAwaited={true} />
                       </div>
                     </div>
                   )}
@@ -1681,8 +1770,10 @@ export default function InfectGIHemaLog() {
                   )}
 
                   <div className="rcn-yn-list" style={{marginTop:16}}>
-                    <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" error={cumulativeFeedVolumeError} width={220} />
-                    <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" error={feedVolumeError} width={220} />
+                    <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" error={cumulativeFeedVolumeError} width={220}
+                      status={giData.cumulative_feed_volume_status} onStatusChange={v => setGi("cumulative_feed_volume_status", v)} />
+                    <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" error={feedVolumeError} width={220}
+                      status={giData.feed_volume_status} onStatusChange={v => setGi("feed_volume_status", v)} />
                   </div>
                 </div>
               )}
@@ -1727,7 +1818,8 @@ export default function InfectGIHemaLog() {
               answered={hemaAnswered} total={hemaTotal} defaultOpen={true}>
 
               <div className="rcn-yn-list">
-                <NumRow label="23. Hb Value (g/dL)" value={hemaData.hb_value} onChange={v => setHema("hb_value", v)} disabled={!isFieldEditable} unit="g/dL" placeholder="0.0" error={hbValueError} />
+                <NumRow label="23. Hb Value (g/dL)" value={hemaData.hb_value} onChange={v => setHema("hb_value", v)} disabled={!isFieldEditable} unit="g/dL" placeholder="0.0" error={hbValueError}
+                  status={hemaData.hb_value_status} onStatusChange={v => setHema("hb_value_status", v)} allowAwaited={true} />
                 <YNRow label="24. Jaundice" value={hemaData.jaundice}
                   onChange={v => {
                     setHema("jaundice", v);
@@ -1746,7 +1838,8 @@ export default function InfectGIHemaLog() {
               )}
 
               <div className="rcn-yn-list">
-                <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" error={peakTsbError} />
+                <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" error={peakTsbError}
+                  status={hemaData.peak_tsb_status} onStatusChange={v => setHema("peak_tsb_status", v)} allowAwaited={true} />
                 <YNRow label="27. Exchange Transfusion" value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
                 <YNRow label="28. PRBC Transfusion" value={hemaData.prbc_transfusion} onChange={v => setHema("prbc_transfusion", v)} disabled={!isFieldEditable} />
                 <YNRow label="29. Platelet Transfusion" value={hemaData.platelet_transfusion} onChange={v => setHema("platelet_transfusion", v)} disabled={!isFieldEditable} />

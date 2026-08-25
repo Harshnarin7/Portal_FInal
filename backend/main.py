@@ -4799,8 +4799,11 @@ def _metab_completion_pct(r) -> int:
     renal_done += 1 if ans(creat) else 0
     renal_done += 1 if (
         ans(getattr(r, "urine_output_8am_2pm", None))
+        or ans(getattr(r, "urine_output_8am_2pm_status", None))
         or ans(getattr(r, "urine_output_2pm_8pm", None))
+        or ans(getattr(r, "urine_output_2pm_8pm_status", None))
         or ans(getattr(r, "urine_output_8pm_8am", None))
+        or ans(getattr(r, "urine_output_8pm_8am_status", None))
         or ans(getattr(r, "urine_output_total", None))
     ) else 0
     renal_done += 1 if ans(getattr(r, "dialysis_crrt", None)) else 0

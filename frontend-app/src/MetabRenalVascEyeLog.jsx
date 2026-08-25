@@ -160,16 +160,94 @@ function YNRow({ label, value, onChange, disabled }) {
   );
 }
 
-function NumRow({ label, value, onChange, disabled, unit, placeholder="0" }) {
+const STATUS_AWAITED  = "Result Awaited";
+const STATUS_NOT_DONE = "Not Recorded / Not Done";
+const isStatusSentinel = v => v === STATUS_AWAITED || v === STATUS_NOT_DONE;
+
+/** Small toggle-button pair rendered next to a field label. */
+function StatusToggleGroup({ status, onChange, disabled, allowAwaited = false }) {
+  const isAwaited = status === STATUS_AWAITED;
+  const isNotDone = status === STATUS_NOT_DONE;
+  return (
+    <div className="rcn-status-toggle-group">
+      {allowAwaited && (
+        <button type="button"
+          className={`rcn-notdone-toggle rcn-awaited-toggle${isAwaited ? " rcn-awaited-toggle--on" : ""}`}
+          onClick={() => !disabled && onChange(STATUS_AWAITED)}
+          disabled={disabled}
+        >{isAwaited ? "Undo" : "Result Awaited"}</button>
+      )}
+      <button type="button"
+        className={`rcn-notdone-toggle${isNotDone ? " rcn-notdone-toggle--on" : ""}`}
+        onClick={() => !disabled && onChange(STATUS_NOT_DONE)}
+        disabled={disabled}
+      >{isNotDone ? "Undo" : "Not Recorded / Not Done"}</button>
+    </div>
+  );
+}
+
+function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
+  status = null, onStatusChange = null, allowAwaited = false }) {
+  const isSentinel = isStatusSentinel(status);
+  const toggle = (s) => {
+    if (disabled || !onStatusChange) return;
+    onStatusChange(status === s ? null : s);
+    if (status !== s && value !== null && value !== undefined && value !== "") onChange(null);
+  };
   return (
     <div className="rcn-yn-row">
-      <span className="rcn-yn-label">{label}</span>
+      <div className="rcn-field-label-row">
+        <span className="rcn-yn-label">{label}</span>
+        {onStatusChange && (
+          <StatusToggleGroup status={status} onChange={toggle} disabled={disabled} allowAwaited={allowAwaited} />
+        )}
+      </div>
       <div className="rcn-num-input" style={{ width:160 }}>
         <input type="number" min="0" step="0.01"
-          placeholder={placeholder}
-          value={value ?? ""}
-          onChange={e => !disabled && onChange(e.target.value === "" ? null : Number(e.target.value))}
-          readOnly={disabled}
+          placeholder={isSentinel ? "" : placeholder}
+          value={isSentinel ? "" : (value ?? "")}
+          onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : Number(e.target.value))}
+          readOnly={disabled || isSentinel}
+        />
+        {unit && <span className="rcn-num-unit">{unit}</span>}
+      </div>
+      {isSentinel && <span className="rcn-field-sub">{status}</span>}
+    </div>
+  );
+}
+
+/** Text/numeric row for creatinine — accepts a number, or the
+ *  "Result Awaited" / "Not Recorded / Not Done" sentinel set via the
+ *  toggle buttons (stored directly in the same string field). */
+function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—", allowAwaited = false, allowNotDone = false }) {
+  const isSentinel = isStatusSentinel(value);
+  const toggle = (s) => {
+    if (disabled) return;
+    onChange(value === s ? null : s);
+  };
+  return (
+    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
+      <div className="rcn-field-label-row">
+        <span className="rcn-yn-label">
+          {label}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+        </span>
+        {(allowAwaited || allowNotDone) && (
+          <StatusToggleGroup
+            status={isSentinel ? value : null}
+            onChange={toggle}
+            disabled={disabled}
+            allowAwaited={allowAwaited}
+          />
+        )}
+      </div>
+      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}`} style={{ width: 180 }}>
+        <input
+          type="text"
+          value={isSentinel ? "" : (value ?? "")}
+          onChange={e => !disabled && !isSentinel && onChange(e.target.value === "" ? null : e.target.value)}
+          readOnly={disabled || isSentinel}
+          placeholder={isSentinel ? "" : placeholder}
         />
         {unit && <span className="rcn-num-unit">{unit}</span>}
       </div>
@@ -177,27 +255,6 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0" }) {
   );
 }
 
-/** Text/numeric row for creatinine — accepts number | "Not Tested" | "Awaited". */
-function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—" }) {
-  return (
-    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
-      <span className="rcn-yn-label">
-        {label}
-        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
-      </span>
-      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}`} style={{ width: 180 }}>
-        <input
-          type="text"
-          value={value ?? ""}
-          onChange={e => !disabled && onChange(e.target.value === "" ? null : e.target.value)}
-          readOnly={disabled}
-          placeholder={placeholder}
-        />
-        {unit && <span className="rcn-num-unit">{unit}</span>}
-      </div>
-    </div>
-  );
-}
 
 /** Display-only autofill field (#1/#2/#4) — never a free-text input. */
 function ReadonlyAutoField({ label, value, unit, autofilled }) {
@@ -682,8 +739,11 @@ export default function MetabRenalVascEyeLog() {
     aki_suspected:          null, // #11 Yes/No
     creatinine_value:       null, // #12 string | Not Tested | Awaited
     urine_output_8am_2pm:   null,
+    urine_output_8am_2pm_status: null,
     urine_output_2pm_8pm:   null,
+    urine_output_2pm_8pm_status: null,
     urine_output_8pm_8am:   null,
+    urine_output_8pm_8am_status: null,
     urine_output_total:     null, // derived sum
     dialysis_crrt:          null, // #14
   });
@@ -860,9 +920,9 @@ export default function MetabRenalVascEyeLog() {
     "dialysis_crrt",
   ];
   const urineAnswered =
-    ans(renalData.urine_output_8am_2pm)
-    || ans(renalData.urine_output_2pm_8pm)
-    || ans(renalData.urine_output_8pm_8am)
+    ans(renalData.urine_output_8am_2pm) || ans(renalData.urine_output_8am_2pm_status)
+    || ans(renalData.urine_output_2pm_8pm) || ans(renalData.urine_output_2pm_8pm_status)
+    || ans(renalData.urine_output_8pm_8am) || ans(renalData.urine_output_8pm_8am_status)
     || ans(renalData.urine_output_total);
   const renalTotal = RENAL_KEYS.length;
   const renalAnswered = RENAL_KEYS.filter(k => {
@@ -954,6 +1014,22 @@ export default function MetabRenalVascEyeLog() {
       next.splice(idx, 1);
       return next;
     });
+  };
+
+  /* Sets the sodium/potassium/ionized-calcium summary field directly to a
+   * "Result Awaited" / "Not Recorded / Not Done" sentinel string, bypassing
+   * the readings-derived summary. The readings list itself is left as-is —
+   * adding a real reading afterward will recompute the summary and clear
+   * the sentinel automatically (see updateReadingList above). While a
+   * sentinel is active, the corresponding ReadingsBlock is disabled so a
+   * contradictory reading can't be entered at the same time. */
+  const setLabStatus = (summaryKey, status) => {
+    if (!isFieldEditable) return;
+    setMetabData(p => ({ ...p, [summaryKey]: p[summaryKey] === status ? null : status }));
+  };
+  const labStatus = summaryKey => {
+    const v = metabData[summaryKey];
+    return v === STATUS_AWAITED || v === STATUS_NOT_DONE ? v : null;
   };
 
   const setRenal = (k, v) => {
@@ -1220,8 +1296,11 @@ export default function MetabRenalVascEyeLog() {
             aki_suspected:          aki.aki_suspected,
             creatinine_value:       creatVal,
             urine_output_8am_2pm:   d.urine_output_8am_2pm ?? null,
+            urine_output_8am_2pm_status: d.urine_output_8am_2pm_status ?? null,
             urine_output_2pm_8pm:   d.urine_output_2pm_8pm ?? null,
+            urine_output_2pm_8pm_status: d.urine_output_2pm_8pm_status ?? null,
             urine_output_8pm_8am:   d.urine_output_8pm_8am ?? null,
+            urine_output_8pm_8am_status: d.urine_output_8pm_8am_status ?? null,
             urine_output_total:     d.urine_output_total
               ?? computeUrineTotal(d.urine_output_8am_2pm, d.urine_output_2pm_8pm, d.urine_output_8pm_8am),
             dialysis_crrt:          d.dialysis_crrt      ?? null,
@@ -1360,7 +1439,9 @@ export default function MetabRenalVascEyeLog() {
     });
     setRenalData({
       aki_suspected:null, creatinine_value:null,
-      urine_output_8am_2pm:null, urine_output_2pm_8pm:null, urine_output_8pm_8am:null,
+      urine_output_8am_2pm:null, urine_output_8am_2pm_status:null,
+      urine_output_2pm_8pm:null, urine_output_2pm_8pm_status:null,
+      urine_output_8pm_8am:null, urine_output_8pm_8am_status:null,
       urine_output_total:null, dialysis_crrt:null,
     });
     setThermoData({ axillary_temperature:null });
@@ -1380,9 +1461,9 @@ export default function MetabRenalVascEyeLog() {
     const kReadings = metabData.potassium_readings || [];
     const caReadings = metabData.calcium_readings || [];
     const acidosis = deriveMetabolicAcidosis(phReadings);
-    const naSum = latestReadingSummary(naReadings);
-    const kSum = latestReadingSummary(kReadings);
-    const caSum = latestReadingSummary(caReadings);
+    const naSum = isStatusSentinel(metabData.sodium_value) ? metabData.sodium_value : latestReadingSummary(naReadings);
+    const kSum = isStatusSentinel(metabData.potassium_value) ? metabData.potassium_value : latestReadingSummary(kReadings);
+    const caSum = isStatusSentinel(metabData.ionized_calcium_value) ? metabData.ionized_calcium_value : latestReadingSummary(caReadings);
     const urineTotal = computeUrineTotal(
       renalData.urine_output_8am_2pm,
       renalData.urine_output_2pm_8pm,
@@ -1390,7 +1471,7 @@ export default function MetabRenalVascEyeLog() {
     );
     const creatVal = renalData.creatinine_value;
     const creatNum = (() => {
-      if (creatVal == null || creatVal === "" || creatVal === "Not Tested" || creatVal === "Awaited") return null;
+      if (creatVal == null || creatVal === "" || isStatusSentinel(creatVal) || creatVal === "Not Tested" || creatVal === "Awaited") return null;
       const n = Number(creatVal);
       return Number.isFinite(n) ? n : null;
     })();
@@ -1414,8 +1495,11 @@ export default function MetabRenalVascEyeLog() {
       creatinine_value: creatVal,
       creatinine: creatNum,
       urine_output_8am_2pm: renalData.urine_output_8am_2pm,
+      urine_output_8am_2pm_status: renalData.urine_output_8am_2pm_status,
       urine_output_2pm_8pm: renalData.urine_output_2pm_8pm,
+      urine_output_2pm_8pm_status: renalData.urine_output_2pm_8pm_status,
       urine_output_8pm_8am: renalData.urine_output_8pm_8am,
+      urine_output_8pm_8am_status: renalData.urine_output_8pm_8am_status,
       urine_output_total: urineTotal,
       dialysis_crrt: renalData.dialysis_crrt,
       ...thermoData,
@@ -1552,8 +1636,11 @@ export default function MetabRenalVascEyeLog() {
         creatinine_value: d.creatinine_value
           ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null),
         urine_output_8am_2pm: d.urine_output_8am_2pm??null,
+        urine_output_8am_2pm_status: d.urine_output_8am_2pm_status ?? null,
         urine_output_2pm_8pm: d.urine_output_2pm_8pm??null,
+        urine_output_2pm_8pm_status: d.urine_output_2pm_8pm_status ?? null,
         urine_output_8pm_8am: d.urine_output_8pm_8am??null,
+        urine_output_8pm_8am_status: d.urine_output_8pm_8am_status ?? null,
         urine_output_total: d.urine_output_total
           ?? computeUrineTotal(d.urine_output_8am_2pm, d.urine_output_2pm_8pm, d.urine_output_8pm_8am),
         dialysis_crrt: d.dialysis_crrt??null,
@@ -2007,7 +2094,15 @@ export default function MetabRenalVascEyeLog() {
                 </div>
 
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">7. Sodium value (&lt;135 or &gt;142)</div>
+                  <div className="rcn-subsection-title rcn-field-label-row">
+                    <span>7. Sodium value (&lt;135 or &gt;142)</span>
+                    <StatusToggleGroup status={labStatus("sodium_value")}
+                      onChange={s => setLabStatus("sodium_value", s)}
+                      disabled={!isFieldEditable} allowAwaited={true} />
+                  </div>
+                  {labStatus("sodium_value") ? (
+                    <div className="rcn-field-sub">{labStatus("sodium_value")}</div>
+                  ) : (
                   <ReadingsBlock
                     code="Na"
                     entries={metabData.sodium_readings}
@@ -2030,10 +2125,19 @@ export default function MetabRenalVascEyeLog() {
                       </div>
                     )}
                   </ReadingsBlock>
+                  )}
                 </div>
 
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">8. Potassium value (&lt;3.5 or &gt;6)</div>
+                  <div className="rcn-subsection-title rcn-field-label-row">
+                    <span>8. Potassium value (&lt;3.5 or &gt;6)</span>
+                    <StatusToggleGroup status={labStatus("potassium_value")}
+                      onChange={s => setLabStatus("potassium_value", s)}
+                      disabled={!isFieldEditable} allowAwaited={true} />
+                  </div>
+                  {labStatus("potassium_value") ? (
+                    <div className="rcn-field-sub">{labStatus("potassium_value")}</div>
+                  ) : (
                   <ReadingsBlock
                     code="K"
                     entries={metabData.potassium_readings}
@@ -2056,10 +2160,19 @@ export default function MetabRenalVascEyeLog() {
                       </div>
                     )}
                   </ReadingsBlock>
+                  )}
                 </div>
 
                 <div className="rcn-subsection">
-                  <div className="rcn-subsection-title">9. Ionized Calcium value (&lt;0.9 or &gt;1.2)</div>
+                  <div className="rcn-subsection-title rcn-field-label-row">
+                    <span>9. Ionized Calcium value (&lt;0.9 or &gt;1.2)</span>
+                    <StatusToggleGroup status={labStatus("ionized_calcium_value")}
+                      onChange={s => setLabStatus("ionized_calcium_value", s)}
+                      disabled={!isFieldEditable} allowAwaited={true} />
+                  </div>
+                  {labStatus("ionized_calcium_value") ? (
+                    <div className="rcn-field-sub">{labStatus("ionized_calcium_value")}</div>
+                  ) : (
                   <ReadingsBlock
                     code="iCa"
                     entries={metabData.calcium_readings}
@@ -2082,6 +2195,7 @@ export default function MetabRenalVascEyeLog() {
                       </div>
                     )}
                   </ReadingsBlock>
+                  )}
                 </div>
 
                 <YNRow label="10. Osteopenia suspected" value={metabData.osteopenia_suspected}
@@ -2104,17 +2218,25 @@ export default function MetabRenalVascEyeLog() {
                   onChange={v => setRenal("creatinine_value", v)}
                   disabled={!isFieldEditable}
                   unit="mg/dL"
-                  placeholder="value / Not Tested / Awaited"
+                  placeholder="value"
+                  allowAwaited={true}
+                  allowNotDone={true}
                 />
                 <NumRow label="13a. Urine output 8am → 2pm" value={renalData.urine_output_8am_2pm}
                   onChange={v=>setRenal("urine_output_8am_2pm",v)} disabled={!isFieldEditable}
-                  unit="ml/kg/hr"/>
+                  unit="ml/kg/hr"
+                  status={renalData.urine_output_8am_2pm_status}
+                  onStatusChange={v=>setRenal("urine_output_8am_2pm_status",v)}/>
                 <NumRow label="13b. Urine output 2pm → 8pm" value={renalData.urine_output_2pm_8pm}
                   onChange={v=>setRenal("urine_output_2pm_8pm",v)} disabled={!isFieldEditable}
-                  unit="ml/kg/hr"/>
+                  unit="ml/kg/hr"
+                  status={renalData.urine_output_2pm_8pm_status}
+                  onStatusChange={v=>setRenal("urine_output_2pm_8pm_status",v)}/>
                 <NumRow label="13c. Urine output 8pm → 8am" value={renalData.urine_output_8pm_8am}
                   onChange={v=>setRenal("urine_output_8pm_8am",v)} disabled={!isFieldEditable}
-                  unit="ml/kg/hr"/>
+                  unit="ml/kg/hr"
+                  status={renalData.urine_output_8pm_8am_status}
+                  onStatusChange={v=>setRenal("urine_output_8pm_8am_status",v)}/>
                 <ReadonlyAutoField
                   label="13. Urine output total (sum)"
                   value={renalData.urine_output_total}

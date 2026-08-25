@@ -1969,10 +1969,13 @@ class MetabRenalVascEyeDayLog(Base):
     aki_suspected          = Column(Boolean, nullable=True)  # #11 AKI suspected
     aki_stage              = Column(String,  nullable=True)  # KDIGO Stage 1/2/3 (when #11 Yes)
     creatinine             = Column(Float,   nullable=True)  # legacy numeric mg/dL
-    creatinine_value       = Column(String,  nullable=True)  # #12 numeric | "Not Tested" | "Awaited"
+    creatinine_value       = Column(String,  nullable=True)  # #12 numeric | "Result Awaited" | "Not Recorded / Not Done"
     urine_output_8am_2pm   = Column(Float,   nullable=True)  # #13 window
+    urine_output_8am_2pm_status = Column(String, nullable=True)  # "Not Recorded / Not Done"
     urine_output_2pm_8pm   = Column(Float,   nullable=True)
+    urine_output_2pm_8pm_status = Column(String, nullable=True)  # "Not Recorded / Not Done"
     urine_output_8pm_8am   = Column(Float,   nullable=True)
+    urine_output_8pm_8am_status = Column(String, nullable=True)  # "Not Recorded / Not Done"
     urine_output_total     = Column(String,  nullable=True)  # #13 summary (sum of windows)
     dialysis_crrt          = Column(Boolean, nullable=True)                      # 14
 
