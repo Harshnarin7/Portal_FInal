@@ -133,16 +133,20 @@ function Mini({ label, children }) {
   );
 }
 function MiniDate({ label, name }) {
-  const { formData, setFormData } = useContext(FormIDataContext);
+  const { formData, setFormData, clearAutoFilled } = useContext(FormIDataContext);
   return (
     <Mini label={label}>
       <DatePicker
         selected={formData[name] ? parseDateOnly(formData[name]) : null}
-        onChange={(date) => setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }))}
+        onChange={(date) => {
+          clearAutoFilled?.(name);
+          setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }));
+        }}
         dateFormat="dd/MM/yyyy"
         placeholderText="dd/mm/yyyy"
         className="crf-text"
       />
+      <AutoFilledBadge name={name} />
     </Mini>
   );
 }
@@ -311,9 +315,13 @@ function MiniTime({ label, name }) {
   );
 }
 function MiniText({ label, name, placeholder }) {
-  const { formData, handleChange } = useContext(FormIDataContext);
+  const { formData, handleChange, clearAutoFilled } = useContext(FormIDataContext);
   return (
-    <Mini label={label}><input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} /></Mini>
+    <Mini label={label}>
+      <input className="crf-text" type="text" name={name} value={formData[name] || ""}
+        onChange={(e) => { clearAutoFilled?.(name); handleChange(e); }} placeholder={placeholder} />
+      <AutoFilledBadge name={name} />
+    </Mini>
   );
 }
 function MiniReadOnly({ label, value }) {
@@ -464,6 +472,7 @@ export default function FormI() {
   const [staleFields, setStaleFields] = useState({});
   const [resusPrefill, setResusPrefill] = useState(null);
   const [overallPrefill, setOverallPrefill] = useState(null);
+  const [postResusPrefill, setPostResusPrefill] = useState(null);
   const clearAutoFilled = (name) => {
     setAutoFilledFields((prev) => {
       if (!prev[name]) return prev;
@@ -789,6 +798,7 @@ export default function FormI() {
       // FormH.jsx's loadExistingFormH().then(...) comment for the bug
       // this avoids).
       fetchBirthResuscitationPrefill();
+      fetchPostResusPrefill();
       fetchOverallPrefill();
     };
     fetchData();
@@ -900,6 +910,94 @@ export default function FormI() {
       )
     ) {
       fetchBirthResuscitationPrefill({ force: true });
+    }
+  };
+
+  // I.2 Post-natal Post-resuscitation Outcomes <- a new, dedicated
+  // endpoint (unlike I.1/I.6, this needs genuine age-window filtering —
+  // EOS = onset in first 72h, LOS = onset after day 3 — not a simple
+  // any-day aggregate, so no existing endpoint could be reused as-is).
+  // See get_post_resus_prefill's docstring in backend/main.py for the
+  // full derivation of each field, including the two PI decisions this
+  // relied on (2026-08-25): plain NC counts as "respiratory support"
+  // for resp_support_72h, and sepsis EOS/LOS count any infection-detect
+  // trigger type, same policy as I.6's sepsis_overall.
+  //
+  // Deliberately NOT filled: mortality_7d_cause/_time, mortality_28d_
+  // cause/_time (no day-log source, same as I.6's mortality_hospital_
+  // cause/_time). mortality_7_days/mortality_28_days themselves are
+  // filled with "No" only when the endpoint can actually confirm the
+  // baby was tracked alive past that age (see backend docstring) —
+  // otherwise left blank rather than guessed.
+  const POST_RESUS_PREFILL_FIELDS = [
+    "resp_support_72h", "sepsis_eos", "sepsis_los",
+    "culture_positive_sepsis", "culture_positive_body_fluid",
+    "mortality_7_days", "mortality_7d_date",
+    "mortality_28_days", "mortality_28d_date",
+  ];
+  // All fields here are one-time/cumulative facts about a fixed age
+  // window (not a growing day-count), so — same reasoning as I.1 — a
+  // later disagreement is always worth flagging, not expected drift.
+  const POST_RESUS_STALE_CHECK_FIELDS = POST_RESUS_PREFILL_FIELDS;
+
+  const fetchPostResusPrefill = async ({ force = false } = {}) => {
+    if (!enrollmentId) return;
+    try {
+      const res = await api.get(`/neonatal-morbidities/post-resus-prefill/${enrollmentId}`);
+      const d = res.data;
+      if (!d || !d.has_data) { setPostResusPrefill(null); return; }
+      setPostResusPrefill(d);
+
+      const mapped = {};
+      POST_RESUS_PREFILL_FIELDS.forEach((field) => {
+        if (d[field] !== null && d[field] !== undefined) mapped[field] = d[field];
+      });
+
+      const filled = {};
+      const stale = {};
+      setFormData((prev) => {
+        const next = { ...prev };
+        POST_RESUS_PREFILL_FIELDS.forEach((field) => {
+          const value = mapped[field];
+          if (isBlank(value)) return;
+          const currentlyBlank = isBlank(prev[field]);
+          const disagrees = !currentlyBlank
+            && POST_RESUS_STALE_CHECK_FIELDS.includes(field)
+            && String(prev[field]) !== String(value);
+          if (currentlyBlank || (force && disagrees)) {
+            next[field] = value;
+            filled[field] = true;
+          } else if (disagrees) {
+            stale[field] = true;
+          }
+        });
+        return next;
+      });
+      if (Object.keys(filled).length) {
+        setAutoFilledFields((prev) => ({ ...prev, ...filled }));
+      }
+      setStaleFields((prev) => {
+        const next = { ...prev };
+        POST_RESUS_PREFILL_FIELDS.forEach((f) => {
+          if (stale[f]) next[f] = true; else delete next[f];
+        });
+        return next;
+      });
+    } catch (err) {
+      console.log("Error fetching I.2 Post-resus prefill", err);
+    }
+  };
+
+  const confirmForceRefillPostResus = () => {
+    if (
+      window.confirm(
+        "Overwrite already-answered Post-natal Post-resuscitation Outcomes " +
+        "fields with the latest daily-log data?\n\nThis replaces existing " +
+        "answers, not just blank ones — use this only if the daily logs " +
+        "were corrected after this form was filled in."
+      )
+    ) {
+      fetchPostResusPrefill({ force: true });
     }
   };
 
@@ -1367,6 +1465,43 @@ export default function FormI() {
         {/* ================= I.2 POST-NATAL POST-RESUSCITATION OUTCOMES ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i2}>
           <h3><ClipboardList size={17} className="sec-icon" /> <span className="sec-num">I.2</span> Post-natal Post-resuscitation Outcomes</h3>
+          {postResusPrefill && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available from the daily logs (respiratory support in the first
+              72h, sepsis detection, survival status). Empty fields below were
+              filled from it automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchPostResusPrefill()}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={confirmForceRefillPostResus}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {(staleFields.resp_support_72h || staleFields.sepsis_eos || staleFields.sepsis_los
+            || staleFields.culture_positive_sepsis || staleFields.culture_positive_body_fluid
+            || staleFields.mortality_7_days || staleFields.mortality_7d_date
+            || staleFields.mortality_28_days || staleFields.mortality_28d_date) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The daily logs now disagree with the saved answer for:{" "}
+              {[
+                staleFields.resp_support_72h && "Resp support (0.5–72h)",
+                staleFields.sepsis_eos && "Sepsis (EOS)",
+                staleFields.sepsis_los && "Sepsis (LOS)",
+                staleFields.culture_positive_sepsis && "Culture positive sepsis",
+                staleFields.culture_positive_body_fluid && "Body fluid",
+                staleFields.mortality_7_days && "All-cause mortality ≤ 7 days",
+                staleFields.mortality_7d_date && "Date of death (≤7d)",
+                staleFields.mortality_28_days && "All-cause mortality ≤ 28 days",
+                staleFields.mortality_28d_date && "Date of death (≤28d)",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before the daily
+              logs were finalized. Use "Force refill" above if the daily
+              logs are correct.
+            </div>
+          )}
           <CrfTable>
             <CrfRow num={7} outcome="Resp support (0.5–72h)" definition="Any respiratory support more than supplemental oxygen"
               result={<RYesNo name="resp_support_72h" required />} />

@@ -2642,67 +2642,16 @@ def _consecutive_day_runs(days):
     return runs
 
 
-@app.get("/neonatal-morbidities/infection-detect/{enrollment_id}")
-def get_infection_detect(
-    enrollment_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Detects candidate infection episodes in the Infect/GI/Hema helper
-    daily logs for Form H's H11 Infection section, using the PI-specified
-    trigger rule (2026-08-23) — unlike every other prefill endpoint in
-    this file, this NEVER fills a Form H field directly. Form H's
-    Infection section is a dynamic array of clinician-judged episodes
-    with no day-log analog for "which episode does this day belong to",
-    and episode-boundary determination ("fresh episode vs. continuation
-    of one already being treated") is an explicit clinical judgment call
-    per the PI — not something to infer from daily flags. This endpoint
-    only surfaces candidate windows for review; the frontend uses them to
-    (a) show an advisory banner and (b) optionally pre-fill a *single*
-    new infection entry when a clinician manually clicks "Add Infection
-    for this", never auto-creating entries on its own.
-
-    Trigger rule, in priority order (culture wins over screen wins over
-    duration-based clinical diagnosis, since a positive test is a harder
-    fact than a duration pattern):
-    1. blood_culture_positive = True on any day -> "culture" window.
-    2. A sepsis_screens_json entry with result="Positive" on a day not
-       already covered by a culture window -> "screen" window. (Screen
-       result is captured directly by the nurse per screen — CRP/PCT/
-       Hematological — deliberately NOT inferred from antibiotic
-       duration, since the PI confirmed duration bands aren't fixed
-       enough to serve as a screen-result proxy.)
-    3. antibiotics = True for >5 continuous days, on days not already
-       covered by a culture or screen window -> "clinical" window.
-    4. meningitis = True (or meningitis_type set) -> "meningitis" window.
-       Form H currently has no rendered field for meningitis at all
-       (dead validateMeningitis/formData.meningitis code, no JSX renders
-       it) so this can only ever be advisory, never pre-filled.
-    5. clabsi = True -> "clabsi" window.
-    6. vap = True -> "vap" window.
-
-    Each window is a maximal run of consecutive NICU days for that
-    trigger (via NICUAdmission.day1_date, same cross-table pattern as
-    every other domain's onset dates) — never merged across different
-    trigger types, since that merging is exactly the episode-boundary
-    judgment call the PI said can't be ruled.
+def _compute_infection_windows(logs, nicu):
+    """Shared trigger-window builder used by both get_infection_detect
+    (Form H's advisory H11 banner) and get_post_resus_prefill (Form I's
+    I.2 EOS/LOS/culture derivation) — kept as one function so the trigger
+    rule only needs to be right in one place. See get_infection_detect's
+    own docstring for the full trigger rule and the reasoning behind it
+    (culture > screen > antibiotic-duration priority, no cross-type
+    merging, etc.) — that reasoning is unchanged, this is a pure
+    extraction, not a behavior change.
     """
-    require_enrollment_access(enrollment_id, db, current_user)
-
-    logs = (
-        db.query(InfectGIHemaDayLog)
-        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
-        .order_by(InfectGIHemaDayLog.nicu_day)
-        .all()
-    )
-    if not logs:
-        return {"has_data": False}
-
-    nicu = (
-        db.query(NICUAdmission)
-        .filter(NICUAdmission.enrollment_id == enrollment_id)
-        .first()
-    )
 
     def date_for(day):
         if not nicu or not nicu.day1_date:
@@ -2773,6 +2722,72 @@ def get_infection_detect(
         ))
 
     windows.sort(key=lambda w: w["nicu_day_start"])
+    return windows
+
+
+@app.get("/neonatal-morbidities/infection-detect/{enrollment_id}")
+def get_infection_detect(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Detects candidate infection episodes in the Infect/GI/Hema helper
+    daily logs for Form H's H11 Infection section, using the PI-specified
+    trigger rule (2026-08-23) — unlike every other prefill endpoint in
+    this file, this NEVER fills a Form H field directly. Form H's
+    Infection section is a dynamic array of clinician-judged episodes
+    with no day-log analog for "which episode does this day belong to",
+    and episode-boundary determination ("fresh episode vs. continuation
+    of one already being treated") is an explicit clinical judgment call
+    per the PI — not something to infer from daily flags. This endpoint
+    only surfaces candidate windows for review; the frontend uses them to
+    (a) show an advisory banner and (b) optionally pre-fill a *single*
+    new infection entry when a clinician manually clicks "Add Infection
+    for this", never auto-creating entries on its own.
+
+    Trigger rule, in priority order (culture wins over screen wins over
+    duration-based clinical diagnosis, since a positive test is a harder
+    fact than a duration pattern) — see _compute_infection_windows:
+    1. blood_culture_positive = True on any day -> "culture" window.
+    2. A sepsis_screens_json entry with result="Positive" on a day not
+       already covered by a culture window -> "screen" window. (Screen
+       result is captured directly by the nurse per screen — CRP/PCT/
+       Hematological — deliberately NOT inferred from antibiotic
+       duration, since the PI confirmed duration bands aren't fixed
+       enough to serve as a screen-result proxy.)
+    3. antibiotics = True for >5 continuous days, on days not already
+       covered by a culture or screen window -> "clinical" window.
+    4. meningitis = True (or meningitis_type set) -> "meningitis" window.
+       Form H currently has no rendered field for meningitis at all
+       (dead validateMeningitis/formData.meningitis code, no JSX renders
+       it) so this can only ever be advisory, never pre-filled.
+    5. clabsi = True -> "clabsi" window.
+    6. vap = True -> "vap" window.
+
+    Each window is a maximal run of consecutive NICU days for that
+    trigger (via NICUAdmission.day1_date, same cross-table pattern as
+    every other domain's onset dates) — never merged across different
+    trigger types, since that merging is exactly the episode-boundary
+    judgment call the PI said can't be ruled.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    windows = _compute_infection_windows(logs, nicu)
 
     return {
         "has_data": True,
@@ -2944,6 +2959,155 @@ def get_survival_check(
     date = (nicu.day1_date + timedelta(days=day - 1)).isoformat() if nicu and nicu.day1_date else None
 
     return {"did_not_survive": True, "day": day, "date": date}
+
+
+@app.get("/neonatal-morbidities/post-resus-prefill/{enrollment_id}")
+def get_post_resus_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates data for Form I's I.2 Post-natal Post-resuscitation
+    Outcomes (CRF #7-21). Unlike I.1/I.6's sources, this genuinely needs
+    age-window filtering (EOS = onset in the first 72h, LOS = onset
+    after day 3 of life) rather than a simple any-day aggregate, so it's
+    its own endpoint instead of a reuse of an existing one.
+
+    - resp_support_72h (#7, "any respiratory support more than
+      supplemental oxygen", the 0.5-72h window — day-log resolution is
+      daily, so this reads as nicu_day 1-3, the CRF's 0.5h lower bound
+      isn't actionable at this granularity): "Yes" if any day in that
+      window has a non-blank support_modes token or
+      endotracheal_intubation is True. PI decision (2026-08-25): plain
+      NC counts as "support" here too, not just CPAP/NIPPV/HFNC/invasive
+      — NC is tracked as its own distinct support_modes token in this
+      system's data model, not folded into the separate supp_o2 (FiO2)
+      flag, so a day with only NC selected still counts.
+    - sepsis_eos (#8) / sepsis_los (#9): reuse _compute_infection_windows
+      (the same trigger rule as Form H's Infection section and Form I's
+      own I.6 sepsis_overall — culture/screen/clinical/meningitis/
+      clabsi/vap, any type, per the same 2026-08-25 PI decision made for
+      I.6), classified by each window's onset day (nicu_day_start): EOS
+      if onset day <= 3, LOS if > 3. A window straddling the boundary is
+      classified by where it started, matching both fields' "onset"
+      wording.
+    - culture_positive_sepsis (#10) / culture_positive_body_fluid (#11):
+      admission-wide (no time window — this CRF item has no time
+      qualifier, unlike EOS/LOS), any-day blood_culture_positive. Body
+      fluid auto-fills "Blood" whenever culture_positive_sepsis is Yes —
+      the day log has no other body-fluid culture field (no CSF/urine/
+      etc.), so unlike similar-looking fields elsewhere in this project,
+      there's no real ambiguity to guess around here.
+    - mortality_7_days (#12) / mortality_28_days (#17) + date of death:
+      reuse the same day-of-death detection as get_survival_check (any
+      survived_the_day=False day, via MetabRenalVascEyeDayLog). "Yes" if
+      the death day's age-in-days (nicu_day - 1, i.e. nicu_day 1 = age 0)
+      is <= 7 / <= 28 respectively — "till completion of D7/D28 of age"
+      reads as through and including that day. "No" is only filled when
+      the trial's own data can actually rule out a later death, since
+      the CRF wording is "death due to any cause" (which includes death
+      after discharge) and the day logs stop at discharge: "No" requires
+      confirmation the baby was still alive and being tracked at or past
+      that age — either the latest day logged across all 3 helper-log
+      tables, or NICUAdmission.discharge_date if later, reaches or
+      passes the cutoff. A baby discharged alive *before* completing 7
+      or 28 days, with no later data, is left blank — the data genuinely
+      can't confirm or rule out a post-discharge death within that
+      window. Cause/time of death have no day-log source, same as I.6's
+      mortality_hospital_cause/_time — stay manual. Age fills itself via
+      Form I's existing calcAge(dob, date) effects, same as I.6.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    resp_logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    metab_logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not resp_logs and not inf_logs and not metab_logs:
+        return {"has_data": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+
+    def date_for(day):
+        if not nicu or not nicu.day1_date:
+            return None
+        return (nicu.day1_date + timedelta(days=day - 1)).isoformat()
+
+    resp_support_72h = None
+    if resp_logs:
+        window_hit = any(
+            l.nicu_day <= 3 and (
+                (l.support_modes or "").strip() or l.endotracheal_intubation is True
+            )
+            for l in resp_logs
+        )
+        resp_support_72h = "Yes" if window_hit else "No"
+
+    sepsis_eos = sepsis_los = culture_positive_sepsis = None
+    culture_positive_body_fluid = None
+    if inf_logs:
+        windows = _compute_infection_windows(inf_logs, nicu)
+        sepsis_eos = "Yes" if any(w["nicu_day_start"] <= 3 for w in windows) else "No"
+        sepsis_los = "Yes" if any(w["nicu_day_start"] > 3 for w in windows) else "No"
+        culture_positive = any(l.blood_culture_positive is True for l in inf_logs)
+        culture_positive_sepsis = "Yes" if culture_positive else "No"
+        if culture_positive:
+            culture_positive_body_fluid = "Blood"
+
+    mortality_7_days = mortality_28_days = None
+    mortality_7d_date = mortality_28d_date = None
+    if metab_logs:
+        all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
+        last_known_day = max(all_days) if all_days else None
+        if nicu and nicu.day1_date and nicu.discharge_date:
+            discharge_day = (nicu.discharge_date - nicu.day1_date).days + 1
+            last_known_day = max(last_known_day or 0, discharge_day)
+
+        death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
+        if death_days:
+            death_day = min(death_days)
+            age_days = death_day - 1
+            death_date = date_for(death_day)
+            mortality_7_days = "Yes" if age_days <= 7 else "No"
+            mortality_28_days = "Yes" if age_days <= 28 else "No"
+            if mortality_7_days == "Yes":
+                mortality_7d_date = death_date
+            if mortality_28_days == "Yes":
+                mortality_28d_date = death_date
+        elif last_known_day is not None:
+            if last_known_day - 1 >= 7:
+                mortality_7_days = "No"
+            if last_known_day - 1 >= 28:
+                mortality_28_days = "No"
+
+    return {
+        "has_data": True,
+        "resp_support_72h": resp_support_72h,
+        "sepsis_eos": sepsis_eos,
+        "sepsis_los": sepsis_los,
+        "culture_positive_sepsis": culture_positive_sepsis,
+        "culture_positive_body_fluid": culture_positive_body_fluid,
+        "mortality_7_days": mortality_7_days,
+        "mortality_7d_date": mortality_7d_date,
+        "mortality_28_days": mortality_28_days,
+        "mortality_28d_date": mortality_28d_date,
+    }
 
 
 @app.get("/neonatal-morbidities/cranial-usg-prefill/{enrollment_id}")
