@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, date, time, timedelta
 import random, string
 import json
+import re
 from models import RespiratoryLog
 from auth import hash_password, verify_password
 from core.security import create_access_token, create_refresh_token, verify_refresh_token
@@ -2437,12 +2438,18 @@ def get_cv_prefill(
       every row logged after the helper-form redesign. Using it is safe
       either way (a blank/never-True column just contributes nothing),
       but don't expect it to catch newer entries.
-    - fluid_bolus / fluid_bolus_number: the day log's `fluid_bolus` is a
-      free-text description ("10ml/kg NS"), not a boolean or count —
-      "Yes" is derived from any day having a non-blank value, and the
-      count is the number of days with a non-blank value (the log can't
-      distinguish two boluses given the same day from one, same
-      day-count-as-proxy caveat as other domains' *_number fields).
+    - fluid_bolus / fluid_bolus_number: fluid_bolus (the Yes/No) still
+      comes from the Helper Form 2 day log's `fluid_bolus_given` boolean
+      (#29) — "Yes" if any day has fluid_bolus_given is True.
+      fluid_bolus_number, however, is NOT a day-count — it's the sum of
+      every numeric value entered in the Minimal Monitoring form's 5.1.B
+      "Fluid Bolus" multi-entry block (`cv_b` in entries_json) across
+      every day logged for this enrollment. Each "Log another reading"
+      entry in 5.1.B contributes its own value (e.g. a day with entries
+      3, 4, 5 contributes 12; the next day's 3, 12, 2 adds another 17,
+      for a running total of 29). Rows saved before the multi-entry
+      redesign have no entries_json — those fall back to the row's
+      legacy flat `fluid_bolus_given` column instead.
     - inotrope_duration: day-count of vasoactive_support being true.
     - inotrope_dopa/dobu/adr/nadr/milri/vaso: whether each drug name
       ("Dopamine"/"Dobutamine"/"Adrenaline"/"Noradrenaline"/"Milrinone"/
@@ -2496,7 +2503,7 @@ def get_cv_prefill(
     def count_days(attr):
         return sum(1 for l in logs if getattr(l, attr) is True)
 
-    bolus_days = [l for l in logs if (l.fluid_bolus or "").strip()]
+    bolus_days = [l for l in logs if l.fluid_bolus_given is True]
 
     all_drug_tokens = set()
     for l in logs:
@@ -2543,6 +2550,54 @@ def get_cv_prefill(
     lowest_dbp = _lowest_minimal_monitoring_vital("dbp", "dbp")
     lowest_map = _lowest_minimal_monitoring_vital("map_value", "map_value")
 
+    def _parse_leading_number(raw):
+        """Pulls the leading numeric value out of a Fluid Bolus 5.1.B
+        entry, e.g. "10" -> 10.0, "10ml/kg NS" -> 10.0. Returns None for
+        blank/non-numeric text."""
+        if raw is None:
+            return None
+        m = re.match(r"^\s*(\d+(?:\.\d+)?)", str(raw))
+        return float(m.group(1)) if m else None
+
+    def _sum_minimal_monitoring_fluid_bolus():
+        """Sums every 5.1.B "Fluid Bolus" entry (`cv_b` in entries_json)
+        across every Minimal Monitoring day row for this enrollment —
+        this is the running "number of courses" total for Form H's #29
+        fluid_bolus_number, NOT a day-count. Rows saved before the
+        multi-entry redesign have no entries_json — those fall back to
+        the row's own legacy flat `fluid_bolus_given` column."""
+        total = 0.0
+        any_found = False
+        for row in mml_logs:
+            row_had_entries = False
+            if row.entries_json:
+                try:
+                    parsed = (
+                        json.loads(row.entries_json)
+                        if isinstance(row.entries_json, str)
+                        else row.entries_json
+                    )
+                    for entry in (parsed or {}).get("cv_b", []) or []:
+                        val = _parse_leading_number(entry.get("fluid_bolus_given"))
+                        if val is None:
+                            continue
+                        row_had_entries = True
+                        any_found = True
+                        total += val
+                except (TypeError, ValueError):
+                    pass
+            if not row_had_entries:
+                legacy_val = _parse_leading_number(row.fluid_bolus_given)
+                if legacy_val is not None:
+                    any_found = True
+                    total += legacy_val
+        return total, any_found
+
+    fluid_bolus_total, fluid_bolus_any = _sum_minimal_monitoring_fluid_bolus()
+    fluid_bolus_number_value = (
+        int(fluid_bolus_total) if fluid_bolus_total == int(fluid_bolus_total) else fluid_bolus_total
+    ) if fluid_bolus_any else None
+
     return {
         "has_data": True,
         "log_days_count": len(logs),
@@ -2555,7 +2610,7 @@ def get_cv_prefill(
         "pda_medical_rx": ("Yes" if any_day("pda_medical_rx") else "No") if logs else None,
         "shock": ("Yes" if any_day("shock") else "No") if logs else None,
         "fluid_bolus": ("Yes" if bolus_days else "No") if logs else None,
-        "fluid_bolus_number": (len(bolus_days) or None) if logs else None,
+        "fluid_bolus_number": fluid_bolus_number_value,
         "inotropes": ("Yes" if any_day("vasoactive_support") else "No") if logs else None,
         "inotrope_duration": (count_days("vasoactive_support") or None) if logs else None,
         "inotrope_dopa": ("Dopamine" in all_drug_tokens) if logs else None,
@@ -4079,7 +4134,7 @@ def _compute_completion_pct(record) -> int:
     vasoactive_visible = getattr(record, "vasoactive_support", None) is True
     cv_done = (
         sum(1 for f in cv_bool_fields if answered(getattr(record, f, None)))
-        + (1 if answered(getattr(record, "fluid_bolus", None)) else 0)  # 29
+        + (1 if answered(getattr(record, "fluid_bolus_given", None)) else 0)  # 29
         + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
     )
     cv_total = len(cv_bool_fields) + 1 + (1 if vasoactive_visible else 0)
