@@ -463,6 +463,7 @@ export default function FormI() {
   const [autoFilledFields, setAutoFilledFields] = useState({});
   const [staleFields, setStaleFields] = useState({});
   const [resusPrefill, setResusPrefill] = useState(null);
+  const [overallPrefill, setOverallPrefill] = useState(null);
   const clearAutoFilled = (name) => {
     setAutoFilledFields((prev) => {
       if (!prev[name]) return prev;
@@ -788,6 +789,7 @@ export default function FormI() {
       // FormH.jsx's loadExistingFormH().then(...) comment for the bug
       // this avoids).
       fetchBirthResuscitationPrefill();
+      fetchOverallPrefill();
     };
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -898,6 +900,123 @@ export default function FormI() {
       )
     ) {
       fetchBirthResuscitationPrefill({ force: true });
+    }
+  };
+
+  // I.6 Overall <- three sources, none of them a new endpoint: Form H's
+  // Respiratory day-count endpoint (mv_days<-imv_days, cpap_days,
+  // hfnc_days, nippv_days), the Infection-detect endpoint (sepsis_overall
+  // <- any detected trigger window, of any type), and the survival-check
+  // endpoint (mortality_in_hospital + mortality_hospital_date <- the
+  // earliest day any log recorded survived_the_day=False). Age at death
+  // is not fetched or set here - it's already auto-computed from dob +
+  // mortality_hospital_date by the existing calcAge effect below.
+  //
+  // Deliberately NOT filled:
+  // - niv_days ("b) Non-invasive ventilation") - the day log's
+  //   support_modes tokens are NC/HFNC/CPAP/NIPPV/SIMV/AC/PSV/HFOV, with
+  //   no distinct "NIV" token separate from CPAP/HFNC/NIPPV (already
+  //   claimed by c/d/e) - no way to tell what this 5th bucket is meant to
+  //   capture without guessing.
+  // - sepsis_overall_episodes - Infection-detect's own docstring is
+  //   explicit that episode-boundary counting is a clinical judgment call
+  //   it was never meant to answer (two windows of different trigger
+  //   types might be the same episode, or not) - the simple Yes/No
+  //   existence check above doesn't need that judgment, but a count does.
+  // - mortality_hospital_cause/_time and the entire mortality_after_discharge
+  //   group (+cause/date/time) - no source anywhere in the day logs, which
+  //   only cover the NICU admission window, not cause/time of death or
+  //   anything post-discharge.
+  const OVERALL_PREFILL_FIELDS = [
+    "mv_days", "cpap_days", "hfnc_days", "nippv_days",
+    "sepsis_overall", "mortality_in_hospital", "mortality_hospital_date",
+  ];
+  // Day counts naturally grow as the admission continues (same convention
+  // as every Form H day-count field) so they're excluded from staleness
+  // checks; sepsis_overall/mortality_in_hospital/mortality_hospital_date
+  // are categorical/one-time facts where a later disagreement is a real
+  // correction worth flagging.
+  const OVERALL_STALE_CHECK_FIELDS = [
+    "sepsis_overall", "mortality_in_hospital", "mortality_hospital_date",
+  ];
+
+  const fetchOverallPrefill = async ({ force = false } = {}) => {
+    if (!enrollmentId) return;
+    try {
+      const [respRes, infRes, survRes] = await Promise.all([
+        api.get(`/neonatal-morbidities/resp-prefill/${enrollmentId}`).catch(() => null),
+        api.get(`/neonatal-morbidities/infection-detect/${enrollmentId}`).catch(() => null),
+        api.get(`/neonatal-morbidities/survival-check/${enrollmentId}`).catch(() => null),
+      ]);
+      const resp = respRes?.data;
+      const inf = infRes?.data;
+      const surv = survRes?.data;
+      if (!resp?.has_data && !inf?.has_data && !surv) { setOverallPrefill(null); return; }
+      setOverallPrefill({ resp, inf, surv });
+
+      const mapped = {};
+      if (resp?.has_data) {
+        mapped.mv_days = resp.imv_days ?? "";
+        mapped.cpap_days = resp.cpap_days ?? "";
+        mapped.hfnc_days = resp.hfnc_days ?? "";
+        mapped.nippv_days = resp.nippv_days ?? "";
+      }
+      if (inf?.has_data) {
+        mapped.sepsis_overall = (inf.windows || []).length > 0 ? "Yes" : "No";
+      }
+      if (surv) {
+        mapped.mortality_in_hospital = surv.did_not_survive ? "Yes" : "No";
+        if (surv.did_not_survive && surv.date) {
+          mapped.mortality_hospital_date = surv.date;
+        }
+      }
+
+      const filled = {};
+      const stale = {};
+      setFormData((prev) => {
+        const next = { ...prev };
+        OVERALL_PREFILL_FIELDS.forEach((field) => {
+          const value = mapped[field];
+          if (isBlank(value)) return;
+          const currentlyBlank = isBlank(prev[field]);
+          const disagrees = !currentlyBlank
+            && OVERALL_STALE_CHECK_FIELDS.includes(field)
+            && String(prev[field]) !== String(value);
+          if (currentlyBlank || (force && disagrees)) {
+            next[field] = value;
+            filled[field] = true;
+          } else if (disagrees) {
+            stale[field] = true;
+          }
+        });
+        return next;
+      });
+      if (Object.keys(filled).length) {
+        setAutoFilledFields((prev) => ({ ...prev, ...filled }));
+      }
+      setStaleFields((prev) => {
+        const next = { ...prev };
+        OVERALL_PREFILL_FIELDS.forEach((f) => {
+          if (stale[f]) next[f] = true; else delete next[f];
+        });
+        return next;
+      });
+    } catch (err) {
+      console.log("Error fetching I.6 Overall prefill", err);
+    }
+  };
+
+  const confirmForceRefillOverall = () => {
+    if (
+      window.confirm(
+        "Overwrite already-answered Overall fields (resp support days, " +
+        "sepsis overall, in-hospital mortality) with the latest data from " +
+        "the daily logs?\n\nThis replaces existing answers, not just blank " +
+        "ones — use this only if the daily logs were corrected after this " +
+        "form was filled in."
+      )
+    ) {
+      fetchOverallPrefill({ force: true });
     }
   };
 
@@ -1450,6 +1569,35 @@ export default function FormI() {
         {/* ================= I.6 OVERALL ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i6}>
           <h3><Skull size={17} className="sec-icon" /> <span className="sec-num">I.6</span> Overall</h3>
+          {overallPrefill && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available from the daily logs (respiratory support days,
+              sepsis detection, survival status). Empty fields below were
+              filled from it automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchOverallPrefill()}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={confirmForceRefillOverall}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {(staleFields.sepsis_overall || staleFields.mortality_in_hospital
+            || staleFields.mortality_hospital_date) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The daily logs now disagree with the saved answer for:{" "}
+              {[
+                staleFields.sepsis_overall && "Sepsis (overall)",
+                staleFields.mortality_in_hospital && "All-cause mortality during hospital stay",
+                staleFields.mortality_hospital_date && "Date of death",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before the daily
+              logs were finalized. Use "Force refill" above if the daily
+              logs are correct.
+            </div>
+          )}
           <CrfTable>
             <CrfRow num={75} outcome="Duration of resp support" definition="Cumulative days of respiratory support during hospital stay"
               result={
