@@ -3242,6 +3242,320 @@ def get_cranial_usg_prefill(
     return result
 
 
+def _pma_target_date(day1_date, gestation_weeks, gestation_days, target_pma_weeks):
+    """Calendar date the baby reaches `target_pma_weeks` weeks PMA, given
+    gestational age at birth (weeks+days) and the NICU admission's
+    day1_date (birth date). Same DOB+GA -> PMA-date arithmetic Form K's
+    own calcPma() already uses client-side for MRI-at-TEA scheduling."""
+    if not day1_date or gestation_weeks is None:
+        return None
+    ga_days_at_birth = gestation_weeks * 7 + (gestation_days or 0)
+    return day1_date + timedelta(days=target_pma_weeks * 7 - ga_days_at_birth)
+
+
+PMA_CHECKPOINT_PREV_WEEKS = {36: None, 40: 36, 44: 40}
+NEC_STAGE_ORDER = {"IA": 1, "IB": 2, "IIA": 3, "IIB": 4, "IIIA": 5, "IIIB": 6}
+
+
+@app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")
+def get_pma_assessment_prefill(
+    enrollment_id: str,
+    checkpoint: int,
+    gestation_weeks: int = None,
+    gestation_days: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates data for Form I's I.3/I.4/I.5 (Assessment at 36/40/44
+    Weeks PMA) — the hardest domain in this whole auto-fill project, since
+    it needs genuine point-in-time / cumulative-to-date logic keyed off a
+    calculated PMA calendar date, not a simple any-day aggregate. Design
+    decided with the PI 2026-08-25.
+
+    PMA date: target_date = day1_date + (checkpoint*7 - (gestation_weeks*7
+    + gestation_days)) days — same arithmetic Form K's own calcPma() uses
+    client-side for MRI-at-TEA scheduling. gestation_weeks/_days are
+    passed in by the caller (Form I's already-resolved
+    resolveEffectiveGestation result) rather than re-resolved here, so
+    this endpoint never disagrees with what the form itself displays.
+
+    Form H (NeonatalMorbidities) is the PRIMARY source wherever it has an
+    answer — it holds clinician-reviewed, already-graded values (BPD
+    Jensen grade, NEC stage/surgery/date, IVH/PVL grade/date, ROP/
+    treatment/date) that are more reliable than re-deriving from raw day
+    logs, since the clinician filled Form H with full retrospective
+    knowledge of the whole admission (confirmed field-for-field equivalent
+    to the matching Form I CRF items before building this). Raw day-log/
+    cranial-USG derivation is only a FALLBACK for fields Form H hasn't
+    answered yet (baby still admitted, Form H incomplete).
+
+    Field semantics (PI-confirmed 2026-08-25):
+    - death36/40/44: INCREMENTAL windows, exactly as each CRF item states
+      ("birth till 36wk", "36 till 40wk", "40 till 44wk") — day-of-death
+      compared against [window_start_date, target_date]. "No" only fills
+      when the data can confirm the baby was tracked alive past
+      target_date (same discharge-aware logic as I.2's mortality fields —
+      "any cause" includes post-discharge death the day logs can't see).
+    - NEC / brain injury (IVH>=III / cPVL>=II) / ROP: CUMULATIVE to date —
+      "has this ever been true by this PMA checkpoint", not a fresh
+      occurrence since the previous checkpoint. When sourced from Form H,
+      this means comparing Form H's own recorded diagnosis date against
+      target_date — a Yes with no date on Form H is left blank for that
+      specific checkpoint rather than guessed. The raw-day-log/cranial-USG
+      fallback applies the same date-cutoff logic to its own derived
+      onset dates.
+    - BPD (I.3/36wk only, #29-32): Jensen grade (#29) is reused directly
+      from Form H's bpd/bpd_support_36w — the exact same 3-bucket Jensen
+      2019 classification, clinician-entered with full admission
+      knowledge. Falls back to deriving from the RespCVNeuroDayLog row at
+      the EXACT nicu_day of the 36-week PMA date only (no nearby-day
+      substitution — left blank if that exact day wasn't logged), using
+      support_modes/max_flow/endotracheal_intubation with HFNC treated
+      the same as plain NC (flow-based Grade1/2 split, not automatically
+      Grade 2 like CPAP/NIPPV). NICHD (#31): only the FiO2/Flow sub-
+      fields are auto-filled (direct values from that same exact day's
+      log) — the grade itself and "radiographic disease" stay manual,
+      since radiographic confirmation has no day-log source at all and is
+      a required, irreducible human input for NICHD grading.
+    - Abnormal MRI at TEA (I.4/40wk only, #58): reused directly from Form
+      K (MRIBrainAssessment) — selected_for_mri=False -> "Not done",
+      overall_mri "Abnormal"/"Normal" -> "Yes"/"No".
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+    if checkpoint not in PMA_CHECKPOINT_PREV_WEEKS:
+        raise HTTPException(status_code=400, detail="checkpoint must be 36, 40, or 44")
+    if gestation_weeks is None:
+        return {"has_data": False}
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not nicu or not nicu.day1_date:
+        return {"has_data": False}
+
+    target_date = _pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, checkpoint)
+    if not target_date or target_date <= nicu.day1_date:
+        # Baby was born at or past this PMA already (e.g. a near-term
+        # enrollment and the 36-week checkpoint) — the checkpoint doesn't
+        # meaningfully exist for this baby, nothing to compute.
+        return {"has_data": False, "already_past_pma_at_birth": True}
+    prev_weeks = PMA_CHECKPOINT_PREV_WEEKS[checkpoint]
+    window_start_date = (
+        _pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, prev_weeks)
+        if prev_weeks else nicu.day1_date
+    )
+
+    resp_logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    metab_logs = (
+        db.query(MetabRenalVascEyeDayLog)
+        .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    form_h = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
+        .first()
+    )
+
+    def day_to_date(day):
+        return nicu.day1_date + timedelta(days=day - 1)
+
+    target_iso = target_date.isoformat()
+    result = {"has_data": True, "target_date": target_iso}
+
+    # ---- Death (incremental window) ----
+    death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
+    if death_days:
+        death_date = day_to_date(death_days[0])
+        if window_start_date <= death_date <= target_date:
+            result["death"] = "Yes"
+            result["death_date"] = death_date.isoformat()
+        else:
+            result["death"] = "No"
+    else:
+        all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
+        last_known_date = day_to_date(max(all_days)) if all_days else None
+        if nicu.discharge_date and (not last_known_date or nicu.discharge_date > last_known_date):
+            last_known_date = nicu.discharge_date
+        if last_known_date and last_known_date >= target_date:
+            result["death"] = "No"
+
+    # ---- NEC (cumulative-to-date; Form H primary, day-log fallback) ----
+    if form_h and form_h.nec is True and form_h.nec_date and form_h.nec_date <= target_date:
+        result["nec_stage"] = "Yes"
+        result["nec_date"] = form_h.nec_date.isoformat()
+        if form_h.nec_surgery is not None:
+            result["nec_surgery"] = "Yes" if form_h.nec_surgery else "No"
+    elif form_h and form_h.nec is False:
+        result["nec_stage"] = "No"
+    elif inf_logs:
+        nec_hit_days = sorted(
+            l.nicu_day for l in inf_logs
+            if NEC_STAGE_ORDER.get(l.nec_confirmed_stage or "", 0) >= NEC_STAGE_ORDER["IIA"]
+            and day_to_date(l.nicu_day) <= target_date
+        )
+        covered = any(day_to_date(l.nicu_day) <= target_date for l in inf_logs)
+        if nec_hit_days:
+            result["nec_stage"] = "Yes"
+            result["nec_date"] = day_to_date(nec_hit_days[0]).isoformat()
+        elif covered:
+            result["nec_stage"] = "No"
+
+    # ---- Brain injury: IVH grade III/IV, cPVL grade 3/4 (cumulative-to-date) ----
+    usg_record = None
+
+    def brain_injury_status(form_h_grade_r, form_h_grade_l, form_h_date_r, form_h_date_l,
+                             form_h_valid_grades, scan_grade_key_r, scan_grade_key_l,
+                             scan_valid_grades):
+        nonlocal usg_record
+        if form_h_grade_r in form_h_valid_grades or form_h_grade_l in form_h_valid_grades:
+            hit_dates = []
+            if form_h_grade_r in form_h_valid_grades and form_h_date_r and form_h_date_r <= target_date:
+                hit_dates.append(form_h_date_r)
+            if form_h_grade_l in form_h_valid_grades and form_h_date_l and form_h_date_l <= target_date:
+                hit_dates.append(form_h_date_l)
+            if hit_dates:
+                return "Yes", min(hit_dates).isoformat()
+            return "No", None
+        if usg_record is None:
+            usg_record = db.query(CranialUSGRecord).filter(CranialUSGRecord.enrollment_id == enrollment_id).first() or False
+        if usg_record and usg_record.scan_entries:
+            hit_dates = []
+            any_scan_by_target = False
+            for e in usg_record.scan_entries:
+                d = (e or {}).get("scanDate")
+                if not d or d > target_iso:
+                    continue
+                any_scan_by_target = True
+                if (e or {}).get(scan_grade_key_r) in scan_valid_grades or (e or {}).get(scan_grade_key_l) in scan_valid_grades:
+                    hit_dates.append(d)
+            if hit_dates:
+                return "Yes", min(hit_dates)
+            if any_scan_by_target:
+                return "No", None
+        return None, None
+
+    ivh_status, ivh_date = brain_injury_status(
+        form_h.ivh_grade_right if form_h else None, form_h.ivh_grade_left if form_h else None,
+        form_h.ivh_date_right if form_h else None, form_h.ivh_date_left if form_h else None,
+        ("III", "IV"), "ivhGradeRight", "ivhGradeLeft", ("III", "IV"),
+    )
+    if ivh_status:
+        result["ivh_grade3"] = ivh_status
+        if ivh_date:
+            result["ivh_date"] = ivh_date
+
+    cpvl_status, cpvl_date = brain_injury_status(
+        form_h.pvl_grade_right if form_h else None, form_h.pvl_grade_left if form_h else None,
+        form_h.pvl_date_right if form_h else None, form_h.pvl_date_left if form_h else None,
+        ("2", "3", "4"), "cpvlGradeRight", "cpvlGradeLeft", ("II", "III", "IV"),
+    )
+    if cpvl_status:
+        result["cpvl_grade2"] = cpvl_status
+        if cpvl_date:
+            result["cpvl_date"] = cpvl_date
+
+    # ---- ROP (cumulative-to-date; Form H primary, day-log fallback) ----
+    if form_h and form_h.rop == "Yes" and form_h.rop_diagnosis_date and form_h.rop_diagnosis_date <= target_date:
+        result["rop"] = "Yes"
+        result["rop_date"] = form_h.rop_diagnosis_date.isoformat()
+        treated_r = form_h.rop_treatment_right == "Yes"
+        treated_l = form_h.rop_treatment_left == "Yes"
+        if form_h.rop_treatment_right is not None or form_h.rop_treatment_left is not None:
+            result["rop_treated"] = "Yes" if (treated_r or treated_l) else "No"
+    elif form_h and form_h.rop == "No":
+        result["rop"] = "No"
+    elif metab_logs:
+        rop_hit_days = sorted(
+            l.nicu_day for l in metab_logs
+            if l.rop_detected is True and day_to_date(l.nicu_day) <= target_date
+        )
+        covered = any(day_to_date(l.nicu_day) <= target_date for l in metab_logs)
+        if rop_hit_days:
+            result["rop"] = "Yes"
+            result["rop_date"] = day_to_date(rop_hit_days[0]).isoformat()
+            treated_days = [
+                l.nicu_day for l in metab_logs
+                if l.rop_treatment is True and day_to_date(l.nicu_day) <= target_date
+            ]
+            result["rop_treated"] = "Yes" if treated_days else "No"
+        elif covered:
+            result["rop"] = "No"
+
+    # ---- BPD (36wk checkpoint only) ----
+    if checkpoint == 36:
+        JENSEN_SUPPORT_TO_GRADE = {
+            "NC ≤ 2L": "Nasal cannula ≤ 2 L/min → Grade 1",
+            "NC > 2L / CPAP / NIPPV": "NC > 2 L/min or CPAP/NIPPV → Grade 2",
+            "Invasive mechanical ventilation": "Invasive mechanical ventilation → Grade 3",
+        }
+        if form_h and form_h.bpd is False:
+            result["bpd_jensen_grade"] = "Room air → No BPD"
+        elif form_h and form_h.bpd is True and form_h.bpd_support_36w in JENSEN_SUPPORT_TO_GRADE:
+            result["bpd_jensen_grade"] = JENSEN_SUPPORT_TO_GRADE[form_h.bpd_support_36w]
+            result["bpd_jensen_date"] = target_iso
+        else:
+            nicu_day_36 = (target_date - nicu.day1_date).days + 1
+            day_log = next((l for l in resp_logs if l.nicu_day == nicu_day_36), None)
+            if day_log:
+                modes = [m.strip() for m in (day_log.support_modes or "").split(",") if m.strip()]
+                invasive_modes = {"SIMV", "AC", "PSV", "HFOV"}
+                flow_modes = {"NC", "HFNC"}
+                pressure_modes = {"CPAP", "NIPPV"}
+                if day_log.endotracheal_intubation is True or (set(modes) & invasive_modes):
+                    grade = "Invasive mechanical ventilation → Grade 3"
+                elif set(modes) & pressure_modes:
+                    grade = "NC > 2 L/min or CPAP/NIPPV → Grade 2"
+                elif set(modes) & flow_modes:
+                    flow = day_log.max_flow
+                    grade = (
+                        "NC > 2 L/min or CPAP/NIPPV → Grade 2" if (flow is not None and flow > 2)
+                        else "Nasal cannula ≤ 2 L/min → Grade 1"
+                    )
+                else:
+                    grade = "Room air → No BPD"
+                result["bpd_jensen_grade"] = grade
+                result["bpd_jensen_date"] = target_iso
+                result["bpd36_nichd_fio2"] = day_log.max_fio2
+                result["bpd36_nichd_flow"] = day_log.max_flow
+        if "bpd36_nichd_fio2" not in result:
+            nicu_day_36 = (target_date - nicu.day1_date).days + 1
+            day_log = next((l for l in resp_logs if l.nicu_day == nicu_day_36), None)
+            if day_log:
+                result["bpd36_nichd_fio2"] = day_log.max_fio2
+                result["bpd36_nichd_flow"] = day_log.max_flow
+
+    # ---- Abnormal MRI at TEA (40wk checkpoint only) ----
+    if checkpoint == 40:
+        mri = (
+            db.query(MRIBrainAssessment)
+            .filter(MRIBrainAssessment.enrollment_id == enrollment_id)
+            .first()
+        )
+        if mri:
+            if mri.selected_for_mri is False:
+                result["abnormal_mri_tea"] = "Not done"
+            elif mri.overall_mri == "Abnormal":
+                result["abnormal_mri_tea"] = "Yes"
+            elif mri.overall_mri == "Normal":
+                result["abnormal_mri_tea"] = "No"
+
+    return result
+
+
 # ============================================================================
 # FORM G  -  STUDY OUTCOMES ENDPOINTS
 # ============================================================================
