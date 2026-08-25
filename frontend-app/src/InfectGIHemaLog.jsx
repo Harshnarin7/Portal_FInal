@@ -78,7 +78,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
     rows: [
       { key: "sepsis_suspected",        label: "Sepsis Suspected", bool: true },
       { key: "blood_culture_sent",      label: "Blood Culture Sent", bool: true },
-      { key: "blood_culture_positive",  label: "Blood Culture Positive", bool: true },
+      { key: "blood_culture_positive",  label: "Blood Culture Positive", bool: true, statusKey: "blood_culture_status" },
       { key: "antibiotics",             label: "Antibiotics", bool: true },
       { key: "lp_done",                 label: "LP Done", bool: true },
       { key: "meningitis",              label: "Meningitis", bool: true },
@@ -94,8 +94,8 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "men",                     label: "MEN (Minimal Enteral Nutrition)", bool: true },
       { key: "enteral_feeds_received",  label: "Enteral Feeds Received", bool: true },
       { key: "feed_type",               label: "Feed Type", list: true },
-      { key: "cumulative_feed_volume",  label: "Cumulative Feed Volume", suffix: "ml" },
-      { key: "feed_volume",             label: "Feed Volume", suffix: "ml/kg/d" },
+      { key: "cumulative_feed_volume",  label: "Cumulative Feed Volume", suffix: "ml", statusKey: "cumulative_feed_volume_status" },
+      { key: "feed_volume",             label: "Feed Volume", suffix: "ml/kg/d", statusKey: "feed_volume_status" },
       { key: "iv_fluids",               label: "IV Fluids", bool: true },
       { key: "parenteral_nutrition",    label: "Parenteral Nutrition", bool: true },
       { key: "probiotic",               label: "Probiotic", bool: true },
@@ -108,10 +108,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "Hematology",
     rows: [
-      { key: "hb_value",                label: "Hb Value", suffix: "g/dL" },
+      { key: "hb_value",                label: "Hb Value", suffix: "g/dL", statusKey: "hb_value_status" },
       { key: "jaundice",                label: "Jaundice", bool: true },
       { key: "phototherapy",            label: "Phototherapy", bool: true },
-      { key: "peak_tsb",                label: "Peak TSB", suffix: "mg/dL" },
+      { key: "peak_tsb",                label: "Peak TSB", suffix: "mg/dL", statusKey: "peak_tsb_status" },
       { key: "exchange_transfusion",    label: "Exchange Transfusion", bool: true },
       { key: "prbc_transfusion",        label: "PRBC Transfusion", bool: true },
       { key: "platelet_transfusion",    label: "Platelet Transfusion", bool: true },
@@ -128,6 +128,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
 
 /* Formats a single field's value for one day's data object `d`. */
 function formatTableViewValue(d, row) {
+  // "Result Awaited" / "Not Recorded / Not Done" lives in a sibling
+  // *_status column, not in the field itself — check that first, since
+  // the underlying value is null whenever a status is set.
+  if (row.statusKey && d[row.statusKey]) return d[row.statusKey];
   const v = d[row.key];
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (row.list) return Array.isArray(v) && v.length > 0 ? v.join(", ") : "—";

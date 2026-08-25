@@ -134,6 +134,7 @@ RESP_CV_NEURO_DAY_COLUMN_PATCHES = [
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS desaturation_count VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS severe_desaturation_count VARCHAR",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS fluid_bolus VARCHAR",
+    "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS fluid_bolus_given BOOLEAN",
     # Site-monitor override: temporarily reopens a locked (past/submitted) day for correction
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS override_unlocked_until TIMESTAMP",
     "ALTER TABLE resp_cv_neuro_day_logs ADD COLUMN IF NOT EXISTS override_reason TEXT",

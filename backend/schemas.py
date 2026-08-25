@@ -2290,7 +2290,8 @@ class RespCVNeuroDayCreate(BaseModel):
     shock:              Optional[bool]  = None  # #26
     vasoactive_support: Optional[bool]  = None  # #27
     vasoactive_drugs:   Optional[str]   = None  # #28
-    fluid_bolus:        Optional[str]   = None  # #29
+    fluid_bolus:        Optional[str]   = None  # #29 legacy free-text detail — superseded by fluid_bolus_given
+    fluid_bolus_given:  Optional[bool]  = None  # #29 Yes/No
 
     # Legacy field kept for backward compatibility with old records
     pda_medical_rx:     Optional[bool]  = None

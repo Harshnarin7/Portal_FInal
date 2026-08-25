@@ -49,7 +49,7 @@ const BLOCKS_BY_SECTION = {
 
 /** Friendly label + one-line description shown in the field-picker list. */
 const BLOCK_META = {
-  cv_a: { code: "5.1.A", label: "Vitals", desc: "Shift, axillary temp, SBP, DBP, MAP" },
+  cv_a: { code: "5.1.A", label: "Vitals", desc: "Axillary temp, SBP, DBP, MAP" },
   cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given" },
   cv_c: { code: "5.1.C", label: "Vasoactive Drugs", desc: "Agent, dose & unit" },
   cv_d: { code: "5.1.D", label: "PDA Medical Rx", desc: "Agent for medical Rx of PDA & dose" },
@@ -269,7 +269,7 @@ function countProgress(entries) {
     pct: total ? Math.round((done / total) * 100) : 0,
     bySection,
     byBlock,
-    canSubmit: ans(entries.cv_a?.[0]?.date) && ans(entries.cv_a?.[0]?.shift),
+    canSubmit: ans(entries.cv_a?.[0]?.date),
   };
 }
 
@@ -360,7 +360,6 @@ function YNToggle({ value, onChange, disabled }) {
  *  Keys match the entry object keys used throughout renderBlockBody. */
 const BLOCK_FIELDS = {
   cv_a: [
-    { key: "shift", label: "Shift" },
     { key: "axillary_temp", label: "Axillary Temp", unit: "°C" },
     { key: "sbp", label: "SBP", unit: "mm Hg" },
     { key: "dbp", label: "DBP", unit: "mm Hg" },
@@ -865,26 +864,22 @@ export default function MinimalMonitoringLog() {
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Select Shift" error={err("cv_a", i, "shift")}>
-                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                    onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
-                </Item>
-                <Item n={2} label="Axillary Temp">
+                <Item n={1} label="Axillary Temp">
                   <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
                     disabled={!isEditable} unit="°C" />
                 </Item>
-                <Item n={3} label="SBP">
+                <Item n={2} label="SBP">
                   <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={4} label="DBP">
+                <Item n={3} label="DBP">
                   <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={5} label="MAP">
+                <Item n={4} label="MAP">
                   <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>

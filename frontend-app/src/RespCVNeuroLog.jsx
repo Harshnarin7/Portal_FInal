@@ -60,10 +60,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "respiratory_support",       label: "Respiratory Support" },
       { key: "endotracheal_intubation",   label: "Endotracheal Intubation" },
       { key: "support_modes",             label: "Support Modes" },
-      { key: "max_fio2",                  label: "Max FiO2", suffix: "%" },
-      { key: "map_cpap",                  label: "MAP / CPAP" },
-      { key: "map_cpap_secondary",        label: "MAP / CPAP (2nd value, if both)" },
-      { key: "max_flow",                  label: "Max Flow" },
+      { key: "max_fio2",                  label: "Max FiO2", suffix: "%", statusKey: "max_fio2_status" },
+      { key: "map_cpap",                  label: "MAP / CPAP", statusKey: "map_cpap_status" },
+      { key: "map_cpap_secondary",        label: "MAP / CPAP (2nd value, if both)", statusKey: "map_cpap_secondary_status" },
+      { key: "max_flow",                  label: "Max Flow", statusKey: "max_flow_status" },
       { key: "lowest_ph",                 label: "pH (lowest)" },
       { key: "pao2_range",                label: "PaO₂ (lowest–highest)" },
       { key: "paco2_range",               label: "PaCO₂ (lowest–highest)" },
@@ -122,6 +122,10 @@ function formatTableViewValue(d, row) {
   if (row.ivh) {
     return d.ivh === true ? "Yes" : d.ivh === false ? "No" : "—";
   }
+  // "Not Recorded / Not Done" (etc.) lives in a sibling *_status column,
+  // not in the field itself — check that first, since the underlying
+  // value is null whenever a status is set.
+  if (row.statusKey && d[row.statusKey]) return d[row.statusKey];
   const v = d[row.key];
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (v === null || v === undefined || v === "") return "—";

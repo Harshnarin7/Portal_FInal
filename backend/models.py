@@ -1807,7 +1807,8 @@ class RespCVNeuroDayLog(Base):
     shock              = Column(Boolean, nullable=True)  # #26
     vasoactive_support = Column(Boolean, nullable=True)  # #27
     vasoactive_drugs   = Column(String,  nullable=True)  # "Dopamine, Dobutamine"  #28
-    fluid_bolus        = Column(String,  nullable=True)  # #29
+    fluid_bolus        = Column(String,  nullable=True)  # #29 legacy free-text detail — superseded by fluid_bolus_given
+    fluid_bolus_given  = Column(Boolean, nullable=True)  # #29 Yes/No
 
     # Legacy — no longer part of the numbered sequence
     pda_medical_rx     = Column(Boolean, nullable=True)

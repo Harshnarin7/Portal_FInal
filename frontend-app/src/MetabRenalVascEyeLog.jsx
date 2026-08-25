@@ -63,9 +63,9 @@ const TABLE_VIEW_FIELD_GROUPS = [
     rows: [
       { key: "aki_suspected",         label: "AKI Suspected", bool: true },
       { key: "creatinine_value",      label: "Serum Creatinine" },
-      { key: "urine_output_8am_2pm",  label: "UO 8am–2pm", suffix: " ml/kg/hr" },
-      { key: "urine_output_2pm_8pm",  label: "UO 2pm–8pm", suffix: " ml/kg/hr" },
-      { key: "urine_output_8pm_8am",  label: "UO 8pm–8am", suffix: " ml/kg/hr" },
+      { key: "urine_output_8am_2pm",  label: "UO 8am–2pm", suffix: " ml/kg/hr", statusKey: "urine_output_8am_2pm_status" },
+      { key: "urine_output_2pm_8pm",  label: "UO 2pm–8pm", suffix: " ml/kg/hr", statusKey: "urine_output_2pm_8pm_status" },
+      { key: "urine_output_8pm_8am",  label: "UO 8pm–8am", suffix: " ml/kg/hr", statusKey: "urine_output_8pm_8am_status" },
       { key: "urine_output_total",    label: "Urine Output Total", suffix: " ml/kg/hr" },
       { key: "dialysis_crrt",         label: "Dialysis/CRRT", bool: true },
     ],
@@ -116,6 +116,10 @@ const TABLE_VIEW_FIELD_GROUPS = [
 
 /* Formats a single field's value for one day's data object `d`. */
 function formatTableViewValue(d, row) {
+  // "Not Recorded / Not Done" (etc.) lives in a sibling *_status column,
+  // not in the field itself — check that first, since the underlying
+  // value is null whenever a status is set.
+  if (row.statusKey && d[row.statusKey]) return d[row.statusKey];
   const v = d[row.key];
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (v === null || v === undefined || v === "") return "—";
