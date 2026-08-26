@@ -1,0 +1,7 @@
+/* Tailwind utilities only — preflight is disabled in tailwind.config.js so
+   this file cannot affect any existing form's base styles. Imported once
+   in index.js. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 

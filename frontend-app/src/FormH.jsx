@@ -4,6 +4,7 @@ import api from "./api/axios";
 import { useFormProgress } from "./context/FormProgressContext";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
+import "./styles/FormH.css";
 import FormLayout from "./components/FormLayout";
 import { usePatient } from "./context/PatientContext";
 import { useParams } from "react-router-dom";
@@ -12,6 +13,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
+import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
 
 /* ─── FormH category map — powers the sticky jump-nav below the header.
    Keeping this outside the component avoids re-creating the array (and
@@ -36,32 +38,60 @@ const FORMH_CATEGORIES = [
   { key: "completion",code: "",    label: "Review & Submit", Icon: CheckCircle2 },
 ];
 
-/* ─── YesNoToggle — animated sliding segment (same component as Form A / ScreeningForm.jsx) ─── */
-function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false }) {
+/* ─── YesNoToggle — compact Yes/No segmented control (reference spec section I).
+   Same event shape / same props as before — { target: { name, value } } —
+   so every existing onChange handler across FormH.jsx (handleChange,
+   handleCranialUsgChange, handleNeuroChange, ...) keeps working unchanged.
+   Only the rendered markup/classes changed. ─── */
+function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false, fieldNum }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val, type: "select-one" } });
   };
-  // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
-  const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
-    <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label">
-        {label}
-        {required && <span className="required">*</span>}
-      </span>
-      <div className={`yes-no-buttons yn-pos-${pos}`}>
-        <div className="yn-thumb" aria-hidden="true" />
-        <button type="button"
-          className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`}
-          onClick={() => fire("Yes")}
-          onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
-          disabled={disabled}>YES</button>
-        <button type="button"
-          className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`}
-          onClick={() => fire("No")}
-          onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
-          disabled={disabled}>NO</button>
+    <div className={`fh-field${disabled ? " fh-field-disabled" : ""}`}>
+      {label && (
+        /* When fieldNum is passed separately (rather than baked into the
+           label string), render with the SAME <label>/fh-field-num markup
+           PillSelect uses, so the two line up exactly when they sit
+           side-by-side in the same fh-grid-row (e.g. EEG / Status
+           Epilepticus / No. of AEDs). Existing callers that still pass the
+           number inline in the label string (e.g. "1. Any IVH Diagnosed")
+           are untouched — this branch only triggers when fieldNum is set. */
+        fieldNum ? (
+          <label className="fh-label">
+            <span className="fh-field-num">{fieldNum}.</span>
+            {label}
+            {required && <span className="fh-required">*</span>}
+          </label>
+        ) : (
+          <span className="fh-label">
+            {label}
+            {required && <span className="fh-required">*</span>}
+          </span>
+        )
+      )}
+      <div className="fh-yn" role="group">
+        {[
+          { opt: "Yes", tone: "yes" },
+          { opt: "No", tone: "no" },
+        ].map(({ opt, tone }) => (
+          <button
+            key={opt}
+            type="button"
+            className={`fh-yn-btn${value === opt ? ` is-selected is-${tone}` : ""}`}
+            onClick={() => fire(opt)}
+            onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
+            disabled={disabled}
+          >
+            {value === opt && (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            {opt}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -5336,13 +5366,18 @@ const centralStatus = getCentralLineStatus();
 const centralSummary = getCentralLineSummary();
 const peripheralSummary = getPeripheralSummary();
 const peripheralStatus= getPeripheralStatus();
+  const activeCategoryMeta = FORMH_CATEGORIES.find((c) => c.key === activeCategory) || FORMH_CATEGORIES[0];
   return (
-    <>
+    <div className="formh-modern">
     <form className="screening-form" onSubmit={handleSubmit}>
        <div className="form-header-action-row">
          <div className="form-header-title-area">
            <div className="form-breadcrumb"><Home size={12}/> FORM H</div>
-           <h2 className="form-main-title">Neonatal Morbidities Assessment</h2>
+           <h2 className="form-main-title fh-page-title">
+             <span className="fh-page-title-icon"><activeCategoryMeta.Icon size={20} /></span>
+             {activeCategoryMeta.code && <span className="fh-page-title-badge">{activeCategoryMeta.code}</span>}
+             {activeCategoryMeta.label.toUpperCase()}
+           </h2>
            <p className="form-main-subtitle">Diagnosed morbidities and complications during NICU stay · Complete when diagnosed or at discharge</p>
          </div>
          <div className="form-header-meta-area">
@@ -5427,24 +5462,16 @@ const peripheralStatus= getPeripheralStatus();
   <h3><Brain size={17} className="sec-icon" /> <span className="sec-num">H1</span> NEUROLOGICAL</h3>
 
   {/* ================= IVH ================= */}
-  <div className="card">
-
-    <div
-      className="card-header-row"
-      onClick={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
-    >
-
-      <span><span className="sec-num sub">H1.1</span> Intraventricular Hemorrhage (IVH)</span>
-      <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.ivh_present)}`}>
-  <span className="icon">{getStatusIcon(formData.ivh_present)}</span>
-  {getIVHSummary()}
-</span></div>
-      <span className="arrow">{openSection === "ivh" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "ivh" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.1"
+    title="Intraventricular Hemorrhage (IVH)"
+    icon="🧠"
+    accentColor="bg-violet-500"
+    summary={getIVHSummary()}
+    statusClass={getStatusClass(formData.ivh_present)}
+    open={openSection === "ivh"}
+    onToggle={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5502,43 +5529,40 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.ivh_present === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
-                <label><span className="field-num">2.</span> Side<span className="required">*</span></label>
-                <select
+                <PillSelect
+                  fieldNum={2}
+                  label="Side"
+                  required
                   name="ivh_side"
                   value={formData.ivh_side || ""}
+                  options={["Right", "Left", "Bilateral"]}
                   onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
-                >
-                  <option value="">-- Select --</option>
-                  <option value="Right">Right</option>
-                  <option value="Left">Left</option>
-                  <option value="Bilateral">Bilateral</option>
-                </select>
-                {cranialUsgAutoFilled.ivh_side && <span className="field-hint-auto-inline">from Form F</span>}
-                {touched.ivh_side && errors.ivh_side && <div className="error-text">{errors.ivh_side}</div>}
+                  autoFilledFrom={cranialUsgAutoFilled.ivh_side ? "Form F" : null}
+                  touched={touched.ivh_side}
+                  error={errors.ivh_side}
+                />
               </div>
             </div>
 
             {(formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">3.</span> Right: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={3}
+                    label="Right: Max Grade"
+                    required
                     name="ivh_grade_right"
                     value={formData.ivh_grade_right || ""}
+                    options={["I", "II", "III", "IV"]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                    <option value="IV">IV</option>
-                  </select>
-                  {cranialUsgAutoFilled.ivh_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.ivh_grade_right && errors.ivh_grade_right && <div className="error-text">{errors.ivh_grade_right}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.ivh_grade_right ? "Form F" : null}
+                    touched={touched.ivh_grade_right}
+                    error={errors.ivh_grade_right}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5575,23 +5599,21 @@ const peripheralStatus= getPeripheralStatus();
             )}
 
             {(formData.ivh_side === "Left" || formData.ivh_side === "Bilateral") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">6.</span> Left: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={6}
+                    label="Left: Max Grade"
+                    required
                     name="ivh_grade_left"
                     value={formData.ivh_grade_left || ""}
+                    options={["I", "II", "III", "IV"]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                    <option value="IV">IV</option>
-                  </select>
-                  {cranialUsgAutoFilled.ivh_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.ivh_grade_left && errors.ivh_grade_left && <div className="error-text">{errors.ivh_grade_left}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.ivh_grade_left ? "Form F" : null}
+                    touched={touched.ivh_grade_left}
+                    error={errors.ivh_grade_left}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5638,7 +5660,7 @@ const peripheralStatus= getPeripheralStatus();
               />
             </div>
 
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <YesNoToggle label="10. PVHI" name="pvhi" value={formData.pvhi} onChange={handleChange} />
               </div>
@@ -5654,35 +5676,23 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
 
   {/* ================= PVL ================= */}
-  <div className="card">
-   <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
->
-  <span><span className="sec-num sub">H1.2</span> Periventricular Leukomalacia (cPVL)</span>
-
-  <div className="right-section">
-    <span className={`summary ${getStatusClass(formData.pvl_present)}`}>
-      <span className="icon">{getStatusIcon(formData.pvl_present)}</span>
-
-      {formData.pvl_present === "Yes"
-        ? formData.pvl_grade
-          ? `Grade ${formData.pvl_grade}`
-          : "Yes"
-        : formData.pvl_present || "Not filled"}
-    </span>
-</div>
-    <span className="arrow">{openSection === "pvl" ? "▲" : "▼"}</span>
-  
-</div>
-
-    {openSection === "pvl" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.2"
+    title="Periventricular Leukomalacia (cPVL)"
+    icon="🔬"
+    accentColor="bg-purple-500"
+    summary={
+      formData.pvl_present === "Yes"
+        ? formData.pvl_grade ? `Grade ${formData.pvl_grade}` : "Yes"
+        : formData.pvl_present || "Not filled"
+    }
+    statusClass={getStatusClass(formData.pvl_present)}
+    open={openSection === "pvl"}
+    onToggle={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5740,47 +5750,54 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.pvl_present === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
-                <label><span className="field-num">14.</span> Side<span className="required">*</span></label>
-                <select
+                <PillSelect
+                  fieldNum={14}
+                  label="Side"
+                  required
                   name="pvl_side"
                   value={formData.pvl_side || ""}
+                  /* values kept as "Right"/"Left"/"Both" for backward
+                     compatibility with already-saved records — CRF label
+                     for "Both" is "Bilateral" */
+                  options={[
+                    { value: "Right", label: "Right" },
+                    { value: "Left", label: "Left" },
+                    { value: "Both", label: "Bilateral" },
+                  ]}
                   onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
-                >
-                  <option value="">-- Select --</option>
-                  <option value="Right">Right</option>
-                  <option value="Left">Left</option>
-                  {/* value kept as "Both" for backward compatibility with
-                      already-saved records — CRF label is "Bilateral" */}
-                  <option value="Both">Bilateral</option>
-                </select>
-                {cranialUsgAutoFilled.pvl_side && <span className="field-hint-auto-inline">from Form F</span>}
-                {touched.pvl_side && errors.pvl_side && <div className="error-text">{errors.pvl_side}</div>}
+                  autoFilledFrom={cranialUsgAutoFilled.pvl_side ? "Form F" : null}
+                  touched={touched.pvl_side}
+                  error={errors.pvl_side}
+                />
               </div>
             </div>
 
             {(formData.pvl_side === "Right" || formData.pvl_side === "Both") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">15.</span> If Right: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={15}
+                    label="If Right: Max Grade"
+                    required
                     name="pvl_grade_right"
                     value={formData.pvl_grade_right || ""}
+                    /* values kept as 1-4 for backward compatibility with
+                       already-saved records — CRF labels are Roman numerals */
+                    options={[
+                      { value: "1", label: "I (Flare)" },
+                      { value: "2", label: "II (Localized cysts)" },
+                      { value: "3", label: "III (Extensive cysts)" },
+                      { value: "4", label: "IV (Subcortical)" },
+                    ]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    {/* values kept as 1-4 for backward compatibility with
-                        already-saved records — CRF labels are Roman numerals */}
-                    <option value="1">I (Flare)</option>
-                    <option value="2">II (Localized cysts)</option>
-                    <option value="3">III (Extensive cysts)</option>
-                    <option value="4">IV (Subcortical)</option>
-                  </select>
-                  {cranialUsgAutoFilled.pvl_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.pvl_grade_right && errors.pvl_grade_right && <div className="error-text">{errors.pvl_grade_right}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.pvl_grade_right ? "Form F" : null}
+                    touched={touched.pvl_grade_right}
+                    error={errors.pvl_grade_right}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5816,23 +5833,26 @@ const peripheralStatus= getPeripheralStatus();
             )}
 
             {(formData.pvl_side === "Left" || formData.pvl_side === "Both") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">18.</span> If Left: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={18}
+                    label="If Left: Max Grade"
+                    required
                     name="pvl_grade_left"
                     value={formData.pvl_grade_left || ""}
+                    options={[
+                      { value: "1", label: "I (Flare)" },
+                      { value: "2", label: "II (Localized cysts)" },
+                      { value: "3", label: "III (Extensive cysts)" },
+                      { value: "4", label: "IV (Subcortical)" },
+                    ]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value="1">I (Flare)</option>
-                    <option value="2">II (Localized cysts)</option>
-                    <option value="3">III (Extensive cysts)</option>
-                    <option value="4">IV (Subcortical)</option>
-                  </select>
-                  {cranialUsgAutoFilled.pvl_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.pvl_grade_left && errors.pvl_grade_left && <div className="error-text">{errors.pvl_grade_left}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.pvl_grade_left ? "Form F" : null}
+                    touched={touched.pvl_grade_left}
+                    error={errors.pvl_grade_left}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5868,35 +5888,22 @@ const peripheralStatus= getPeripheralStatus();
             )}
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
   {/* ================= VENTRICULOMEGALY ================= */}
-<div className="card">
-
-  <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "vm" ? null : "vm")}
->
-  <span><span className="sec-num sub">H1.3</span> Ventriculomegaly</span>
-
-  <span className={`summary centered ${getStatusClass(formData.ventriculomegaly_present)}`}>
-    <span className="icon">
-      {getStatusIcon(formData.ventriculomegaly_present)}
-    </span>
-
-    {formData.ventriculomegaly_present === "Yes"
-      ? formData.ventriculomegaly_severity || "Yes"
-      : formData.ventriculomegaly_present || "Not filled"}
-  </span>
-
-  <span className="arrow">
-    {openSection === "vm" ? "▲" : "▼"}
-  </span>
-</div>
-
-  {openSection === "vm" && (
-    <div className="card-body">
+  <CollapsibleCard
+    code="H1.3"
+    title="Ventriculomegaly"
+    icon="💧"
+    accentColor="bg-blue-500"
+    summary={
+      formData.ventriculomegaly_present === "Yes"
+        ? formData.ventriculomegaly_severity || "Yes"
+        : formData.ventriculomegaly_present || "Not filled"
+    }
+    statusClass={getStatusClass(formData.ventriculomegaly_present)}
+    open={openSection === "vm"}
+    onToggle={() => setOpenSection(openSection === "vm" ? null : "vm")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5938,20 +5945,17 @@ const peripheralStatus= getPeripheralStatus();
       {/* CONDITIONAL */}
       {formData.ventriculomegaly_present === "Yes" && (
         <>
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
-              <label><span className="field-num">22.</span> Severity</label>
-              <select
+              <PillSelect
+                fieldNum={22}
+                label="Severity"
                 name="ventriculomegaly_severity"
                 value={formData.ventriculomegaly_severity || ""}
+                options={["Mild", "Moderate", "Severe"]}
                 onChange={handleChange}
-              >
-                <option value="">-- Select --</option>
-                <option value="Mild">Mild</option>
-                <option value="Moderate">Moderate</option>
-                <option value="Severe">Severe</option>
-              </select>
+              />
             </div>
 
             <div className="form-group">
@@ -5973,7 +5977,7 @@ const peripheralStatus= getPeripheralStatus();
 
           </div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label>
@@ -6011,7 +6015,7 @@ const peripheralStatus= getPeripheralStatus();
 
           </div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label>
@@ -6052,35 +6056,23 @@ const peripheralStatus= getPeripheralStatus();
           </div>
         </>
       )}
-    </div>
-  )}
-</div>
+  </CollapsibleCard>
 
   {/* ================= SEIZURES ================= */}
-  <div className="card">
-    <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "seizure" ? null : "seizure")}
->
-  <span><span className="sec-num sub">H1.4</span> Seizures</span>
-
-  <div className="right-section">
-    <span className={`summary ${getStatusClass(formData.seizures)}`}>
-      <span className="icon">{getStatusIcon(formData.seizures)}</span>
-
-      {formData.seizures === "Yes"
-        ? formData.status_epilepticus === "Yes"
-          ? "Yes • Status Epilepticus"
-          : "Yes"
-        : formData.seizures || "Not filled"}
-    </span>
-</div>
-    <span className="arrow">{openSection === "seizure" ? "▲" : "▼"}</span>
-  
-</div>
-
-    {openSection === "seizure" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.4"
+    title="Seizures"
+    icon="⚡"
+    accentColor="bg-indigo-500"
+    summary={
+      formData.seizures === "Yes"
+        ? formData.status_epilepticus === "Yes" ? "Yes • Status Epilepticus" : "Yes"
+        : formData.seizures || "Not filled"
+    }
+    statusClass={getStatusClass(formData.seizures)}
+    open={openSection === "seizure"}
+    onToggle={() => setOpenSection(openSection === "seizure" ? null : "seizure")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -6113,7 +6105,7 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.seizures === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">28.</span> Date<span className="required">*</span></label>
                 <DatePicker
@@ -6133,53 +6125,54 @@ const peripheralStatus= getPeripheralStatus();
               </div>
 
               <div className="form-group">
-                <label><span className="field-num">29.</span> Type<span className="required">*</span></label>
-                <select name="seizure_type" value={formData.seizure_type || ""} onChange={handleChange}>
-                  <option value="">-- Select --</option>
-                  <option>Subtle</option>
-                  <option>Clonic</option>
-                  <option>Tonic</option>
-                  <option>Myoclonic</option>
-                </select>
+                <PillSelect
+                  fieldNum={29}
+                  label="Type"
+                  required
+                  name="seizure_type"
+                  value={formData.seizure_type || ""}
+                  options={["Subtle", "Clonic", "Tonic", "Myoclonic"]}
+                  onChange={handleChange}
+                />
               </div>
             </div>
 
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
-                <label><span className="field-num">30.</span> EEG</label>
-                <select name="eeg" value={formData.eeg || ""} onChange={handleChange}>
-                  <option value="">-- Select --</option>
-                  <option>Not done</option>
-                  <option>Normal</option>
-                  <option>Abnormal</option>
-                </select>
+                <PillSelect
+                  fieldNum={30}
+                  label="EEG"
+                  name="eeg"
+                  value={formData.eeg || ""}
+                  options={["Not done", "Normal", "Abnormal"]}
+                  onChange={handleChange}
+                />
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="31. Status Epilepticus" name="status_epilepticus" value={formData.status_epilepticus} onChange={handleChange} />
+                <YesNoToggle fieldNum={31} label="Status Epilepticus" name="status_epilepticus" value={formData.status_epilepticus} onChange={handleChange} />
               </div>
 
               <div className="form-group">
-                <label><span className="field-num">32.</span> No. of AEDs</label>
-                <select
+                <PillSelect
+                  fieldNum={32}
+                  label="No. of AEDs"
                   name="aed_number"
                   value={formData.aed_number || ""}
+                  options={[1,2,3,4,5,6].map(num => ({ value: String(num), label: String(num) }))}
                   onChange={handleChange}
-                >
-                  <option value="">-- Select --</option>
-                  {[1,2,3,4,5,6].map(num => (
-                    <option key={num} value={num}>{num}</option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
 
             {/* WHICH AED */}
             <div className="form-group">
-              <label><span className="field-num">33.</span> Which AED</label>
-
-              <div className="checkbox-group">
-                {[
+              <ChipMultiSelect
+                fieldNum={33}
+                label="Which AED"
+                value={formData.aed_type || []}
+                onChange={(next) => setFormData(prev => ({ ...prev, aed_type: next }))}
+                options={[
                   { value: "Phenytoin",      label: "Phenytoin" },
                   // stored value kept as "Phenobarbital" for backward
                   // compatibility with already-saved records — CRF label is
@@ -6191,31 +6184,8 @@ const peripheralStatus= getPeripheralStatus();
                   { value: "Pyridoxine",     label: "Pyridoxine" },
                   // stored value kept as "Other" for backward compatibility
                   { value: "Other",          label: "Others" },
-                ].map(({ value, label }) => (
-                  <label key={value} className="checkbox-item">
-                    <input
-                      type="checkbox"
-                      checked={formData.aed_type?.includes(value)}
-                      onChange={() => {
-                        const selected = formData.aed_type || [];
-
-                        if (selected.includes(value)) {
-                          setFormData(prev => ({
-                            ...prev,
-                            aed_type: selected.filter(d => d !== value)
-                          }));
-                        } else {
-                          setFormData(prev => ({
-                            ...prev,
-                            aed_type: [...selected, value]
-                          }));
-                        }
-                      }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
+                ]}
+              />
             </div>
 
             {/* OTHER AED */}
@@ -6232,32 +6202,30 @@ const peripheralStatus= getPeripheralStatus();
               </div>
             )}
 
-            <div className="form-row">
+            <div className="fh-grid-row">
 
               {/* ETIOLOGY */}
               <div className="form-group">
-                <label><span className="field-num">34.</span> Etiology</label>
-                <select
+                <PillSelect
+                  fieldNum={34}
+                  label="Etiology"
                   name="etiology"
                   value={formData.etiology || ""}
+                  /* stored values kept as-is for backward compatibility with
+                     already-saved records — CRF labels shown differ for a
+                     few options (Low Na/Low Ca/intracranial bleed) */
+                  options={[
+                    { value: "Asphyxia", label: "Asphyxia" },
+                    { value: "Low Na", label: "Hyponatremia" },
+                    { value: "Low Ca", label: "Hypocalcemia" },
+                    { value: "Low K", label: "Hypokalemia" },
+                    { value: "Hypoglycemia", label: "Hypoglycemia" },
+                    { value: "Intracranial bleed / hemorrhage", label: "Intracranial hemorrhage" },
+                    { value: "Meningitis", label: "Meningitis" },
+                    { value: "Other", label: "Others" },
+                  ]}
                   onChange={handleChange}
-                >
-                  <option value="">-- Select --</option>
-                  <option value="Asphyxia">Asphyxia</option>
-                  {/* stored values kept as "Low Na"/"Low Ca" for backward
-                      compatibility with already-saved records — CRF labels
-                      are "Hyponatremia"/"Hypocalcemia" */}
-                  <option value="Low Na">Hyponatremia</option>
-                  <option value="Low Ca">Hypocalcemia</option>
-                  <option value="Low K">Hypokalemia</option>
-                  <option value="Hypoglycemia">Hypoglycemia</option>
-                  {/* stored value kept as "Intracranial bleed / hemorrhage"
-                      for backward compatibility — CRF label is
-                      "Intracranial hemorrhage" */}
-                  <option value="Intracranial bleed / hemorrhage">Intracranial hemorrhage</option>
-                  <option value="Meningitis">Meningitis</option>
-                  <option value="Other">Others</option>
-                </select>
+                />
               </div>
 
               {/* OTHER TEXT */}
@@ -6277,9 +6245,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
 
 </div>
 
@@ -6290,26 +6256,16 @@ const peripheralStatus= getPeripheralStatus();
   <h3><Wind size={17} className="sec-icon" /> <span className="sec-num">H2</span> RESPIRATORY</h3>
 
  {/* ================= BPD ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "bpd" ? null : "bpd")}>
-      <span><span className="sec-num sub">H2.1</span> Bronchopulmonary Dysplasia (BPD)</span>
-<div className="right-section">
-      <span className={`summary ${getRespStatusClass(formData.bpd)}`}>
-  <span className="icon">{getRespIcon(formData.bpd)}</span>
-
-  {!formData.bpd
-    ? "Not filled"
-    : formData.bpd === "Yes"
-    ? formData.bpd_grade
-      ? `Grade ${formData.bpd_grade}`
-      : "Yes"
-    : "No"}
-</span></div>
-      <span className="arrow">{openSection === "bpd" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "bpd" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H2.1"
+    title="Bronchopulmonary Dysplasia (BPD)"
+    icon="🫁"
+    accentColor="bg-teal-500"
+    summary={getBPDSummary()}
+    statusClass={getStatusClass(formData.bpd)}
+    open={openSection === "bpd"}
+    onToggle={() => setOpenSection(openSection === "bpd" ? null : "bpd")}
+  >
 
 {/* BPD */}
 <div className="form-group">
@@ -6321,70 +6277,55 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {formData.bpd === "Yes" && (
-  <>
+  <div className="fh-grid-row">
     <div className="form-group">
-      <label>
-        <span className="field-num">36.</span> At 36 wks PMA <span className="required">*</span>
-      </label>
-
-      <select
+      <PillSelect
+        fieldNum={36}
+        label="At 36 wks PMA"
+        required
         name="bpd_support_36w"
         value={formData.bpd_support_36w || ""}
+        options={[
+          { value: "NC ≤ 2L", label: "NC ≤ 2L" },
+          { value: "NC > 2L / CPAP / NIPPV", label: "NC > 2L / CPAP / NIPPV" },
+          { value: "Invasive mechanical ventilation", label: "Invasive mechanical ventilation" },
+        ]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="NC ≤ 2L">NC ≤ 2L</option>
-        <option value="NC > 2L / CPAP / NIPPV">NC &gt; 2L / CPAP / NIPPV</option>
-        <option value="Invasive mechanical ventilation">Invasive mechanical ventilation</option>
-      </select>
-
-      {touched.bpd_support_36w && errors.bpd_support_36w && (
-        <div className="error-text">{errors.bpd_support_36w}</div>
-      )}
+        touched={touched.bpd_support_36w}
+        error={errors.bpd_support_36w}
+      />
     </div>
 
     <div className="form-group">
-      <label><span className="field-num">37.</span>
-        Grade (Jensen) <span className="required">*</span>
-      </label>
-
-      <select
+      <PillSelect
+        fieldNum={37}
+        label="Grade (Jensen)"
+        required
         name="bpd_grade"
         value={formData.bpd_grade || ""}
+        options={["1", "2", "3"]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-      </select>
-
-      {touched.bpd_grade && errors.bpd_grade && (
-        <div className="error-text">{errors.bpd_grade}</div>
-      )}
+        touched={touched.bpd_grade}
+        error={errors.bpd_grade}
+      />
     </div>
-  </>
-)}
-</div>
-    )}
   </div>
+)}
+  </CollapsibleCard>
 
   {/* ================= RESPIRATORY SUPPORT (+ Postnatal Steroids) ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "support" ? null : "support")}>
-      <span><span className="sec-num sub">H2.2</span> Respiratory Support</span>
-      <span className={`summary ${respSummary.className}`}>
-  <span className="icon">{respSummary.icon}</span>
-  {respSummary.text}
-</span>
-
-      <span className="arrow">{openSection === "support" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "support" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H2.2"
+    title="Respiratory Support"
+    icon="💨"
+    accentColor="bg-sky-500"
+    summary={respSummary.text}
+    statusClass={respSummary.className}
+    open={openSection === "support"}
+    onToggle={() => setOpenSection(openSection === "support" ? null : "support")}
+  >
 
 {respPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -6431,7 +6372,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 39/40. Nasal Cannula */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="39. Nasal Cannula" name="nasal_cannula" value={formData.nasal_cannula} onChange={handleRespChange} onBlur={handleBlur} required />
       {respAutoFilled.nasal_cannula && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6470,7 +6411,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 41/42. CPAP */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="41. CPAP" name="cpap" value={formData.cpap} onChange={handleRespChange} onBlur={handleBlur} required />
       {respAutoFilled.cpap && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6509,7 +6450,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 43/44. NIPPV */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="43. NIPPV" name="nippv" value={formData.nippv} onChange={handleRespChange} onBlur={handleBlur} required />
       {respAutoFilled.nippv && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6548,7 +6489,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 45/46. HFNC */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="45. HFNC" name="hfnc" value={formData.hfnc} onChange={handleRespChange} onBlur={handleBlur} required />
       {respAutoFilled.hfnc && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6587,7 +6528,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 47/48. Invasive mechanical ventilation */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="47. Invasive Mechanical Ventilation" name="invasive_ventilation" value={formData.invasive_ventilation} onChange={handleRespChange} onBlur={handleBlur} required />
       {respAutoFilled.invasive_ventilation && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6654,7 +6595,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* 50. Postnatal steroids */}
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="50. Postnatal Steroids" name="postnatal_steroids" value={formData.postnatal_steroids} onChange={handleRespChange} required />
       {respAutoFilled.postnatal_steroids && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -6667,7 +6608,7 @@ const peripheralStatus= getPeripheralStatus();
   {formData.postnatal_steroids === "Yes" && (
     <>
       {/* 51. Age at steroid */}
-      <div className="form-row">
+      <div className="fh-grid-row">
         <div className="form-group">
           <label><span className="field-num">51.</span> Age at Steroid (days) <span className="required">*</span></label>
           <input
@@ -6701,22 +6642,18 @@ const peripheralStatus= getPeripheralStatus();
 
         {/* 52. Drug */}
         <div className="form-group">
-          <label><span className="field-num">52.</span> Drug <span className="required">*</span></label>
-          <select
+          <PillSelect
+            fieldNum={52}
+            label="Drug"
+            required
             name="steroid_drug"
             value={formData.steroid_drug || ""}
+            options={["Hydrocortisone", "Dexamethasone", "Budesonide", "Other"]}
             onChange={handleChange}
             onBlur={handleBlur}
-          >
-            <option value="">-- Select --</option>
-            <option value="Hydrocortisone">Hydrocortisone</option>
-            <option value="Dexamethasone">Dexamethasone</option>
-            <option value="Budesonide">Budesonide</option>
-            <option value="Other">Other</option>
-          </select>
-          {touched.steroid_drug && errors.steroid_drug && (
-            <div className="error-text">{errors.steroid_drug}</div>
-          )}
+            touched={touched.steroid_drug}
+            error={errors.steroid_drug}
+          />
         </div>
       </div>
 
@@ -6744,7 +6681,7 @@ const peripheralStatus= getPeripheralStatus();
       )}
 
       {/* 53/54. Cumulative dose — 1st and 2nd drug */}
-      <div className="form-row">
+      <div className="fh-grid-row">
         <div className="form-group">
           <label><span className="field-num">53.</span> Cumulative Dose (mg/kg) — 1st drug <span className="required">*</span></label>
           <input
@@ -6795,22 +6732,18 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* 55. Indication */}
       <div className="form-group">
-        <label><span className="field-num">55.</span> Indication <span className="required">*</span></label>
-        <select
+        <PillSelect
+          fieldNum={55}
+          label="Indication"
+          required
           name="steroid_indication"
           value={formData.steroid_indication || ""}
+          options={["Post-extubation", "Unable to extubate", "BPD", "Other"]}
           onChange={handleChange}
           onBlur={handleBlur}
-        >
-          <option value="">-- Select --</option>
-          <option value="Post-extubation">Post-extubation</option>
-          <option value="Unable to extubate">Unable to extubate</option>
-          <option value="BPD">BPD</option>
-          <option value="Other">Other</option>
-        </select>
-        {touched.steroid_indication && errors.steroid_indication && (
-          <div className="error-text">{errors.steroid_indication}</div>
-        )}
+          touched={touched.steroid_indication}
+          error={errors.steroid_indication}
+        />
       </div>
 
       {formData.steroid_indication === "Other" && (
@@ -6831,28 +6764,19 @@ const peripheralStatus= getPeripheralStatus();
     </>
   )}
 
-</div>
-    )}
-  </div>
+  </CollapsibleCard>
 
   {/* ================= OTHER RESPIRATORY (+ Rx + Extubation) ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "otherResp" ? null : "otherResp")}>
-      <span><span className="sec-num sub">H2.3</span> Other Respiratory</span>
-
-<span className={`summary ${
-  hasYes ? "status-yes" : hasNo ? "status-no" : "status-empty"
-}`}>
-  <span className="icon">
-    {hasYes ? "✔" : hasNo ? "✖" : "—"}
-  </span>
-  {hasYes ? "Yes" : hasNo ? "No" : "Not filled"}
-</span>
-      <span className="arrow">{openSection === "otherResp" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "otherResp" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H2.3"
+    title="Other Respiratory"
+    icon="🩺"
+    accentColor="bg-amber-500"
+    summary={hasYes ? "Yes" : hasNo ? "No" : "Not filled"}
+    statusClass={hasYes ? "yes" : hasNo ? "no" : "empty"}
+    open={openSection === "otherResp"}
+    onToggle={() => setOpenSection(openSection === "otherResp" ? null : "otherResp")}
+  >
 
 {respPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -6900,21 +6824,22 @@ const peripheralStatus= getPeripheralStatus();
   <div className="followup-box">
     {/* 58. Side */}
     <div className="form-group">
-      <label><span className="field-num">58.</span> Side <span className="required">*</span></label>
-      <select
+      <PillSelect
+        fieldNum={58}
+        label="Side"
+        required
         name="pneumothorax_side"
         value={formData.pneumothorax_side || ""}
+        options={[
+          { value: "Right", label: "Right" },
+          { value: "Left", label: "Left" },
+          { value: "Both", label: "Bilateral" },
+        ]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="Right">Right</option>
-        <option value="Left">Left</option>
-        <option value="Both">Bilateral</option>
-      </select>
-      {touched.pneumothorax_side && errors.pneumothorax_side && (
-        <div className="error-text">{errors.pneumothorax_side}</div>
-      )}
+        touched={touched.pneumothorax_side}
+        error={errors.pneumothorax_side}
+      />
     </div>
 
     {/* 59. Chest drain */}
@@ -6980,7 +6905,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* 62/63. Extubation Failure */}
-<div className="form-row">
+<div className="fh-grid-row">
   <div className="form-group">
     <YesNoToggle label="62. Extubation Failure" name="extubation_failure" value={formData.extubation_failure} onChange={handleRespChange} />
     {respAutoFilled.extubation_failure && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -7001,23 +6926,19 @@ const peripheralStatus= getPeripheralStatus();
   )}
 </div>
 
-</div>
-    )}
-  </div>
+  </CollapsibleCard>
 
  {/* ================= APNEA ================= */}
-  <div className="card">
-    <div className="card-header-row" onClick={() => setOpenSection(openSection === "apnea" ? null : "apnea")}>
-      <span><span className="sec-num sub">H2.4</span> Apnea of Prematurity</span>
-      <span className={`summary ${getRespStatusClass(formData.apnea)}`}>
-  <span className="icon">{getRespIcon(formData.apnea)}</span>
-  {formData.apnea || "Not filled"}
-</span>
-      <span className="arrow">{openSection === "apnea" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "apnea" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H2.4"
+    title="Apnea of Prematurity"
+    icon="⏱️"
+    accentColor="bg-rose-500"
+    summary={formData.apnea || "Not filled"}
+    statusClass={getStatusClass(formData.apnea)}
+    open={openSection === "apnea"}
+    onToggle={() => setOpenSection(openSection === "apnea" ? null : "apnea")}
+  >
 
 {respPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -7043,7 +6964,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 )}
 
-<div className="form-row">
+<div className="fh-grid-row">
   {/* 64. Apnea */}
   <div className="form-group">
     <YesNoToggle label="64. Apnea" name="apnea" value={formData.apnea} onChange={handleRespChange} onBlur={handleBlur} required />
@@ -7076,7 +6997,7 @@ const peripheralStatus= getPeripheralStatus();
   )}
 </div>
 
-<div className="form-row">
+<div className="fh-grid-row">
   {/* 66. Caffeine */}
   <div className="form-group">
     <YesNoToggle label="66. Caffeine" name="caffeine_used" value={formData.caffeine_used} onChange={handleRespChange} onBlur={handleBlur} required />
@@ -7108,9 +7029,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
   )}
 </div>
-</div>
-    )}
-  </div>
+  </CollapsibleCard>
 </div>
 
 
@@ -11136,6 +11055,6 @@ const peripheralStatus= getPeripheralStatus();
       step={8} totalSteps={17}
       isSaved={isSaved}
     />
-    </>
+    </div>
   );
 }

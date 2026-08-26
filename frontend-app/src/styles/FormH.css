@@ -1,0 +1,607 @@
+/* ============================================================
+   FormH.css — Visual redesign matching the reference mockup
+   (clean clinical-SaaS look: white cards, soft indigo/lavender
+   accents, compact segmented controls).
+
+   IMPORTANT — scope discipline: every single rule in this file is
+   nested under ".formh-modern" (the wrapper div FormH.jsx's render
+   root now uses). This file is ONLY imported by FormH.jsx. Nothing
+   here can leak onto Form A–G/I–L or any other page, even though
+   several of the base classes being overridden here (.form-group
+   input, .form-navigation, .card-header-row, etc.) are also used,
+   unscoped, by those other forms' own stylesheets. No existing
+   FormH data/handlers/props are touched by any rule below — this
+   file only changes paint (color, spacing, radius, shadow, type).
+   ============================================================ */
+
+.formh-modern {
+  --fh-canvas: #f8fafc;
+  --fh-surface: #ffffff;
+  --fh-border: #e5e7eb;
+  --fh-border-soft: #edf0f4;
+  --fh-text: #0f172a;
+  --fh-text-muted: #64748b;
+  --fh-text-soft: #94a3b8;
+  --fh-indigo: #6366f1;
+  --fh-indigo-dark: #4338ca;
+  --fh-indigo-bg: #eef2ff;
+  --fh-indigo-border: #c7d2fe;
+  --fh-green: #16a34a;
+  --fh-green-bg: #ecfdf5;
+  --fh-green-border: #a7f3d0;
+  --fh-radius-lg: 14px;
+  --fh-radius-md: 10px;
+  --fh-radius-sm: 8px;
+  --fh-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--fh-text);
+}
+
+/* ============================================================
+   A / D — page canvas + main content surface
+   ============================================================ */
+.formh-modern .screening-form { background: transparent !important; }
+
+/* ============================================================
+   C — main page header: [icon] [H1 badge] CATEGORY
+   ============================================================ */
+.formh-modern .form-header-action-row {
+  border-bottom: none;
+  padding-bottom: 8px;
+  margin-bottom: 20px;
+}
+.formh-modern .form-breadcrumb {
+  color: var(--fh-text-soft) !important;
+  font-weight: 700;
+}
+.formh-modern .fh-page-title {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px !important;
+  font-weight: 700 !important;
+  color: var(--fh-text) !important;
+  letter-spacing: -0.01em !important;
+}
+.fh-page-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fh-indigo);
+  flex-shrink: 0;
+}
+.fh-page-title-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fh-indigo-bg);
+  border: 1px solid var(--fh-indigo-border);
+  color: var(--fh-indigo-dark);
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.formh-modern .form-main-subtitle { color: var(--fh-text-muted) !important; }
+
+/* Identification block + any other plain (non-organ-system) card:
+   keep simple, quiet styling consistent with the rest of the page. */
+.formh-modern .form-section:not(.card-section) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-bottom: 28px !important;
+}
+.formh-modern .form-section:not(.card-section) > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 0 14px !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  color: var(--fh-text-soft) !important;
+  text-transform: uppercase !important;
+}
+/* The organ-system section h3 ("H1 NEUROLOGICAL" etc.) duplicates the
+   dynamic page-title above (which already shows icon + H-code + label
+   for whichever category is active), so it's hidden rather than shown
+   twice. Its content/marker fields (sec-num, sec-icon) are unchanged in
+   the DOM — this is a display:none, nothing is removed, and each of the
+   13 organ-system wrapper divs (#cat-neuro … #cat-completion) is
+   targeted explicitly rather than relying on :has() support. */
+.formh-modern #cat-neuro > h3,
+.formh-modern #cat-resp > h3,
+.formh-modern #cat-gi > h3,
+.formh-modern #cat-metabolic > h3,
+.formh-modern #cat-cvs > h3,
+.formh-modern #cat-heme > h3,
+.formh-modern #cat-renal > h3,
+.formh-modern #cat-eye > h3,
+.formh-modern #cat-thermo > h3,
+.formh-modern #cat-vascular > h3,
+.formh-modern #cat-infection > h3,
+.formh-modern #cat-summary > h3,
+.formh-modern #cat-completion > h3 {
+  display: none;
+}
+
+/* ============================================================
+   G — daily-log / prefill notice: subtle lavender tint, calendar icon
+   ============================================================ */
+.formh-modern .field-hint-auto {
+  display: flex !important;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  background: var(--fh-indigo-bg) !important;
+  border: 1px solid var(--fh-indigo-border) !important;
+  border-radius: var(--fh-radius-md) !important;
+  padding: 10px 14px !important;
+  color: #3730a3 !important;
+  font-size: 13px !important;
+  line-height: 1.5;
+}
+.formh-modern .field-hint-auto::before {
+  content: "";
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  background-color: #4f46e5;
+  -webkit-mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.formh-modern .field-hint-auto .link-button {
+  margin-left: auto;
+}
+.formh-modern .link-button {
+  color: var(--fh-indigo-dark) !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+}
+.formh-modern .link-button:hover { text-decoration: underline !important; }
+.formh-modern .link-button-danger { color: #b91c1c !important; }
+.formh-modern .field-hint-warning {
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
+  border-radius: var(--fh-radius-md) !important;
+  color: #92400e !important;
+}
+
+/* ============================================================
+   F — accordion cards (fh-card / fh-card-header / fh-card-body)
+   used by CollapsibleCard in components/formh/FormHFields.jsx
+   ============================================================ */
+.formh-modern .fh-card {
+  background: var(--fh-surface);
+  border: 1px solid var(--fh-border);
+  border-radius: var(--fh-radius-lg);
+  box-shadow: var(--fh-shadow-card);
+  margin-bottom: 16px;
+  overflow: hidden;
+  transition: box-shadow .15s ease;
+}
+.formh-modern .fh-card.is-open { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
+
+.formh-modern .fh-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--fh-surface);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.formh-modern .fh-card-header:hover { background: #fafbfc; }
+
+.fh-card-accent {
+  width: 3px;
+  align-self: stretch;
+  min-height: 24px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.fh-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.fh-card-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fh-card-code {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fh-text-soft);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.fh-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fh-text);
+  line-height: 1.3;
+}
+.fh-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.fh-badge-yes { background: var(--fh-green-bg); color: #047857; border-color: var(--fh-green-border); }
+.fh-badge-no { background: #f8fafc; color: #64748b; border-color: var(--fh-border); }
+.fh-badge-empty { background: #f8fafc; color: #94a3b8; border-color: var(--fh-border); }
+.fh-chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--fh-text-muted);
+  background: #f8fafc;
+  border: 1px solid var(--fh-border-soft);
+  transition: transform .18s ease, background .15s ease;
+}
+.formh-modern .fh-card.is-open .fh-chevron {
+  transform: rotate(180deg);
+  background: var(--fh-indigo-bg);
+  color: var(--fh-indigo-dark);
+}
+.formh-modern .fh-card-body {
+  padding: 4px 18px 18px;
+  border-top: 1px solid var(--fh-border-soft);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ============================================================
+   H / fh-field / fh-grid — field layout & labels
+   ============================================================ */
+.formh-modern .fh-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.formh-modern .fh-field-disabled { opacity: .55; }
+.formh-modern .fh-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.3;
+}
+.fh-field-num { color: var(--fh-text-soft); font-weight: 700; margin-right: 2px; }
+.fh-required { color: #e11d48; margin-left: 2px; }
+.formh-modern .fh-autofill-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fh-indigo-dark);
+}
+.formh-modern .field-hint-auto-inline {
+  color: var(--fh-indigo-dark) !important;
+  background: var(--fh-indigo-bg) !important;
+  border-color: var(--fh-indigo-border) !important;
+}
+.formh-modern .fh-error-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+  margin-top: 2px;
+}
+.formh-modern .fh-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.formh-modern .fh-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.formh-modern .fh-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .formh-modern .fh-grid-2, .formh-modern .fh-grid-3 { grid-template-columns: 1fr; }
+}
+
+/* fh-grid-row is the existing 3-across layout used inside the IVH card
+   for Side / Grade / Date / Age rows (defined already in
+   FormComponents.css, unscoped, with !important on every property so
+   nothing in the bundle can fight it) — no changes needed there, but
+   re-declare the gap here at the same specificity/!important level so
+   it matches the rest of the redesign's spacing scale. */
+.formh-modern .fh-grid-row { gap: 16px !important; }
+
+/* ============================================================
+   I — Yes/No compact segmented control (YesNoToggle in FormH.jsx)
+   ============================================================ */
+.formh-modern .fh-yn {
+  display: inline-flex;
+  border: 1px solid var(--fh-border);
+  border-radius: var(--fh-radius-sm);
+  overflow: hidden;
+  width: fit-content;
+  background: var(--fh-surface);
+}
+.formh-modern .fh-yn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  min-width: 84px;
+  padding: 0 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #475569;
+  background: var(--fh-surface);
+  border: none;
+  border-right: 1px solid var(--fh-border);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  font-family: inherit;
+}
+.formh-modern .fh-yn-btn:last-child { border-right: none; }
+.formh-modern .fh-yn-btn:hover:not(.is-selected):not(:disabled) { background: #f8fafc; }
+.formh-modern .fh-yn-btn:disabled { cursor: not-allowed; }
+.formh-modern .fh-yn-btn.is-selected.is-yes {
+  background: var(--fh-green-bg);
+  color: #047857;
+}
+.formh-modern .fh-yn-btn.is-selected.is-no {
+  background: var(--fh-indigo-bg);
+  color: var(--fh-indigo-dark);
+}
+
+/* ============================================================
+   J — segmented control for Side / Grade (PillSelect in FormHFields.jsx)
+   ============================================================ */
+.formh-modern .fh-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.formh-modern .fh-segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #334155;
+  background: var(--fh-surface);
+  border: 1px solid var(--fh-border);
+  border-radius: var(--fh-radius-sm);
+  cursor: pointer;
+  transition: all .12s ease;
+  font-family: inherit;
+}
+.formh-modern .fh-segmented-btn:hover:not(.is-selected) { border-color: #cbd5e1; background: #f8fafc; }
+.formh-modern .fh-segmented-btn.is-selected {
+  background: var(--fh-indigo-bg);
+  border-color: var(--fh-indigo-border);
+  color: var(--fh-indigo-dark);
+}
+.fh-segmented-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fh-indigo);
+  flex-shrink: 0;
+}
+
+/* Chip multi-select (ChipMultiSelect) */
+.formh-modern .fh-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.formh-modern .fh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  background: var(--fh-surface);
+  border: 1px solid var(--fh-border);
+  border-radius: var(--fh-radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+.formh-modern .fh-chip.is-selected {
+  background: var(--fh-indigo-bg);
+  border-color: var(--fh-indigo-border);
+  color: var(--fh-indigo-dark);
+}
+.fh-chip-check { color: var(--fh-indigo); font-size: 11px; }
+
+/* ============================================================
+   K / L — inputs, textareas, date pickers, native selects
+   (scoped + !important: this app bundles every form's CSS
+   together and several other forms declare unscoped rules for
+   these same tags, so specificity alone can't be trusted — see
+   the note already left in FormComponents.css about .ivh-row/
+   .fh-grid-row for the same reason.)
+   ============================================================ */
+.formh-modern .form-group input:not([type="checkbox"]):not([type="radio"]),
+.formh-modern .form-group select,
+.formh-modern .form-group textarea,
+.formh-modern .react-datepicker-wrapper input,
+.formh-modern .react-datepicker__input-container input {
+  height: 42px !important;
+  min-height: 42px !important;
+  border: 1px solid var(--fh-border) !important;
+  border-radius: var(--fh-radius-sm) !important;
+  background: var(--fh-surface) !important;
+  color: var(--fh-text) !important;
+  font-size: 14px !important;
+  font-family: inherit !important;
+  padding: 0 14px !important;
+  box-shadow: none !important;
+  transition: border-color .15s, box-shadow .15s;
+}
+.formh-modern .form-group input::placeholder,
+.formh-modern .form-group textarea::placeholder {
+  color: var(--fh-text-soft) !important;
+}
+.formh-modern .form-group input:focus,
+.formh-modern .form-group select:focus,
+.formh-modern .form-group textarea:focus,
+.formh-modern .react-datepicker-wrapper input:focus {
+  border-color: var(--fh-indigo) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  outline: none !important;
+}
+.formh-modern .form-group textarea {
+  height: auto !important;
+  min-height: 90px !important;
+  padding: 12px 14px !important;
+  border-radius: 10px !important;
+  line-height: 1.5;
+  resize: vertical;
+}
+.formh-modern .form-group input[readonly] {
+  background: #f8fafc !important;
+  color: var(--fh-text-muted) !important;
+}
+.formh-modern .form-group label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+}
+.formh-modern .error-text {
+  color: #dc2626 !important;
+  font-size: 12px !important;
+  font-weight: 600;
+}
+.formh-modern .required { color: #e11d48 !important; }
+.formh-modern .field-num { color: var(--fh-text-soft) !important; font-weight: 700 !important; }
+
+/* Old-style H2–H12 cards (.card / .card-header-row / .card-body) that
+   haven't been migrated to the new <CollapsibleCard/> component yet —
+   given a lighter version of the same palette/radius so the rest of
+   the form (H2 Respiratory onward) doesn't look visually disconnected
+   from the redesigned H1 Neurological section, without touching their
+   markup, fields, or logic at all. */
+.formh-modern .card {
+  background: var(--fh-surface) !important;
+  border: 1px solid var(--fh-border) !important;
+  border-radius: var(--fh-radius-lg) !important;
+  box-shadow: var(--fh-shadow-card) !important;
+}
+.formh-modern .card-header-row {
+  background: var(--fh-surface) !important;
+  border-bottom: 1px solid var(--fh-border-soft) !important;
+}
+.formh-modern .card-header-row > span:first-child { color: var(--fh-text) !important; }
+.formh-modern .summary.yes { background: var(--fh-green-bg) !important; color: #047857 !important; }
+.formh-modern .summary.no,
+.formh-modern .summary.empty { background: #f8fafc !important; color: var(--fh-text-muted) !important; }
+.formh-modern .sec-num {
+  background: var(--fh-indigo-bg) !important;
+  color: var(--fh-indigo-dark) !important;
+}
+.formh-modern .sec-icon { color: var(--fh-indigo) !important; }
+
+/* ============================================================
+   Category jump-nav — restyled to the same indigo/lavender palette
+   (navigation mechanism itself — which tab is active, section
+   show/hide — is untouched, only its paint changes)
+   ============================================================ */
+.formh-modern .formh-jumpnav {
+  background: linear-gradient(var(--fh-canvas) 70%, transparent) !important;
+}
+.formh-modern .formh-jumpnav-pill {
+  border-color: var(--fh-border) !important;
+  color: var(--fh-text-muted) !important;
+  box-shadow: none !important;
+}
+.formh-modern .formh-jumpnav-pill:hover {
+  border-color: var(--fh-indigo-border) !important;
+  color: var(--fh-indigo-dark) !important;
+}
+.formh-modern .formh-jumpnav-pill.active {
+  background: var(--fh-indigo) !important;
+  border-color: var(--fh-indigo) !important;
+  color: #fff !important;
+}
+.formh-modern .formh-jumpnav-pill.active .formh-jumpnav-code { color: #e0e7ff !important; }
+.formh-modern .formh-jumpnav-status.yes { color: #22c55e !important; }
+.formh-modern .formh-jumpnav-pill.active .formh-jumpnav-status.yes { color: #bbf7d0 !important; }
+
+/* ============================================================
+   P — footer sticky nav bar (FormNavBar, shared component — only
+   its appearance is overridden here, and only while it's rendered
+   as a descendant of .formh-modern, i.e. only on Form H; every
+   other form renders the same component outside this scope and is
+   completely unaffected)
+   ============================================================ */
+.formh-modern ~ .form-navigation,
+.formh-modern .form-navigation {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-top: 1px solid var(--fh-border) !important;
+  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.04) !important;
+}
+.formh-modern ~ .form-navigation .btn,
+.formh-modern .form-navigation .btn {
+  height: 42px !important;
+  border-radius: var(--fh-radius-sm) !important;
+  font-weight: 600 !important;
+}
+.formh-modern ~ .form-navigation .btn-primary,
+.formh-modern .form-navigation .btn-primary {
+  background: var(--fh-indigo) !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3) !important;
+}
+.formh-modern ~ .form-navigation .btn-primary:hover:not(:disabled),
+.formh-modern .form-navigation .btn-primary:hover:not(:disabled) {
+  background: var(--fh-indigo-dark) !important;
+}
+.formh-modern ~ .form-navigation .btn-save.btn-outline-blue,
+.formh-modern .form-navigation .btn-save.btn-outline-blue {
+  color: var(--fh-indigo-dark) !important;
+  border-color: var(--fh-indigo-border) !important;
+}
+.formh-modern ~ .form-navigation .btn-save.btn-outline-blue:hover,
+.formh-modern .form-navigation .btn-save.btn-outline-blue:hover {
+  background: var(--fh-indigo-bg) !important;
+}
+.formh-modern ~ .form-navigation .progress-segment.active,
+.formh-modern .form-navigation .progress-segment.active {
+  background: var(--fh-indigo) !important;
+}
+
+/* ============================================================
+   Success / error save-message toast — matched to the same palette
+   ============================================================ */
+.formh-modern .form-message.msg-success {
+  background: var(--fh-green-bg) !important;
+  border-color: var(--fh-green-border) !important;
+  color: #047857 !important;
+}
+.formh-modern .form-message.msg-error {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
