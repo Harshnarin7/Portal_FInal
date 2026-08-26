@@ -16,7 +16,7 @@ from config import ACCESS_TOKEN_EXPIRE_MINUTES
 from db import Base, engine, SessionLocal, get_db
 from models import SteroidData
 import models
-from ae_reference import detect_metabolic_thermal_candidates
+from ae_reference import detect_metab_renal_vasc_eye_candidates
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -4198,7 +4198,7 @@ def get_adverse_event_candidates(
     )
     day1_date = nicu.day1_date if nicu else None
 
-    candidates = detect_metabolic_thermal_candidates(logs, day1_date=day1_date)
+    candidates = detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
     return {"has_data": True, "candidates": candidates}
 
 
