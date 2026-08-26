@@ -415,6 +415,52 @@
   cursor: pointer;
 }
 .ae-add:hover { background: #ccfbf1; }
+
+.ae-scan-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.ae-scan-btn {
+  appearance: none;
+  border: 1.5px solid var(--ae-accent-deep);
+  background: var(--ae-accent-deep);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ae-scan-btn:hover { opacity: 0.9; }
+.ae-scan-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.ae-scan-hint {
+  font-size: 12px;
+  color: #6b7280;
+  max-width: 480px;
+}
+.ae-scan-msg {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ae-accent-deep);
+}
+.ae-row-auto { background: #f0fdfa; }
+.ae-auto-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ae-accent-deep);
+  background: #ccfbf1;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-bottom: 4px;
+}
+
 .ae-empty {
   padding: 28px 16px;
   text-align: center;

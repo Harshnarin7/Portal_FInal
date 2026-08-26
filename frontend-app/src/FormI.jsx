@@ -95,12 +95,16 @@ function RYesNo({ name, required }) {
 }
 
 function RSelect({ name, options, placeholder = "Select" }) {
-  const { formData, handleChange } = useContext(FormIDataContext);
+  const { formData, handleChange, clearAutoFilled } = useContext(FormIDataContext);
   return (
-    <select className="crf-select" name={name} value={formData[name] || ""} onChange={handleChange}>
-      <option value="">{placeholder}</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
+    <>
+      <select className="crf-select" name={name} value={formData[name] || ""}
+        onChange={(e) => { clearAutoFilled?.(name); handleChange(e); }}>
+        <option value="">{placeholder}</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <AutoFilledBadge name={name} />
+    </>
   );
 }
 
@@ -133,16 +137,20 @@ function Mini({ label, children }) {
   );
 }
 function MiniDate({ label, name }) {
-  const { formData, setFormData } = useContext(FormIDataContext);
+  const { formData, setFormData, clearAutoFilled } = useContext(FormIDataContext);
   return (
     <Mini label={label}>
       <DatePicker
         selected={formData[name] ? parseDateOnly(formData[name]) : null}
-        onChange={(date) => setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }))}
+        onChange={(date) => {
+          clearAutoFilled?.(name);
+          setFormData((p) => ({ ...p, [name]: date ? toDateOnlyValue(date) : "" }));
+        }}
         dateFormat="dd/MM/yyyy"
         placeholderText="dd/mm/yyyy"
         className="crf-text"
       />
+      <AutoFilledBadge name={name} />
     </Mini>
   );
 }
@@ -311,9 +319,13 @@ function MiniTime({ label, name }) {
   );
 }
 function MiniText({ label, name, placeholder }) {
-  const { formData, handleChange } = useContext(FormIDataContext);
+  const { formData, handleChange, clearAutoFilled } = useContext(FormIDataContext);
   return (
-    <Mini label={label}><input className="crf-text" type="text" name={name} value={formData[name] || ""} onChange={handleChange} placeholder={placeholder} /></Mini>
+    <Mini label={label}>
+      <input className="crf-text" type="text" name={name} value={formData[name] || ""}
+        onChange={(e) => { clearAutoFilled?.(name); handleChange(e); }} placeholder={placeholder} />
+      <AutoFilledBadge name={name} />
+    </Mini>
   );
 }
 function MiniReadOnly({ label, value }) {
@@ -464,6 +476,13 @@ export default function FormI() {
   const [staleFields, setStaleFields] = useState({});
   const [resusPrefill, setResusPrefill] = useState(null);
   const [overallPrefill, setOverallPrefill] = useState(null);
+  const [postResusPrefill, setPostResusPrefill] = useState(null);
+  // undefined = not fetched yet, null = fetched but has_data:false, object = has data
+  const [pmaPrefill, setPmaPrefill] = useState({ 36: undefined, 40: undefined, 44: undefined });
+  // Set once per fetchData() run, before the PMA checkpoint fetches
+  // below need it — reused by their Force Refill buttons later too,
+  // since a button click has no access to fetchData's own local scope.
+  const gaRef = useRef({ weeks: null, days: null });
   const clearAutoFilled = (name) => {
     setAutoFilledFields((prev) => {
       if (!prev[name]) return prev;
@@ -647,6 +666,7 @@ export default function FormI() {
         formD = (await api.get(`/postnatal-day1/${enrollmentId}`)).data || null;
       } catch { /* Form D optional */ }
       const effectiveGa = resolveEffectiveGestation(birthData, formD);
+      gaRef.current = { weeks: effectiveGa.weeks, days: effectiveGa.days };
 
       let existing = {};
       try {
@@ -789,7 +809,11 @@ export default function FormI() {
       // FormH.jsx's loadExistingFormH().then(...) comment for the bug
       // this avoids).
       fetchBirthResuscitationPrefill();
+      fetchPostResusPrefill();
       fetchOverallPrefill();
+      fetchPmaAssessmentPrefill(36);
+      fetchPmaAssessmentPrefill(40);
+      fetchPmaAssessmentPrefill(44);
     };
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -900,6 +924,94 @@ export default function FormI() {
       )
     ) {
       fetchBirthResuscitationPrefill({ force: true });
+    }
+  };
+
+  // I.2 Post-natal Post-resuscitation Outcomes <- a new, dedicated
+  // endpoint (unlike I.1/I.6, this needs genuine age-window filtering —
+  // EOS = onset in first 72h, LOS = onset after day 3 — not a simple
+  // any-day aggregate, so no existing endpoint could be reused as-is).
+  // See get_post_resus_prefill's docstring in backend/main.py for the
+  // full derivation of each field, including the two PI decisions this
+  // relied on (2026-08-25): plain NC counts as "respiratory support"
+  // for resp_support_72h, and sepsis EOS/LOS count any infection-detect
+  // trigger type, same policy as I.6's sepsis_overall.
+  //
+  // Deliberately NOT filled: mortality_7d_cause/_time, mortality_28d_
+  // cause/_time (no day-log source, same as I.6's mortality_hospital_
+  // cause/_time). mortality_7_days/mortality_28_days themselves are
+  // filled with "No" only when the endpoint can actually confirm the
+  // baby was tracked alive past that age (see backend docstring) —
+  // otherwise left blank rather than guessed.
+  const POST_RESUS_PREFILL_FIELDS = [
+    "resp_support_72h", "sepsis_eos", "sepsis_los",
+    "culture_positive_sepsis", "culture_positive_body_fluid",
+    "mortality_7_days", "mortality_7d_date",
+    "mortality_28_days", "mortality_28d_date",
+  ];
+  // All fields here are one-time/cumulative facts about a fixed age
+  // window (not a growing day-count), so — same reasoning as I.1 — a
+  // later disagreement is always worth flagging, not expected drift.
+  const POST_RESUS_STALE_CHECK_FIELDS = POST_RESUS_PREFILL_FIELDS;
+
+  const fetchPostResusPrefill = async ({ force = false } = {}) => {
+    if (!enrollmentId) return;
+    try {
+      const res = await api.get(`/neonatal-morbidities/post-resus-prefill/${enrollmentId}`);
+      const d = res.data;
+      if (!d || !d.has_data) { setPostResusPrefill(null); return; }
+      setPostResusPrefill(d);
+
+      const mapped = {};
+      POST_RESUS_PREFILL_FIELDS.forEach((field) => {
+        if (d[field] !== null && d[field] !== undefined) mapped[field] = d[field];
+      });
+
+      const filled = {};
+      const stale = {};
+      setFormData((prev) => {
+        const next = { ...prev };
+        POST_RESUS_PREFILL_FIELDS.forEach((field) => {
+          const value = mapped[field];
+          if (isBlank(value)) return;
+          const currentlyBlank = isBlank(prev[field]);
+          const disagrees = !currentlyBlank
+            && POST_RESUS_STALE_CHECK_FIELDS.includes(field)
+            && String(prev[field]) !== String(value);
+          if (currentlyBlank || (force && disagrees)) {
+            next[field] = value;
+            filled[field] = true;
+          } else if (disagrees) {
+            stale[field] = true;
+          }
+        });
+        return next;
+      });
+      if (Object.keys(filled).length) {
+        setAutoFilledFields((prev) => ({ ...prev, ...filled }));
+      }
+      setStaleFields((prev) => {
+        const next = { ...prev };
+        POST_RESUS_PREFILL_FIELDS.forEach((f) => {
+          if (stale[f]) next[f] = true; else delete next[f];
+        });
+        return next;
+      });
+    } catch (err) {
+      console.log("Error fetching I.2 Post-resus prefill", err);
+    }
+  };
+
+  const confirmForceRefillPostResus = () => {
+    if (
+      window.confirm(
+        "Overwrite already-answered Post-natal Post-resuscitation Outcomes " +
+        "fields with the latest daily-log data?\n\nThis replaces existing " +
+        "answers, not just blank ones — use this only if the daily logs " +
+        "were corrected after this form was filled in."
+      )
+    ) {
+      fetchPostResusPrefill({ force: true });
     }
   };
 
@@ -1017,6 +1129,121 @@ export default function FormI() {
       )
     ) {
       fetchOverallPrefill({ force: true });
+    }
+  };
+
+  // I.3/I.4/I.5 Assessment at 36/40/44 Weeks PMA <- a single generic
+  // endpoint parameterized by checkpoint (36/40/44), since the derivation
+  // is identical across all three except the PMA week target and the
+  // death-window's lower bound. See get_pma_assessment_prefill's
+  // docstring in backend/main.py for the full field-by-field derivation,
+  // including the two design decisions made with the PI on 2026-08-25:
+  // NEC/brain-injury/ROP are CUMULATIVE-to-date (not a fresh occurrence
+  // since the previous checkpoint), and Form H's own already-graded
+  // values (BPD Jensen, NEC, IVH/PVL, ROP) are the PRIMARY source,
+  // falling back to raw day-log/cranial-USG derivation only when Form H
+  // hasn't answered yet.
+  //
+  // The backend returns generic keys (death, nec_stage, ivh_grade3, ...)
+  // since the same endpoint serves all 3 checkpoints — this map is what
+  // translates those into each checkpoint's actual formData field names
+  // (irregular in one place: I.5's ROP field is "rop44_assessed", not
+  // "rop44", unlike I.3/I.4's "rop36"/"rop40").
+  const PMA_FIELD_MAP = {
+    36: {
+      death: "death36", death_date: "death36_date",
+      nec_stage: "nec36_stage", nec_date: "nec36_date", nec_surgery: "nec36_surgery",
+      ivh_grade3: "ivh36_grade3", ivh_date: "ivh36_date",
+      cpvl_grade2: "cpvl36_grade2", cpvl_date: "cpvl36_date",
+      rop: "rop36", rop_date: "rop36_date", rop_treated: "rop36_treated",
+      bpd_jensen_grade: "bpd36_jensen_grade", bpd_jensen_date: "bpd36_jensen_date",
+      bpd36_nichd_fio2: "bpd36_nichd_fio2", bpd36_nichd_flow: "bpd36_nichd_flow",
+    },
+    40: {
+      death: "death40", death_date: "death40_date",
+      nec_stage: "nec40_stage", nec_date: "nec40_date", nec_surgery: "nec40_surgery",
+      ivh_grade3: "ivh40_grade3", ivh_date: "ivh40_date",
+      cpvl_grade2: "cpvl40_grade2", cpvl_date: "cpvl40_date",
+      rop: "rop40", rop_date: "rop40_date", rop_treated: "rop40_treated",
+      abnormal_mri_tea: "abnormal_mri_tea",
+    },
+    44: {
+      death: "death44", death_date: "death44_date",
+      nec_stage: "nec44_stage", nec_date: "nec44_date", nec_surgery: "nec44_surgery",
+      ivh_grade3: "ivh44_grade3", ivh_date: "ivh44_date",
+      cpvl_grade2: "cpvl44_grade2", cpvl_date: "cpvl44_date",
+      rop: "rop44_assessed", rop_date: "rop44_date", rop_treated: "rop44_treated",
+    },
+  };
+
+  const fetchPmaAssessmentPrefill = async (checkpoint, { force = false } = {}) => {
+    if (!enrollmentId) return;
+    const { weeks, days } = gaRef.current;
+    if (weeks === null || weeks === undefined || weeks === "") return;
+    try {
+      const res = await api.get(`/neonatal-morbidities/pma-assessment-prefill/${enrollmentId}`, {
+        params: { checkpoint, gestation_weeks: weeks, gestation_days: days ?? 0 },
+      });
+      const d = res.data;
+      if (!d || !d.has_data) {
+        setPmaPrefill((prev) => ({ ...prev, [checkpoint]: null }));
+        return;
+      }
+      setPmaPrefill((prev) => ({ ...prev, [checkpoint]: d }));
+
+      const fieldMap = PMA_FIELD_MAP[checkpoint];
+      const prefillKeys = Object.keys(fieldMap);
+      const mapped = {};
+      prefillKeys.forEach((genericKey) => {
+        const value = d[genericKey];
+        if (value !== null && value !== undefined) mapped[fieldMap[genericKey]] = value;
+      });
+
+      const filled = {};
+      const stale = {};
+      setFormData((prev) => {
+        const next = { ...prev };
+        prefillKeys.forEach((genericKey) => {
+          const field = fieldMap[genericKey];
+          const value = mapped[field];
+          if (isBlank(value)) return;
+          const currentlyBlank = isBlank(prev[field]);
+          const disagrees = !currentlyBlank && String(prev[field]) !== String(value);
+          if (currentlyBlank || (force && disagrees)) {
+            next[field] = value;
+            filled[field] = true;
+          } else if (disagrees) {
+            stale[field] = true;
+          }
+        });
+        return next;
+      });
+      if (Object.keys(filled).length) {
+        setAutoFilledFields((prev) => ({ ...prev, ...filled }));
+      }
+      setStaleFields((prev) => {
+        const next = { ...prev };
+        prefillKeys.forEach((genericKey) => {
+          const field = fieldMap[genericKey];
+          if (stale[field]) next[field] = true; else delete next[field];
+        });
+        return next;
+      });
+    } catch (err) {
+      console.log(`Error fetching PMA-${checkpoint} assessment prefill`, err);
+    }
+  };
+
+  const confirmForceRefillPma = (checkpoint) => {
+    if (
+      window.confirm(
+        "Overwrite already-answered fields at this PMA checkpoint with the " +
+        "latest data (Form H where available, daily logs otherwise)?\n\n" +
+        "This replaces existing answers, not just blank ones — use this " +
+        "only if the source data was corrected after this form was filled in."
+      )
+    ) {
+      fetchPmaAssessmentPrefill(checkpoint, { force: true });
     }
   };
 
@@ -1367,6 +1594,43 @@ export default function FormI() {
         {/* ================= I.2 POST-NATAL POST-RESUSCITATION OUTCOMES ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i2}>
           <h3><ClipboardList size={17} className="sec-icon" /> <span className="sec-num">I.2</span> Post-natal Post-resuscitation Outcomes</h3>
+          {postResusPrefill && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available from the daily logs (respiratory support in the first
+              72h, sepsis detection, survival status). Empty fields below were
+              filled from it automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchPostResusPrefill()}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={confirmForceRefillPostResus}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {(staleFields.resp_support_72h || staleFields.sepsis_eos || staleFields.sepsis_los
+            || staleFields.culture_positive_sepsis || staleFields.culture_positive_body_fluid
+            || staleFields.mortality_7_days || staleFields.mortality_7d_date
+            || staleFields.mortality_28_days || staleFields.mortality_28d_date) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The daily logs now disagree with the saved answer for:{" "}
+              {[
+                staleFields.resp_support_72h && "Resp support (0.5–72h)",
+                staleFields.sepsis_eos && "Sepsis (EOS)",
+                staleFields.sepsis_los && "Sepsis (LOS)",
+                staleFields.culture_positive_sepsis && "Culture positive sepsis",
+                staleFields.culture_positive_body_fluid && "Body fluid",
+                staleFields.mortality_7_days && "All-cause mortality ≤ 7 days",
+                staleFields.mortality_7d_date && "Date of death (≤7d)",
+                staleFields.mortality_28_days && "All-cause mortality ≤ 28 days",
+                staleFields.mortality_28d_date && "Date of death (≤28d)",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before the daily
+              logs were finalized. Use "Force refill" above if the daily
+              logs are correct.
+            </div>
+          )}
           <CrfTable>
             <CrfRow num={7} outcome="Resp support (0.5–72h)" definition="Any respiratory support more than supplemental oxygen"
               result={<RYesNo name="resp_support_72h" required />} />
@@ -1392,6 +1656,47 @@ export default function FormI() {
         {/* ================= I.3 ASSESSMENT AT 36 WEEKS PMA ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i3}>
           <h3><CalendarClock size={17} className="sec-icon" /> <span className="sec-num">I.3</span> Assessment at 36 Weeks PMA</h3>
+          {pmaPrefill[36] && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available for this checkpoint (36-week PMA date: {pmaPrefill[36].target_date}) — Form H's
+              reviewed values where available, daily logs otherwise. Empty fields below were filled
+              automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchPmaAssessmentPrefill(36)}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={() => confirmForceRefillPma(36)}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {pmaPrefill[36] === null && (
+            <div className="field-hint" style={{ margin: "0 0 10px" }}>
+              No data available for this checkpoint yet — this can mean the baby hasn't reached 36 weeks PMA,
+              or was discharged before this checkpoint with no data source covering it.
+            </div>
+          )}
+          {(staleFields.death36 || staleFields.nec36_stage || staleFields.nec36_date || staleFields.nec36_surgery
+            || staleFields.ivh36_grade3 || staleFields.ivh36_date || staleFields.cpvl36_grade2 || staleFields.cpvl36_date
+            || staleFields.rop36 || staleFields.rop36_date || staleFields.rop36_treated
+            || staleFields.bpd36_jensen_grade) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The source data now disagrees with the saved answer for:{" "}
+              {[
+                staleFields.death36 && "Death by 36 weeks PMA",
+                staleFields.nec36_stage && "NEC",
+                staleFields.nec36_surgery && "NEC surgical intervention",
+                staleFields.ivh36_grade3 && "IVH Grade ≥ III",
+                staleFields.cpvl36_grade2 && "cPVL Grade ≥ II",
+                staleFields.rop36 && "ROP",
+                staleFields.rop36_treated && "ROP treated",
+                staleFields.bpd36_jensen_grade && "BPD (Jensen)",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before Form H or the daily logs were finalized.
+              Use "Force refill" above if the source data is correct.
+            </div>
+          )}
           <div className="crf-encounter-row">
             <Mini label="22. Method of Encounter">
               <RSelect name="encounter36_method" options={["Direct", "Telephonic"]} />
@@ -1462,6 +1767,47 @@ export default function FormI() {
         {/* ================= I.4 ASSESSMENT AT 40 WEEKS PMA ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i4}>
           <h3><CalendarCheck size={17} className="sec-icon" /> <span className="sec-num">I.4</span> Assessment at 40 Weeks PMA</h3>
+          {pmaPrefill[40] && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available for this checkpoint (40-week PMA date: {pmaPrefill[40].target_date}) — Form H's
+              reviewed values where available, daily logs otherwise. Empty fields below were filled
+              automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchPmaAssessmentPrefill(40)}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={() => confirmForceRefillPma(40)}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {pmaPrefill[40] === null && (
+            <div className="field-hint" style={{ margin: "0 0 10px" }}>
+              No data available for this checkpoint yet — this can mean the baby hasn't reached 40 weeks PMA,
+              or was discharged before this checkpoint with no data source covering it.
+            </div>
+          )}
+          {(staleFields.death40 || staleFields.nec40_stage || staleFields.nec40_date || staleFields.nec40_surgery
+            || staleFields.ivh40_grade3 || staleFields.ivh40_date || staleFields.cpvl40_grade2 || staleFields.cpvl40_date
+            || staleFields.rop40 || staleFields.rop40_date || staleFields.rop40_treated
+            || staleFields.abnormal_mri_tea) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The source data now disagrees with the saved answer for:{" "}
+              {[
+                staleFields.death40 && "Death between 36 and 40 weeks PMA",
+                staleFields.nec40_stage && "NEC",
+                staleFields.nec40_surgery && "NEC surgical intervention",
+                staleFields.ivh40_grade3 && "IVH Grade ≥ III",
+                staleFields.cpvl40_grade2 && "cPVL Grade ≥ II",
+                staleFields.rop40 && "ROP",
+                staleFields.rop40_treated && "ROP treated",
+                staleFields.abnormal_mri_tea && "Abnormal MRI Brain at TEA",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before Form H, the daily logs, or Form K were finalized.
+              Use "Force refill" above if the source data is correct.
+            </div>
+          )}
           <div className="crf-encounter-row">
             <Mini label="42. Method of Encounter">
               <RSelect name="encounter40_method" options={["Direct", "Telephonic"]} />
@@ -1519,6 +1865,45 @@ export default function FormI() {
         {/* ================= I.5 ASSESSMENT AT 44 WEEKS PMA ================= */}
         <div className="form-section soft-blue" ref={sectionRefs.i5}>
           <h3><CalendarRange size={17} className="sec-icon" /> <span className="sec-num">I.5</span> Assessment at 44 Weeks PMA</h3>
+          {pmaPrefill[44] && (
+            <div className="field-hint field-hint-auto" style={{ margin: "0 0 10px" }}>
+              Data available for this checkpoint (44-week PMA date: {pmaPrefill[44].target_date}) — Form H's
+              reviewed values where available, daily logs otherwise. Empty fields below were filled
+              automatically — verify before saving.
+              {" "}
+              <button type="button" className="link-button" onClick={() => fetchPmaAssessmentPrefill(44)}>
+                Refill empty fields
+              </button>
+              {" · "}
+              <button type="button" className="link-button link-button-danger" onClick={() => confirmForceRefillPma(44)}>
+                Force refill (overwrite existing answers)
+              </button>
+            </div>
+          )}
+          {pmaPrefill[44] === null && (
+            <div className="field-hint" style={{ margin: "0 0 10px" }}>
+              No data available for this checkpoint yet — this can mean the baby hasn't reached 44 weeks PMA,
+              or was discharged before this checkpoint with no data source covering it.
+            </div>
+          )}
+          {(staleFields.death44 || staleFields.nec44_stage || staleFields.nec44_date || staleFields.nec44_surgery
+            || staleFields.ivh44_grade3 || staleFields.ivh44_date || staleFields.cpvl44_grade2 || staleFields.cpvl44_date
+            || staleFields.rop44_assessed || staleFields.rop44_date || staleFields.rop44_treated) && (
+            <div className="field-hint field-hint-warning" style={{ margin: "0 0 10px" }}>
+              ⚠ The source data now disagrees with the saved answer for:{" "}
+              {[
+                staleFields.death44 && "Death between 40 and 44 weeks PMA",
+                staleFields.nec44_stage && "NEC",
+                staleFields.nec44_surgery && "NEC surgical intervention",
+                staleFields.ivh44_grade3 && "IVH Grade ≥ III",
+                staleFields.cpvl44_grade2 && "cPVL Grade ≥ II",
+                staleFields.rop44_assessed && "ROP",
+                staleFields.rop44_treated && "ROP treated",
+              ].filter(Boolean).join(", ")}.
+              This can happen if this form was answered before Form H or the daily logs were finalized.
+              Use "Force refill" above if the source data is correct.
+            </div>
+          )}
           <div className="crf-encounter-row">
             <Mini label="59. Method of Encounter">
               <RSelect name="encounter44_method" options={["Direct", "Telephonic"]} />
