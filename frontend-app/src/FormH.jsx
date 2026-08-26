@@ -4,6 +4,7 @@ import api from "./api/axios";
 import { useFormProgress } from "./context/FormProgressContext";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
+import "./styles/FormH.css";
 import FormLayout from "./components/FormLayout";
 import { usePatient } from "./context/PatientContext";
 import { useParams } from "react-router-dom";
@@ -37,34 +38,42 @@ const FORMH_CATEGORIES = [
   { key: "completion",code: "",    label: "Review & Submit", Icon: CheckCircle2 },
 ];
 
-/* ─── YesNoToggle — animated sliding segment (same component as Form A / ScreeningForm.jsx) ─── */
+/* ─── YesNoToggle — compact Yes/No segmented control (reference spec section I).
+   Same event shape / same props as before — { target: { name, value } } —
+   so every existing onChange handler across FormH.jsx (handleChange,
+   handleCranialUsgChange, handleNeuroChange, ...) keeps working unchanged.
+   Only the rendered markup/classes changed. ─── */
 function YesNoToggle({ label, name, value, onChange, onBlur, required = false, disabled = false }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val, type: "select-one" } });
   };
   return (
-    <div className={`space-y-1.5${disabled ? " opacity-50" : ""}`}>
-      <span className="block text-sm font-semibold text-slate-700">
-        {label}
-        {required && <span className="text-rose-500 ml-0.5">*</span>}
-      </span>
-      <div className="flex gap-3">
+    <div className={`fh-field${disabled ? " fh-field-disabled" : ""}`}>
+      {label && (
+        <span className="fh-label">
+          {label}
+          {required && <span className="fh-required">*</span>}
+        </span>
+      )}
+      <div className="fh-yn" role="group">
         {[
-          { opt: "Yes", icon: "✓", active: "border-emerald-600 bg-emerald-600 text-white" },
-          { opt: "No", icon: "✕", active: "border-rose-400 bg-rose-50 text-rose-700" },
-        ].map(({ opt, icon, active }) => (
+          { opt: "Yes", tone: "yes" },
+          { opt: "No", tone: "no" },
+        ].map(({ opt, tone }) => (
           <button
             key={opt}
             type="button"
-            className={`inline-flex items-center justify-center gap-2 py-3 px-10 rounded-2xl border-2 font-semibold text-[15px] transition-all duration-150 ${
-              value === opt ? active : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"
-            }`}
+            className={`fh-yn-btn${value === opt ? ` is-selected is-${tone}` : ""}`}
             onClick={() => fire(opt)}
             onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
             disabled={disabled}
           >
-            <span className="text-base leading-none">{icon}</span>
+            {value === opt && (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
             {opt}
           </button>
         ))}
@@ -5342,13 +5351,18 @@ const centralStatus = getCentralLineStatus();
 const centralSummary = getCentralLineSummary();
 const peripheralSummary = getPeripheralSummary();
 const peripheralStatus= getPeripheralStatus();
+  const activeCategoryMeta = FORMH_CATEGORIES.find((c) => c.key === activeCategory) || FORMH_CATEGORIES[0];
   return (
-    <>
+    <div className="formh-modern">
     <form className="screening-form" onSubmit={handleSubmit}>
        <div className="form-header-action-row">
          <div className="form-header-title-area">
            <div className="form-breadcrumb"><Home size={12}/> FORM H</div>
-           <h2 className="form-main-title">Neonatal Morbidities Assessment</h2>
+           <h2 className="form-main-title fh-page-title">
+             <span className="fh-page-title-icon"><activeCategoryMeta.Icon size={20} /></span>
+             {activeCategoryMeta.code && <span className="fh-page-title-badge">{activeCategoryMeta.code}</span>}
+             {activeCategoryMeta.label.toUpperCase()}
+           </h2>
            <p className="form-main-subtitle">Diagnosed morbidities and complications during NICU stay · Complete when diagnosed or at discharge</p>
          </div>
          <div className="form-header-meta-area">
@@ -11069,6 +11083,6 @@ const peripheralStatus= getPeripheralStatus();
       step={8} totalSteps={17}
       isSaved={isSaved}
     />
-    </>
+    </div>
   );
 }
