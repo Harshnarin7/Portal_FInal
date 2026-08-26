@@ -463,6 +463,34 @@
    to whatever any other page's stylesheet does elsewhere in the
    bundle.
    ============================================================ */
+/* ============================================================
+   FormH — IVH Right/Left grade-date-age rows (H1.1, fields 3-8).
+   The .ivh-row flex approach above proved unreliable: this app
+   bundles ~20 forms' CSS globally and unscoped rules elsewhere
+   (e.g. FormC.css's ".form-group input[type=number]" and
+   ".react-datepicker-wrapper input" at 42px !important) tie or
+   beat it depending on bundle order, and other files also
+   redeclare "align-items" on ".form-row" without !important, so
+   whichever loads last silently wins. Rather than keep fighting
+   that cascade, "fh-grid-row" is a brand-new class name (verified
+   unused anywhere else in the app) using CSS Grid instead of flex,
+   with !important on every property — nothing else in the bundle
+   defines this selector, so there is no specificity/order fight
+   left to lose.
+   ============================================================ */
+.fh-grid-row {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  gap: 20px !important;
+}
+.fh-grid-row > .form-group {
+  flex: 1 1 200px !important;
+  min-width: 0 !important;
+  margin-bottom: 0 !important;
+}
+
 .ivh-row {
   align-items: flex-start;
 }

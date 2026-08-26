@@ -12,6 +12,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
+import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
 
 /* ─── FormH category map — powers the sticky jump-nav below the header.
    Keeping this outside the component avoids re-creating the array (and
@@ -42,26 +43,31 @@ function YesNoToggle({ label, name, value, onChange, onBlur, required = false, d
     if (disabled) return;
     onChange({ target: { name, value: val, type: "select-one" } });
   };
-  // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
-  const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
   return (
-    <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label">
+    <div className={`space-y-1.5${disabled ? " opacity-50" : ""}`}>
+      <span className="block text-sm font-semibold text-slate-700">
         {label}
-        {required && <span className="required">*</span>}
+        {required && <span className="text-rose-500 ml-0.5">*</span>}
       </span>
-      <div className={`yes-no-buttons yn-pos-${pos}`}>
-        <div className="yn-thumb" aria-hidden="true" />
-        <button type="button"
-          className={`yn-btn yn-yes${value === "Yes" ? " yn-active" : ""}`}
-          onClick={() => fire("Yes")}
-          onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
-          disabled={disabled}>YES</button>
-        <button type="button"
-          className={`yn-btn yn-no${value === "No" ? " yn-active" : ""}`}
-          onClick={() => fire("No")}
-          onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
-          disabled={disabled}>NO</button>
+      <div className="flex gap-3">
+        {[
+          { opt: "Yes", icon: "✓", active: "border-emerald-600 bg-emerald-600 text-white" },
+          { opt: "No", icon: "✕", active: "border-rose-400 bg-rose-50 text-rose-700" },
+        ].map(({ opt, icon, active }) => (
+          <button
+            key={opt}
+            type="button"
+            className={`inline-flex items-center justify-center gap-2 py-3 px-10 rounded-2xl border-2 font-semibold text-[15px] transition-all duration-150 ${
+              value === opt ? active : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+            }`}
+            onClick={() => fire(opt)}
+            onBlur={onBlur ? () => onBlur({ target: { name, value } }) : undefined}
+            disabled={disabled}
+          >
+            <span className="text-base leading-none">{icon}</span>
+            {opt}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -5427,24 +5433,16 @@ const peripheralStatus= getPeripheralStatus();
   <h3><Brain size={17} className="sec-icon" /> <span className="sec-num">H1</span> NEUROLOGICAL</h3>
 
   {/* ================= IVH ================= */}
-  <div className="card">
-
-    <div
-      className="card-header-row"
-      onClick={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
-    >
-
-      <span><span className="sec-num sub">H1.1</span> Intraventricular Hemorrhage (IVH)</span>
-      <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.ivh_present)}`}>
-  <span className="icon">{getStatusIcon(formData.ivh_present)}</span>
-  {getIVHSummary()}
-</span></div>
-      <span className="arrow">{openSection === "ivh" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "ivh" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.1"
+    title="Intraventricular Hemorrhage (IVH)"
+    icon="🧠"
+    accentColor="bg-violet-500"
+    summary={getIVHSummary()}
+    statusClass={getStatusClass(formData.ivh_present)}
+    open={openSection === "ivh"}
+    onToggle={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5502,43 +5500,40 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.ivh_present === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
-                <label><span className="field-num">2.</span> Side<span className="required">*</span></label>
-                <select
+                <PillSelect
+                  fieldNum={2}
+                  label="Side"
+                  required
                   name="ivh_side"
                   value={formData.ivh_side || ""}
+                  options={["Right", "Left", "Bilateral"]}
                   onChange={handleCranialUsgChange}
                   onBlur={handleBlur}
-                >
-                  <option value="">-- Select --</option>
-                  <option value="Right">Right</option>
-                  <option value="Left">Left</option>
-                  <option value="Bilateral">Bilateral</option>
-                </select>
-                {cranialUsgAutoFilled.ivh_side && <span className="field-hint-auto-inline">from Form F</span>}
-                {touched.ivh_side && errors.ivh_side && <div className="error-text">{errors.ivh_side}</div>}
+                  autoFilledFrom={cranialUsgAutoFilled.ivh_side ? "Form F" : null}
+                  touched={touched.ivh_side}
+                  error={errors.ivh_side}
+                />
               </div>
             </div>
 
             {(formData.ivh_side === "Right" || formData.ivh_side === "Bilateral") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">3.</span> Right: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={3}
+                    label="Right: Max Grade"
+                    required
                     name="ivh_grade_right"
                     value={formData.ivh_grade_right || ""}
+                    options={["I", "II", "III", "IV"]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                    <option value="IV">IV</option>
-                  </select>
-                  {cranialUsgAutoFilled.ivh_grade_right && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.ivh_grade_right && errors.ivh_grade_right && <div className="error-text">{errors.ivh_grade_right}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.ivh_grade_right ? "Form F" : null}
+                    touched={touched.ivh_grade_right}
+                    error={errors.ivh_grade_right}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5575,23 +5570,21 @@ const peripheralStatus= getPeripheralStatus();
             )}
 
             {(formData.ivh_side === "Left" || formData.ivh_side === "Bilateral") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">6.</span> Left: Max Grade<span className="required">*</span></label>
-                  <select
+                  <PillSelect
+                    fieldNum={6}
+                    label="Left: Max Grade"
+                    required
                     name="ivh_grade_left"
                     value={formData.ivh_grade_left || ""}
+                    options={["I", "II", "III", "IV"]}
                     onChange={handleCranialUsgChange}
                     onBlur={handleBlur}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                    <option value="IV">IV</option>
-                  </select>
-                  {cranialUsgAutoFilled.ivh_grade_left && <span className="field-hint-auto-inline">from Form F</span>}
-                  {touched.ivh_grade_left && errors.ivh_grade_left && <div className="error-text">{errors.ivh_grade_left}</div>}
+                    autoFilledFrom={cranialUsgAutoFilled.ivh_grade_left ? "Form F" : null}
+                    touched={touched.ivh_grade_left}
+                    error={errors.ivh_grade_left}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -5638,7 +5631,7 @@ const peripheralStatus= getPeripheralStatus();
               />
             </div>
 
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <YesNoToggle label="10. PVHI" name="pvhi" value={formData.pvhi} onChange={handleChange} />
               </div>
@@ -5654,35 +5647,23 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
 
   {/* ================= PVL ================= */}
-  <div className="card">
-   <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
->
-  <span><span className="sec-num sub">H1.2</span> Periventricular Leukomalacia (cPVL)</span>
-
-  <div className="right-section">
-    <span className={`summary ${getStatusClass(formData.pvl_present)}`}>
-      <span className="icon">{getStatusIcon(formData.pvl_present)}</span>
-
-      {formData.pvl_present === "Yes"
-        ? formData.pvl_grade
-          ? `Grade ${formData.pvl_grade}`
-          : "Yes"
-        : formData.pvl_present || "Not filled"}
-    </span>
-</div>
-    <span className="arrow">{openSection === "pvl" ? "▲" : "▼"}</span>
-  
-</div>
-
-    {openSection === "pvl" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.2"
+    title="Periventricular Leukomalacia (cPVL)"
+    icon="🔬"
+    accentColor="bg-purple-500"
+    summary={
+      formData.pvl_present === "Yes"
+        ? formData.pvl_grade ? `Grade ${formData.pvl_grade}` : "Yes"
+        : formData.pvl_present || "Not filled"
+    }
+    statusClass={getStatusClass(formData.pvl_present)}
+    open={openSection === "pvl"}
+    onToggle={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5740,7 +5721,7 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.pvl_present === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">14.</span> Side<span className="required">*</span></label>
                 <select
@@ -5762,7 +5743,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
 
             {(formData.pvl_side === "Right" || formData.pvl_side === "Both") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
                   <label><span className="field-num">15.</span> If Right: Max Grade<span className="required">*</span></label>
                   <select
@@ -5816,7 +5797,7 @@ const peripheralStatus= getPeripheralStatus();
             )}
 
             {(formData.pvl_side === "Left" || formData.pvl_side === "Both") && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
                   <label><span className="field-num">18.</span> If Left: Max Grade<span className="required">*</span></label>
                   <select
@@ -5868,35 +5849,22 @@ const peripheralStatus= getPeripheralStatus();
             )}
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
   {/* ================= VENTRICULOMEGALY ================= */}
-<div className="card">
-
-  <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "vm" ? null : "vm")}
->
-  <span><span className="sec-num sub">H1.3</span> Ventriculomegaly</span>
-
-  <span className={`summary centered ${getStatusClass(formData.ventriculomegaly_present)}`}>
-    <span className="icon">
-      {getStatusIcon(formData.ventriculomegaly_present)}
-    </span>
-
-    {formData.ventriculomegaly_present === "Yes"
-      ? formData.ventriculomegaly_severity || "Yes"
-      : formData.ventriculomegaly_present || "Not filled"}
-  </span>
-
-  <span className="arrow">
-    {openSection === "vm" ? "▲" : "▼"}
-  </span>
-</div>
-
-  {openSection === "vm" && (
-    <div className="card-body">
+  <CollapsibleCard
+    code="H1.3"
+    title="Ventriculomegaly"
+    icon="💧"
+    accentColor="bg-blue-500"
+    summary={
+      formData.ventriculomegaly_present === "Yes"
+        ? formData.ventriculomegaly_severity || "Yes"
+        : formData.ventriculomegaly_present || "Not filled"
+    }
+    statusClass={getStatusClass(formData.ventriculomegaly_present)}
+    open={openSection === "vm"}
+    onToggle={() => setOpenSection(openSection === "vm" ? null : "vm")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -5938,7 +5906,7 @@ const peripheralStatus= getPeripheralStatus();
       {/* CONDITIONAL */}
       {formData.ventriculomegaly_present === "Yes" && (
         <>
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label><span className="field-num">22.</span> Severity</label>
@@ -5973,7 +5941,7 @@ const peripheralStatus= getPeripheralStatus();
 
           </div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label>
@@ -6011,7 +5979,7 @@ const peripheralStatus= getPeripheralStatus();
 
           </div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label>
@@ -6052,35 +6020,23 @@ const peripheralStatus= getPeripheralStatus();
           </div>
         </>
       )}
-    </div>
-  )}
-</div>
+  </CollapsibleCard>
 
   {/* ================= SEIZURES ================= */}
-  <div className="card">
-    <div
-  className="card-header-row"
-  onClick={() => setOpenSection(openSection === "seizure" ? null : "seizure")}
->
-  <span><span className="sec-num sub">H1.4</span> Seizures</span>
-
-  <div className="right-section">
-    <span className={`summary ${getStatusClass(formData.seizures)}`}>
-      <span className="icon">{getStatusIcon(formData.seizures)}</span>
-
-      {formData.seizures === "Yes"
-        ? formData.status_epilepticus === "Yes"
-          ? "Yes • Status Epilepticus"
-          : "Yes"
-        : formData.seizures || "Not filled"}
-    </span>
-</div>
-    <span className="arrow">{openSection === "seizure" ? "▲" : "▼"}</span>
-  
-</div>
-
-    {openSection === "seizure" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H1.4"
+    title="Seizures"
+    icon="⚡"
+    accentColor="bg-indigo-500"
+    summary={
+      formData.seizures === "Yes"
+        ? formData.status_epilepticus === "Yes" ? "Yes • Status Epilepticus" : "Yes"
+        : formData.seizures || "Not filled"
+    }
+    statusClass={getStatusClass(formData.seizures)}
+    open={openSection === "seizure"}
+    onToggle={() => setOpenSection(openSection === "seizure" ? null : "seizure")}
+  >
 
 {neuroPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -6113,7 +6069,7 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.seizures === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">28.</span> Date<span className="required">*</span></label>
                 <DatePicker
@@ -6144,7 +6100,7 @@ const peripheralStatus= getPeripheralStatus();
               </div>
             </div>
 
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">30.</span> EEG</label>
                 <select name="eeg" value={formData.eeg || ""} onChange={handleChange}>
@@ -6176,10 +6132,12 @@ const peripheralStatus= getPeripheralStatus();
 
             {/* WHICH AED */}
             <div className="form-group">
-              <label><span className="field-num">33.</span> Which AED</label>
-
-              <div className="checkbox-group">
-                {[
+              <ChipMultiSelect
+                fieldNum={33}
+                label="Which AED"
+                value={formData.aed_type || []}
+                onChange={(next) => setFormData(prev => ({ ...prev, aed_type: next }))}
+                options={[
                   { value: "Phenytoin",      label: "Phenytoin" },
                   // stored value kept as "Phenobarbital" for backward
                   // compatibility with already-saved records — CRF label is
@@ -6191,31 +6149,8 @@ const peripheralStatus= getPeripheralStatus();
                   { value: "Pyridoxine",     label: "Pyridoxine" },
                   // stored value kept as "Other" for backward compatibility
                   { value: "Other",          label: "Others" },
-                ].map(({ value, label }) => (
-                  <label key={value} className="checkbox-item">
-                    <input
-                      type="checkbox"
-                      checked={formData.aed_type?.includes(value)}
-                      onChange={() => {
-                        const selected = formData.aed_type || [];
-
-                        if (selected.includes(value)) {
-                          setFormData(prev => ({
-                            ...prev,
-                            aed_type: selected.filter(d => d !== value)
-                          }));
-                        } else {
-                          setFormData(prev => ({
-                            ...prev,
-                            aed_type: [...selected, value]
-                          }));
-                        }
-                      }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
+                ]}
+              />
             </div>
 
             {/* OTHER AED */}
@@ -6232,7 +6167,7 @@ const peripheralStatus= getPeripheralStatus();
               </div>
             )}
 
-            <div className="form-row">
+            <div className="fh-grid-row">
 
               {/* ETIOLOGY */}
               <div className="form-group">
@@ -6277,9 +6212,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </>
         )}
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
 
 </div>
 
