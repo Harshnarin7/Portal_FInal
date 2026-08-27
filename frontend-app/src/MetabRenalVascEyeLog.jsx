@@ -11,7 +11,7 @@ import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
-  Lock, Shield, FileCheck, Copy, Edit,
+  Lock, Copy, Edit,
   AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2,
 } from "lucide-react";
 import "./styles/MinimalMonitoring.css";
@@ -565,10 +565,10 @@ function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
     <div className="rcn-modal-overlay">
       <div className="rcn-modal">
         <div className="rcn-modal-header">
-          <div className="rcn-modal-icon"><FileCheck size={22} /></div>
+          <div className="rcn-modal-icon rcn-modal-icon--lock"><Lock size={22}/></div>
           <div>
-            <h3 className="rcn-modal-title">Submit Day {day} Data</h3>
-            <p className="rcn-modal-subtitle">This will lock the record for Day {day}</p>
+            <h3 className="rcn-modal-title">Lock Day {day} Data</h3>
+            <p className="rcn-modal-subtitle">This record will become read-only</p>
           </div>
           <button className="rcn-modal-close" onClick={onCancel} type="button"><X size={18} /></button>
         </div>
@@ -581,21 +581,25 @@ function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
             <div className="rcn-modal-check rcn-modal-check--ok">
               <CheckCircle size={15}/><span>Nurse data entry saved</span>
             </div>
-            <div className="rcn-modal-check rcn-modal-check--info">
-              <Lock size={15}/><span>After submission, nurses cannot edit this day</span>
-            </div>
+          </div>
+          <div className="rcn-modal-warning rcn-modal-warning--lock">
+            <Lock size={14} />
+            <span>
+              After locking, you will not be able to edit this data.
+              Are you sure you want to lock Day {day}?
+            </span>
           </div>
           {completionPct < 100 && (
             <div className="rcn-modal-warning">
               <AlertTriangle size={14}/>
-              <span>Submitting with incomplete data. Ensure missing fields are clinically not applicable before proceeding.</span>
+              <span>Locking with incomplete data. Ensure missing fields are clinically not applicable before proceeding.</span>
             </div>
           )}
         </div>
         <div className="rcn-modal-footer">
           <button className="rcn-modal-btn rcn-modal-btn--cancel" onClick={onCancel} type="button" disabled={submitting}>Cancel</button>
-          <button className="rcn-modal-btn rcn-modal-btn--submit" onClick={onConfirm} type="button" disabled={submitting}>
-            {submitting ? "Submitting…" : <><Shield size={14}/> Confirm &amp; Submit</>}
+          <button className="rcn-modal-btn rcn-modal-btn--lock" onClick={onConfirm} type="button" disabled={submitting}>
+            {submitting ? "Locking…" : <><Lock size={14}/> Yes, Lock It</>}
           </button>
         </div>
       </div>
@@ -836,13 +840,11 @@ export default function MetabRenalVascEyeLog() {
   }, [activeDayDate]);
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
+  // Informational only now — locking is manual (see the Lock button below),
+  // so a past calendar date no longer forces a day read-only by itself.
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
-  // Complete by 11:00 AM — yesterday stays editable until then so night
-  // shift can finish the prior day (aligned with Helper Forms 2 & 3).
+  // Complete by 11:00 AM — still used for the Day 1 Date entry window.
   const MRVE_LATE_GRACE_HOUR = 11;
-  const isLateGraceActiveDay =
-    todayNicuDay != null && activeDay === todayNicuDay - 1 &&
-    new Date().getHours() < MRVE_LATE_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
@@ -868,11 +870,11 @@ export default function MetabRenalVascEyeLog() {
     !!day1Date &&
     (!isSubmitted || isOverrideActiveDay) &&
     (!isSaved || isEditing) &&
-    !isFutureActiveDay &&
-    // Same fix as Helper Forms 2/3: a past day's window has closed unless
-    // it's in the late-entry grace period or a superadmin override reopened
-    // it. Without this, fields/Save stayed live on any locked past day.
-    (!isPastActiveDay || isLateGraceActiveDay || isOverrideActiveDay);
+    !isFutureActiveDay;
+    // NOTE: locking is now manual only (via the explicit "Lock" button +
+    // confirmation modal below), so a past day's calendar date passing no
+    // longer forces the record read-only on its own — only isSubmitted
+    // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving.
@@ -1947,12 +1949,19 @@ export default function MetabRenalVascEyeLog() {
         {/* ── Summary Card ── */}
         <div className="rcn-summary">
           <div className="rcn-summary-left">
-            <h2 className="rcn-summary-title">Day {activeDay}</h2>
+            <h2 className="rcn-summary-title">
+              Day {activeDay}
+              {isPastActiveDay && !isSubmitted && (
+                <span className="rcn-past-day-tag" title="This day's calendar date has passed, but it stays editable until you manually lock it">
+                  Past day — still editable
+                </span>
+              )}
+            </h2>
             <div className="rcn-summary-meta">
               <Clock size={13}/>
               <span>{isSaved?"Completed":"Not yet started"} — complete by 11:00 AM</span>
             </div>
-            {!isSubmitted && !isFutureActiveDay && !isPastActiveDay && activeDay > 1 && (
+            {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"
                 onClick={() => {
                   const available = Object.keys(dayStatuses).map(Number)
@@ -2523,7 +2532,7 @@ export default function MetabRenalVascEyeLog() {
         )}
 
         {/* Edit button — enable editing of saved draft */}
-        {isSaved && !isEditing && !isSubmitted && !isPastActiveDay && (
+        {isSaved && !isEditing && !isSubmitted && (
           <button
             type="button"
             className="btn btn-edit btn-outline-blue"
@@ -2534,16 +2543,19 @@ export default function MetabRenalVascEyeLog() {
           </button>
         )}
 
-        {/* Submit / status area */}
+        {/* Save / manual Lock button / Locked badge — locking is explicit
+            and manual only: nothing here auto-locks a day just because its
+            calendar date has passed. A day stays editable until a user
+            clicks "Lock" and confirms in the modal. */}
         {isOverrideActiveDay ? (
           <>
             <div className="rcn-locked-badge rcn-locked-badge--override" title="Temporarily reopened by a site monitor">
               <Unlock size={13} /> Day {activeDay} Reopened (Override)
             </div>
             {canSubmit ? (
-              <button type="button" className="btn btn-submit-day" onClick={() => setShowModal(true)}
-                title="Submit and lock this day">
-                <Shield size={15} /> Submit Day {activeDay}
+              <button type="button" className="btn btn-lock-day" onClick={() => setShowModal(true)}
+                title="Lock this day — you won't be able to edit it after confirming">
+                <Lock size={15} /> Lock Day {activeDay}
               </button>
             ) : (
               <button type="button" className="btn btn-draft" onClick={handleSave}>
@@ -2559,7 +2571,7 @@ export default function MetabRenalVascEyeLog() {
                 type="button"
                 className="rcn-override-btn"
                 onClick={() => setShowOverrideModal(true)}
-                title="Reopen this submitted day temporarily for a correction"
+                title="Reopen this locked day temporarily for a correction"
               >
                 <Unlock size={13}/> Override &amp; Unlock
               </button>
@@ -2569,42 +2581,14 @@ export default function MetabRenalVascEyeLog() {
           <div className="rcn-locked-badge" title="Data can only be entered on the day's own calendar date">
             <Lock size={13}/> Day {activeDay} Not Available Yet
           </div>
-        ) : isPastActiveDay && isLateGraceActiveDay ? (
-          canSubmit ? (
-            <button type="button" className="btn btn-submit-day" onClick={() => setShowModal(true)}
-              title="Submit and lock this day">
-              <Shield size={15}/> Submit Day {activeDay} (Late)
-            </button>
-          ) : (
-            <button type="button" className="btn btn-draft" onClick={handleSave}
-              title={`Grace window open until ${MRVE_LATE_GRACE_HOUR}:00 AM`}>
-              <Save size={15}/> Save (Late Entry)
-            </button>
-          )
-        ) : isPastActiveDay ? (
-          <>
-            <div className="rcn-locked-badge" title="This day's window has passed — view only">
-              <Lock size={13}/> Day {activeDay} Locked (Past Day)
-            </div>
-            {isSuperadmin && (
-              <button
-                type="button"
-                className="rcn-override-btn"
-                onClick={() => setShowOverrideModal(true)}
-                title="Reopen this day temporarily for a correction"
-              >
-                <Unlock size={13}/> Override &amp; Unlock
-              </button>
-            )}
-          </>
         ) : canSubmit ? (
           <button
             type="button"
-            className="btn btn-submit-day"
+            className="btn btn-lock-day"
             onClick={() => setShowModal(true)}
-            title="Submit and lock this day"
+            title="Lock this day — you won't be able to edit it after confirming"
           >
-            <Shield size={15}/> Submit Day {activeDay}
+            <Lock size={15}/> Lock Day {activeDay}
           </button>
         ) : (
           <button type="button" className="btn btn-draft" onClick={handleSave}>

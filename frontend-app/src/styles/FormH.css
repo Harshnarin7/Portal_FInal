@@ -296,6 +296,40 @@
 }
 .fh-field-num { color: var(--fh-text-soft); font-weight: 700; margin-right: 2px; }
 .fh-required { color: #e11d48; margin-left: 2px; }
+/* FormH.jsx's <form> carries class "screening-form" (shared markup with
+   the older screening forms), which drags in THREE unscoped/leaked
+   rules that only affect a plain <label> — never YesNoToggle's own
+   heading, which renders as a <span class="fh-label"> instead:
+     1. FormA.css:  `.screening-form .form-group label { display:flex;
+        align-items:flex-end; min-height:32px; text-transform:uppercase;
+        font-size:11px; ... }` — this is *why* "AGE AT ONSET (DAYS)" and
+        "DAYS" render uppercase, and why they're taller: a 32px-tall,
+        bottom-aligned label box next to the toggle's plain ~18px span.
+     2. FormC.css:  `.form-group label { margin-bottom:6px !important }`
+     3. ScreeningForm.css: `label { display:block; margin-bottom:6px }`
+   Together these make any plain-labeled field sitting beside a
+   YesNoToggle in the same fh-grid-row (Q64/Q65, Q66/Q67) noticeably
+   taller and lower than its neighbor.
+   A same-specificity override (e.g. `.formh-modern .form-group label`,
+   two classes + a type) just ties #1 above (also two classes + a type)
+   and the winner becomes a bundle-order coin flip. Fixed for good with
+   the selector below, which chains BOTH ancestor classes actually
+   present in the DOM (.formh-modern > ... > .screening-form > ... >
+   .form-group > label) for three classes + a type — strictly higher
+   specificity than every offending rule, so it wins outright. */
+.formh-modern .screening-form .form-group label {
+  display: block !important;
+  align-items: initial !important;
+  min-height: 0 !important;
+  height: auto !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+  line-height: 1.3 !important;
+  margin-bottom: 0 !important;
+}
 .formh-modern .fh-autofill-tag {
   display: inline-block;
   margin-top: 2px;
@@ -489,6 +523,7 @@
   font-size: 13px !important;
   font-weight: 600 !important;
   color: #334155 !important;
+  margin-bottom: 0 !important;
 }
 .formh-modern .error-text {
   color: #dc2626 !important;
@@ -605,3 +640,75 @@
   border-color: #fecaca !important;
   color: #b91c1c !important;
 }
+/* ============================================================
+   Q61. Rx (treatment given) — colorful toggle checkboxes
+   Fix: previously the checkbox inherited the generic
+   `.form-group input { width:100%; height:48px; appearance:none }`
+   rule with no `:checked` styling at all, so every option — picked
+   or not — rendered as the same flat, colorless track. This gives
+   each medication its own accent color and makes the on/off state
+   (and the whole row) unmistakable at a glance.
+   ============================================================ */
+.rx-card { text-align: left; }
+.rx-subtitle { font-size: 14px; font-weight: 700; color: #334155; margin: 0 0 14px; }
+
+.rx-grid .rx-option {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 16px;
+  margin: 0;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.rx-grid .rx-option:hover { border-color: #94a3b8; background: #f8fafc; }
+.rx-grid .rx-option span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  transition: color .18s ease;
+}
+
+/* The toggle itself: a pill track + sliding knob, built directly on the
+   <input> (appearance:none + a ::after knob) so no extra markup is
+   needed and the existing onChange/checked props keep working as-is. */
+.rx-grid .rx-option input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  position: relative;
+  flex: none;
+  width: 40px !important;
+  height: 22px !important;
+  min-width: 40px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background-color: #cbd5e1 !important;
+  cursor: pointer;
+  transition: background-color .2s ease;
+}
+.rx-grid .rx-option input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15,23,42,.35);
+  transition: left .2s ease;
+}
+.rx-grid .rx-option input[type="checkbox"]:checked::after { left: 20px; }
+
+/* Single accent color for every checked option — applied to the track
+   plus a row highlight, so a checked box is unmistakable next to an
+   unchecked one, without differentiating between the five options. */
+.rx-grid .rx-option input[type="checkbox"]:checked { background-color: #4f46e5 !important; }
+.rx-grid .rx-option:has(input:checked) { border-color: #4f46e5; background: #eef2ff; }
+.rx-grid .rx-option:has(input:checked) span { color: #0f172a; font-weight: 700; }
