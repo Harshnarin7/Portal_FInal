@@ -16,7 +16,10 @@ from config import ACCESS_TOKEN_EXPIRE_MINUTES
 from db import Base, engine, SessionLocal, get_db
 from models import SteroidData
 import models
-from ae_reference import detect_metab_renal_vasc_eye_candidates
+from ae_reference import (
+    detect_metab_renal_vasc_eye_candidates,
+    detect_form_h_morbidity_candidates,
+)
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -4171,16 +4174,19 @@ def get_adverse_event_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """AE-candidate detection — first domain of the AE/SAE auto-fill
-    project (Metabolic, Electrolyte, Thermal, AKI — the 8 AE terms in the
-    site's AE severity document that have hard numeric or clinician-staged
-    thresholds already captured in the Metab/Renal/Vasc/Eye daily helper
-    log). Returns candidate rows shaped to drop straight into
-    AdverseEventsForm's `events` list; the frontend only ever offers these
-    as suggestions to add — nothing here writes to the AE form directly.
-    Every other AE term in the document has no detector yet and simply
-    won't appear here (silently, not as an error) — this list is expected
-    to grow domain by domain, same as the Form H auto-fill project."""
+    """AE-candidate detection for the AE/SAE auto-fill project. Returns
+    candidate rows shaped to drop straight into AdverseEventsForm's
+    `events` list; the frontend only ever offers these as suggestions to
+    add — nothing here writes to the AE form directly. AE terms with no
+    detector yet simply don't appear (silently, not as an error) — this
+    list grows domain by domain, same as the Form H auto-fill project.
+
+    Sources so far:
+      - Domain 1: the Metab/Renal/Vasc/Eye daily helper log — 8 terms with
+        hard numeric / clinician-staged thresholds (Metabolic, Electrolyte,
+        Thermoregulation, Renal/AKI).
+      - Domain 2: Form H (NeonatalMorbidities) — IVH, PVL, NEC, BPD, ROP,
+        PDA, using the stage/grade a clinician already adjudicated there."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -4188,7 +4194,12 @@ def get_adverse_event_candidates(
         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
         .all()
     )
-    if not logs:
+    nm = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not logs and nm is None:
         return {"has_data": False, "candidates": []}
 
     nicu = (
@@ -4198,7 +4209,10 @@ def get_adverse_event_candidates(
     )
     day1_date = nicu.day1_date if nicu else None
 
-    candidates = detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
+    candidates = []
+    if logs:
+        candidates += detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
+    candidates += detect_form_h_morbidity_candidates(nm, day1_date=day1_date)
     return {"has_data": True, "candidates": candidates}
 
 

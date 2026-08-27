@@ -148,6 +148,82 @@ AE_DEFINITIONS = {
             5: "Death",
         },
     },
+    # --- Domain 2: major morbidities already adjudicated in Form H
+    # (NeonatalMorbidities). Grade text quoted verbatim from the
+    # reorganized document's Neurological / Gastro-intestinal /
+    # Respiratory / Sensory / Cardiovascular sections. ---
+    "ivh": {
+        "name": "Neonatal Intraventricular Hemorrhage (IVH)",
+        "section": "Neurological",
+        "definition": "Bleeding into the lateral cerebral ventricles in a newborn infant. (MedDRA 10022844; CDISC C154937)",
+        "grades": {
+            1: "Asymptomatic hemorrhage confined to the germinal matrix; minimal hemorrhage within the ventricle (<10%) on parasagittal view",
+            2: "Moderate hemorrhage occupying ≤50% of ventricle volume (<50%) without ventricular dilatation > 4 mm above the 97th percentile",
+            3: "Hemorrhage occupying >50% of the ventricle volume; ventricular dilatation > 4 mm above the 97th percentile; parenchymal venous infarction; requiring temporizing neurosurgical procedure (drain, shunt, or reservoir)",
+            4: "Hemorrhage with parenchymal venous infarction; resulting in life-threatening consequences (e.g. refractory seizures, hypotension, respiratory depression); requiring urgent stabilization or surgical decompression",
+            5: "Death",
+        },
+    },
+    "pvl": {
+        "name": "Periventricular Leukomalacia (PVL)",
+        "section": "Neurological",
+        "definition": "A form of cerebral white matter injury usually seen in preterm infants, characterized by necrotic degeneration or gliosis of white matter adjacent to the cerebral ventricles that may evolve into focal cysts. (MedDRA 10052594; CDISC C154923)",
+        "grades": {
+            1: "Transient periventricular echo densities persisting > 7 days and resolving completely",
+            2: "Transient periventricular echo densities evolving into small localized fronto-parietal cysts or persistent diffuse echo densities",
+            3: "Periventricular echo densities evolving into extensive cystic periventricular lesions; or densities extending into the deep white matter",
+            4: "-",
+            5: "-",
+        },
+    },
+    "nec": {
+        "name": "Necrotizing Enterocolitis (NEC)",
+        "section": "Gastro-intestinal",
+        "definition": "A disease of neonates in which there is extensive mucosal ulceration, pseudomembrane formation, submucosal hemorrhage, and necrosis. (MedDRA 10052818; CDISC C154922)",
+        "grades": {
+            1: "-",
+            2: "-",
+            3: "NEC confirmed; major care change indicated (e.g. NPO, antibiotics, non-urgent surgery)",
+            4: "Bowel perforation (pneumoperitoneum) (Bell IIIB); shock, DIC, combined respiratory and metabolic acidosis (Bell IIIA); urgent major care change indicated",
+            5: "Death",
+        },
+    },
+    "bpd": {
+        "name": "Bronchopulmonary Dysplasia (BPD)",
+        "section": "Respiratory",
+        "definition": "A chronic lung disorder associated with pulmonary maldevelopment, scarring, and/or inflammation that develops in preterm neonates; defined based on treatment with supplemental oxygen for at least 28 days adjusted for the degree of prematurity. (MedDRA 10006475; CDISC C154919)",
+        "grades": {
+            1: "Supplemental oxygen at 28 days AND breathing room air at 36 weeks PMA (infants <32 weeks) / by 56 days postnatal age (infants >32 weeks) / at discharge",
+            2: "Supplemental oxygen at 28 days AND need for 22-30% oxygen or positive pressure at 36 weeks PMA (infants <32 weeks) / by 56 days (infants >32 weeks) / at discharge",
+            3: "Supplemental oxygen at 28 days AND need for >30% oxygen and/or positive pressure at 36 weeks PMA (infants <32 weeks) / by 56 days (infants >32 weeks) / at discharge",
+            4: "Supplemental oxygen at 28 days AND need for >30% oxygen AND positive pressure at 36 weeks PMA (infants <32 weeks) / by 56 days (infants >32 weeks) / at discharge",
+            5: "Death",
+        },
+    },
+    "rop": {
+        "name": "Retinopathy of Prematurity (ROP)",
+        "section": "Sensory",
+        "definition": "A retinal condition of very immature infants that may be characterized by a non-vascularized retina that may lead to neovascularization, scarring, retinal detachment, and blindness. (MedDRA 10038933; CDISC C154925)",
+        "grades": {
+            1: "Zone 2 ICROP stage 2 with or without plus disease; zone 3 any ICROP stage; no care changes indicated",
+            2: "Type 2 pre-threshold ROP (zone 1 ICROP stage 1 or 2 without plus disease; zone 2 ICROP stage 3 without plus disease); requiring more frequent ophthalmic monitoring",
+            3: "Type 1 pre-threshold ROP (zone 1 any stage with plus disease; zone 1 ICROP stage 3 without plus disease; zone 2 ICROP stage 2 or 3 with plus disease); threshold ROP; requiring major care changes (e.g. laser intervention, intravitreal anti-VEGF or operative management)",
+            4: "Unilateral retinal detachment",
+            5: "Blindness (bilateral retinal detachment)",
+        },
+    },
+    "pda": {
+        "name": "Patent Ductus Arteriosus (PDA)",
+        "section": "Cardiovascular",
+        "definition": "A disorder characterized by persistence of the ductus arteriosus (the fetal vascular connection between the pulmonary artery and the aorta) after birth.",
+        "grades": {
+            1: "PDA NOT needing treatment or resulting in prolongation of respiratory support/hospital stay",
+            2: "PDA needing medical treatment but NOT cardiac failure",
+            3: "PDA needing surgical treatment or resulting in cardiac failure",
+            4: "-",
+            5: "Death",
+        },
+    },
 }
 
 
@@ -343,3 +419,235 @@ def detect_metab_renal_vasc_eye_candidates(logs, day1_date=None):
         out.append(_episode("aki", grade, days, evidence))
 
     return out
+
+
+# --------------------------------------------------------------------------
+# Domain 2 — major morbidities sourced from Form H (NeonatalMorbidities)
+# --------------------------------------------------------------------------
+
+_ROMAN_GRADE = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "1": 1, "2": 2, "3": 3, "4": 4}
+
+
+def _resolve_grade(slug, grade):
+    """(grade, grade_text, note). If the requested grade is UNRESOLVED or
+    "-" in the source document, step down to the highest grade below it
+    that IS defined — never surface a grade the document does not define.
+    Returns (None, None, "") if nothing at or below `grade` is defined."""
+    grades = AE_DEFINITIONS[slug]["grades"]
+    text = grades.get(grade)
+    if text not in (None, UNRESOLVED, "-"):
+        return grade, text, ""
+    for g in range(grade - 1, 0, -1):
+        if grades[g] not in (UNRESOLVED, "-"):
+            note = (f" (Note: the AE scale does not define Grade {grade} for this event — "
+                    f"graded conservatively at the highest defined grade below it.)")
+            return g, grades[g], note
+    return None, None, ""
+
+
+def _fh_truthy(*vals):
+    for v in vals:
+        if v is True:
+            return True
+        if isinstance(v, str) and v.strip().lower() in ("yes", "true", "1"):
+            return True
+    return False
+
+
+def _fh_date(date_val, age_days, day1_date):
+    """Best available onset date for a Form H morbidity: the explicit date
+    column if present, else day1_date + (age_days - 1), else None."""
+    if date_val is not None:
+        try:
+            return date_val.isoformat()
+        except AttributeError:
+            return str(date_val) or None
+    if day1_date is not None and isinstance(age_days, int) and age_days > 0:
+        return (day1_date + timedelta(days=age_days - 1)).isoformat()
+    return None
+
+
+def _fh_candidate(slug, grade, start_date, evidence):
+    """Shape one Form H-sourced AE candidate row (same shape as _episode).
+    grade=None → detect-only: no grade proposed, the clinician assigns it."""
+    d = AE_DEFINITIONS[slug]
+    grade_str, severity = "", f"{d['name']} recorded in Form H — grade not auto-assigned."
+    if grade is not None:
+        g, text, note = _resolve_grade(slug, grade)
+        if g is not None:
+            grade_str = str(g)
+            severity = f"Grade {g}: {text}{note}"
+    return {
+        "definition_no": slug,
+        "description": d["name"],
+        "start_date": start_date,
+        "end_date": None,
+        "severity_desc": severity,
+        "grade": grade_str,
+        "evidence": evidence,
+        "nicu_day_start": None,
+        "nicu_day_end": None,
+    }
+
+
+def detect_form_h_morbidity_candidates(nm, day1_date=None):
+    """nm: the single NeonatalMorbidities (Form H) row for one enrollment,
+    or None. Returns AE-candidate dicts for the 6 major morbidities the AE
+    severity document covers that Form H already captures with a
+    clinician-assigned stage/grade — IVH, PVL, NEC, BPD, ROP, PDA
+    (document sections Neurological / Gastro-intestinal / Respiratory /
+    Sensory / Cardiovascular).
+
+    Form H is the ONLY source here (PI decision 2026-08-27): if a
+    morbidity isn't recorded in Form H it hasn't been clinically
+    adjudicated, and the AE register carries regulatory weight — the daily
+    helper logs / Form F cranial USG are deliberately NOT a fallback.
+
+    Grade is auto-assigned only where the mapping is unambiguous:
+      - IVH  : Form H grade I/II/III/IV → severity Grade 1/2/3/4 (worse eye)
+      - PVL  : Form H grade I/II/III   → severity Grade 1/2/3 (worse side);
+               grade IV steps down to 3 (the scale defines PVL to Grade 3)
+      - NEC  : Bell IIA/IIB/IIIA → Grade 3; Bell IIIB or any surgery →
+               Grade 4; Bell 1 (IA/IB) or no stage → detect-only
+      - ROP  : a recorded treatment (laser / anti-VEGF / operative) → Grade
+               3 (Type 1 / threshold ROP); ROP diagnosed but untreated →
+               detect-only (Grade 1 vs 2 needs zone/stage/plus)
+      - PDA  : none → Grade 1; medical Rx → Grade 2; ligation / device
+               closure → Grade 3
+      - BPD  : detect-only — the scale grades BPD by O2 % / positive
+               pressure at 36 weeks PMA (NICHD 2001) while Form H stores
+               the Jensen 2019 grade; there is no hard-number mapping.
+    Grade 5 (Death) is never auto-assigned by any branch."""
+    if nm is None:
+        return []
+    out = []
+
+    # --- IVH (Neurological) ---
+    if _fh_truthy(nm.ivh_present, nm.ivh):
+        r = _ROMAN_GRADE.get(str(nm.ivh_grade_right or "").strip().lower())
+        l = _ROMAN_GRADE.get(str(nm.ivh_grade_left or "").strip().lower())
+        grade = max([g for g in (r, l) if g], default=None)
+        sides = []
+        if r:
+            sides.append(f"Right grade {nm.ivh_grade_right}")
+        if l:
+            sides.append(f"Left grade {nm.ivh_grade_left}")
+        start = (_fh_date(nm.ivh_date_right, nm.ivh_age_days_right, day1_date)
+                 or _fh_date(nm.ivh_date_left, nm.ivh_age_days_left, day1_date)
+                 or _fh_date(nm.ivh_date, nm.ivh_age_days, day1_date))
+        ev = "Form H records IVH" + (f" — {', '.join(sides)}" if sides else " (no grade recorded)")
+        out.append(_fh_candidate("ivh", grade, start, ev))
+
+    # --- PVL (Neurological) ---
+    if _fh_truthy(nm.pvl_present, nm.pvl):
+        r = _ROMAN_GRADE.get(str(nm.pvl_grade_right or "").strip().lower())
+        l = _ROMAN_GRADE.get(str(nm.pvl_grade_left or "").strip().lower())
+        grade = max([g for g in (r, l) if g], default=None)
+        sides = []
+        if r:
+            sides.append(f"Right grade {nm.pvl_grade_right}")
+        if l:
+            sides.append(f"Left grade {nm.pvl_grade_left}")
+        start = (_fh_date(nm.pvl_date_right, nm.pvl_age_days_right, day1_date)
+                 or _fh_date(nm.pvl_date_left, nm.pvl_age_days_left, day1_date)
+                 or _fh_date(nm.pvl_date, None, day1_date))
+        ev = "Form H records cystic PVL" + (f" — {', '.join(sides)}" if sides else " (no grade recorded)")
+        out.append(_fh_candidate("pvl", grade, start, ev))
+
+    # --- NEC (Gastro-intestinal) ---
+    if _fh_truthy(nm.nec):
+        stage = str(nm.nec_stage or "").strip().upper()
+        surgery = nm.nec_surgery is True
+        if stage == "IIIB" or surgery:
+            grade = 4
+        elif stage in ("IIA", "IIB", "IIIA"):
+            grade = 3
+        else:  # IA / IB / blank — unconfirmed NEC
+            grade = None
+        start = _fh_date(nm.nec_date, nm.nec_age_days, day1_date)
+        ev = "Form H records NEC" + (f", Bell stage {stage}" if stage else " (stage not recorded)")
+        if surgery:
+            ev += ", surgery performed"
+        if grade == 3:
+            ev += (". Note: the AE scale's Grade 4 also covers Bell IIIA accompanied by shock / "
+                   "DIC / combined respiratory-metabolic acidosis — upgrade to Grade 4 if "
+                   "systemic collapse was present.")
+        elif grade is None:
+            ev += (". Bell stage 1 is unconfirmed NEC — the AE scale directs recording the "
+                   "severity of individual symptoms (e.g. feeding intolerance) instead.")
+        out.append(_fh_candidate("nec", grade, start, ev))
+
+    # --- BPD (Respiratory) — detect-only ---
+    if _fh_truthy(nm.bpd):
+        bits = []
+        if nm.bpd_grade:
+            bits.append(f"Jensen grade {nm.bpd_grade}")
+        if nm.bpd_support_36w:
+            bits.append(f"respiratory support at 36 weeks PMA: {nm.bpd_support_36w}")
+        ev = "Form H records BPD" + (f" ({'; '.join(bits)})" if bits else "")
+        ev += (". Grade not auto-assigned — the AE scale grades BPD by oxygen % / positive "
+               "pressure at 36 weeks PMA (NICHD 2001), which does not map directly onto the "
+               "Jensen 2019 grade stored in Form H.")
+        out.append(_fh_candidate("bpd", None, None, ev))
+
+    # --- ROP (Sensory) ---
+    if _fh_truthy(nm.rop):
+        treated = _fh_truthy(
+            nm.rop_treatment_right, nm.rop_treatment_left, nm.rop_treatment,
+            nm.rop_laser, nm.rop_anti_vegf, nm.rop_vitrectomy,
+            nm.rop_laser_right, nm.rop_laser_left,
+            nm.rop_anti_vegf_right, nm.rop_anti_vegf_left,
+            nm.rop_vitrectomy_right, nm.rop_vitrectomy_left,
+        )
+        grade = 3 if treated else None
+        start = _fh_date(nm.rop_diagnosis_date, None, day1_date)
+        eyes = []
+        for side, st, zn, pl in (
+            ("Right", nm.rop_stage_right, nm.rop_zone_right, nm.rop_plus_right),
+            ("Left", nm.rop_stage_left, nm.rop_zone_left, nm.rop_plus_left),
+        ):
+            d = []
+            if zn:
+                d.append(f"zone {zn}")
+            if st:
+                d.append(f"stage {st}")
+            if isinstance(pl, str) and pl.strip().lower() == "yes":
+                d.append("plus disease")
+            if d:
+                eyes.append(f"{side}: {', '.join(d)}")
+        ev = "Form H records ROP" + (f" — {'; '.join(eyes)}" if eyes else "")
+        if treated:
+            ev += (". A treatment (laser / anti-VEGF / operative) is recorded → Type 1 or "
+                   "threshold ROP.")
+        else:
+            ev += (". No treatment recorded — grade not auto-assigned "
+                   "(Grade 1 vs Grade 2 depends on zone / stage / plus disease).")
+        out.append(_fh_candidate("rop", grade, start, ev))
+
+    # --- PDA (Cardiovascular) — only flagged when haemodynamically
+    # significant or treated (a trivial self-closing PDA is not an AE). ---
+    surgical = str(nm.pda_intervention_rx or "").strip().lower() in ("ligation", "device closure")
+    if _fh_truthy(nm.hs_pda) or _fh_truthy(nm.pda_medical_rx) or surgical:
+        medical = _fh_truthy(nm.pda_medical_rx)
+        if surgical:
+            grade = 3
+        elif medical:
+            grade = 2
+        else:
+            grade = 1
+        bits = []
+        if _fh_truthy(nm.hs_pda):
+            bits.append("haemodynamically significant PDA")
+        if medical:
+            bits.append("medical treatment given")
+        if surgical:
+            bits.append(str(nm.pda_intervention_rx))
+        ev = "Form H records " + (", ".join(bits) if bits else "PDA")
+        if grade == 1:
+            ev += (". No treatment recorded — Grade 1 assumes the PDA did not prolong "
+                   "respiratory support / hospital stay; confirm before accepting.")
+        elif grade == 3:
+            ev += ". Surgical ligation / device closure → Grade 3."
+        out.append(_fh_candidate("pda", grade, None, ev))
+
+    return [c for c in out if c]
