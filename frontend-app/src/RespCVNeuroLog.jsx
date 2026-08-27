@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -12,7 +13,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertCircle, Clock,
   Lock, Send, AlertTriangle, X,
-  Copy, History, Unlock, AlertOctagon, Edit,
+  Copy, History, Unlock, AlertOctagon, Edit, ListChecks,
 } from "lucide-react";
 
 /* ── Day status constants ── */
@@ -42,6 +43,7 @@ const LEGEND_ITEMS = [
   { label: "Complete",    dot: "#10B981" },
   { label: "Submitted",   dot: "#0F4C81" },
   { label: "Late",        dot: "#EF4444" },
+  { label: "Locked",      dot: "#94A3B8", lock: true },
 ];
 
 /* Every field captured for a day, grouped by section, for the
@@ -130,6 +132,25 @@ function formatTableViewValue(d, row) {
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (v === null || v === undefined || v === "") return "—";
   return row.suffix ? `${v}${row.suffix}` : String(v);
+}
+
+/* Given one day's saved record `d`, returns the fields that are still
+   blank, grouped by section — reuses the same TABLE_VIEW_FIELD_GROUPS
+   key/label map the "All Days" table view already relies on, so the two
+   views can never disagree about what counts as "answered". The "Record"
+   section is metadata (saved_by), not something a nurse fills in, so it's
+   excluded from the missing-fields count. */
+function computeMissingFields(d) {
+  if (!d) return [];
+  return TABLE_VIEW_FIELD_GROUPS
+    .filter(group => group.section !== "Record")
+    .map(group => ({
+      section: group.section,
+      labels: group.rows
+        .filter(row => formatTableViewValue(d, row) === "—")
+        .map(row => row.label),
+    }))
+    .filter(group => group.labels.length > 0);
 }
 
 /* Validates the free-text weight field, which accepts one or more
@@ -557,6 +578,19 @@ export default function RespCVNeuroLog() {
   const [showTableView, setShowTableView]   = useState(false);
   const [tableViewRows, setTableViewRows]   = useState([]);
   const [tableViewLoading, setTableViewLoading] = useState(false);
+
+  /* ── Per-day "what's missing" popover (shown on partial/late day pills) ──
+     Rendered via a portal at fixed viewport coordinates (not nested inside
+     the day strip) because .rcn-timeline scrolls horizontally — any
+     non-"visible" overflow-x forces overflow-y to compute as "auto" too
+     (per the CSS overflow spec), which would silently clip a popover
+     taller than the pill row. Portaling to <body> sidesteps that. */
+  const [missingPopoverDay, setMissingPopoverDay] = useState(null); // day number or null
+  const [missingPopoverPos, setMissingPopoverPos] = useState(null); // { top, left }
+  const [missingFieldsCache, setMissingFieldsCache] = useState({}); // { [day]: [{section, labels:[]}] }
+  const [missingLoading, setMissingLoading] = useState(false);
+  const missingPopoverRef = useRef(null);
+  const missingAnchorRef  = useRef(null); // the badge <button> currently open, so scroll/resize can re-measure it
 
   /* ── Site-monitor override ── */
   const [showOverrideModal, setShowOverrideModal] = useState(false);
@@ -1392,6 +1426,77 @@ export default function RespCVNeuroLog() {
     }
   };
 
+  // Computes a popover position anchored under a badge button, clamped so
+  // it never runs off the left/right edges, and flipped above the badge
+  // when there isn't enough room below (e.g. a day near the bottom of the
+  // screen). POPOVER_MAX_H is a conservative estimate — good enough for
+  // flip decisions since a slight misjudgement just means less padding.
+  const POPOVER_MAX_H = 260;
+  const computeMissingPopoverPos = (anchorEl) => {
+    const rect = anchorEl.getBoundingClientRect();
+    const left = Math.min(Math.max(rect.left + rect.width / 2, 118), window.innerWidth - 118);
+    const roomBelow = window.innerHeight - rect.bottom;
+    const top = roomBelow < POPOVER_MAX_H && rect.top > POPOVER_MAX_H
+      ? Math.max(8, rect.top - POPOVER_MAX_H - 8)
+      : rect.bottom + 8;
+    return { top, left };
+  };
+
+  // Opens/closes the "what's missing" popover for a day pill. Fetches and
+  // caches that day's saved record on first open — cheap, since it only
+  // runs for the day the user actually clicks into, not all of them.
+  const handleToggleMissing = async (day, e) => {
+    e.stopPropagation();
+    if (missingPopoverDay === day) { setMissingPopoverDay(null); return; }
+    missingAnchorRef.current = e.currentTarget;
+    setMissingPopoverPos(computeMissingPopoverPos(e.currentTarget));
+    setMissingPopoverDay(day);
+    if (missingFieldsCache[day]) return;
+    setMissingLoading(true);
+    try {
+      const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${day}`);
+      setMissingFieldsCache(prev => ({ ...prev, [day]: computeMissingFields(res?.data) }));
+    } catch {
+      setMissingFieldsCache(prev => ({ ...prev, [day]: [] }));
+    } finally {
+      setMissingLoading(false);
+    }
+  };
+
+  // Keep the popover glued to its badge while the page (or the day strip)
+  // scrolls, instead of just closing it — re-measures the anchor button's
+  // live position on every scroll/resize tick. Still closes on an outside
+  // click, and on scroll if the anchor has been scrolled out of view
+  // entirely (nothing sensible to point at anymore).
+  useEffect(() => {
+    if (missingPopoverDay === null) return;
+    const handlePointerDown = (e) => {
+      if (
+        missingPopoverRef.current && !missingPopoverRef.current.contains(e.target) &&
+        missingAnchorRef.current && !missingAnchorRef.current.contains(e.target)
+      ) {
+        setMissingPopoverDay(null);
+      }
+    };
+    const reposition = () => {
+      const anchor = missingAnchorRef.current;
+      if (!anchor || !anchor.isConnected) { setMissingPopoverDay(null); return; }
+      const rect = anchor.getBoundingClientRect();
+      const offscreen = rect.bottom < 0 || rect.top > window.innerHeight ||
+        rect.right < 0 || rect.left > window.innerWidth;
+      if (offscreen) { setMissingPopoverDay(null); return; }
+      setMissingPopoverPos(computeMissingPopoverPos(anchor));
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [missingPopoverDay]);
+
   /* ════════════════════ RENDER ════════════════════ */
   return (
     <>
@@ -1539,44 +1644,61 @@ export default function RespCVNeuroLog() {
               const isMissed    = !isDischarge && missedDays.includes(d);
               const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
               const meta        = dayMeta[d] || {};
+              // Only days that are genuinely started-but-incomplete get the
+              // "what's missing" badge — a day nobody has touched yet, or one
+              // that's already complete/submitted/locked, has nothing to list.
+              const showMissingBadge = !isLocked && (st === STATUS.DRAFT || st === STATUS.PARTIAL || st === STATUS.LATE);
               return (
-                <button
-                  key={d}
-                  type="button"
-                  className={[
-                    "rcn-day",
-                    isActive    ? "rcn-day--active"    : "",
-                    isDischarge ? "rcn-day--discharged": "",
-                    isFuture    ? "rcn-day--future"    : "",
-                    isMissed    ? "rcn-day--missed"    : "",
-                    `rcn-day--${st}`,
-                  ].filter(Boolean).join(" ")}
-                  onClick={() => !isLocked && setActiveDay(d)}
-                  disabled={isFuture}
-                  title={
-                    isDischarge ? `Day ${d} — Patient discharged`
-                    : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
-                    : isMissed   ? `Day ${d} — no data was ever entered (missed)`
-                    : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
-                  }
-                  style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
-                >
-                  {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
-                  <span className="rcn-day-d">D</span>
-                  <span className="rcn-day-num">{d}</span>
-                  {isFuture
-                    ? <Lock size={10} className="rcn-day-dot" />
-                    : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
-                  }
-                  <span className="rcn-day-date">
-                    {isDischarge ? "🏠" : (() => {
-                      if (!day1Date) return "";
-                      const base = new Date(day1Date);
-                      base.setDate(base.getDate() + d - 1);
-                      return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-                    })()}
-                  </span>
-                </button>
+                <div key={d} className="rcn-day-wrap">
+                  <button
+                    type="button"
+                    className={[
+                      "rcn-day",
+                      isActive    ? "rcn-day--active"    : "",
+                      isDischarge ? "rcn-day--discharged": "",
+                      isFuture    ? "rcn-day--future"    : "",
+                      isMissed    ? "rcn-day--missed"    : "",
+                      `rcn-day--${st}`,
+                    ].filter(Boolean).join(" ")}
+                    onClick={() => !isLocked && setActiveDay(d)}
+                    disabled={isFuture}
+                    title={
+                      isDischarge ? `Day ${d} — Patient discharged`
+                      : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
+                      : isMissed   ? `Day ${d} — no data was ever entered (missed)`
+                      : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
+                    }
+                    style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
+                  >
+                    {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
+                    <span className="rcn-day-d">D</span>
+                    <span className="rcn-day-num">{d}</span>
+                    {isFuture
+                      ? <Lock size={10} className="rcn-day-dot" />
+                      : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
+                    }
+                    <span className="rcn-day-date">
+                      {isDischarge ? "🏠" : (() => {
+                        if (!day1Date) return "";
+                        const base = new Date(day1Date);
+                        base.setDate(base.getDate() + d - 1);
+                        return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+                      })()}
+                    </span>
+                  </button>
+
+                  {showMissingBadge && (
+                    <button
+                      type="button"
+                      className="rcn-day-missing-btn"
+                      onClick={(e) => handleToggleMissing(d, e)}
+                      title={`Day ${d} — see what's still missing`}
+                      aria-label={`See missing fields for Day ${d}`}
+                    >
+                      <ListChecks size={10} />
+                    </button>
+                  )}
+                </div>
               );
             })}
 
@@ -1598,14 +1720,68 @@ export default function RespCVNeuroLog() {
             )}
           </div>
 
+          {missingPopoverDay !== null && missingPopoverPos && createPortal(
+            <div
+              ref={missingPopoverRef}
+              className="rcn-day-missing-pop"
+              style={{ top: missingPopoverPos.top, left: missingPopoverPos.left }}
+            >
+              <div className="rcn-day-missing-pop-head">
+                <span>Day {missingPopoverDay} — missing fields</span>
+                <button
+                  type="button"
+                  className="rcn-day-missing-pop-close"
+                  onClick={() => setMissingPopoverDay(null)}
+                  aria-label="Close"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              {missingLoading && !missingFieldsCache[missingPopoverDay] ? (
+                <p className="rcn-day-missing-pop-empty">Checking day {missingPopoverDay}&hellip;</p>
+              ) : !missingFieldsCache[missingPopoverDay] || missingFieldsCache[missingPopoverDay].length === 0 ? (
+                <p className="rcn-day-missing-pop-empty">Nothing missing — every field on this day is filled in.</p>
+              ) : (
+                <div className="rcn-day-missing-pop-body">
+                  {missingFieldsCache[missingPopoverDay].map(g => (
+                    <div key={g.section} className="rcn-day-missing-pop-group">
+                      <p className="rcn-day-missing-pop-section">{g.section}</p>
+                      <ul className="rcn-day-missing-pop-list">
+                        {g.labels.map(label => <li key={label}>{label}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="rcn-day-missing-pop-goto"
+                onClick={() => { setActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
+              >
+                Go to Day {missingPopoverDay} <ArrowRight size={12} />
+              </button>
+            </div>,
+            document.body
+          )}
+
           {/* ── Status legend ── */}
           <div className="rcn-timeline-legend">
-            {LEGEND_ITEMS.map(item => (
-              <span key={item.label} className="rcn-legend-item">
-                <span className="rcn-legend-dot" style={{ background: item.dot }} />
-                {item.label}
-              </span>
-            ))}
+            <div className="rcn-legend-items">
+              {LEGEND_ITEMS.map(item => (
+                <span
+                  key={item.label}
+                  className={`rcn-legend-item rcn-legend-item--${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {item.lock
+                    ? <Lock size={11} className="rcn-legend-lock" />
+                    : <span className="rcn-legend-dot" style={{ background: item.dot }} />}
+                  {item.label}
+                </span>
+              ))}
+            </div>
+            <span className="rcn-legend-hint">
+              <ListChecks size={12} /> Tap a partial day's badge to see what's missing
+            </span>
           </div>
 
           {/* ── Missed-day alert ── */}
@@ -1614,7 +1790,7 @@ export default function RespCVNeuroLog() {
               <AlertOctagon size={13} />
               <span>
                 {missedDays.length} day{missedDays.length > 1 ? "s" : ""} with no data entered
-                (Day {missedDays.join(", Day ")}) — these are now permanently locked.
+                (Day {missedDays.join(", Day ")}) — still open for entry; lock them manually once reviewed.
               </span>
             </div>
           )}

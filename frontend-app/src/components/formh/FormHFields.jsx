@@ -139,40 +139,49 @@ function accentToChip(accentColor = "bg-slate-400") {
  * Stays fully controlled by the parent's existing `openSection` state
  * (pass `open` + `onToggle`, exactly like before).
  */
-export function CollapsibleCard({ code, title, icon, accentColor = "bg-sky-500", summary, statusClass, open, onToggle, children }) {
+export function CollapsibleCard({ code, title, icon, accentColor = "bg-sky-500", summary, statusClass, open, onToggle, headerAction, children }) {
   const statusColorMap = {
     "status-yes": "fh-badge-yes",
+    yes: "fh-badge-yes",
     "status-no": "fh-badge-no",
+    no: "fh-badge-no",
     "status-empty": "fh-badge-empty",
+    empty: "fh-badge-empty",
+    "status-warning": "fh-badge-empty",
   };
   const badgeClass = statusColorMap[statusClass] || "fh-badge-empty";
   const { chipBg, chipText, bar } = accentToChip(accentColor);
 
   return (
     <div className={`fh-card${open ? " is-open" : ""}`}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="fh-card-header"
-        aria-expanded={open}
-      >
-        <span className="fh-card-accent" style={{ background: bar }} aria-hidden="true" />
-        {icon && (
-          <span className="fh-card-icon" style={{ background: chipBg, color: chipText }} aria-hidden="true">
-            {icon}
+      <div className="fh-card-header-wrap">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="fh-card-header"
+          aria-expanded={open}
+        >
+          <span className="fh-card-accent" style={{ background: bar }} aria-hidden="true" />
+          {icon && (
+            <span className="fh-card-icon" style={{ background: chipBg, color: chipText }} aria-hidden="true">
+              {icon}
+            </span>
+          )}
+          <span className="fh-card-titles">
+            {code && <span className="fh-card-code">{code}</span>}
+            <span className="fh-card-title">{title}</span>
           </span>
+          {summary && <span className={`fh-badge ${badgeClass}`}>{summary}</span>}
+          <span className="fh-chevron" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </span>
+        </button>
+        {headerAction && (
+          <div className="fh-card-header-action">{headerAction}</div>
         )}
-        <span className="fh-card-titles">
-          {code && <span className="fh-card-code">{code}</span>}
-          <span className="fh-card-title">{title}</span>
-        </span>
-        {summary && <span className={`fh-badge ${badgeClass}`}>{summary}</span>}
-        <span className="fh-chevron" aria-hidden="true">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </span>
-      </button>
+      </div>
       {open && <div className="fh-card-body">{children}</div>}
     </div>
   );

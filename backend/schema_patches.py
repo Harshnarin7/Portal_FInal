@@ -1139,6 +1139,35 @@ BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_letter VARCHAR",
 ]
 
+# Form B may be saved before the baby's hospital file exists, so Baby UID
+# and Admission Number must be nullable. Only ALTER when the column is
+# currently NOT NULL — already-nullable cols and missing tables are no-ops.
+BIRTH_RESUSCITATION_OPTIONAL_FILE_IDS_PATCHES = [
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'birth_resuscitation'
+          AND column_name = 'baby_uid'
+          AND is_nullable = 'NO'
+      ) THEN
+        ALTER TABLE birth_resuscitation ALTER COLUMN baby_uid DROP NOT NULL;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'birth_resuscitation'
+          AND column_name = 'baby_admission_no'
+          AND is_nullable = 'NO'
+      ) THEN
+        ALTER TABLE birth_resuscitation ALTER COLUMN baby_admission_no DROP NOT NULL;
+      END IF;
+    END $$;
+    """,
+]
+
 # Field 57 Total resus time: was Integer minutes; now VARCHAR "MM:SS".
 # Convert existing minute integers to "MM:00" once (idempotent via data_type check).
 # NOTE: do NOT write the literal ':00' inside sqlalchemy.text() — it is parsed as

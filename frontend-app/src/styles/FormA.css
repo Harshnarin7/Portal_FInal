@@ -338,7 +338,8 @@
 .form-group input[readonly],
 .form-group input:disabled,
 .form-group select:disabled,
-.readonly-input {
+.readonly-input,
+.apgar-gated {
   background: #f9fafb !important;
   color: #6b7280 !important;
   border-color: #e5e7eb !important;

@@ -193,7 +193,7 @@ class BirthResuscitation(Base):
     contact_husband = Column(String)
     date_of_birth = Column(Date)
     time_of_birth = Column(Time)
-    baby_admission_no = Column(String)
+    baby_admission_no = Column(String, nullable=True)
     baby_annual_no = Column(String, nullable=True)
 
     gestation_weeks = Column(Integer)

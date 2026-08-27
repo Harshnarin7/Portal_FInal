@@ -514,21 +514,19 @@ export default function BirthResuscitationForm() {
   const isPgiSite = siteName === "PGIMER";
   const requiredMark = <span className="required">*</span>;
   const BABY_ADMISSION_RULES = {
-    PGIMER: { label: "6. Baby Admission No.", placeholder: "10-digit admission number", min: 10, max: 10, required: true },
-    "GMCH-A": { label: "6. MRD Number for Baby", placeholder: "4-6 digit MRD number", min: 4, max: 6 },
-    AMC: { label: "6. Baby Admission No. (NICU only)", placeholder: "11-digit admission number if NICU admitted", min: 11, max: 11 },
-    GMCH: { label: "6. Baby Admission No.", placeholder: "9-11 digit number", min: 9, max: 11 },
-    IOG: { label: "6. Baby MRD No. (same as UID)", placeholder: "Auto-filled from Baby UID, 4-6 digits", min: 4, max: 6 },
+    PGIMER: { label: "6. Baby Admission No.", placeholder: "Not assigned yet", min: 10, max: 10 },
+    "GMCH-A": { label: "6. MRD Number for Baby", placeholder: "Not assigned yet", min: 4, max: 6 },
+    AMC: { label: "6. Baby Admission No. (NICU only)", placeholder: "Not assigned yet", min: 11, max: 11 },
+    GMCH: { label: "6. Baby Admission No.", placeholder: "Not assigned yet", min: 9, max: 11 },
+    IOG: { label: "6. Baby MRD No. (same as UID)", placeholder: "Not assigned yet", min: 4, max: 6 },
   };
   const babyAdmissionRule = BABY_ADMISSION_RULES[siteName] || {
     label: "6. Baby Admission No.",
-    placeholder: "Optional",
+    placeholder: "Not assigned yet",
     min: 0,
     max: 15,
   };
-  const babyAdmissionLabel = babyAdmissionRule.required
-    ? <>{babyAdmissionRule.label}{requiredMark}</>
-    : babyAdmissionRule.label;
+  const babyAdmissionLabel = babyAdmissionRule.label;
 
   // "Baby Annual No." means something different per site — not just a
   // REDCap-only PGIMER field. GMCH-A has no equivalent number at all;
@@ -888,13 +886,36 @@ export default function BirthResuscitationForm() {
   };
 
   const handleIntv = (type, time, val) =>
-    setFormData(p => ({
-      ...p,
-      interventions: {
-        ...p.interventions,
-        [type]: { ...(p.interventions?.[type] || {}), [time]: val },
-      },
-    }));
+    setFormData(p => {
+      const nextForType = { ...(p.interventions?.[type] || {}), [time]: val };
+      // B5 Apgar: score ≥ 7 at a minute means later intervention Apgars
+      // are not clinically needed — clear and gate them (reactive: if the
+      // trigger is edited back to ≤6 they re-enable with empty values).
+      if (type === "apgar") {
+        const idx = times.indexOf(String(time));
+        const n = val === "" || val == null ? NaN : Number(val);
+        if (idx >= 0 && Number.isFinite(n) && n >= 7) {
+          times.slice(idx + 1).forEach((t) => { nextForType[t] = ""; });
+        }
+      }
+      return {
+        ...p,
+        interventions: {
+          ...p.interventions,
+          [type]: nextForType,
+        },
+      };
+    });
+
+  const isLaterApgarGated = (time) => {
+    const idx = times.indexOf(String(time));
+    if (idx <= 0) return false;
+    const apgar = formData.interventions?.apgar || {};
+    return times.slice(0, idx).some((t) => {
+      const n = apgar[t] === "" || apgar[t] == null ? NaN : Number(apgar[t]);
+      return Number.isFinite(n) && n >= 7;
+    });
+  };
 
    /* ── Shared payload builder (used by saveForm, saveDraft, autoSave) ──
       Drafts and auto-saves are just unvalidated saves: empty fields are sent
@@ -1015,9 +1036,11 @@ export default function BirthResuscitationForm() {
   const validate = () => {
     const m = [];
     const add = (label,field) => m.push({label,fieldName:field});
-    if(!formData.baby_uid)           add("B1. Baby UID",              "baby_uid");
-    if(babyAdmissionRule.required && !formData.baby_admission_no)
-      add("B1. Baby Admission No.", "baby_admission_no");
+    // Baby UID and Admission Number are optional — the baby's hospital file
+    // may not exist yet when Form B is first entered. Format is still
+    // checked if a value has been typed.
+    if(formData.baby_uid && !/^\d{1,12}$/.test(formData.baby_uid))
+      add("B1. Baby UID must contain 1–12 digits", "baby_uid");
     if(formData.baby_admission_no && !new RegExp(`^\\d{${babyAdmissionRule.min},${babyAdmissionRule.max}}$`).test(formData.baby_admission_no))
       add(`B1. ${babyAdmissionRule.label.replace(/^6\\.\\s*/, "")} must be ${babyAdmissionRule.min === babyAdmissionRule.max ? `${babyAdmissionRule.max}` : `${babyAdmissionRule.min}-${babyAdmissionRule.max}`} digits`, "baby_admission_no");
     if(babyAnnualRule && babyAnnualRule.numeric && formData.baby_annual_no && !new RegExp(`^\\d{${babyAnnualRule.min},${babyAnnualRule.max}}$`).test(formData.baby_annual_no))
@@ -1317,7 +1340,8 @@ export default function BirthResuscitationForm() {
     /* Need a complete enrollment ID (or NR-*) before creating/updating.
        Do not autosave the typing stub "01-" — that polluted Form C routes. */
     if (!isUsableEnrollmentId(eid)) return;
-    if (!hasBirthRecordRef.current && !fd.baby_uid) return;
+    // First create uses enrollment_id (or NR-{screening_id}); Baby UID is
+    // optional and must not gate the initial POST.
 
     if (!navigator.onLine) {
       setOfflineQueue(true);
@@ -1632,7 +1656,7 @@ export default function BirthResuscitationForm() {
             hasBirthRecordRef.current = false;
             isInitialRender.current = true;
             /* No enrollment yet — enable autosave so it can POST once the
-               nurse enters enrollment_id + baby_uid */
+               nurse enters a usable enrollment_id */
             setIsFormBLoaded(true);
           }
         }
@@ -1734,9 +1758,9 @@ export default function BirthResuscitationForm() {
                 </div>
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>4. Baby UID<span className="required">*</span></label>
+                    <label>4. Baby UID</label>
                     <input name="baby_uid" value={formData.baby_uid||""}
-                      maxLength={12} inputMode="numeric" placeholder="Up to 12 digits"
+                      maxLength={12} inputMode="numeric" placeholder="Not assigned yet"
                       readOnly={!isFieldEditable}
                       className={errors.baby_uid?"input-error":""}
                       onChange={e=>{
@@ -2477,21 +2501,30 @@ export default function BirthResuscitationForm() {
                             ))}
                           </tr>
                         ))}
-                        {/* Apgar row */}
+                        {/* Apgar row — later minutes disable when an earlier
+                            With-Intervention score is ≥ 7. Oxygen/CPAP (the
+                            rest of B5) are not gated. */}
                         <tr style={{background:"#fffbeb"}}>
                           <td style={{padding:"9px 14px",fontSize:12,fontWeight:700,color:"#92400e",
                             borderBottom:"1px solid #fde68a",whiteSpace:"nowrap"}}>50. Apgar score</td>
-                          {times.map(t=>(
+                          {times.map(t=>{
+                            const gated = isLaterApgarGated(t);
+                            const locked = !isFieldEditable || gated;
+                            return (
                             <td key={t} style={{padding:"6px 8px",textAlign:"center",borderBottom:"1px solid #fde68a"}}>
                               <input type="text" inputMode="numeric" maxLength={2} placeholder="0–10"
                                 value={formData.interventions.apgar?.[t]||""}
-                                readOnly={!isFieldEditable}
+                                disabled={gated}
+                                readOnly={locked}
                                 onChange={e=>{const v=e.target.value;if(/^\d{0,2}$/.test(v)&&(v===""||Number(v)<=10))handleIntv("apgar",t,v);}}
-                                className={apgarCls(formData.interventions.apgar?.[t])}
+                                className={gated ? "readonly-input apgar-gated" : apgarCls(formData.interventions.apgar?.[t])}
+                                title={gated ? "Apgar ≥ 7 at an earlier minute — later scores with intervention are not required" : undefined}
                                 style={{width:52,padding:"5px 4px",borderRadius:5,
-                                  border:"1px solid #fde68a",textAlign:"center",fontSize:12,fontWeight:700}}/>
+                                  border:"1px solid #fde68a",textAlign:"center",fontSize:12,fontWeight:700,
+                                  cursor: locked ? "not-allowed" : undefined}}/>
                             </td>
-                          ))}
+                            );
+                          })}
                         </tr>
                       </tbody>
                     </table>

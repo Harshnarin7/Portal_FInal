@@ -68,8 +68,11 @@
 .rcn-patient-header-title {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 4px;
-  flex-shrink: 0;
+  flex: 0 1 260px;
+  min-width: 0;
+  max-width: 280px;
   padding-right: 22px;
   border-right: 1px solid #EEF2F7;
 }
@@ -102,26 +105,27 @@
   margin: 0;
   line-height: 1.25;
   letter-spacing: -0.2px;
-  white-space: nowrap;
 }
 .rcn-patient-header-subtitle {
   font-size: 11.5px;
   color: #64748b;
   font-weight: 500;
   margin: 0;
-  white-space: nowrap;
+  line-height: 1.4;
 }
 .rcn-patient-cards {
   display: flex;
   gap: 10px;
-  flex: 1;
-  flex-wrap: wrap;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: stretch;
 }
 .rcn-pcard {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 14px 9px 10px;
+  padding: 10px 14px 10px 10px;
   border-radius: 14px;
   flex: 1 1 0;
   min-width: 0;
@@ -145,20 +149,33 @@
   font-size: 16px;
   line-height: 1;
 }
-.rcn-pcard-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rcn-pcard-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
 .rcn-pcard-label {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0.85;
+  line-height: 1.2;
 }
 .rcn-pcard-value {
   font-size: 13.5px;
   font-weight: 800;
-  word-break: break-word;
   letter-spacing: -0.1px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rcn-pcard-value--cap { text-transform: capitalize; }
 .rcn-pcard-empty { font-size: 11px; font-weight: 400; font-style: italic; opacity: 0.6; }
@@ -180,12 +197,13 @@
 .rcn-pcard--rose   .rcn-pcard-value { color: #881337; }
 
 @media (max-width: 1100px) {
-  .rcn-patient-header { flex-direction: column; align-items: flex-start; }
+  .rcn-patient-header { flex-direction: column; align-items: stretch; }
   .rcn-patient-header-title {
     border-right: none; padding-right: 0;
-    border-bottom: 1px solid #EEF2F7; padding-bottom: 14px; width: 100%;
+    border-bottom: 1px solid #EEF2F7; padding-bottom: 14px;
+    width: 100%; max-width: none; flex: none;
   }
-  .rcn-patient-cards { width: 100%; }
+  .rcn-patient-cards { width: 100%; flex-wrap: wrap; }
 }
 @media (max-width: 640px) {
   .rcn-pcard { flex: 1 1 calc(50% - 5px); }
@@ -483,6 +501,109 @@
 .rcn-day-add:hover .rcn-day-add-plus { color: #0f4c81; }
 .rcn-day-add-label         { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; }
 .rcn-day-add:hover .rcn-day-add-label { color: #0f4c81; }
+
+.rcn-day-wrap {
+  position: relative;
+  flex: 0 0 48px;
+}
+
+.rcn-day-missing-btn {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  background: #F59E0B;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: transform 0.12s;
+  z-index: 2;
+}
+.rcn-day-missing-btn:hover { transform: scale(1.12); }
+
+.rcn-day-missing-pop {
+  position: fixed;
+  transform: translateX(-50%);
+  width: 220px;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.18);
+  padding: 10px 12px 12px;
+  z-index: 2000;
+}
+.rcn-day-missing-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 6px;
+}
+.rcn-day-missing-pop-close {
+  border: none;
+  background: transparent;
+  color: #94A3B8;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+.rcn-day-missing-pop-close:hover { color: #475569; }
+.rcn-day-missing-pop-empty {
+  font-size: 11.5px;
+  color: #64748B;
+  margin: 4px 0 8px;
+}
+.rcn-day-missing-pop-body {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.rcn-day-missing-pop-group + .rcn-day-missing-pop-group { margin-top: 8px; }
+.rcn-day-missing-pop-section {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #B45309;
+  margin: 0 0 3px;
+}
+.rcn-day-missing-pop-list {
+  margin: 0;
+  padding-left: 14px;
+  list-style: disc;
+}
+.rcn-day-missing-pop-list li {
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.5;
+}
+.rcn-day-missing-pop-goto {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: none;
+  background: #0F4C81;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rcn-day-missing-pop-goto:hover { background: #0d4270; }
+
+.rcn-legend-lock { color: #94A3B8; }
 
 .rcn-day {
   display: flex;
@@ -1344,6 +1465,33 @@
   margin-bottom: 12px;
 }
 
+.rcn-readings-field {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #EEF2F7;
+}
+.rcn-readings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.rcn-reading-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.rcn-reading-row .mml-remove-btn {
+  margin-bottom: 2px;
+}
+.rcn-reading-idx {
+  font-size: 11px;
+  font-weight: 800;
+  color: #94A3B8;
+  padding-bottom: 10px;
+}
+
 /* ── IVH Grade Cards ───────────────────────────────────────── */
 .rcn-grade-grid {
   display: grid;
@@ -1766,38 +1914,73 @@
 .rcn-timeline-legend {
   width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 10px 0 14px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 12px 0 14px;
   border-top: 1px solid #F1F5F9;
   margin-top: 6px;
 }
-.rcn-timeline-legend::-webkit-scrollbar { display: none; }
+
+.rcn-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 
 .rcn-legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  color: #64748B;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
   flex-shrink: 0;
-  background: #F8FAFC;
-  border: 1px solid #EEF2F7;
   border-radius: 20px;
-  padding: 4px 10px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
 }
 
 .rcn-legend-dot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* Each status gets its own soft tint so the legend reads as fast
+   color-matching against the day badges above it, with the label
+   text as a non-color-dependent backup for anyone who can't rely
+   on color alone. */
+.rcn-legend-item--not-started { background: #F1F5F9; border-color: #E2E8F0; color: #64748B; }
+.rcn-legend-item--partial     { background: #FFFBEB; border-color: #FDE68A; color: #B45309; }
+.rcn-legend-item--complete    { background: #ECFDF5; border-color: #A7F3D0; color: #047857; }
+.rcn-legend-item--submitted   { background: #EFF6FF; border-color: #BFDBFE; color: #0F4C81; }
+.rcn-legend-item--late        { background: #FEF2F2; border-color: #FECACA; color: #DC2626; }
+.rcn-legend-item--locked      { background: #F8FAFC; border-color: #E2E8F0; color: #94A3B8; }
+
+/* Explainer moved out of the badge row and into its own line so it
+   isn't squeezed between chips — easier to notice, easier to read. */
+.rcn-legend-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748B;
+  background: #F8FAFC;
+  border: 1px dashed #E2E8F0;
+  border-radius: 10px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+}
+.rcn-legend-hint svg { flex-shrink: 0; color: #94A3B8; }
+
+@media (max-width: 640px) {
+  .rcn-timeline-legend { justify-content: flex-start; }
+  .rcn-legend-hint { width: 100%; }
 }
 
 /* ── Day pill status color overrides ──────────────────────── */
@@ -1898,12 +2081,6 @@
 .rcn-edit-btn {
   flex: 0 0 auto;
   width: auto !important;
-}
-
-/* ── Legend compact on one row ────────────────────────────── */
-.rcn-timeline-legend {
-  padding: 5px 0 8px;
-  flex-wrap: wrap;
 }
 
 /* ── Discharge button ─────────────────────────────────────── */

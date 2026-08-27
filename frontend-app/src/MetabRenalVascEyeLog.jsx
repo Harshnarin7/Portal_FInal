@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { toDateOnlyValue } from "./utils/datetime";
@@ -12,7 +13,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Copy, Edit,
-  AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2,
+  AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2, ListChecks,
 } from "lucide-react";
 import "./styles/MinimalMonitoring.css";
 
@@ -37,6 +38,7 @@ const LEGEND_ITEMS = [
   { label:"Complete",    dot:"#10B981" },
   { label:"Submitted",   dot:"#0F4C81" },
   { label:"Late",        dot:"#EF4444" },
+  { label:"Locked",      dot:"#94A3B8", lock: true },
 ];
 
 /* Every field captured for a day, grouped by section, for the
@@ -124,6 +126,25 @@ function formatTableViewValue(d, row) {
   if (row.bool) return v === true ? "Yes" : v === false ? "No" : "—";
   if (v === null || v === undefined || v === "") return "—";
   return row.suffix ? `${v}${row.suffix}` : String(v);
+}
+
+/* Given one day's saved record `d`, returns the fields that are still
+   blank, grouped by section — reuses the same TABLE_VIEW_FIELD_GROUPS
+   key/label map the "All Days" table view already relies on, so the two
+   views can never disagree about what counts as "answered". The "Record"
+   section is metadata (saved_by), not something a nurse fills in, so it's
+   excluded from the missing-fields count. Same pattern as Helper Form 2. */
+function computeMissingFields(d) {
+  if (!d) return [];
+  return TABLE_VIEW_FIELD_GROUPS
+    .filter(group => group.section !== "Record")
+    .map(group => ({
+      section: group.section,
+      labels: group.rows
+        .filter(row => formatTableViewValue(d, row) === "—")
+        .map(row => row.label),
+    }))
+    .filter(group => group.labels.length > 0);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -367,32 +388,25 @@ function ReadingsBlock({
 }) {
   const list = entries?.length ? entries : [blankFactory ? blankFactory() : blankReading()];
   return (
-    <div className="rcn-subsection mml-subblock">
-      <div className="mml-subblock-head">
-        <span className="mml-subblock-code">{code}</span>
-      </div>
+    <div className="rcn-readings" aria-label={`${code} readings`}>
       {list.map((entry, idx) => (
-        <div className="mml-entry" key={entry.id || idx}>
-          <div className="mml-entry-head">
-            <div className="mml-entry-meta">
-              {list.length > 1 && <span className="mml-entry-badge">#{idx + 1}</span>}
-              <label className="mml-meta-field">
-                <span>Date</span>
-                <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
-              </label>
-              <label className="mml-meta-field">
-                <span>Time</span>
-                <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
-              </label>
-            </div>
-            {list.length > 1 && !disabled && (
-              <button type="button" className="mml-remove-btn" title="Remove this reading"
-                onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
-            )}
-          </div>
-          <div className="rcn-grid-3">{children(entry, idx)}</div>
+        <div className="rcn-reading-row" key={entry.id || idx}>
+          {list.length > 1 && <span className="rcn-reading-idx">#{idx + 1}</span>}
+          <label className="mml-meta-field">
+            <span>Date</span>
+            <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
+              disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
+          </label>
+          <label className="mml-meta-field">
+            <span>Time</span>
+            <input type="time" className="rcn-text-input mml-time-input" value={entry.time || ""}
+              disabled={disabled} onChange={e => onChangeEntry(idx, "time", e.target.value)} />
+          </label>
+          {children(entry, idx)}
+          {list.length > 1 && !disabled && (
+            <button type="button" className="mml-remove-btn" title="Remove this reading"
+              onClick={() => onRemove(idx)}><Trash2 size={14} /></button>
+          )}
         </div>
       ))}
       {!disabled && (
@@ -706,6 +720,19 @@ export default function MetabRenalVascEyeLog() {
   const [showTableView, setShowTableView]   = useState(false);
   const [tableViewRows, setTableViewRows]   = useState([]);
   const [tableViewLoading, setTableViewLoading] = useState(false);
+
+  /* ── Per-day "what's missing" popover (shown on partial/late day pills) ──
+     Rendered via a portal at fixed viewport coordinates (not nested inside
+     the day strip) because .rcn-timeline scrolls horizontally — any
+     non-"visible" overflow-x forces overflow-y to compute as "auto" too
+     (per the CSS overflow spec), which would silently clip a popover
+     taller than the pill row. Portaling to <body> sidesteps that. */
+  const [missingPopoverDay, setMissingPopoverDay] = useState(null); // day number or null
+  const [missingPopoverPos, setMissingPopoverPos] = useState(null); // { top, left }
+  const [missingFieldsCache, setMissingFieldsCache] = useState({}); // { [day]: [{section, labels:[]}] }
+  const [missingLoading, setMissingLoading] = useState(false);
+  const missingPopoverRef = useRef(null);
+  const missingAnchorRef  = useRef(null); // the badge <button> currently open, so scroll/resize can re-measure it
 
   /* ── Audit trail ── */
   const [showAuditModal, setShowAuditModal] = useState(false);
@@ -1763,6 +1790,77 @@ export default function MetabRenalVascEyeLog() {
     }
   };
 
+  // Computes a popover position anchored under a badge button, clamped so
+  // it never runs off the left/right edges, and flipped above the badge
+  // when there isn't enough room below (e.g. a day near the bottom of the
+  // screen). POPOVER_MAX_H is a conservative estimate — good enough for
+  // flip decisions since a slight misjudgement just means less padding.
+  const POPOVER_MAX_H = 260;
+  const computeMissingPopoverPos = (anchorEl) => {
+    const rect = anchorEl.getBoundingClientRect();
+    const left = Math.min(Math.max(rect.left + rect.width / 2, 118), window.innerWidth - 118);
+    const roomBelow = window.innerHeight - rect.bottom;
+    const top = roomBelow < POPOVER_MAX_H && rect.top > POPOVER_MAX_H
+      ? Math.max(8, rect.top - POPOVER_MAX_H - 8)
+      : rect.bottom + 8;
+    return { top, left };
+  };
+
+  // Opens/closes the "what's missing" popover for a day pill. Fetches and
+  // caches that day's saved record on first open — cheap, since it only
+  // runs for the day the user actually clicks into, not all of them.
+  const handleToggleMissing = async (day, e) => {
+    e.stopPropagation();
+    if (missingPopoverDay === day) { setMissingPopoverDay(null); return; }
+    missingAnchorRef.current = e.currentTarget;
+    setMissingPopoverPos(computeMissingPopoverPos(e.currentTarget));
+    setMissingPopoverDay(day);
+    if (missingFieldsCache[day]) return;
+    setMissingLoading(true);
+    try {
+      const res = await api.get(`/metab-renal-vasc-eye/${enrollmentId}/${day}`);
+      setMissingFieldsCache(prev => ({ ...prev, [day]: computeMissingFields(res?.data) }));
+    } catch {
+      setMissingFieldsCache(prev => ({ ...prev, [day]: [] }));
+    } finally {
+      setMissingLoading(false);
+    }
+  };
+
+  // Keep the popover glued to its badge while the page (or the day strip)
+  // scrolls, instead of just closing it — re-measures the anchor button's
+  // live position on every scroll/resize tick. Still closes on an outside
+  // click, and on scroll if the anchor has been scrolled out of view
+  // entirely (nothing sensible to point at anymore).
+  useEffect(() => {
+    if (missingPopoverDay === null) return;
+    const handlePointerDown = (e) => {
+      if (
+        missingPopoverRef.current && !missingPopoverRef.current.contains(e.target) &&
+        missingAnchorRef.current && !missingAnchorRef.current.contains(e.target)
+      ) {
+        setMissingPopoverDay(null);
+      }
+    };
+    const reposition = () => {
+      const anchor = missingAnchorRef.current;
+      if (!anchor || !anchor.isConnected) { setMissingPopoverDay(null); return; }
+      const rect = anchor.getBoundingClientRect();
+      const offscreen = rect.bottom < 0 || rect.top > window.innerHeight ||
+        rect.right < 0 || rect.left > window.innerWidth;
+      if (offscreen) { setMissingPopoverDay(null); return; }
+      setMissingPopoverPos(computeMissingPopoverPos(anchor));
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [missingPopoverDay]);
+
   /* ═══════════════════════════════════════ RENDER ═══════════════════════════════════════ */
   return (
     <>
@@ -1781,7 +1879,7 @@ export default function MetabRenalVascEyeLog() {
             <div className="rcn-patient-header-badge">HELPER FORM 4</div>
             <h2 className="rcn-patient-header-form-name">Metab-Renal-Vasc-Eye</h2>
             <p className="rcn-patient-header-subtitle">
-              Y = Yes, N = No, or enter value where applicable. Complete at the end of 24 hours (11 am).
+              NICU Day-by-Day Structured Assessment
             </p>
           </div>
           <div className="rcn-patient-cards">
@@ -1789,7 +1887,9 @@ export default function MetabRenalVascEyeLog() {
               <span className="rcn-pcard-icon">🪪</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Enrolment ID</span>
-                <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
+                <span className="rcn-pcard-value" title={patientInfo.enrollmentId || ""}>
+                  {patientInfo.enrollmentId || "—"}
+                </span>
               </div>
             </div>
             <div className="rcn-pcard rcn-pcard--teal">
@@ -1798,14 +1898,16 @@ export default function MetabRenalVascEyeLog() {
                 <span className="rcn-pcard-label">
                   Gestation{patientInfo.gestationSource === "Form D NBS" ? " (NBS)" : ""}
                 </span>
-                <span className="rcn-pcard-value">{patientInfo.gestationalAge || "—"}</span>
+                <span className="rcn-pcard-value" title={patientInfo.gestationalAge || ""}>
+                  {patientInfo.gestationalAge || "—"}
+                </span>
               </div>
             </div>
             <div className="rcn-pcard rcn-pcard--violet">
               <span className="rcn-pcard-icon">🤱</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Mother's Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap">
+                <span className="rcn-pcard-value rcn-pcard-value--cap" title={patientInfo.motherName || ""}>
                   {patientInfo.motherName || "—"}
                 </span>
               </div>
@@ -1814,7 +1916,9 @@ export default function MetabRenalVascEyeLog() {
               <span className="rcn-pcard-icon">🏷️</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Baby UID</span>
-                <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
+                <span className="rcn-pcard-value" title={patientInfo.babyUid || ""}>
+                  {patientInfo.babyUid || "—"}
+                </span>
               </div>
             </div>
           </div>
@@ -1833,44 +1937,47 @@ export default function MetabRenalVascEyeLog() {
               <History size={13} /> Table View
             </button>
             <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}>
-              <label className="rcn-day1-picker-label">
-                Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
-                {day1DateLocked && <Lock size={11} style={{ verticalAlign: "-1px" }} />}
-              </label>
-              <input
-                type="date"
-                className="rcn-day1-picker-input"
-                value={day1Date}
-                readOnly={day1DateLocked}
-                disabled={day1DateLocked}
-                min={day1EditArmed ? undefined : day1DateBounds.min}
-                max={day1EditArmed ? undefined : day1DateBounds.max}
-                required
-                title={day1DateLocked
-                  ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                  : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
-                onChange={async e => {
-                  if (day1DateLocked) return;
-                  const v = e.target.value;
-                  if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
-                    setMessage(
-                      `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
-                    );
-                    setTimeout(() => setMessage(""), 4000);
-                    return;
-                  }
-                  setDay1Date(v);
-                  if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
-                  try {
-                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
-                    setDay1EditArmed(false);
-                    setDay1DateSetBy(user?.username || "");
-                  } catch (err) {
-                    setMessage("⚠️ Could not save Day 1 Date — " +
-                      (err?.response?.data?.detail || "it may already be locked"));
-                  }
-                }}
-              />
+              <span className="rcn-day1-picker-icon">📅</span>
+              <div className="rcn-day1-picker-body">
+                <label className="rcn-day1-picker-label">
+                  Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
+                  {day1DateLocked && <Lock size={10} className="rcn-day1-picker-lock" />}
+                </label>
+                <input
+                  type="date"
+                  className="rcn-day1-picker-input"
+                  value={day1Date}
+                  readOnly={day1DateLocked}
+                  disabled={day1DateLocked}
+                  min={day1EditArmed ? undefined : day1DateBounds.min}
+                  max={day1EditArmed ? undefined : day1DateBounds.max}
+                  required
+                  title={day1DateLocked
+                    ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
+                    : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
+                  onChange={async e => {
+                    if (day1DateLocked) return;
+                    const v = e.target.value;
+                    if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
+                      setMessage(
+                        `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
+                      );
+                      setTimeout(() => setMessage(""), 4000);
+                      return;
+                    }
+                    setDay1Date(v);
+                    if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
+                    try {
+                      await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
+                      setDay1EditArmed(false);
+                      setDay1DateSetBy(user?.username || "");
+                    } catch (err) {
+                      setMessage("⚠️ Could not save Day 1 Date — " +
+                        (err?.response?.data?.detail || "it may already be locked"));
+                    }
+                  }}
+                />
+              </div>
               {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
                 <button
                   type="button"
@@ -1889,16 +1996,6 @@ export default function MetabRenalVascEyeLog() {
             </div>
           </div>
 
-          {/* ── Day 1 Date required alert — data entry is blocked below until this is set ── */}
-          {!day1Date && (
-            <div className="rcn-missed-banner">
-              <AlertOctagon size={13} />
-              <span>
-                Set <strong>Day 1 Date</strong> above before entering data — it's required and
-                can't be added later once a day has been saved without it.
-              </span>
-            </div>
-          )}
           <div className="rcn-timeline">
             {days.map(d => {
               const isActive    = d === activeDay;
@@ -1909,44 +2006,61 @@ export default function MetabRenalVascEyeLog() {
               const isMissed    = !isDischarge && missedDays.includes(d);
               const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
               const meta        = dayMeta[d] || {};
+              // Only days that are genuinely started-but-incomplete get the
+              // "what's missing" badge — a day nobody has touched yet, or one
+              // that's already complete/submitted/locked, has nothing to list.
+              const showMissingBadge = !isLocked && (st === STATUS.DRAFT || st === STATUS.PARTIAL || st === STATUS.LATE);
               return (
-                <button
-                  key={d}
-                  type="button"
-                  className={[
-                    "rcn-day",
-                    isActive    ? "rcn-day--active"    : "",
-                    isDischarge ? "rcn-day--discharged": "",
-                    isFuture    ? "rcn-day--future"    : "",
-                    isMissed    ? "rcn-day--missed"    : "",
-                    `rcn-day--${st}`,
-                  ].filter(Boolean).join(" ")}
-                  onClick={() => !isLocked && setActiveDay(d)}
-                  disabled={isFuture}
-                  title={
-                    isDischarge ? `Day ${d} — Patient discharged`
-                    : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
-                    : isMissed   ? `Day ${d} — no data was ever entered (missed)`
-                    : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
-                  }
-                  style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
-                >
-                  {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
-                  <span className="rcn-day-d">D</span>
-                  <span className="rcn-day-num">{d}</span>
-                  {isFuture
-                    ? <Lock size={10} className="rcn-day-dot" />
-                    : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
-                  }
-                  <span className="rcn-day-date">
-                    {isDischarge ? "🏠" : (() => {
-                      if (!day1Date) return "";
-                      const base = new Date(day1Date);
-                      base.setDate(base.getDate() + d - 1);
-                      return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-                    })()}
-                  </span>
-                </button>
+                <div key={d} className="rcn-day-wrap">
+                  <button
+                    type="button"
+                    className={[
+                      "rcn-day",
+                      isActive    ? "rcn-day--active"    : "",
+                      isDischarge ? "rcn-day--discharged": "",
+                      isFuture    ? "rcn-day--future"    : "",
+                      isMissed    ? "rcn-day--missed"    : "",
+                      `rcn-day--${st}`,
+                    ].filter(Boolean).join(" ")}
+                    onClick={() => !isLocked && setActiveDay(d)}
+                    disabled={isFuture}
+                    title={
+                      isDischarge ? `Day ${d} — Patient discharged`
+                      : isFuture   ? `Day ${d} — not available yet (unlocks on its calendar date)`
+                      : isMissed   ? `Day ${d} — no data was ever entered (missed)`
+                      : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
+                    }
+                    style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
+                  >
+                    {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
+                    <span className="rcn-day-d">D</span>
+                    <span className="rcn-day-num">{d}</span>
+                    {isFuture
+                      ? <Lock size={10} className="rcn-day-dot" />
+                      : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
+                    }
+                    <span className="rcn-day-date">
+                      {isDischarge ? "🏠" : (() => {
+                        if (!day1Date) return "";
+                        const base = new Date(day1Date);
+                        base.setDate(base.getDate() + d - 1);
+                        return base.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+                      })()}
+                    </span>
+                  </button>
+
+                  {showMissingBadge && (
+                    <button
+                      type="button"
+                      className="rcn-day-missing-btn"
+                      onClick={(e) => handleToggleMissing(d, e)}
+                      title={`Day ${d} — see what's still missing`}
+                      aria-label={`See missing fields for Day ${d}`}
+                    >
+                      <ListChecks size={10} />
+                    </button>
+                  )}
+                </div>
               );
             })}
 
@@ -1968,13 +2082,67 @@ export default function MetabRenalVascEyeLog() {
             )}
           </div>
 
+          {missingPopoverDay !== null && missingPopoverPos && createPortal(
+            <div
+              ref={missingPopoverRef}
+              className="rcn-day-missing-pop"
+              style={{ top: missingPopoverPos.top, left: missingPopoverPos.left }}
+            >
+              <div className="rcn-day-missing-pop-head">
+                <span>Day {missingPopoverDay} — missing fields</span>
+                <button
+                  type="button"
+                  className="rcn-day-missing-pop-close"
+                  onClick={() => setMissingPopoverDay(null)}
+                  aria-label="Close"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              {missingLoading && !missingFieldsCache[missingPopoverDay] ? (
+                <p className="rcn-day-missing-pop-empty">Checking day {missingPopoverDay}&hellip;</p>
+              ) : !missingFieldsCache[missingPopoverDay] || missingFieldsCache[missingPopoverDay].length === 0 ? (
+                <p className="rcn-day-missing-pop-empty">Nothing missing — every field on this day is filled in.</p>
+              ) : (
+                <div className="rcn-day-missing-pop-body">
+                  {missingFieldsCache[missingPopoverDay].map(g => (
+                    <div key={g.section} className="rcn-day-missing-pop-group">
+                      <p className="rcn-day-missing-pop-section">{g.section}</p>
+                      <ul className="rcn-day-missing-pop-list">
+                        {g.labels.map(label => <li key={label}>{label}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="rcn-day-missing-pop-goto"
+                onClick={() => { setActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
+              >
+                Go to Day {missingPopoverDay} <ArrowRight size={12} />
+              </button>
+            </div>,
+            document.body
+          )}
+
           <div className="rcn-timeline-legend">
-            {LEGEND_ITEMS.map(item => (
-              <span key={item.label} className="rcn-legend-item">
-                <span className="rcn-legend-dot" style={{ background:item.dot }}/>
-                {item.label}
-              </span>
-            ))}
+            <div className="rcn-legend-items">
+              {LEGEND_ITEMS.map(item => (
+                <span
+                  key={item.label}
+                  className={`rcn-legend-item rcn-legend-item--${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {item.lock
+                    ? <Lock size={11} className="rcn-legend-lock" />
+                    : <span className="rcn-legend-dot" style={{ background: item.dot }} />}
+                  {item.label}
+                </span>
+              ))}
+            </div>
+            <span className="rcn-legend-hint">
+              <ListChecks size={12} /> Tap a partial day's badge to see what's missing
+            </span>
           </div>
 
           {/* ── Missed-day alert ── */}
@@ -1983,7 +2151,18 @@ export default function MetabRenalVascEyeLog() {
               <AlertOctagon size={13} />
               <span>
                 {missedDays.length} day{missedDays.length > 1 ? "s" : ""} with no data entered
-                (Day {missedDays.join(", Day ")}) — these are now permanently locked.
+                (Day {missedDays.join(", Day ")}) — still open for entry; lock them manually once reviewed.
+              </span>
+            </div>
+          )}
+
+          {/* ── Day 1 Date required alert — data entry is blocked below until this is set ── */}
+          {!day1Date && (
+            <div className="rcn-missed-banner">
+              <AlertOctagon size={13} />
+              <span>
+                Set <strong>Day 1 Date</strong> above before entering data — it's required and
+                can't be added later once a day has been saved without it.
               </span>
             </div>
           )}
@@ -2128,8 +2307,10 @@ export default function MetabRenalVascEyeLog() {
                   </div>
                 )}
 
-                <div className="rcn-subsection" style={{ marginTop: 8 }}>
-                  <div className="rcn-subsection-title">6. Metabolic acidosis (pH&lt;7.2) — enter readings</div>
+                <div className="rcn-readings-field">
+                  <div className="rcn-field-label-row">
+                    <span className="rcn-yn-label">6. Metabolic acidosis (pH&lt;7.2) — enter readings</span>
+                  </div>
                   <ReadingsBlock
                     code="pH"
                     entries={metabData.ph_readings}
@@ -2140,15 +2321,15 @@ export default function MetabRenalVascEyeLog() {
                     onRemove={i => removeReading("ph_readings", i, "ph")}
                   >
                     {(e, i) => (
-                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
-                        <span className="rcn-yn-label">pH</span>
+                      <label className="mml-meta-field">
+                        <span>pH</span>
                         <div className="rcn-num-input" style={{ width: 140 }}>
                           <input type="number" step="0.01" value={e.ph ?? ""}
                             disabled={!isFieldEditable}
                             onChange={ev => setReadingField("ph_readings", i, "ph",
                               ev.target.value === "" ? "" : Number(ev.target.value), "ph")} />
                         </div>
-                      </div>
+                      </label>
                     )}
                   </ReadingsBlock>
                   <div className="rcn-yn-list" style={{ marginTop: 8 }}>
@@ -2163,9 +2344,9 @@ export default function MetabRenalVascEyeLog() {
                   </div>
                 </div>
 
-                <div className="rcn-subsection">
-                  <div className="rcn-subsection-title rcn-field-label-row">
-                    <span>7. Sodium value (&lt;135 or &gt;142)</span>
+                <div className="rcn-readings-field">
+                  <div className="rcn-field-label-row">
+                    <span className="rcn-yn-label">7. Sodium value (&lt;135 or &gt;142)</span>
                     <StatusToggleGroup status={labStatus("sodium_value")}
                       onChange={s => setLabStatus("sodium_value", s)}
                       disabled={!isFieldEditable} allowAwaited={true} />
@@ -2183,8 +2364,8 @@ export default function MetabRenalVascEyeLog() {
                     onRemove={i => removeReading("sodium_readings", i)}
                   >
                     {(e, i) => (
-                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
-                        <span className="rcn-yn-label">Value</span>
+                      <label className="mml-meta-field">
+                        <span>Value</span>
                         <div className="rcn-num-input" style={{ width: 140 }}>
                           <input type="number" step="0.01" value={e.value ?? ""}
                             disabled={!isFieldEditable}
@@ -2192,15 +2373,15 @@ export default function MetabRenalVascEyeLog() {
                               ev.target.value === "" ? "" : Number(ev.target.value))} />
                           <span className="rcn-num-unit">mmol/L</span>
                         </div>
-                      </div>
+                      </label>
                     )}
                   </ReadingsBlock>
                   )}
                 </div>
 
-                <div className="rcn-subsection">
-                  <div className="rcn-subsection-title rcn-field-label-row">
-                    <span>8. Potassium value (&lt;3.5 or &gt;6)</span>
+                <div className="rcn-readings-field">
+                  <div className="rcn-field-label-row">
+                    <span className="rcn-yn-label">8. Potassium value (&lt;3.5 or &gt;6)</span>
                     <StatusToggleGroup status={labStatus("potassium_value")}
                       onChange={s => setLabStatus("potassium_value", s)}
                       disabled={!isFieldEditable} allowAwaited={true} />
@@ -2218,8 +2399,8 @@ export default function MetabRenalVascEyeLog() {
                     onRemove={i => removeReading("potassium_readings", i)}
                   >
                     {(e, i) => (
-                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
-                        <span className="rcn-yn-label">Value</span>
+                      <label className="mml-meta-field">
+                        <span>Value</span>
                         <div className="rcn-num-input" style={{ width: 140 }}>
                           <input type="number" step="0.01" value={e.value ?? ""}
                             disabled={!isFieldEditable}
@@ -2227,15 +2408,15 @@ export default function MetabRenalVascEyeLog() {
                               ev.target.value === "" ? "" : Number(ev.target.value))} />
                           <span className="rcn-num-unit">mmol/L</span>
                         </div>
-                      </div>
+                      </label>
                     )}
                   </ReadingsBlock>
                   )}
                 </div>
 
-                <div className="rcn-subsection">
-                  <div className="rcn-subsection-title rcn-field-label-row">
-                    <span>9. Ionized Calcium value (&lt;0.9 or &gt;1.2)</span>
+                <div className="rcn-readings-field">
+                  <div className="rcn-field-label-row">
+                    <span className="rcn-yn-label">9. Ionized Calcium value (&lt;0.9 or &gt;1.2)</span>
                     <StatusToggleGroup status={labStatus("ionized_calcium_value")}
                       onChange={s => setLabStatus("ionized_calcium_value", s)}
                       disabled={!isFieldEditable} allowAwaited={true} />
@@ -2253,8 +2434,8 @@ export default function MetabRenalVascEyeLog() {
                     onRemove={i => removeReading("calcium_readings", i)}
                   >
                     {(e, i) => (
-                      <div className="rcn-yn-row" style={{ border: "none", padding: "4px 0" }}>
-                        <span className="rcn-yn-label">Value</span>
+                      <label className="mml-meta-field">
+                        <span>Value</span>
                         <div className="rcn-num-input" style={{ width: 140 }}>
                           <input type="number" step="0.01" value={e.value ?? ""}
                             disabled={!isFieldEditable}
@@ -2262,7 +2443,7 @@ export default function MetabRenalVascEyeLog() {
                               ev.target.value === "" ? "" : Number(ev.target.value))} />
                           <span className="rcn-num-unit">mmol/L</span>
                         </div>
-                      </div>
+                      </label>
                     )}
                   </ReadingsBlock>
                   )}

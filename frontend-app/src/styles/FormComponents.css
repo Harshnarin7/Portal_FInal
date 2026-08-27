@@ -110,6 +110,13 @@
 .apgar-red    { background-color: #ffe5e5; border: 1px solid #ff4d4f; color: #a8071a; }
 .apgar-yellow { background-color: #fff7e6; border: 1px solid #faad14; color: #ad6800; }
 .apgar-green  { background-color: #e6ffed; border: 1px solid #52c41a; color: #135200; }
+/* B5: later Apgar minutes after a ≥7 score — same gray as Form A disabled inputs */
+.apgar-gated {
+  background-color: #f9fafb !important;
+  color: #6b7280 !important;
+  border-color: #e5e7eb !important;
+  cursor: not-allowed !important;
+}
 
 /* ===== ID ROW ===== */
 .id-row { display: grid; grid-template-columns: 1fr 1fr 1fr; border: 1px solid #ccc; margin: 15px 0; }

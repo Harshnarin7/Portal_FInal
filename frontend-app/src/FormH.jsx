@@ -97,6 +97,33 @@ function YesNoToggle({ label, name, value, onChange, onBlur, required = false, d
   );
 }
 
+/* Chip toggles for boolean "select all that apply" groups (H3–H12).
+   Keeps the existing boolean fields and handleChange checkbox contract
+   — only the control is swapped from native checkboxes to the same
+   ChipMultiSelect H1 uses for AED type. */
+function BooleanChipGroup({ label, fieldNum, options, onToggle, error }) {
+  const selected = options.filter((o) => o.checked).map((o) => o.name);
+  const handle = (next) => {
+    const added = next.find((n) => !selected.includes(n));
+    const removed = selected.find((s) => !next.includes(s));
+    const name = added || removed;
+    if (!name) return;
+    onToggle(name, !!added);
+  };
+  return (
+    <div className="form-group">
+      <ChipMultiSelect
+        fieldNum={fieldNum}
+        label={label}
+        options={options.map((o) => ({ value: o.name, label: o.label }))}
+        value={selected}
+        onChange={handle}
+      />
+      {error && <div className="error-text">{error}</div>}
+    </div>
+  );
+}
+
 export default function FormH() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -5436,11 +5463,14 @@ const peripheralStatus= getPeripheralStatus();
      </div>
      <div ref={jumpNavContentRef} />
 
-     {/* ================= IDENTIFICATION ================= */}
+     {/* ================= IDENTIFICATION =================
+         Hidden on Review & Submit — that tab shows Enrollment ID
+         in the same grid as Form completed by / Designation / Date. */}
+{activeCategory !== "completion" && (
 <div className="form-section soft-blue">
   <h3>IDENTIFICATION</h3>
 
-  <div className="form-row">
+  <div className="fh-grid-row fh-id-grid">
     <div className="form-group">
       <label>Enrollment ID</label>
       <input
@@ -5455,6 +5485,7 @@ const peripheralStatus= getPeripheralStatus();
     Complete when diagnosed or at discharge (trigger: daily surveillance sheet)
   </p>
 </div>
+)}
 
 {/* ================= NEUROLOGICAL ================= */}
 <div id="cat-neuro" className={`form-section soft-blue${activeCategory === "neuro" ? "" : " cat-hidden"}`}>
@@ -7038,24 +7069,15 @@ const peripheralStatus= getPeripheralStatus();
 <div id="cat-gi" className={`form-section soft-blue${activeCategory === "gi" ? "" : " cat-hidden"}`}>
   <h3><Utensils size={17} className="sec-icon" /> <span className="sec-num">H3</span> GASTROINTESTINAL</h3>
   
-  <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "fi" ? null : "fi")}
+  <CollapsibleCard
+    title="Feed Intolerance"
+    icon="🍽️"
+    accentColor="bg-amber-500"
+    summary={formData.feed_intolerance || "Not filled"}
+    statusClass={getStatusClass(formData.feed_intolerance)}
+    open={openSection === "fi"}
+    onToggle={() => setOpenSection(openSection === "fi" ? null : "fi")}
   >
-    <span>Feed Intolerance</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.feed_intolerance)}`}>
-        <span className="icon">{getStatusIcon(formData.feed_intolerance)}</span>
-        {formData.feed_intolerance || "Not filled"}
-      </span></div>
-      <span className="arrow">{openSection === "fi" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "fi" && (
-    <div className="card-body">
 
 {giPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -7081,7 +7103,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 )}
 
-  <div className="form-row">
+  <div className="fh-grid-row">
     <div className="form-group">
       <YesNoToggle label="68. Feed Intolerance" name="feed_intolerance" value={formData.feed_intolerance} onChange={handleGiChange} />
       {giAutoFilled.feed_intolerance && <span className="field-hint-auto-inline">from daily logs</span>}
@@ -7090,63 +7112,23 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {formData.feed_intolerance === "Yes" && (
-    <div className="fi-card">
-      <p className="fi-subtitle">69. If 'Yes', specify (select all that apply):</p>
-
-      <div className="fi-grid">
-        <label className="fi-option">
-          <input
-            type="checkbox"
-            name="fi_abdominal_distension"
-            checked={formData.fi_abdominal_distension || false}
-            onChange={handleChange}
-          />
-          <span>Abdominal distension</span>
-        </label>
-
-        <label className="fi-option">
-          <input
-            type="checkbox"
-            name="fi_prefeed_aspirates"
-            checked={formData.fi_prefeed_aspirates || false}
-            onChange={handleChange}
-          />
-          <span>Pre-feed aspirates</span>
-        </label>
-
-        <label className="fi-option">
-          <input
-            type="checkbox"
-            name="fi_altered_aspirates"
-            checked={formData.fi_altered_aspirates || false}
-            onChange={handleChange}
-          />
-          <span>Altered aspirates</span>
-        </label>
-
-        <label className="fi-option">
-          <input
-            type="checkbox"
-            name="fi_sluggish_bowel"
-            checked={formData.fi_sluggish_bowel || false}
-            onChange={handleChange}
-          />
-          <span>Sluggish / absent bowel sounds</span>
-        </label>
-
-        <label className="fi-option">
-          <input
-            type="checkbox"
-            name="fi_others"
-            checked={formData.fi_others || false}
-            onChange={handleChange}
-          />
-          <span>Others</span>
-        </label>
-      </div>
+    <>
+      <BooleanChipGroup
+        fieldNum={69}
+        label="If 'Yes', specify (select all that apply)"
+        options={[
+          { name: "fi_abdominal_distension", label: "Abdominal distension", checked: formData.fi_abdominal_distension },
+          { name: "fi_prefeed_aspirates", label: "Pre-feed aspirates", checked: formData.fi_prefeed_aspirates },
+          { name: "fi_altered_aspirates", label: "Altered aspirates", checked: formData.fi_altered_aspirates },
+          { name: "fi_sluggish_bowel", label: "Sluggish / absent bowel sounds", checked: formData.fi_sluggish_bowel },
+          { name: "fi_others", label: "Others", checked: formData.fi_others },
+        ]}
+        onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.fi_group}
+      />
 
       {formData.fi_others && (
-        <div className="form-group" style={{marginTop:"10px"}}>
+        <div className="form-group">
           <label>Specify Other</label>
           <input
             name="fi_others_text"
@@ -7156,31 +7138,21 @@ const peripheralStatus= getPeripheralStatus();
           />
         </div>
       )}
-    </div>
+    </>
   )}
-  </div>
-  )}
-</div>
+  </CollapsibleCard>
 
   {/* NEC */}
-  <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "nec" ? null : "nec")}
+  <CollapsibleCard
+    code="H3.1"
+    title="Necrotizing Enterocolitis (NEC)"
+    icon="🦠"
+    accentColor="bg-orange-500"
+    summary={getNecSummary()}
+    statusClass={getStatusClass(formData.nec)}
+    open={openSection === "nec"}
+    onToggle={() => setOpenSection(openSection === "nec" ? null : "nec")}
   >
-    <span><span className="sec-num sub">H3.1</span> Necrotizing Enterocolitis (NEC)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.nec)}`}>
-        <span className="icon">{getStatusIcon(formData.nec)}</span>
-        {getNecSummary()}
-      </span></div>
-      <span className="arrow">{openSection === "nec" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "nec" && (
-    <div className="card-body">
 
 {giPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -7218,31 +7190,21 @@ const peripheralStatus= getPeripheralStatus();
 {formData.nec === "Yes" && (
   <>
     <div className="form-group">
-      <label>
-        <span className="field-num">71.</span> Max Stage <span className="required">*</span>
-      </label>
-
-      <select
+      <PillSelect
+        fieldNum={71}
+        label="Max Stage"
+        required
         name="nec_stage"
         value={formData.nec_stage || ""}
+        options={["IA", "IB", "IIA", "IIB", "IIIA", "IIIB"]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="IA">IA</option>
-        <option value="IB">IB</option>
-        <option value="IIA">IIA</option>
-        <option value="IIB">IIB</option>
-        <option value="IIIA">IIIA</option>
-        <option value="IIIB">IIIB</option>
-      </select>
-
-      {touched.nec_stage && errors.nec_stage && (
-        <div className="error-text">{errors.nec_stage}</div>
-      )}
+        touched={touched.nec_stage}
+        error={errors.nec_stage}
+      />
     </div>
 
-    <div className="form-row">
+    <div className="fh-grid-row">
       <div className="form-group">
         <label>
           <span className="field-num">72.</span> Date <span className="required">*</span>
@@ -7294,29 +7256,23 @@ const peripheralStatus= getPeripheralStatus();
     {formData.nec_surgery === "Yes" && (
       <>
         <div className="form-group">
-          <label>
-            <span className="field-num">75.</span> Type of surgical intervention <span className="required">*</span>
-          </label>
-
-          <select
+          <PillSelect
+            fieldNum={75}
+            label="Type of surgical intervention"
+            required
             name="nec_surgery_type"
             value={formData.nec_surgery_type || ""}
+            options={["Peritoneal drain", "Laparotomy"]}
             onChange={handleChange}
             onBlur={handleBlur}
-          >
-            <option value="">-- Select --</option>
-            <option value="Peritoneal drain">Peritoneal drain</option>
-            <option value="Laparotomy">Laparotomy</option>
-          </select>
-
-          {touched.nec_surgery_type && errors.nec_surgery_type && (
-            <div className="error-text">{errors.nec_surgery_type}</div>
-          )}
+            touched={touched.nec_surgery_type}
+            error={errors.nec_surgery_type}
+          />
         </div>
 
         {formData.nec_surgery_type === "Laparotomy" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <YesNoToggle label="76. If Laparotomy, Resection" name="nec_resection" value={formData.nec_resection} onChange={handleChange} onBlur={handleBlur} required />
 
@@ -7362,28 +7318,19 @@ const peripheralStatus= getPeripheralStatus();
       </>
     )}
   </>
-)}</div>
   )}
-</div>
+  </CollapsibleCard>
   {/* Feeding & Nutrition */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "feeding" ? null : "feeding")}
+  <CollapsibleCard
+    code="H3.2"
+    title="Feeding & Nutrition"
+    icon="🍼"
+    accentColor="bg-lime-500"
+    summary={getFeedingSummary()}
+    statusClass={getStatusClass(formData.pn)}
+    open={openSection === "feeding"}
+    onToggle={() => setOpenSection(openSection === "feeding" ? null : "feeding")}
   >
-    <span><span className="sec-num sub">H3.2</span> Feeding &amp; Nutrition</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.pn)}`}>
-        <span className="icon">{getStatusIcon(formData.pn)}</span>
-        {getFeedingSummary()}
-      </span></div>
-      <span className="arrow">{openSection === "feeding" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "feeding" && (
-    <div className="card-body">
 
 {giPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -7410,7 +7357,7 @@ const peripheralStatus= getPeripheralStatus();
 )}
 
 {/* ---------------- BASIC FIELDS ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
   <div className="form-group">
     <label><span className="field-num">79.</span> Age at 1st Enteral Feed (days)</label>
     <input
@@ -7441,7 +7388,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 </div>
 
-<div className="form-row">
+<div className="fh-grid-row">
   <div className="form-group">
     <label><span className="field-num">81.</span> PDHM (days)</label>
     <input
@@ -7518,19 +7465,19 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.pn_adverse === "Yes" && (
         <>
-          <div className="adverse-title">87. If 'Yes', specify *</div>
-
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="pn_cholestasis" checked={formData.pn_cholestasis || false} onChange={handleChange}/> Cholestasis</label>
-            <label><input type="checkbox" name="pn_electrolyte" checked={formData.pn_electrolyte || false} onChange={handleChange}/> Electrolyte imbalance</label>
-            <label><input type="checkbox" name="pn_acidosis" checked={formData.pn_acidosis || false} onChange={handleChange}/> Acidosis</label>
-            <label><input type="checkbox" name="pn_hypercapnia" checked={formData.pn_hypercapnia || false} onChange={handleChange}/> Hypercapnia</label>
-            <label><input type="checkbox" name="pn_other" checked={formData.pn_other || false} onChange={handleChange}/> Other</label>
-          </div>
-
-          {errors.pn_adverse_group && (
-            <div className="error-text">{errors.pn_adverse_group}</div>
-          )}
+          <BooleanChipGroup
+            fieldNum={87}
+            label="If 'Yes', specify"
+            options={[
+              { name: "pn_cholestasis", label: "Cholestasis", checked: formData.pn_cholestasis },
+              { name: "pn_electrolyte", label: "Electrolyte imbalance", checked: formData.pn_electrolyte },
+              { name: "pn_acidosis", label: "Acidosis", checked: formData.pn_acidosis },
+              { name: "pn_hypercapnia", label: "Hypercapnia", checked: formData.pn_hypercapnia },
+              { name: "pn_other", label: "Other", checked: formData.pn_other },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.pn_adverse_group}
+          />
 
           {formData.pn_other && (
             <input
@@ -7551,20 +7498,20 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.probiotic === "Yes" && (
         <>
-          <div className="adverse-title">89. Strains *</div>
+          <BooleanChipGroup
+            fieldNum={89}
+            label="Strains"
+            options={[
+              { name: "strain_mono", label: "Mono", checked: formData.strain_mono },
+              { name: "strain_bi", label: "Bi", checked: formData.strain_bi },
+              { name: "strain_multi", label: "Multi", checked: formData.strain_multi },
+              { name: "strain_others", label: "Others", checked: formData.strain_others },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.strain_group}
+          />
 
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="strain_mono" checked={formData.strain_mono || false} onChange={handleChange}/> Mono</label>
-            <label><input type="checkbox" name="strain_bi" checked={formData.strain_bi || false} onChange={handleChange}/> Bi</label>
-            <label><input type="checkbox" name="strain_multi" checked={formData.strain_multi || false} onChange={handleChange}/> Multi</label>
-            <label><input type="checkbox" name="strain_others" checked={formData.strain_others || false} onChange={handleChange}/> Others</label>
-          </div>
-
-          {errors.strain_group && (
-            <div className="error-text">{errors.strain_group}</div>
-          )}
-
-          <div className="form-row" style={{marginTop:"10px"}}>
+          <div className="fh-grid-row" style={{marginTop:"10px"}}>
             <div className="form-group">
               <YesNoToggle label="90. Lactobacillus" name="lactobacillus" value={formData.lactobacillus} onChange={handleChange} />
             </div>
@@ -7587,7 +7534,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     {formData.cholestasis === "Yes" && (
-      <div className="form-row">
+      <div className="fh-grid-row">
         <div className="form-group">
           <YesNoToggle label="93. TPN Associated" name="tpn_associated" value={formData.tpn_associated} onChange={handleChange} />
         </div>
@@ -7612,10 +7559,7 @@ const peripheralStatus= getPeripheralStatus();
   </>
 )}
 
-</div>
-
-)}
-  </div>
+  </CollapsibleCard>
 </div>
 
 {/* ================= METABOLIC ================= */}
@@ -7649,30 +7593,19 @@ const peripheralStatus= getPeripheralStatus();
   )}
 
   {/* ================= METABOLIC DISTURBANCES ================= */}
-  <div className="card">
-
-    <div
-      className="card-header-row"
-      onClick={() => setOpenSection(openSection === "metabolic" ? null : "metabolic")}
-    >
-      <span><span className="sec-num sub">H4.1</span> Metabolic Disturbances</span>
-      <div className="right-section">
-        <span className={`summary ${getStatusClass(
-          [formData.hypoglycemia, formData.hyperglycemia, formData.metabolic_acidosis, formData.dyselectrolytemia, formData.osteopenia].includes("Yes")
-            ? "Yes"
-            : [formData.hypoglycemia, formData.hyperglycemia, formData.metabolic_acidosis, formData.dyselectrolytemia, formData.osteopenia].some(v => v)
-              ? "No"
-              : ""
-        )}`}>
-          <span className="icon">{getMetabolicSummary() === "Not filled" ? "—" : (getMetabolicSummary() === "No abnormalities" ? "✖" : "✔")}</span>
-          {getMetabolicSummary()}
-        </span>
-      </div>
-      <span className="arrow">{openSection === "metabolic" ? "▲" : "▼"}</span>
-    </div>
-
-    {openSection === "metabolic" && (
-      <div className="card-body">
+  <CollapsibleCard
+    code="H4.1"
+    title="Metabolic Disturbances"
+    icon="⚗️"
+    accentColor="bg-fuchsia-500"
+    summary={getMetabolicSummary()}
+    statusClass={
+      getMetabolicSummary() === "Not filled" ? "empty"
+        : getMetabolicSummary() === "No abnormalities" ? "no" : "yes"
+    }
+    open={openSection === "metabolic"}
+    onToggle={() => setOpenSection(openSection === "metabolic" ? null : "metabolic")}
+  >
 
         {/* ---------------- HYPOGLYCEMIA (95-99) ---------------- */}
         <div className="form-group">
@@ -7683,7 +7616,7 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.hypoglycemia === "Yes" && (
           <>
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">96.</span> No. of episodes<span className="required">*</span></label>
                 <input type="number" name="hypoglycemia_episodes" value={formData.hypoglycemia_episodes || ""}
@@ -7708,7 +7641,7 @@ const peripheralStatus= getPeripheralStatus();
             </div>
 
             {formData.hypoglycemia_rx === "Yes" && (
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
                   <label><span className="field-num">99.</span> Duration of Rx (days)<span className="required">*</span></label>
                   <input type="number" name="hypoglycemia_rx_duration" value={formData.hypoglycemia_rx_duration || ""}
@@ -7729,7 +7662,7 @@ const peripheralStatus= getPeripheralStatus();
         </div>
 
         {formData.hyperglycemia === "Yes" && (
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
               <label><span className="field-num">101.</span> Highest value (mg/dL)<span className="required">*</span></label>
               <input type="number" name="hyperglycemia_highest" value={formData.hyperglycemia_highest || ""}
@@ -7762,47 +7695,45 @@ const peripheralStatus= getPeripheralStatus();
 
         {formData.dyselectrolytemia === "Yes" && (
           <>
-            <div className="form-group">
-              <div className="adverse-title"><span className="field-num">105.</span> Type<span className="required">*</span></div>
-              <div className="pn-checkbox-grid">
-                <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_na" checked={formData.dyselectro_na || false} onChange={handleMetabolicChange} />
-                  Na abnormality
-                  {metabolicAutoFilled.dyselectro_na && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
-                <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_k" checked={formData.dyselectro_k || false} onChange={handleMetabolicChange} />
-                  K abnormality
-                  {metabolicAutoFilled.dyselectro_k && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
-                <label className="checkbox-item">
-                  <input type="checkbox" name="dyselectro_ca" checked={formData.dyselectro_ca || false} onChange={handleMetabolicChange} />
-                  Ionized Ca abnormality
-                  {metabolicAutoFilled.dyselectro_ca && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
-              </div>
-              {errors.dyselectro_group && <div className="error-text">{errors.dyselectro_group}</div>}
-            </div>
+            <BooleanChipGroup
+              fieldNum={105}
+              label="Type"
+              options={[
+                { name: "dyselectro_na", label: "Na abnormality", checked: formData.dyselectro_na },
+                { name: "dyselectro_k", label: "K abnormality", checked: formData.dyselectro_k },
+                { name: "dyselectro_ca", label: "Ionized Ca abnormality", checked: formData.dyselectro_ca },
+              ]}
+              onToggle={(name, checked) => handleMetabolicChange({ target: { name, type: "checkbox", checked } })}
+              error={errors.dyselectro_group}
+            />
 
             {formData.dyselectro_na && (
               <div className="pn-adverse-card">
                 <div className="adverse-title">If Na</div>
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hyponatremia" checked={formData.hyponatremia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">106.</span> Hyponatremia
-                  {metabolicAutoFilled.hyponatremia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
+                <BooleanChipGroup
+                  fieldNum={106}
+                  label="If Na"
+                  options={[
+                    { name: "hyponatremia", label: "106. Hyponatremia", checked: formData.hyponatremia },
+                    { name: "hypernatremia", label: "107. Hypernatremia", checked: formData.hypernatremia },
+                  ]}
+                  onToggle={(name, checked) => handleMetabolicChange({ target: { name, type: "checkbox", checked } })}
+                />
                 {formData.hyponatremia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hyponatremia_status" value={formData.hyponatremia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hyponatremia_status && errors.hyponatremia_status && <div className="error-text">{errors.hyponatremia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hyponatremia_status"
+                        value={formData.hyponatremia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hyponatremia_status}
+                        error={errors.hyponatremia_status}
+                      />
                     </div>
                     {formData.hyponatremia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7815,21 +7746,20 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
                 )}
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hypernatremia" checked={formData.hypernatremia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">107.</span> Hypernatremia
-                  {metabolicAutoFilled.hypernatremia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
                 {formData.hypernatremia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hypernatremia_status" value={formData.hypernatremia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hypernatremia_status && errors.hypernatremia_status && <div className="error-text">{errors.hypernatremia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hypernatremia_status"
+                        value={formData.hypernatremia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hypernatremia_status}
+                        error={errors.hypernatremia_status}
+                      />
                     </div>
                     {formData.hypernatremia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7848,21 +7778,29 @@ const peripheralStatus= getPeripheralStatus();
               <div className="pn-adverse-card">
                 <div className="adverse-title">If K</div>
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hypokalemia" checked={formData.hypokalemia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">108.</span> Hypokalaemia
-                  {metabolicAutoFilled.hypokalemia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
+                <BooleanChipGroup
+                  fieldNum={108}
+                  label="If K"
+                  options={[
+                    { name: "hypokalemia", label: "108. Hypokalaemia", checked: formData.hypokalemia },
+                    { name: "hyperkalemia", label: "109. Hyperkalaemia", checked: formData.hyperkalemia },
+                  ]}
+                  onToggle={(name, checked) => handleMetabolicChange({ target: { name, type: "checkbox", checked } })}
+                />
                 {formData.hypokalemia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hypokalemia_status" value={formData.hypokalemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hypokalemia_status && errors.hypokalemia_status && <div className="error-text">{errors.hypokalemia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hypokalemia_status"
+                        value={formData.hypokalemia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hypokalemia_status}
+                        error={errors.hypokalemia_status}
+                      />
                     </div>
                     {formData.hypokalemia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7875,21 +7813,20 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
                 )}
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hyperkalemia" checked={formData.hyperkalemia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">109.</span> Hyperkalaemia
-                  {metabolicAutoFilled.hyperkalemia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
                 {formData.hyperkalemia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hyperkalemia_status" value={formData.hyperkalemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hyperkalemia_status && errors.hyperkalemia_status && <div className="error-text">{errors.hyperkalemia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hyperkalemia_status"
+                        value={formData.hyperkalemia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hyperkalemia_status}
+                        error={errors.hyperkalemia_status}
+                      />
                     </div>
                     {formData.hyperkalemia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7908,21 +7845,29 @@ const peripheralStatus= getPeripheralStatus();
               <div className="pn-adverse-card">
                 <div className="adverse-title">If Ionized Ca</div>
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hypocalcemia" checked={formData.hypocalcemia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">110.</span> Hypocalcemia
-                  {metabolicAutoFilled.hypocalcemia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
+                <BooleanChipGroup
+                  fieldNum={110}
+                  label="If Ionized Ca"
+                  options={[
+                    { name: "hypocalcemia", label: "110. Hypocalcemia", checked: formData.hypocalcemia },
+                    { name: "hypercalcemia", label: "111. Hypercalcemia", checked: formData.hypercalcemia },
+                  ]}
+                  onToggle={(name, checked) => handleMetabolicChange({ target: { name, type: "checkbox", checked } })}
+                />
                 {formData.hypocalcemia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hypocalcemia_status" value={formData.hypocalcemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hypocalcemia_status && errors.hypocalcemia_status && <div className="error-text">{errors.hypocalcemia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hypocalcemia_status"
+                        value={formData.hypocalcemia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hypocalcemia_status}
+                        error={errors.hypocalcemia_status}
+                      />
                     </div>
                     {formData.hypocalcemia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7935,21 +7880,20 @@ const peripheralStatus= getPeripheralStatus();
                   </div>
                 )}
 
-                <label className="checkbox-item">
-                  <input type="checkbox" name="hypercalcemia" checked={formData.hypercalcemia || false} onChange={handleMetabolicChange} />
-                  <span className="field-num">111.</span> Hypercalcemia
-                  {metabolicAutoFilled.hypercalcemia && <span className="field-hint-auto-inline">from daily logs</span>}
-                </label>
                 {formData.hypercalcemia && (
-                  <div className="form-row">
+                  <div className="fh-grid-row">
                     <div className="form-group">
-                      <label>Status<span className="required">*</span></label>
-                      <select name="hypercalcemia_status" value={formData.hypercalcemia_status || ""} onChange={handleChange} onBlur={handleBlur}>
-                        <option value="">-- Select --</option>
-                        <option value="Symptomatic">Symptomatic</option>
-                        <option value="Asymptomatic">Asymptomatic</option>
-                      </select>
-                      {touched.hypercalcemia_status && errors.hypercalcemia_status && <div className="error-text">{errors.hypercalcemia_status}</div>}
+                      <PillSelect
+                        label="Status"
+                        required
+                        name="hypercalcemia_status"
+                        value={formData.hypercalcemia_status || ""}
+                        options={["Symptomatic", "Asymptomatic"]}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        touched={touched.hypercalcemia_status}
+                        error={errors.hypercalcemia_status}
+                      />
                     </div>
                     {formData.hypercalcemia_status === "Symptomatic" && (
                       <div className="form-group">
@@ -7974,7 +7918,7 @@ const peripheralStatus= getPeripheralStatus();
         </div>
 
         {formData.osteopenia === "Yes" && (
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
               <label><span className="field-num">113.</span> ALP peak (IU/L)<span className="required">*</span></label>
               <input type="number" name="alp_peak" value={formData.alp_peak || ""}
@@ -7998,9 +7942,7 @@ const peripheralStatus= getPeripheralStatus();
           </div>
         )}
 
-      </div>
-    )}
-  </div>
+  </CollapsibleCard>
 </div>
 
 {/* ================= PDA ================= */}
@@ -8009,25 +7951,17 @@ const peripheralStatus= getPeripheralStatus();
   <h3><HeartPulse size={17} className="sec-icon" /> <span className="sec-num">H5</span> CARDIOVASCULAR</h3>
 
   {/* ================= STRUCTURAL HEART DISEASE ================= */}
-  <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "shd" ? null : "shd")}
+  <CollapsibleCard
+    code="H5.1"
+    title="Structural Heart Disease"
+    icon="❤️"
+    accentColor="bg-rose-500"
+    summary={formData.structural_heart_disease || "Not filled"}
+    statusClass={getStatusClass(formData.structural_heart_disease)}
+    open={openSection === "shd"}
+    onToggle={() => setOpenSection(openSection === "shd" ? null : "shd")}
   >
-    <span><span className="sec-num sub">H5.1</span> Structural Heart Disease</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.structural_heart_disease)}`}>
-        <span className="icon">{getStatusIcon(formData.structural_heart_disease)}</span>
-        {formData.structural_heart_disease || "Not filled"}
-      </span>
-    </div>
-    <span className="arrow">{openSection === "shd" ? "▲" : "▼"}</span>
-  </div>
-
-  {openSection === "shd" && (
-    <div className="card-body">
-      <div className="form-row">
+      <div className="fh-grid-row">
         <div className="form-group">
           <YesNoToggle label="Structural Heart Disease" name="structural_heart_disease" value={formData.structural_heart_disease} onChange={handleChange} onBlur={handleBlur} required />
           {errors.structural_heart_disease && (
@@ -8050,29 +7984,18 @@ const peripheralStatus= getPeripheralStatus();
           </div>
         )}
       </div>
-    </div>
-  )}
-  </div>
+  </CollapsibleCard>
 
-  <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "pda" ? null : "pda")}
+  <CollapsibleCard
+    code="H5.2"
+    title="Patent Ductus Arteriosus (PDA)"
+    icon="💓"
+    accentColor="bg-pink-500"
+    summary={getPDASummary()}
+    statusClass={getStatusClass(formData.hs_pda)}
+    open={openSection === "pda"}
+    onToggle={() => setOpenSection(openSection === "pda" ? null : "pda")}
   >
-    <span><span className="sec-num sub">H5.2</span> Patent Ductus Arteriosus (PDA)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.hs_pda)}`}>
-        <span className="icon">{getStatusIcon(formData.hs_pda)}</span>
-        {getPDASummary()}
-      </span>
-     </div>
-      <span className="arrow">{openSection === "pda" ? "▲" : "▼"}</span>
-    
-  </div>
-
-  {openSection === "pda" && (
-    <div className="card-body">
 
 {cvPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -8113,82 +8036,33 @@ const peripheralStatus= getPeripheralStatus();
   {formData.hs_pda === "Yes" && (
     <>
 
-      {/* ---------------- DIAGNOSIS ---------------- */}
-      <div className="adverse-title">
-        118. If 'Yes', diagnosed by <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="pda_clinical"
-            checked={formData.pda_clinical || false}
-            onChange={handleChange}
-          />
-          Clinical
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="pda_echo"
-            checked={formData.pda_echo || false}
-            onChange={handleChange}
-          />
-          Echo
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="pda_both"
-            checked={formData.pda_both || false}
-            onChange={handleChange}
-          />
-          Both
-        </label>
-
-      </div>
-
-      {errors.pda_diagnosis_group && (
-        <div className="error-text">{errors.pda_diagnosis_group}</div>
-      )}
+      <BooleanChipGroup
+        fieldNum={118}
+        label="If 'Yes', diagnosed by"
+        options={[
+          { name: "pda_clinical", label: "Clinical", checked: formData.pda_clinical },
+          { name: "pda_echo", label: "Echo", checked: formData.pda_echo },
+          { name: "pda_both", label: "Both", checked: formData.pda_both },
+        ]}
+        onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.pda_diagnosis_group}
+      />
 
       {/* ---------------- CLINICAL FEATURES ---------------- */}
       {formData.pda_clinical && (
         <>
-          <div className="adverse-title">119. If 'Clinical', features</div>
-
-          <div className="pn-checkbox-grid">
-
-            <label className="checkbox-item">
-              <input type="checkbox" name="pda_murmur" checked={formData.pda_murmur || false} onChange={handleChange}/>
-              Murmur
-            </label>
-
-            <label className="checkbox-item">
-              <input type="checkbox" name="pda_hyperactive_precordium" checked={formData.pda_hyperactive_precordium || false} onChange={handleChange}/>
-              Hyperactive precordium
-            </label>
-
-            <label className="checkbox-item">
-              <input type="checkbox" name="pda_bounding_pulse" checked={formData.pda_bounding_pulse || false} onChange={handleChange}/>
-              Bounding pulse
-            </label>
-
-            <label className="checkbox-item">
-              <input type="checkbox" name="pda_wide_pp" checked={formData.pda_wide_pp || false} onChange={handleChange}/>
-              Wide pulse pressure
-            </label>
-
-            <label className="checkbox-item">
-              <input type="checkbox" name="pda_other_feature" checked={formData.pda_other_feature || false} onChange={handleChange}/>
-              Others
-            </label>
-
-          </div>
+          <BooleanChipGroup
+            fieldNum={119}
+            label="If 'Clinical', features"
+            options={[
+              { name: "pda_murmur", label: "Murmur", checked: formData.pda_murmur },
+              { name: "pda_hyperactive_precordium", label: "Hyperactive precordium", checked: formData.pda_hyperactive_precordium },
+              { name: "pda_bounding_pulse", label: "Bounding pulse", checked: formData.pda_bounding_pulse },
+              { name: "pda_wide_pp", label: "Wide pulse pressure", checked: formData.pda_wide_pp },
+              { name: "pda_other_feature", label: "Others", checked: formData.pda_other_feature },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+          />
 
           {formData.pda_other_feature && (
             <div className="form-group">
@@ -8214,7 +8088,7 @@ const peripheralStatus= getPeripheralStatus();
         <>
           <div className="adverse-title">120. If 'Echo'</div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <label>TDD (mm)</label>
@@ -8248,41 +8122,33 @@ const peripheralStatus= getPeripheralStatus();
           </div>
 
           {/* Pattern */}
-          <div className="adverse-title">
-            122. Pattern <span className="required">*</span>
-          </div>
+          <BooleanChipGroup
+            fieldNum={122}
+            label="Pattern"
+            options={[
+              { name: "pda_pattern_growing", label: "Growing", checked: formData.pda_pattern_growing },
+              { name: "pda_pattern_pulsatile", label: "Pulsatile", checked: formData.pda_pattern_pulsatile },
+              { name: "pda_pattern_none", label: "Closing", checked: formData.pda_pattern_none },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.pda_pattern_group}
+          />
 
-          <div className="pn-checkbox-grid">
-
-            <label><input type="checkbox" name="pda_pattern_growing" checked={formData.pda_pattern_growing || false} onChange={handleChange}/> Growing</label>
-            <label><input type="checkbox" name="pda_pattern_pulsatile" checked={formData.pda_pattern_pulsatile || false} onChange={handleChange}/> Pulsatile</label>
-            <label><input type="checkbox" name="pda_pattern_none" checked={formData.pda_pattern_none || false} onChange={handleChange}/> Closing</label>
-
-          </div>
-
-          {errors.pda_pattern_group && (
-            <div className="error-text">{errors.pda_pattern_group}</div>
-          )}
-
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
-              <label><span className="field-num">123.</span> Shunt across PDA <span className="required">*</span></label>
-              <select
+              <PillSelect
+                fieldNum={123}
+                label="Shunt across PDA"
+                required
                 name="pda_shunt"
                 value={formData.pda_shunt || ""}
+                options={["L to R", "Bidirectional", "R to L"]}
                 onChange={handleChange}
                 onBlur={handleBlur}
-              >
-                <option value="">-- Select --</option>
-                <option value="L to R">L to R</option>
-                <option value="Bidirectional">Bidirectional</option>
-                <option value="R to L">R to L</option>
-              </select>
-
-              {errors.pda_shunt && (
-                <div className="error-text">{errors.pda_shunt}</div>
-              )}
+                error={errors.pda_shunt}
+                touched={!!errors.pda_shunt}
+              />
             </div>
 
             <div className="form-group">
@@ -8302,7 +8168,7 @@ const peripheralStatus= getPeripheralStatus();
 
           </div>
 
-          <div className="form-row">
+          <div className="fh-grid-row">
 
             <div className="form-group">
               <YesNoToggle label="125. Systemic steal" name="pda_systemic_steal" value={formData.pda_systemic_steal} onChange={handleChange} />
@@ -8334,36 +8200,31 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.pda_medical_rx === "Yes" && (
         <>
-          <div className="adverse-title">
-            128. Agent <span className="required">*</span>
-          </div>
+          <BooleanChipGroup
+            fieldNum={128}
+            label="Agent"
+            options={[
+              { name: "pda_indo", label: "Indo", checked: formData.pda_indo },
+              { name: "pda_ibu", label: "Ibu", checked: formData.pda_ibu },
+              { name: "pda_pcm", label: "PCM", checked: formData.pda_pcm },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.pda_medical_group}
+          />
 
-          <div className="pn-checkbox-grid">
-            <label><input type="checkbox" name="pda_indo" checked={formData.pda_indo || false} onChange={handleChange}/> Indo</label>
-            <label><input type="checkbox" name="pda_ibu" checked={formData.pda_ibu || false} onChange={handleChange}/> Ibu</label>
-            <label><input type="checkbox" name="pda_pcm" checked={formData.pda_pcm || false} onChange={handleChange}/> PCM</label>
-          </div>
-
-          {errors.pda_medical_group && (
-            <div className="error-text">{errors.pda_medical_group}</div>
-          )}
-
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
-              <label><span className="field-num">129.</span> Courses</label>
-              <select
+              <PillSelect
+                fieldNum={129}
+                label="Courses"
                 name="pda_courses"
                 value={formData.pda_courses || ""}
+                options={["1", "2", "3", "4"]}
                 onChange={handleChange}
                 onBlur={handleBlur}
-              >
-                <option value="">-- Select --</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-              </select>
-              {errors.pda_courses && <div className="error-text">{errors.pda_courses}</div>}
+                error={errors.pda_courses}
+                touched={!!errors.pda_courses}
+              />
             </div>
 
             <div className="form-group">
@@ -8386,24 +8247,20 @@ const peripheralStatus= getPeripheralStatus();
 
       {/* ---------------- INTERVENTION RX ---------------- */}
       <div className="form-group">
-        <label><span className="field-num">131.</span> Intervention Rx</label>
-        <select
+        <PillSelect
+          fieldNum={131}
+          label="Intervention Rx"
           name="pda_intervention_rx"
           value={formData.pda_intervention_rx || ""}
+          options={["Ligation", "Device closure", "None"]}
           onChange={handleChange}
           onBlur={handleBlur}
-        >
-          <option value="">-- Select --</option>
-          <option value="Ligation">Ligation</option>
-          <option value="Device closure">Device closure</option>
-          <option value="None">None</option>
-        </select>
-        {errors.pda_intervention_rx && (
-          <div className="error-text">{errors.pda_intervention_rx}</div>
-        )}
+          error={errors.pda_intervention_rx}
+          touched={!!errors.pda_intervention_rx}
+        />
       </div>
 
-      <div className="form-row">
+      <div className="fh-grid-row">
 
         {formData.pda_intervention_rx === "Ligation" && (
           <div className="form-group">
@@ -8453,32 +8310,19 @@ const peripheralStatus= getPeripheralStatus();
 
     </>
   )}
-</div></div>
-  )}
-</div>
-
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "shock" ? null : "shock")}
-  >
-    <span><span className="sec-num sub">H5.3</span> Shock / Hypotension</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.shock || formData.hypotension)}`}>
-        <span className="icon">
-          {getStatusIcon(formData.shock || formData.hypotension)}
-        </span>
-
-        {getShockSummary()}
-      </span>
-     </div>
-      <span className="arrow">{openSection === "shock" ? "▲" : "▼"}</span>
-    
   </div>
+  </CollapsibleCard>
 
-  {openSection === "shock" && (
-    <div className="card-body">
+  <CollapsibleCard
+    code="H5.3"
+    title="Shock / Hypotension"
+    icon="🩸"
+    accentColor="bg-red-500"
+    summary={getShockSummary()}
+    statusClass={getStatusClass(formData.shock || formData.hypotension)}
+    open={openSection === "shock"}
+    onToggle={() => setOpenSection(openSection === "shock" ? null : "shock")}
+  >
 
 {cvPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -8510,7 +8354,7 @@ const peripheralStatus= getPeripheralStatus();
 
 <div className="pn-adverse-card">
 
-  <div className="form-row">
+  <div className="fh-grid-row">
 
     {/* Shock */}
     <div className="form-group">
@@ -8532,47 +8376,16 @@ const peripheralStatus= getPeripheralStatus();
   {/* Hypotension Type */}
   {formData.hypotension === "Yes" && (
     <>
-      <div className="adverse-title">
-        If 'Hypotension', type <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="hypotension_systolic"
-            checked={formData.hypotension_systolic || false}
-            onChange={handleChange}
-          />
-          Systolic
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="hypotension_diastolic"
-            checked={formData.hypotension_diastolic || false}
-            onChange={handleChange}
-          />
-          Diastolic
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="hypotension_both"
-            checked={formData.hypotension_both || false}
-            onChange={handleChange}
-          />
-          Both
-        </label>
-
-      </div>
-
-      {errors.hypotension_group && (
-        <div className="error-text">{errors.hypotension_group}</div>
-      )}
+      <BooleanChipGroup
+        label="If 'Hypotension', type"
+        options={[
+          { name: "hypotension_systolic", label: "Systolic", checked: formData.hypotension_systolic },
+          { name: "hypotension_diastolic", label: "Diastolic", checked: formData.hypotension_diastolic },
+          { name: "hypotension_both", label: "Both", checked: formData.hypotension_both },
+        ]}
+        onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.hypotension_group}
+      />
     </>
   )}
 
@@ -8582,7 +8395,7 @@ const peripheralStatus= getPeripheralStatus();
       Record the lowest BP throughout the hospital stay
     </div>
 
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">136.</span> SBP (mmHg)</label>
@@ -8633,7 +8446,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
   {/* Fluid Bolus */}
-  <div className="form-row">
+  <div className="fh-grid-row">
 
     <div className="form-group">
       <YesNoToggle label="139. Required fluid bolus" name="fluid_bolus" value={formData.fluid_bolus} onChange={handleCvChange} onBlur={handleBlur} required />
@@ -8675,27 +8488,23 @@ const peripheralStatus= getPeripheralStatus();
 
   {formData.inotropes === "Yes" && (
     <>
-      <div className="adverse-title">
-        142. If yes (select all that apply) <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label><input type="checkbox" name="inotrope_dopa" checked={formData.inotrope_dopa || false} onChange={handleCvChange}/> Dopa{cvAutoFilled.inotrope_dopa && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-        <label><input type="checkbox" name="inotrope_dobu" checked={formData.inotrope_dobu || false} onChange={handleCvChange}/> Dobu{cvAutoFilled.inotrope_dobu && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-        <label><input type="checkbox" name="inotrope_adr" checked={formData.inotrope_adr || false} onChange={handleCvChange}/> Adr{cvAutoFilled.inotrope_adr && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-        <label><input type="checkbox" name="inotrope_nadr" checked={formData.inotrope_nadr || false} onChange={handleCvChange}/> NAdr{cvAutoFilled.inotrope_nadr && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-        <label><input type="checkbox" name="inotrope_milri" checked={formData.inotrope_milri || false} onChange={handleCvChange}/> Milri{cvAutoFilled.inotrope_milri && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-        <label><input type="checkbox" name="inotrope_vaso" checked={formData.inotrope_vaso || false} onChange={handleCvChange}/> Vaso{cvAutoFilled.inotrope_vaso && <span className="field-hint-auto-inline">from daily logs</span>}</label>
-
-      </div>
-
-      {errors.inotrope_group && (
-        <div className="error-text">{errors.inotrope_group}</div>
-      )}
+      <BooleanChipGroup
+        fieldNum={142}
+        label="If yes (select all that apply)"
+        options={[
+          { name: "inotrope_dopa", label: "Dopa", checked: formData.inotrope_dopa },
+          { name: "inotrope_dobu", label: "Dobu", checked: formData.inotrope_dobu },
+          { name: "inotrope_adr", label: "Adr", checked: formData.inotrope_adr },
+          { name: "inotrope_nadr", label: "NAdr", checked: formData.inotrope_nadr },
+          { name: "inotrope_milri", label: "Milri", checked: formData.inotrope_milri },
+          { name: "inotrope_vaso", label: "Vaso", checked: formData.inotrope_vaso },
+        ]}
+        onToggle={(name, checked) => handleCvChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.inotrope_group}
+      />
 
       <div style={{ marginTop: "20px" }}>
-        <div className="form-row">
+        <div className="fh-grid-row">
 
           <div className="form-group">
             <label><span className="field-num">143.</span> Duration (days) <span className="required">*</span></label>
@@ -8745,56 +8554,39 @@ const peripheralStatus= getPeripheralStatus();
 
   {formData.hydrocortisone_bp === "Yes" && (
     <>
-      <div className="adverse-title">
-        146. If 'Yes', timing <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label><input type="checkbox" name="hc_first_drug" checked={formData.hc_first_drug || false} onChange={handleChange}/> Started as first drug</label>
-        <label><input type="checkbox" name="hc_after_first" checked={formData.hc_after_first || false} onChange={handleChange}/> After first vasoactive</label>
-        <label><input type="checkbox" name="hc_after_second" checked={formData.hc_after_second || false} onChange={handleChange}/> After second vasoactive</label>
-
-      </div>
-
-      {errors.hc_group && (
-        <div className="error-text">{errors.hc_group}</div>
-      )}
+      <BooleanChipGroup
+        fieldNum={146}
+        label="If 'Yes', timing"
+        options={[
+          { name: "hc_first_drug", label: "Started as first drug", checked: formData.hc_first_drug },
+          { name: "hc_after_first", label: "After first vasoactive", checked: formData.hc_after_first },
+          { name: "hc_after_second", label: "After second vasoactive", checked: formData.hc_after_second },
+        ]}
+        onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.hc_group}
+      />
     </>
   )}
 
 </div>
 
-</div>
-  )}
-</div>
+  </CollapsibleCard>
 </div>
 
 {/* ================= HEMATOLOGY ================= */}
 <div id="cat-heme" className={`form-section soft-blue${activeCategory === "heme" ? "" : " cat-hidden"}`}>
 
   <h3><Droplets size={17} className="sec-icon" /> <span className="sec-num">H6</span> HEMATOLOGY</h3>
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "jaundice" ? null : "jaundice")}
+  <CollapsibleCard
+    code="H6.1"
+    title="Jaundice / Hyperbilirubinemia"
+    icon="💛"
+    accentColor="bg-amber-500"
+    summary={getJaundiceSummary()}
+    statusClass={getStatusClass(formData.jaundice_type)}
+    open={openSection === "jaundice"}
+    onToggle={() => setOpenSection(openSection === "jaundice" ? null : "jaundice")}
   >
-    <span><span className="sec-num sub">H6.1</span> Jaundice / Hyperbilirubinemia</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.jaundice_type)}`}>
-        <span className="icon">{getStatusIcon(formData.jaundice_type)}</span>
-        {getJaundiceSummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "jaundice" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "jaundice" && (
-    <div className="card-body">
 
 {hemePrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -8837,26 +8629,24 @@ const peripheralStatus= getPeripheralStatus();
 <>
 {/* ---------------- TYPE ---------------- */}
 <div className="form-group">
-  <label><span className="field-num">148.</span> Type <span className="required">*</span></label>
-  <select
+  <PillSelect
+    fieldNum={148}
+    label="Type"
+    required
     name="jaundice_type"
     value={formData.jaundice_type || ""}
+    options={["Conjugated", "Unconjugated"]}
     onChange={handleChange}
     onBlur={handleBlur}
-  >
-    <option value="">-- Select --</option>
-    <option value="Conjugated">Conjugated</option>
-    <option value="Unconjugated">Unconjugated</option>
-  </select>
-  {errors.jaundice_type && (
-    <div className="error-text">{errors.jaundice_type}</div>
-  )}
+    error={errors.jaundice_type}
+    touched={!!errors.jaundice_type}
+  />
 </div>
 
 {/* ---------------- UNCONJUGATED ---------------- */}
 {formData.jaundice_type === "Unconjugated" && (
   <>
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">149.</span> Onset date <span className="required">*</span></label>
@@ -8886,7 +8676,7 @@ const peripheralStatus= getPeripheralStatus();
 
     </div>
 
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">151.</span> Peak TSB (mg/dL) <span className="required">*</span></label>
@@ -8915,7 +8705,7 @@ const peripheralStatus= getPeripheralStatus();
 
     </div>
 
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <YesNoToggle label="153. BIND" name="bind" value={formData.bind} onChange={handleChange} onBlur={handleBlur} required />
@@ -8957,24 +8747,18 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-    <label><span className="field-num">157.</span> Etiology <span className="required">*</span></label>
-
-    <select
+    <PillSelect
+      fieldNum={157}
+      label="Etiology"
+      required
       name="jaundice_etiology"
       value={formData.jaundice_etiology || ""}
+      options={["Exaggeration", "Dehydration", "Isoimmune", "Others"]}
       onChange={handleChange}
       onBlur={handleBlur}
-    >
-      <option value="">-- Select --</option>
-      <option value="Exaggeration">Exaggeration</option>
-      <option value="Dehydration">Dehydration</option>
-      <option value="Isoimmune">Isoimmune</option>
-      <option value="Others">Others</option>
-    </select>
-
-    {errors.jaundice_etiology && (
-      <div className="error-text">{errors.jaundice_etiology}</div>
-    )}
+      error={errors.jaundice_etiology}
+      touched={!!errors.jaundice_etiology}
+    />
 
     {formData.jaundice_etiology === "Others" && (
       <div style={{ marginTop: "10px" }}>
@@ -8997,25 +8781,18 @@ const peripheralStatus= getPeripheralStatus();
 {/* ---------------- CONJUGATED ---------------- */}
 {formData.jaundice_type === "Conjugated" && (
   <div className="form-group">
-    <label><span className="field-num">158.</span> If conjugated, Etiology <span className="required">*</span></label>
-
-    <select
+    <PillSelect
+      fieldNum={158}
+      label="If conjugated, Etiology"
+      required
       name="jaundice_etiology"
       value={formData.jaundice_etiology || ""}
+      options={["Hepatitis", "Biliary atresia", "Cholestasis", "PNALD", "Others"]}
       onChange={handleChange}
       onBlur={handleBlur}
-    >
-      <option value="">-- Select --</option>
-      <option value="Hepatitis">Hepatitis</option>
-      <option value="Biliary atresia">Biliary atresia</option>
-      <option value="Cholestasis">Cholestasis</option>
-      <option value="PNALD">PNALD</option>
-      <option value="Others">Others</option>
-    </select>
-
-    {errors.jaundice_etiology && (
-      <div className="error-text">{errors.jaundice_etiology}</div>
-    )}
+      error={errors.jaundice_etiology}
+      touched={!!errors.jaundice_etiology}
+    />
 
     {formData.jaundice_etiology === "Others" && (
       <div style={{ marginTop: "10px" }}>
@@ -9035,31 +8812,17 @@ const peripheralStatus= getPeripheralStatus();
 )}
 </>
 )}
-</div>
-  )}
-</div>
+  </CollapsibleCard>
 {/* ---------------- ANEMIA (continues H6.1 numbering, #159-163) ---------------- */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "anemia" ? null : "anemia")}
+  <CollapsibleCard
+    title="Anemia"
+    icon="🩸"
+    accentColor="bg-red-500"
+    summary={getAnemiaSummary()}
+    statusClass={getStatusClass(formData.anemia)}
+    open={openSection === "anemia"}
+    onToggle={() => setOpenSection(openSection === "anemia" ? null : "anemia")}
   >
-    <span>Anemia <span style={{fontSize:11, fontWeight:400, color:"#9ca3af"}}>(H6.1 continued)</span></span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.anemia)}`}>
-        <span className="icon">{getStatusIcon(formData.anemia)}</span>
-        {getAnemiaSummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "anemia" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "anemia" && (
-    <div className="card-body">
 <div className="form-group">
   <YesNoToggle label="159. Anemia" name="anemia" value={formData.anemia} onChange={handleChange} onBlur={handleBlur} required />
   {errors.anemia && <div className="error-text">{errors.anemia}</div>}
@@ -9067,7 +8830,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.anemia === "Yes" && (
   <>
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">160.</span> Age at onset (days) <span className="required">*</span></label>
@@ -9105,26 +8868,18 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     <div className="form-group">
-      <label><span className="field-num">162.</span> Etiology <span className="required">*</span></label>
-      <select
+      <PillSelect
+        fieldNum={162}
+        label="Etiology"
+        required
         name="anemia_etiology"
         value={formData.anemia_etiology || ""}
+        options={["Isoimmune", "G6PD", "FMH", "Blood loss", "Sampling", "Sepsis", "Physiologic", "Other"]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option>Isoimmune</option>
-        <option>G6PD</option>
-        <option>FMH</option>
-        <option>Blood loss</option>
-        <option>Sampling</option>
-        <option>Sepsis</option>
-        <option>Physiologic</option>
-        <option>Other</option>
-      </select>
-      {errors.anemia_etiology && (
-        <div className="error-text">{errors.anemia_etiology}</div>
-      )}
+        error={errors.anemia_etiology}
+        touched={!!errors.anemia_etiology}
+      />
     </div>
 
     {formData.anemia_etiology === "Other" && (
@@ -9143,21 +8898,22 @@ const peripheralStatus= getPeripheralStatus();
     )}
 
     <div className="form-group">
-      <label><span className="field-num">163.</span> Symptoms <span className="required">*</span></label>
-      <select
+      <PillSelect
+        fieldNum={163}
+        label="Symptoms"
+        required
         name="anemia_symptoms"
         value={formData.anemia_symptoms || ""}
+        options={[
+          { value: "CHF", label: "CHF" },
+          { value: "Asymptomatic", label: "Asymptomatic" },
+          { value: "Others", label: "Others" },
+        ]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select --</option>
-        <option value="CHF">CHF</option>
-        <option value="Asymptomatic">Asymptomatic</option>
-        <option value="Others">Others</option>
-      </select>
-      {errors.anemia_symptoms && (
-        <div className="error-text">{errors.anemia_symptoms}</div>
-      )}
+        error={errors.anemia_symptoms}
+        touched={!!errors.anemia_symptoms}
+      />
       {formData.anemia_symptoms === "Others" && (
         <div style={{ marginTop: "10px" }}>
           <label>Specify Other <span className="required">*</span></label>
@@ -9173,32 +8929,19 @@ const peripheralStatus= getPeripheralStatus();
   </>
 )}
 
-    </div>
-  )}
-</div>
+  </CollapsibleCard>
 
     {/* Transfusions */}
-    <div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "transfusion" ? null : "transfusion")}
+  <CollapsibleCard
+    code="H6.2"
+    title="Transfusions"
+    icon="💉"
+    accentColor="bg-rose-500"
+    summary={summary}
+    statusClass={getStatusClass(summary)}
+    open={openSection === "transfusion"}
+    onToggle={() => setOpenSection(openSection === "transfusion" ? null : "transfusion")}
   >
-    <span><span className="sec-num sub">H6.2</span> Transfusions</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(summary)}`}>
-  <span className="icon">{getStatusIcon(summary)}</span>
-  {summary}
-</span>
-</div>
-      <span className="arrow">
-        {openSection === "transfusion" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "transfusion" && (
-    <div className="card-body">
 
 {hemePrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -9235,7 +8978,7 @@ const peripheralStatus= getPeripheralStatus();
 
 {formData.prbc === "Yes" && (
   <>
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">165.</span> Number of Transfusions <span className="required">*</span></label>
@@ -9272,7 +9015,7 @@ const peripheralStatus= getPeripheralStatus();
 
     </div>
 
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <YesNoToggle label="CMV screened (site)" name="cmv_screened" value={formData.cmv_screened} onChange={handleChange} onBlur={handleBlur} />
@@ -9342,7 +9085,7 @@ const peripheralStatus= getPeripheralStatus();
 )}
 
 {/* ---------------- LEUKOREDUCED / IRRADIATED ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="171. Leukoreduced" name="leukoreduced" value={formData.leukoreduced} onChange={handleChange} onBlur={handleBlur} required />
@@ -9359,11 +9102,10 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 
 </div>
-  </div>
 
 
-  )}
-</div></div>
+  </CollapsibleCard>
+</div>
 
 
 {/* ================= RENAL ================= */}
@@ -9397,31 +9139,20 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "aki" ? null : "aki")}
+  <CollapsibleCard
+    code="H7.1"
+    title="Acute Kidney Injury (AKI)"
+    icon="💧"
+    accentColor="bg-cyan-500"
+    summary={getAKISummary()}
+    statusClass={getStatusClass(formData.aki)}
+    open={openSection === "aki"}
+    onToggle={() => setOpenSection(openSection === "aki" ? null : "aki")}
   >
-    <span><span className="sec-num sub">H7.1</span> Acute Kidney Injury (AKI)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.aki)}`}>
-        <span className="icon">{getStatusIcon(formData.aki)}</span>
-        {getAKISummary()}
-      </span>
-</div>
-      <span className="arrow">
-        {openSection === "aki" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "aki" && (
-    <div className="card-body">
 <h4>Acute Kidney Injury (AKI)</h4>
 
 {/* ---------------- AKI ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="173. AKI" name="aki" value={formData.aki} onChange={handleRenalChange} onBlur={handleBlur} required />
@@ -9454,57 +9185,23 @@ const peripheralStatus= getPeripheralStatus();
     {/* ---------------- KDIGO STAGE ---------------- */}
     <div className="pn-adverse-card">
 
-      <div className="adverse-title">
-        175. Stage (KDIGO) <span className="required">*</span>
-      </div>
-
-      <div className="pn-checkbox-grid">
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage1"
-            checked={formData.aki_stage1 || false}
-            onChange={handleRenalChange}
-          />
-          Stage 1
-          {renalAutoFilled.aki_stage1 && <span className="field-hint-auto-inline">from daily logs</span>}
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage2"
-            checked={formData.aki_stage2 || false}
-            onChange={handleRenalChange}
-          />
-          Stage 2
-          {renalAutoFilled.aki_stage2 && <span className="field-hint-auto-inline">from daily logs</span>}
-        </label>
-
-        <label className="checkbox-item">
-          <input
-            type="checkbox"
-            name="aki_stage3"
-            checked={formData.aki_stage3 || false}
-            onChange={handleRenalChange}
-          />
-          Stage 3
-          {renalAutoFilled.aki_stage3 && <span className="field-hint-auto-inline">from daily logs</span>}
-        </label>
-
-      </div>
-
-      {/* GROUP ERROR */}
-      {errors.aki_stage_group && (
-        <div className="error-text">{errors.aki_stage_group}</div>
-      )}
+      <BooleanChipGroup
+        fieldNum={175}
+        label="Stage (KDIGO)"
+        options={[
+          { name: "aki_stage1", label: "Stage 1", checked: formData.aki_stage1 },
+          { name: "aki_stage2", label: "Stage 2", checked: formData.aki_stage2 },
+          { name: "aki_stage3", label: "Stage 3", checked: formData.aki_stage3 },
+        ]}
+        onToggle={(name, checked) => handleRenalChange({ target: { name, type: "checkbox", checked } })}
+        error={errors.aki_stage_group}
+      />
 
     </div>
 
     {/* ---------------- CREATININE + OLIGURIA ---------------- */}
     <div style={{ marginTop: "20px" }}>
-      <div className="form-row">
+      <div className="fh-grid-row">
 
         <div className="form-group">
           <label><span className="field-num">176.</span> Peak Creatinine (mg/dL) <span className="required">*</span></label>
@@ -9537,7 +9234,7 @@ const peripheralStatus= getPeripheralStatus();
     </div>
 
     {/* ---------------- DIALYSIS ---------------- */}
-    <div className="form-row">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <YesNoToggle label="178. Dialysis / CRRT" name="aki_dialysis" value={formData.aki_dialysis} onChange={handleRenalChange} onBlur={handleBlur} required />
@@ -9552,38 +9249,23 @@ const peripheralStatus= getPeripheralStatus();
   </>
 )}
 
+  </CollapsibleCard>
 </div>
- 
-  )}
-</div></div>
 {/* ================= OPHTHALMOLOGY ================= */}
 <div id="cat-eye" className={`form-section soft-blue${activeCategory === "eye" ? "" : " cat-hidden"}`}>
 
 <h3><Eye size={17} className="sec-icon" /> <span className="sec-num">H8</span> OPHTHALMOLOGY</h3>
 
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "rop" ? null : "rop")}
+  <CollapsibleCard
+    code="H8.1"
+    title="Retinopathy of Prematurity (ROP)"
+    icon="👁️"
+    accentColor="bg-indigo-500"
+    summary={getROPSummary()}
+    statusClass={getStatusClass(formData.rop || formData.rop_screened)}
+    open={openSection === "rop"}
+    onToggle={() => setOpenSection(openSection === "rop" ? null : "rop")}
   >
-    <span><span className="sec-num sub">H8.1</span> Retinopathy of Prematurity (ROP)</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(formData.rop || formData.rop_screened)}`}>
-        <span className="icon">
-          {getStatusIcon(formData.rop || formData.rop_screened)}
-        </span>
-
-        {getROPSummary()}
-      </span>
-    </div>
-    <span className="arrow">
-      {openSection === "rop" ? "▲" : "▼"}
-    </span>
-  </div>
-
-  {openSection === "rop" && (
-    <div className="card-body">
 
 {ropThermoPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -9617,7 +9299,7 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
       {formData.rop_screened === "Yes" && (
-        <div className="form-row">
+        <div className="fh-grid-row">
           <div className="form-group">
             <label><span className="field-num">180.</span> Method<span className="required">*</span></label>
             <input
@@ -9654,7 +9336,7 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.rop === "Yes" && (
         <>
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
               <label><span className="field-num">183.</span> Date of Diagnosis<span className="required">*</span></label>
               <input
@@ -9669,14 +9351,18 @@ const peripheralStatus= getPeripheralStatus();
             </div>
 
             <div className="form-group">
-              <label><span className="field-num">184.</span> Side<span className="required">*</span></label>
-              <select name="rop_side" value={formData.rop_side || ""} onChange={handleChange} onBlur={handleBlur}>
-                <option value="">-- Select --</option>
-                <option value="Right">Right</option>
-                <option value="Left">Left</option>
-                <option value="Bilateral">Bilateral</option>
-              </select>
-              {touched.rop_side && errors.rop_side && <div className="error-text">{errors.rop_side}</div>}
+              <PillSelect
+                fieldNum={184}
+                label="Side"
+                required
+                name="rop_side"
+                value={formData.rop_side || ""}
+                options={["Right", "Left", "Bilateral"]}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                touched={touched.rop_side}
+                error={errors.rop_side}
+              />
             </div>
           </div>
 
@@ -9685,18 +9371,20 @@ const peripheralStatus= getPeripheralStatus();
             <div className="pn-adverse-card">
               <div className="adverse-title">Right Eye</div>
 
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">185.</span> Max Stage<span className="required">*</span></label>
-                  <select name="rop_stage_right" value={formData.rop_stage_right || ""} onChange={handleChange} onBlur={handleBlur}>
-                    <option value="">-- Select --</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                  </select>
-                  {touched.rop_stage_right && errors.rop_stage_right && <div className="error-text">{errors.rop_stage_right}</div>}
+                  <PillSelect
+                    fieldNum={185}
+                    label="Max Stage"
+                    required
+                    name="rop_stage_right"
+                    value={formData.rop_stage_right || ""}
+                    options={["1", "2", "3", "4", "5"]}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    touched={touched.rop_stage_right}
+                    error={errors.rop_stage_right}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -9705,14 +9393,18 @@ const peripheralStatus= getPeripheralStatus();
                 </div>
 
                 <div className="form-group">
-                  <label><span className="field-num">187.</span> Zone<span className="required">*</span></label>
-                  <select name="rop_zone_right" value={formData.rop_zone_right || ""} onChange={handleChange} onBlur={handleBlur}>
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                  </select>
-                  {touched.rop_zone_right && errors.rop_zone_right && <div className="error-text">{errors.rop_zone_right}</div>}
+                  <PillSelect
+                    fieldNum={187}
+                    label="Zone"
+                    required
+                    name="rop_zone_right"
+                    value={formData.rop_zone_right || ""}
+                    options={["I", "II", "III"]}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    touched={touched.rop_zone_right}
+                    error={errors.rop_zone_right}
+                  />
                 </div>
               </div>
 
@@ -9728,14 +9420,18 @@ const peripheralStatus= getPeripheralStatus();
 
               {formData.rop_treatment_right === "Yes" && (
                 <div className="form-group">
-                  <div className="adverse-title"><span className="field-num">190.</span> Type<span className="required">*</span></div>
-                  <div className="pn-checkbox-grid">
-                    <label className="checkbox-item"><input type="checkbox" name="rop_laser_right" checked={formData.rop_laser_right || false} onChange={handleChange}/> Laser</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_anti_vegf_right" checked={formData.rop_anti_vegf_right || false} onChange={handleChange}/> Anti-VEGF</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_vitrectomy_right" checked={formData.rop_vitrectomy_right || false} onChange={handleChange}/> Vitrectomy</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_other_right" checked={formData.rop_other_right || false} onChange={handleChange}/> Other</label>
-                  </div>
-                  {errors.rop_treatment_type_right_group && <div className="error-text">{errors.rop_treatment_type_right_group}</div>}
+                  <BooleanChipGroup
+                    fieldNum={190}
+                    label="Type"
+                    options={[
+                      { name: "rop_laser_right", label: "Laser", checked: formData.rop_laser_right },
+                      { name: "rop_anti_vegf_right", label: "Anti-VEGF", checked: formData.rop_anti_vegf_right },
+                      { name: "rop_vitrectomy_right", label: "Vitrectomy", checked: formData.rop_vitrectomy_right },
+                      { name: "rop_other_right", label: "Other", checked: formData.rop_other_right },
+                    ]}
+                    onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+                    error={errors.rop_treatment_type_right_group}
+                  />
 
                   {formData.rop_other_right && (
                     <div className="form-group" style={{marginTop: 12}}>
@@ -9759,18 +9455,20 @@ const peripheralStatus= getPeripheralStatus();
             <div className="pn-adverse-card">
               <div className="adverse-title">Left Eye</div>
 
-              <div className="form-row">
+              <div className="fh-grid-row">
                 <div className="form-group">
-                  <label><span className="field-num">191.</span> Max Stage<span className="required">*</span></label>
-                  <select name="rop_stage_left" value={formData.rop_stage_left || ""} onChange={handleChange} onBlur={handleBlur}>
-                    <option value="">-- Select --</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                  </select>
-                  {touched.rop_stage_left && errors.rop_stage_left && <div className="error-text">{errors.rop_stage_left}</div>}
+                  <PillSelect
+                    fieldNum={191}
+                    label="Max Stage"
+                    required
+                    name="rop_stage_left"
+                    value={formData.rop_stage_left || ""}
+                    options={["1", "2", "3", "4", "5"]}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    touched={touched.rop_stage_left}
+                    error={errors.rop_stage_left}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -9779,14 +9477,18 @@ const peripheralStatus= getPeripheralStatus();
                 </div>
 
                 <div className="form-group">
-                  <label><span className="field-num">193.</span> Zone<span className="required">*</span></label>
-                  <select name="rop_zone_left" value={formData.rop_zone_left || ""} onChange={handleChange} onBlur={handleBlur}>
-                    <option value="">-- Select --</option>
-                    <option value="I">I</option>
-                    <option value="II">II</option>
-                    <option value="III">III</option>
-                  </select>
-                  {touched.rop_zone_left && errors.rop_zone_left && <div className="error-text">{errors.rop_zone_left}</div>}
+                  <PillSelect
+                    fieldNum={193}
+                    label="Zone"
+                    required
+                    name="rop_zone_left"
+                    value={formData.rop_zone_left || ""}
+                    options={["I", "II", "III"]}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    touched={touched.rop_zone_left}
+                    error={errors.rop_zone_left}
+                  />
                 </div>
               </div>
 
@@ -9802,14 +9504,18 @@ const peripheralStatus= getPeripheralStatus();
 
               {formData.rop_treatment_left === "Yes" && (
                 <div className="form-group">
-                  <div className="adverse-title"><span className="field-num">196.</span> Type<span className="required">*</span></div>
-                  <div className="pn-checkbox-grid">
-                    <label className="checkbox-item"><input type="checkbox" name="rop_laser_left" checked={formData.rop_laser_left || false} onChange={handleChange}/> Laser</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_anti_vegf_left" checked={formData.rop_anti_vegf_left || false} onChange={handleChange}/> Anti-VEGF</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_vitrectomy_left" checked={formData.rop_vitrectomy_left || false} onChange={handleChange}/> Vitrectomy</label>
-                    <label className="checkbox-item"><input type="checkbox" name="rop_other_left" checked={formData.rop_other_left || false} onChange={handleChange}/> Other</label>
-                  </div>
-                  {errors.rop_treatment_type_left_group && <div className="error-text">{errors.rop_treatment_type_left_group}</div>}
+                  <BooleanChipGroup
+                    fieldNum={196}
+                    label="Type"
+                    options={[
+                      { name: "rop_laser_left", label: "Laser", checked: formData.rop_laser_left },
+                      { name: "rop_anti_vegf_left", label: "Anti-VEGF", checked: formData.rop_anti_vegf_left },
+                      { name: "rop_vitrectomy_left", label: "Vitrectomy", checked: formData.rop_vitrectomy_left },
+                      { name: "rop_other_left", label: "Other", checked: formData.rop_other_left },
+                    ]}
+                    onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+                    error={errors.rop_treatment_type_left_group}
+                  />
 
                   {formData.rop_other_left && (
                     <div className="form-group" style={{marginTop: 12}}>
@@ -9830,37 +9536,26 @@ const peripheralStatus= getPeripheralStatus();
         </>
       )}
 
-    </div>
-  )}
-</div>
+  </CollapsibleCard>
 </div>
 {/* ================= THERMOREGULATION ================= */}
 <div id="cat-thermo" className={`form-section soft-blue${activeCategory === "thermo" ? "" : " cat-hidden"}`}>
 
 <h3><Thermometer size={17} className="sec-icon" /> <span className="sec-num">H9</span> THERMOREGULATION</h3>
 
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "thermo" ? null : "thermo")}
+  <CollapsibleCard
+    code="H9.1"
+    title="Thermoregulation"
+    icon="🌡️"
+    accentColor="bg-orange-500"
+    summary={getThermoSummary()}
+    statusClass={
+      getThermoSummary() === "Not filled" ? "empty"
+        : getThermoSummary() === "No" ? "no" : "yes"
+    }
+    open={openSection === "thermo"}
+    onToggle={() => setOpenSection(openSection === "thermo" ? null : "thermo")}
   >
-    <span><span className="sec-num sub">H9.1</span> Thermoregulation</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(
-        (formData.hypothermia === "Yes" || formData.hyperthermia === "Yes")
-          ? "Yes"
-          : (formData.hypothermia || formData.hyperthermia) ? "No" : ""
-      )}`}>
-        <span className="icon">{getThermoSummary() === "Not filled" ? "—" : (getThermoSummary() === "No" ? "✖" : "✔")}</span>
-        {getThermoSummary()}
-      </span>
-    </div>
-    <span className="arrow">{openSection === "thermo" ? "▲" : "▼"}</span>
-  </div>
-
-  {openSection === "thermo" && (
-    <div className="card-body">
 
 {ropThermoPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
@@ -9895,7 +9590,7 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.hypothermia === "Yes" && (
         <>
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
               <label><span className="field-num">198.</span> Lowest Temp (°C)<span className="required">*</span></label>
               <input
@@ -9910,36 +9605,43 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </div>
 
-          <div className="form-group">
-            <div className="adverse-title"><span className="field-num">199.</span> Severity<span className="required">*</span></div>
-            <div className="pn-checkbox-grid">
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_mild" checked={formData.hypothermia_mild || false} onChange={handleChange}/> Mild</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_moderate" checked={formData.hypothermia_moderate || false} onChange={handleChange}/> Moderate</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_severe" checked={formData.hypothermia_severe || false} onChange={handleChange}/> Severe</label>
-            </div>
-            {errors.hypothermia_severity_group && <div className="error-text">{errors.hypothermia_severity_group}</div>}
-          </div>
+          <BooleanChipGroup
+            fieldNum={199}
+            label="Severity"
+            options={[
+              { name: "hypothermia_mild", label: "Mild", checked: formData.hypothermia_mild },
+              { name: "hypothermia_moderate", label: "Moderate", checked: formData.hypothermia_moderate },
+              { name: "hypothermia_severe", label: "Severe", checked: formData.hypothermia_severe },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.hypothermia_severity_group}
+          />
 
-          <div className="form-group">
-            <div className="adverse-title"><span className="field-num">200.</span> Location<span className="required">*</span></div>
-            <div className="pn-checkbox-grid">
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_dr" checked={formData.hypothermia_location_dr || false} onChange={handleChange}/> DR</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_transport" checked={formData.hypothermia_location_transport || false} onChange={handleChange}/> Transport</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_location_nicu" checked={formData.hypothermia_location_nicu || false} onChange={handleChange}/> NICU</label>
-            </div>
-            {errors.hypothermia_location_group && <div className="error-text">{errors.hypothermia_location_group}</div>}
-          </div>
+          <BooleanChipGroup
+            fieldNum={200}
+            label="Location"
+            options={[
+              { name: "hypothermia_location_dr", label: "DR", checked: formData.hypothermia_location_dr },
+              { name: "hypothermia_location_transport", label: "Transport", checked: formData.hypothermia_location_transport },
+              { name: "hypothermia_location_nicu", label: "NICU", checked: formData.hypothermia_location_nicu },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.hypothermia_location_group}
+          />
 
-          <div className="form-group">
-            <div className="adverse-title"><span className="field-num">201.</span> Etiology<span className="required">*</span> <span style={{fontSize:11,fontWeight:500,color:"#94a3b8"}}>(select all that apply)</span></div>
-            <div className="pn-checkbox-grid">
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_sepsis" checked={formData.hypothermia_sepsis || false} onChange={handleChange}/> Sepsis</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_environment" checked={formData.hypothermia_environment || false} onChange={handleChange}/> Environment</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_immaturity" checked={formData.hypothermia_immaturity || false} onChange={handleChange}/> Immaturity</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_ivh" checked={formData.hypothermia_ivh || false} onChange={handleChange}/> IVH</label>
-              <label className="checkbox-item"><input type="checkbox" name="hypothermia_other" checked={formData.hypothermia_other || false} onChange={handleChange}/> Other</label>
-            </div>
-            {errors.hypothermia_etiology_group && <div className="error-text">{errors.hypothermia_etiology_group}</div>}
+          <BooleanChipGroup
+            fieldNum={201}
+            label="Etiology (select all that apply)"
+            options={[
+              { name: "hypothermia_sepsis", label: "Sepsis", checked: formData.hypothermia_sepsis },
+              { name: "hypothermia_environment", label: "Environment", checked: formData.hypothermia_environment },
+              { name: "hypothermia_immaturity", label: "Immaturity", checked: formData.hypothermia_immaturity },
+              { name: "hypothermia_ivh", label: "IVH", checked: formData.hypothermia_ivh },
+              { name: "hypothermia_other", label: "Other", checked: formData.hypothermia_other },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.hypothermia_etiology_group}
+          />
 
             {formData.hypothermia_other && (
               <div className="form-group" style={{marginTop: 12}}>
@@ -9952,7 +9654,6 @@ const peripheralStatus= getPeripheralStatus();
                 {touched.hypothermia_other_text && errors.hypothermia_other_text && <div className="error-text">{errors.hypothermia_other_text}</div>}
               </div>
             )}
-          </div>
         </>
       )}
 
@@ -9965,7 +9666,7 @@ const peripheralStatus= getPeripheralStatus();
 
       {formData.hyperthermia === "Yes" && (
         <>
-          <div className="form-row">
+          <div className="fh-grid-row">
             <div className="form-group">
               <label><span className="field-num">203.</span> Highest Temp (°C)<span className="required">*</span></label>
               <input
@@ -9980,28 +9681,33 @@ const peripheralStatus= getPeripheralStatus();
             </div>
           </div>
 
-          <div className="form-group">
-            <div className="adverse-title"><span className="field-num">204.</span> Location<span className="required">*</span></div>
-            <div className="pn-checkbox-grid">
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_dr" checked={formData.hyperthermia_location_dr || false} onChange={handleChange}/> DR</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_transport" checked={formData.hyperthermia_location_transport || false} onChange={handleChange}/> Transport</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_location_nicu" checked={formData.hyperthermia_location_nicu || false} onChange={handleChange}/> NICU</label>
-            </div>
-            {errors.hyperthermia_location_group && <div className="error-text">{errors.hyperthermia_location_group}</div>}
-          </div>
+          <BooleanChipGroup
+            fieldNum={204}
+            label="Location"
+            options={[
+              { name: "hyperthermia_location_dr", label: "DR", checked: formData.hyperthermia_location_dr },
+              { name: "hyperthermia_location_transport", label: "Transport", checked: formData.hyperthermia_location_transport },
+              { name: "hyperthermia_location_nicu", label: "NICU", checked: formData.hyperthermia_location_nicu },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.hyperthermia_location_group}
+          />
 
-          <div className="form-group">
-            <div className="adverse-title"><span className="field-num">205.</span> Etiology<span className="required">*</span> <span style={{fontSize:11,fontWeight:500,color:"#94a3b8"}}>(select all that apply)</span></div>
-            <div className="pn-checkbox-grid">
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_clothing" checked={formData.hyperthermia_clothing || false} onChange={handleChange}/> Excessive clothing</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_wrap" checked={formData.hyperthermia_wrap || false} onChange={handleChange}/> Plastic wrap</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_equipment" checked={formData.hyperthermia_equipment || false} onChange={handleChange}/> Equipment malfunction</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_probe" checked={formData.hyperthermia_probe || false} onChange={handleChange}/> Probe misplacement</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_environment" checked={formData.hyperthermia_environment || false} onChange={handleChange}/> Environment</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_sepsis" checked={formData.hyperthermia_sepsis || false} onChange={handleChange}/> Sepsis</label>
-              <label className="checkbox-item"><input type="checkbox" name="hyperthermia_other" checked={formData.hyperthermia_other || false} onChange={handleChange}/> Other</label>
-            </div>
-            {errors.hyperthermia_etiology_group && <div className="error-text">{errors.hyperthermia_etiology_group}</div>}
+          <BooleanChipGroup
+            fieldNum={205}
+            label="Etiology (select all that apply)"
+            options={[
+              { name: "hyperthermia_clothing", label: "Excessive clothing", checked: formData.hyperthermia_clothing },
+              { name: "hyperthermia_wrap", label: "Plastic wrap", checked: formData.hyperthermia_wrap },
+              { name: "hyperthermia_equipment", label: "Equipment malfunction", checked: formData.hyperthermia_equipment },
+              { name: "hyperthermia_probe", label: "Probe misplacement", checked: formData.hyperthermia_probe },
+              { name: "hyperthermia_environment", label: "Environment", checked: formData.hyperthermia_environment },
+              { name: "hyperthermia_sepsis", label: "Sepsis", checked: formData.hyperthermia_sepsis },
+              { name: "hyperthermia_other", label: "Other", checked: formData.hyperthermia_other },
+            ]}
+            onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+            error={errors.hyperthermia_etiology_group}
+          />
 
             {formData.hyperthermia_other && (
               <div className="form-group" style={{marginTop: 12}}>
@@ -10014,13 +9720,10 @@ const peripheralStatus= getPeripheralStatus();
                 {touched.hyperthermia_other_text && errors.hyperthermia_other_text && <div className="error-text">{errors.hyperthermia_other_text}</div>}
               </div>
             )}
-          </div>
         </>
       )}
 
-    </div>
-  )}
-</div>
+  </CollapsibleCard>
 </div>
 
 {/* ================= VASCULAR ACCESS ================= */}
@@ -10053,35 +9756,21 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "central" ? null : "central")}
+  <CollapsibleCard
+    code="H10.1"
+    title="Central Lines"
+    icon="🔌"
+    accentColor="bg-sky-500"
+    summary={centralSummary}
+    statusClass={getStatusClass(centralStatus)}
+    open={openSection === "central"}
+    onToggle={() => setOpenSection(openSection === "central" ? null : "central")}
   >
-    <span><span className="sec-num sub">H10.1</span> Central Lines</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(centralStatus)}`}>
-  <span className="icon">{getStatusIcon(centralStatus)}</span>
-
-  {centralSummary === "No" || centralSummary === "Not filled"
-    ? centralSummary
-    : centralSummary}
-</span>
-</div>
-      <span className="arrow">
-        {openSection === "central" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "central" && (
-    <div className="card-body">
 
 <h4>Central Lines</h4>
 
 {/* ---------------- PICC ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="206. PICC" name="picc" value={formData.picc} onChange={handleVascularChange} onBlur={handleBlur} required />
@@ -10111,7 +9800,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ---------------- UVC ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="208. UVC" name="uvc" value={formData.uvc} onChange={handleVascularChange} onBlur={handleBlur} required />
@@ -10141,7 +9830,7 @@ const peripheralStatus= getPeripheralStatus();
 </div>
 
 {/* ---------------- UAC ---------------- */}
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="210. UAC" name="uac" value={formData.uac} onChange={handleVascularChange} onBlur={handleBlur} required />
@@ -10173,100 +9862,38 @@ const peripheralStatus= getPeripheralStatus();
 {/* ---------------- COMPLICATIONS ---------------- */}
 <div className="pn-adverse-card">
 
-  <div className="adverse-title">
-    <span className="field-num">212.</span> Complications <span className="required">*</span>
-  </div>
-
-  {vascularPrefill?.line_complication_any &&
-    !(formData.line_comp_none || formData.line_comp_phlebitis || formData.line_comp_infection || formData.line_comp_thrombosis) && (
-      <div className="field-hint field-hint-auto">
-        Daily logs record a line complication on at least one day, but the type isn't captured there — please specify below.
-      </div>
-    )}
-
-  <div className="pn-checkbox-grid">
-
-    <label className="checkbox-item">
-      <input
-        type="checkbox"
-        name="line_comp_none"
-        checked={formData.line_comp_none || false}
-        onChange={handleChange}
-      />
-      None
-    </label>
-
-    <label className="checkbox-item">
-      <input
-        type="checkbox"
-        name="line_comp_phlebitis"
-        checked={formData.line_comp_phlebitis || false}
-        onChange={handleChange}
-      />
-      Phlebitis
-    </label>
-
-    <label className="checkbox-item">
-      <input
-        type="checkbox"
-        name="line_comp_infection"
-        checked={formData.line_comp_infection || false}
-        onChange={handleChange}
-      />
-      Local site infection
-    </label>
-
-    {/* Legacy option retained so older saved records still display */}
-    {formData.line_comp_thrombosis && (
-      <label className="checkbox-item">
-        <input
-          type="checkbox"
-          name="line_comp_thrombosis"
-          checked={formData.line_comp_thrombosis || false}
-          onChange={handleChange}
-        />
-        Thrombosis (legacy)
-      </label>
-    )}
+  <BooleanChipGroup
+    fieldNum={212}
+    label="Complications"
+    options={[
+      { name: "line_comp_none", label: "None", checked: formData.line_comp_none },
+      { name: "line_comp_phlebitis", label: "Phlebitis", checked: formData.line_comp_phlebitis },
+      { name: "line_comp_infection", label: "Local site infection", checked: formData.line_comp_infection },
+      ...(formData.line_comp_thrombosis
+        ? [{ name: "line_comp_thrombosis", label: "Thrombosis (legacy)", checked: formData.line_comp_thrombosis }]
+        : []),
+    ]}
+    onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+    error={errors.line_comp_group}
+  />
 
   </div>
-
-  {errors.line_comp_group && (
-    <div className="error-text">{errors.line_comp_group}</div>
-  )}
-
-</div> </div>
-  )}
-</div>
+  </CollapsibleCard>
 
 {/* ================= Peripheral Access ================= */}
-<div className="card">
-  <div
-    className="card-header-row"
-    onClick={() => setOpenSection(openSection === "peripheral" ? null : "peripheral")}
+  <CollapsibleCard
+    code="H10.2"
+    title="Peripheral Access"
+    icon="🩹"
+    accentColor="bg-teal-500"
+    summary={peripheralSummary}
+    statusClass={getStatusClass(peripheralStatus)}
+    open={openSection === "peripheral"}
+    onToggle={() => setOpenSection(openSection === "peripheral" ? null : "peripheral")}
   >
-    <span><span className="sec-num sub">H10.2</span> Peripheral Access</span>
-
-    <div className="right-section">
-      <span className={`summary ${getStatusClass(peripheralStatus)}`}>
-  <span className="icon">{getStatusIcon(peripheralStatus)}</span>
-
-  {peripheralSummary === "No" || peripheralSummary === "Not filled"
-    ? peripheralSummary
-    : peripheralSummary}
-</span>
-</div>
-      <span className="arrow">
-        {openSection === "peripheral" ? "▲" : "▼"}
-      </span>
-    
-  </div>
-
-  {openSection === "peripheral" && (
-    <div className="card-body">
 <h4 style={{ marginTop: "25px" }}>Peripheral Access</h4>
 
-<div className="form-row">
+<div className="fh-grid-row">
 
   <div className="form-group">
     <YesNoToggle label="213. Peripheral venous" name="peripheral_venous" value={formData.peripheral_venous} onChange={handleVascularChange} onBlur={handleBlur} required />
@@ -10290,44 +9917,23 @@ const peripheralStatus= getPeripheralStatus();
 {formData.peripheral_arterial === "Yes" && (
   <div className="pn-adverse-card">
 
-    <div className="adverse-title">
-      <span className="field-num">215.</span> Site <span className="required">*</span>
-    </div>
-
-    <div className="pn-checkbox-grid">
-
-      <label className="checkbox-item">
-        <input
-          type="checkbox"
-          name="arterial_radial"
-          checked={formData.arterial_radial || false}
-          onChange={handleChange}
-        />
-        Radial
-      </label>
-
-      <label className="checkbox-item">
-        <input
-          type="checkbox"
-          name="arterial_posterior_tibial"
-          checked={formData.arterial_posterior_tibial || false}
-          onChange={handleChange}
-        />
-        Posterior tibial
-      </label>
-
-    </div>
-
-    {errors.arterial_site_group && (
-      <div className="error-text">{errors.arterial_site_group}</div>
-    )}
+    <BooleanChipGroup
+      fieldNum={215}
+      label="Site"
+      options={[
+        { name: "arterial_radial", label: "Radial", checked: formData.arterial_radial },
+        { name: "arterial_posterior_tibial", label: "Posterior tibial", checked: formData.arterial_posterior_tibial },
+      ]}
+      onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+      error={errors.arterial_site_group}
+    />
 
   </div>
 )}
 
 {/* ---------------- EXTRAVASATION ---------------- */}
 <div style={{ marginTop: "20px" }}>
-  <div className="form-row">
+  <div className="fh-grid-row">
 
     <div className="form-group">
       <YesNoToggle label="216. Extravasation injury" name="extravasation" value={formData.extravasation} onChange={handleVascularChange} onBlur={handleBlur} required />
@@ -10340,9 +9946,7 @@ const peripheralStatus= getPeripheralStatus();
   </div>
 </div>
 
-</div>
-  )}
-</div>
+  </CollapsibleCard>
 </div>
 {/* ================= INFECTION (H11) — CRF allows multiple episodes ================= */}
 <div id="cat-infection" className={`form-section soft-blue${activeCategory === "infection" ? "" : " cat-hidden"}`}>
@@ -10416,36 +10020,31 @@ const peripheralStatus= getPeripheralStatus();
   {(formData.infections || []).map((entry, idx) => {
     const n = (offset) => infectionFieldNum(idx, offset);
     return (
-    <div className="card infection-entry-card" key={idx}>
-      <div
-        className="card-header-row"
-        onClick={() => setOpenSection(openSection === `infection-${idx}` ? null : `infection-${idx}`)}
-      >
-        <span>H11. Infection {idx + 1}</span>
-
-        <div className="right-section">
-          <span className={`summary ${getInfectionEntryStatus(entry)}`}>
-            <span className="icon">{getInfectionEntryIcon(entry)}</span>
-            {getInfectionEntrySummary(entry)}
-          </span>
-          <button
-            type="button"
-            className="infection-remove-btn"
-            onClick={(e) => { e.stopPropagation(); removeInfection(idx); }}
-            title="Remove this infection episode"
-            aria-label={`Remove infection episode ${idx + 1}`}
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-        <span className="arrow">{openSection === `infection-${idx}` ? "▲" : "▼"}</span>
-      </div>
-
-      {openSection === `infection-${idx}` && (
-        <div className="card-body">
+    <CollapsibleCard
+      key={idx}
+      code={`H11.${idx + 1}`}
+      title={`Infection ${idx + 1}`}
+      icon="🦠"
+      accentColor="bg-red-500"
+      summary={getInfectionEntrySummary(entry)}
+      statusClass={getInfectionEntryStatus(entry)}
+      open={openSection === `infection-${idx}`}
+      onToggle={() => setOpenSection(openSection === `infection-${idx}` ? null : `infection-${idx}`)}
+      headerAction={
+        <button
+          type="button"
+          className="infection-remove-btn"
+          onClick={() => removeInfection(idx)}
+          title="Remove this infection episode"
+          aria-label={`Remove infection episode ${idx + 1}`}
+        >
+          <Trash2 size={16} />
+        </button>
+      }
+    >
           <div className="pn-adverse-card">
 
-            <div className="form-row">
+            <div className="fh-grid-row">
               <div className="form-group">
                 <label><span className="field-num">{n(0)}.</span> Sepsis Episode Number</label>
                 <input
@@ -10479,30 +10078,20 @@ const peripheralStatus= getPeripheralStatus();
 
             {entry.sepsis === "Yes" && (
               <>
-                <div className="adverse-title"><span className="field-num">{n(3)}.</span> Type <span className="required">*</span></div>
-                <div className="pn-checkbox-grid">
-                  <label>
-                    <input type="checkbox" checked={entry.sepsis_clinical || false}
-                      onChange={(e) => handleInfectionChange(idx, "sepsis_clinical", e.target.checked)} />
-                    Clinical/Screen-
-                  </label>
-                  <label>
-                    <input type="checkbox" checked={entry.sepsis_screen || false}
-                      onChange={(e) => handleInfectionChange(idx, "sepsis_screen", e.target.checked)} />
-                    Screen+
-                  </label>
-                  <label>
-                    <input type="checkbox" checked={entry.sepsis_culture || false}
-                      onChange={(e) => handleInfectionChange(idx, "sepsis_culture", e.target.checked)} />
-                    Culture+
-                  </label>
-                </div>
-                {errors.infectionErrors?.[idx]?.sepsis_type_group && (
-                  <div className="error-text">{errors.infectionErrors[idx].sepsis_type_group}</div>
-                )}
+                <BooleanChipGroup
+                  fieldNum={n(3)}
+                  label="Type"
+                  options={[
+                    { name: "sepsis_clinical", label: "Clinical/Screen-", checked: entry.sepsis_clinical },
+                    { name: "sepsis_screen", label: "Screen+", checked: entry.sepsis_screen },
+                    { name: "sepsis_culture", label: "Culture+", checked: entry.sepsis_culture },
+                  ]}
+                  onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                  error={errors.infectionErrors?.[idx]?.sepsis_type_group}
+                />
 
                 {/* ---------------- AGE ---------------- */}
-                <div className="form-row">
+                <div className="fh-grid-row">
                   <div className="form-group">
                     <label><span className="field-num">{n(4)}.</span> Age at onset (hrs)</label>
                     <input
@@ -10549,15 +10138,17 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- SCREEN / abnormal params (CRF: if screen+/culture+) ---------------- */}
                 {(entry.sepsis_screen || entry.sepsis_culture) && (
                   <>
-                    <div className="adverse-title"><span className="field-num">{n(6)}.</span> If screen+/culture+ abnormal parameters <span className="required">*</span></div>
-                    <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.screen_crp || false} onChange={(e) => handleInfectionChange(idx, "screen_crp", e.target.checked)} /> CRP</label>
-                      <label><input type="checkbox" checked={entry.screen_pct || false} onChange={(e) => handleInfectionChange(idx, "screen_pct", e.target.checked)} /> PCT</label>
-                      <label><input type="checkbox" checked={entry.screen_other || false} onChange={(e) => handleInfectionChange(idx, "screen_other", e.target.checked)} /> Other</label>
-                    </div>
-                    {errors.infectionErrors?.[idx]?.screen_group && (
-                      <div className="error-text">{errors.infectionErrors[idx].screen_group}</div>
-                    )}
+                    <BooleanChipGroup
+                      fieldNum={n(6)}
+                      label="If screen+/culture+ abnormal parameters"
+                      options={[
+                        { name: "screen_crp", label: "CRP", checked: entry.screen_crp },
+                        { name: "screen_pct", label: "PCT", checked: entry.screen_pct },
+                        { name: "screen_other", label: "Other", checked: entry.screen_other },
+                      ]}
+                      onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                      error={errors.infectionErrors?.[idx]?.screen_group}
+                    />
                     {entry.screen_other && (
                       <div className="form-group">
                         <label>Specify Other <span className="required">*</span></label>
@@ -10576,16 +10167,18 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- CULTURE ---------------- */}
                 {entry.sepsis_culture && (
                   <>
-                    <div className="adverse-title"><span className="field-num">{n(7)}.</span> If culture+, source <span className="required">*</span></div>
-                    <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.culture_blood || false} onChange={(e) => handleInfectionChange(idx, "culture_blood", e.target.checked)} /> Blood</label>
-                      <label><input type="checkbox" checked={entry.culture_csf || false} onChange={(e) => handleInfectionChange(idx, "culture_csf", e.target.checked)} /> CSF</label>
-                      <label><input type="checkbox" checked={entry.culture_urine || false} onChange={(e) => handleInfectionChange(idx, "culture_urine", e.target.checked)} /> Urine</label>
-                      <label><input type="checkbox" checked={entry.culture_other || false} onChange={(e) => handleInfectionChange(idx, "culture_other", e.target.checked)} /> Other</label>
-                    </div>
-                    {errors.infectionErrors?.[idx]?.culture_group && (
-                      <div className="error-text">{errors.infectionErrors[idx].culture_group}</div>
-                    )}
+                    <BooleanChipGroup
+                      fieldNum={n(7)}
+                      label="If culture+, source"
+                      options={[
+                        { name: "culture_blood", label: "Blood", checked: entry.culture_blood },
+                        { name: "culture_csf", label: "CSF", checked: entry.culture_csf },
+                        { name: "culture_urine", label: "Urine", checked: entry.culture_urine },
+                        { name: "culture_other", label: "Other", checked: entry.culture_other },
+                      ]}
+                      onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                      error={errors.infectionErrors?.[idx]?.culture_group}
+                    />
                     {entry.culture_other && (
                       <div className="form-group">
                         <label>Specify Fluid <span className="required">*</span></label>
@@ -10600,33 +10193,37 @@ const peripheralStatus= getPeripheralStatus();
                     )}
 
                     {/* ---------------- ORGANISM ---------------- */}
-                    <div className="adverse-title"><span className="field-num">{n(8)}.</span> If culture+, organism type <span className="required">*</span></div>
-                    <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.gram_positive || false} onChange={(e) => handleInfectionChange(idx, "gram_positive", e.target.checked)} /> Gram Positive</label>
-                      <label><input type="checkbox" checked={entry.gram_negative || false} onChange={(e) => handleInfectionChange(idx, "gram_negative", e.target.checked)} /> Gram Negative</label>
-                      <label><input type="checkbox" checked={entry.fungus || false} onChange={(e) => handleInfectionChange(idx, "fungus", e.target.checked)} /> Fungus</label>
-                    </div>
-                    {errors.infectionErrors?.[idx]?.organism_group && (
-                      <div className="error-text">{errors.infectionErrors[idx].organism_group}</div>
-                    )}
+                    <BooleanChipGroup
+                      fieldNum={n(8)}
+                      label="If culture+, organism type"
+                      options={[
+                        { name: "gram_positive", label: "Gram Positive", checked: entry.gram_positive },
+                        { name: "gram_negative", label: "Gram Negative", checked: entry.gram_negative },
+                        { name: "fungus", label: "Fungus", checked: entry.fungus },
+                      ]}
+                      onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                      error={errors.infectionErrors?.[idx]?.organism_group}
+                    />
                   </>
                 )}
 
                 {/* ---------------- GRAM POSITIVE ---------------- */}
                 {entry.gram_positive && (
                   <>
-                    <div className="adverse-title"><span className="field-num">{n(9)}.</span> If Gram Positive <span className="required">*</span></div>
-                    <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.staph_hemolyticus || false} onChange={(e) => handleInfectionChange(idx, "staph_hemolyticus", e.target.checked)} /> Staphylococcus hemolyticus</label>
-                      <label><input type="checkbox" checked={entry.staph_epidermidis || false} onChange={(e) => handleInfectionChange(idx, "staph_epidermidis", e.target.checked)} /> Staphylococcus epidermidis</label>
-                      <label><input type="checkbox" checked={entry.gp_other || false} onChange={(e) => handleInfectionChange(idx, "gp_other", e.target.checked)} /> Others</label>
-                      {entry.staph_aureus && (
-                        <label><input type="checkbox" checked={entry.staph_aureus || false} onChange={(e) => handleInfectionChange(idx, "staph_aureus", e.target.checked)} /> Staph aureus (legacy)</label>
-                      )}
-                    </div>
-                    {errors.infectionErrors?.[idx]?.gp_group && (
-                      <div className="error-text">{errors.infectionErrors[idx].gp_group}</div>
-                    )}
+                    <BooleanChipGroup
+                      fieldNum={n(9)}
+                      label="If Gram Positive"
+                      options={[
+                        { name: "staph_hemolyticus", label: "Staphylococcus hemolyticus", checked: entry.staph_hemolyticus },
+                        { name: "staph_epidermidis", label: "Staphylococcus epidermidis", checked: entry.staph_epidermidis },
+                        { name: "gp_other", label: "Others", checked: entry.gp_other },
+                        ...(entry.staph_aureus
+                          ? [{ name: "staph_aureus", label: "Staph aureus (legacy)", checked: entry.staph_aureus }]
+                          : []),
+                      ]}
+                      onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                      error={errors.infectionErrors?.[idx]?.gp_group}
+                    />
                     {entry.gp_other && (
                       <input
                         placeholder="Specify"
@@ -10640,18 +10237,20 @@ const peripheralStatus= getPeripheralStatus();
                 {/* ---------------- GRAM NEGATIVE ---------------- */}
                 {entry.gram_negative && (
                   <>
-                    <div className="adverse-title"><span className="field-num">{n(10)}.</span> If Gram Negative <span className="required">*</span></div>
-                    <div className="pn-checkbox-grid">
-                      <label><input type="checkbox" checked={entry.acinetobacter || false} onChange={(e) => handleInfectionChange(idx, "acinetobacter", e.target.checked)} /> Acinetobacter</label>
-                      <label><input type="checkbox" checked={entry.ecoli || false} onChange={(e) => handleInfectionChange(idx, "ecoli", e.target.checked)} /> E Coli</label>
-                      <label><input type="checkbox" checked={entry.klebsiella || false} onChange={(e) => handleInfectionChange(idx, "klebsiella", e.target.checked)} /> Klebsiella</label>
-                      <label><input type="checkbox" checked={entry.serratia || false} onChange={(e) => handleInfectionChange(idx, "serratia", e.target.checked)} /> Serratia</label>
-                      <label><input type="checkbox" checked={entry.pseudomonas || false} onChange={(e) => handleInfectionChange(idx, "pseudomonas", e.target.checked)} /> Pseudomonas</label>
-                      <label><input type="checkbox" checked={entry.gn_other || false} onChange={(e) => handleInfectionChange(idx, "gn_other", e.target.checked)} /> Others</label>
-                    </div>
-                    {errors.infectionErrors?.[idx]?.gn_group && (
-                      <div className="error-text">{errors.infectionErrors[idx].gn_group}</div>
-                    )}
+                    <BooleanChipGroup
+                      fieldNum={n(10)}
+                      label="If Gram Negative"
+                      options={[
+                        { name: "acinetobacter", label: "Acinetobacter", checked: entry.acinetobacter },
+                        { name: "ecoli", label: "E Coli", checked: entry.ecoli },
+                        { name: "klebsiella", label: "Klebsiella", checked: entry.klebsiella },
+                        { name: "serratia", label: "Serratia", checked: entry.serratia },
+                        { name: "pseudomonas", label: "Pseudomonas", checked: entry.pseudomonas },
+                        { name: "gn_other", label: "Others", checked: entry.gn_other },
+                      ]}
+                      onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                      error={errors.infectionErrors?.[idx]?.gn_group}
+                    />
                     {entry.gn_other && (
                       <input
                         placeholder="Specify"
@@ -10663,7 +10262,7 @@ const peripheralStatus= getPeripheralStatus();
                 )}
 
                 {/* ---------------- MDR / XDR ---------------- */}
-                <div className="form-row">
+                <div className="fh-grid-row">
                   <div className="form-group">
                     <YesNoToggle label={`${n(11)}. MDR`} name="mdr" value={entry.mdr}
                       onChange={(e) => handleInfectionChange(idx, "mdr", e.target.value)} />
@@ -10675,15 +10274,19 @@ const peripheralStatus= getPeripheralStatus();
                 </div>
 
                 {/* ---------------- FOCUS OF INFECTION ---------------- */}
-                <div className="adverse-title"><span className="field-num">{n(13)}.</span> Focus of the infection</div>
-                <div className="pn-checkbox-grid">
-                  <label><input type="checkbox" checked={entry.focus_septicemia || false} onChange={(e) => handleInfectionChange(idx, "focus_septicemia", e.target.checked)} /> Generalized septicemia</label>
-                  <label><input type="checkbox" checked={entry.focus_pneumonia || false} onChange={(e) => handleInfectionChange(idx, "focus_pneumonia", e.target.checked)} /> Pneumonia</label>
-                  <label><input type="checkbox" checked={entry.focus_meningitis || false} onChange={(e) => handleInfectionChange(idx, "focus_meningitis", e.target.checked)} /> Meningitis</label>
-                  <label><input type="checkbox" checked={entry.focus_bone_joint || false} onChange={(e) => handleInfectionChange(idx, "focus_bone_joint", e.target.checked)} /> Bone and joint</label>
-                  <label><input type="checkbox" checked={entry.focus_uti || false} onChange={(e) => handleInfectionChange(idx, "focus_uti", e.target.checked)} /> UTI</label>
-                  <label><input type="checkbox" checked={entry.focus_other || false} onChange={(e) => handleInfectionChange(idx, "focus_other", e.target.checked)} /> Other</label>
-                </div>
+                <BooleanChipGroup
+                  fieldNum={n(13)}
+                  label="Focus of the infection"
+                  options={[
+                    { name: "focus_septicemia", label: "Generalized septicemia", checked: entry.focus_septicemia },
+                    { name: "focus_pneumonia", label: "Pneumonia", checked: entry.focus_pneumonia },
+                    { name: "focus_meningitis", label: "Meningitis", checked: entry.focus_meningitis },
+                    { name: "focus_bone_joint", label: "Bone and joint", checked: entry.focus_bone_joint },
+                    { name: "focus_uti", label: "UTI", checked: entry.focus_uti },
+                    { name: "focus_other", label: "Other", checked: entry.focus_other },
+                  ]}
+                  onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
+                />
                 {entry.focus_other && (
                   <input
                     placeholder="Specify"
@@ -10693,7 +10296,7 @@ const peripheralStatus= getPeripheralStatus();
                 )}
 
                 {/* ---------------- CLABSI / VAP ---------------- */}
-                <div className="form-row">
+                <div className="fh-grid-row">
                   <div className="form-group">
                     <YesNoToggle label={`${n(14)}. CLABSI`} name="clabsi" value={entry.clabsi}
                       onChange={(e) => handleInfectionChange(idx, "clabsi", e.target.value)} />
@@ -10707,7 +10310,7 @@ const peripheralStatus= getPeripheralStatus();
             )}
 
             {/* CRF: totals sit inside each Infection block (#233-234 / #251-252) */}
-            <div className="form-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+            <div className="fh-grid-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
               <div className="form-group">
                 <label><span className="field-num">{n(16)}.</span> Total number of episodes of sepsis</label>
                 <input
@@ -10730,9 +10333,7 @@ const peripheralStatus= getPeripheralStatus();
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+    </CollapsibleCard>
     );
   })}
 
@@ -10746,16 +10347,21 @@ const peripheralStatus= getPeripheralStatus();
 
 
 {/* ================= HOSPITAL COURSE SUMMARY ================= */}
-<div id="cat-summary" className={`form-section summary-section${activeCategory === "summary" ? "" : " cat-hidden"}`}>
+<div id="cat-summary" className={`form-section soft-blue summary-section${activeCategory === "summary" ? "" : " cat-hidden"}`}>
 
   <h3><ClipboardList size={17} className="sec-icon" /> <span className="sec-num">H12</span> HOSPITAL COURSE SUMMARY</h3>
 
   {/* ================= Duration Metrics ================= */}
-  <div className="summary-card">
+  <CollapsibleCard
+    code="H12.1"
+    title="Hospital Stay Metrics"
+    icon="📅"
+    accentColor="bg-indigo-500"
+    open={openSection === "h12-stay"}
+    onToggle={() => setOpenSection(openSection === "h12-stay" ? null : "h12-stay")}
+  >
 
-    <div className="summary-title">Hospital Stay Metrics</div>
-
-    <div className="summary-grid">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">253.</span> Total LOS (days)</label>
@@ -10818,15 +10424,19 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
     </div>
-
-  </div>
+  </CollapsibleCard>
 
   {/* ================= Nutrition ================= */}
-  <div className="summary-card">
+  <CollapsibleCard
+    code="H12.2"
+    title="Nutrition"
+    icon="🍼"
+    accentColor="bg-lime-500"
+    open={openSection === "h12-nutrition"}
+    onToggle={() => setOpenSection(openSection === "h12-nutrition" ? null : "h12-nutrition")}
+  >
 
-    <div className="summary-title">Nutrition</div>
-
-    <div className="summary-grid">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">258.</span> PN Days</label>
@@ -10855,15 +10465,19 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
     </div>
-
-  </div>
+  </CollapsibleCard>
 
   {/* ================= Discharge Details ================= */}
-  <div className="summary-card">
+  <CollapsibleCard
+    code="H12.3"
+    title="Discharge Details"
+    icon="🏠"
+    accentColor="bg-sky-500"
+    open={openSection === "h12-discharge"}
+    onToggle={() => setOpenSection(openSection === "h12-discharge" ? null : "h12-discharge")}
+  >
 
-    <div className="summary-title">Discharge Details</div>
-
-    <div className="summary-grid">
+    <div className="fh-grid-row">
 
       <div className="form-group">
         <label><span className="field-num">260.</span> Discharge Weight (g)</label>
@@ -10909,57 +10523,70 @@ const peripheralStatus= getPeripheralStatus();
       </div>
 
     </div>
-
-  </div>
+  </CollapsibleCard>
 
   {/* ================= Outcome ================= */}
-  <div className="summary-card">
-
-    <div className="summary-title"><span className="field-num">263.</span> Outcome</div>
+  <CollapsibleCard
+    code="H12.4"
+    title="Outcome"
+    icon="📋"
+    accentColor="bg-violet-500"
+    summary={formData.outcome || "Not filled"}
+    statusClass={formData.outcome ? "yes" : "empty"}
+    open={openSection === "h12-outcome"}
+    onToggle={() => setOpenSection(openSection === "h12-outcome" ? null : "h12-outcome")}
+  >
 
     <div className="form-group">
-      <select
+      <PillSelect
+        fieldNum={263}
+        label="Outcome"
         name="outcome"
         value={formData.outcome || ""}
+        options={[
+          "Discharged",
+          "Died",
+          "Back referred",
+          "Discharged home on request",
+          "Left Against Medical Advice",
+        ]}
         onChange={handleChange}
         onBlur={handleBlur}
-      >
-        <option value="">-- Select Outcome --</option>
-        <option value="Discharged">Discharged</option>
-        <option value="Died">Died</option>
-        <option value="Back referred">Back referred</option>
-        <option value="Discharged home on request">Discharged home on request</option>
-        <option value="Left Against Medical Advice">Left Against Medical Advice</option>
-      </select>
-      {errors.outcome && <div className="error-text">{errors.outcome}</div>}
+        error={errors.outcome}
+        touched={!!errors.outcome}
+      />
     </div>
-
-  </div>
+  </CollapsibleCard>
 
   {/* ================= Back Referral ================= */}
   {formData.outcome === "Back referred" && (
-    <div className="summary-card">
-
-      <div className="summary-title"><span className="field-num">264.</span> If back-referred: Hospital/SNCU name</div>
+    <CollapsibleCard
+      code="H12.5"
+      title="If back-referred: Hospital/SNCU name"
+      icon="🏥"
+      accentColor="bg-teal-500"
+      open={openSection === "h12-backref"}
+      onToggle={() => setOpenSection(openSection === "h12-backref" ? null : "h12-backref")}
+    >
 
       <div className="form-group">
-        <select
+        <PillSelect
+          label="Hospital / SNCU"
           name="back_referral_hospital"
           value={formData.back_referral_hospital || ""}
+          options={[
+            "GMCH Chandigarh",
+            "Civil Hospital Mohali",
+            "Civil Hospital Panchkula",
+            "Civil Hospital Ludhiana",
+            "District Hospital Ambala",
+            "Other",
+          ]}
           onChange={handleChange}
           onBlur={handleBlur}
-        >
-          <option value="">-- Select Hospital / SNCU --</option>
-          <option>GMCH Chandigarh</option>
-          <option>Civil Hospital Mohali</option>
-          <option>Civil Hospital Panchkula</option>
-          <option>Civil Hospital Ludhiana</option>
-          <option>District Hospital Ambala</option>
-          <option>Other</option>
-        </select>
-        {errors.back_referral_hospital && (
-          <div className="error-text">{errors.back_referral_hospital}</div>
-        )}
+          error={errors.back_referral_hospital}
+          touched={!!errors.back_referral_hospital}
+        />
       </div>
 
       {formData.back_referral_hospital === "Other" && (
@@ -10977,36 +10604,38 @@ const peripheralStatus= getPeripheralStatus();
         </div>
       )}
 
-    </div>
+    </CollapsibleCard>
   )}
 
 </div>
 
 {/* ================= FORM COMPLETION ================= */}
 <div id="cat-completion" className={`form-section soft-blue${activeCategory === "completion" ? "" : " cat-hidden"}`}>
-  <h3>Form Completion</h3>
+  <h3>IDENTIFICATION</h3>
 
-  <div className="form-row">
-
-    {/* Completed By Dropdown */}
+  <div className="fh-grid-row">
     <div className="form-group">
-      <label>Form completed by <span className="required">*</span></label>
-      <select
-        name="completed_by"
-        value={formData.completed_by || ""}
-        onChange={handleCompletedByChange}
-        required
-      >
-        <option value="">-- Select Nurse --</option>
-        {nurses.map((nurse) => (
-          <option key={nurse} value={nurse}>
-            {nurse}
-          </option>
-        ))}
-      </select>
+      <label>Enrollment ID</label>
+      <input
+        name="enrollment_id"
+        value={formData.enrollment_id || ""}
+        readOnly
+      />
     </div>
 
-    {/* Designation Auto-fill */}
+    <div className="form-group">
+      <PillSelect
+        label="Form completed by"
+        required
+        name="completed_by"
+        value={formData.completed_by || ""}
+        options={nurses}
+        onChange={handleCompletedByChange}
+      />
+    </div>
+  </div>
+
+  <div className="fh-grid-row">
     <div className="form-group">
       <label>Designation <span className="required">*</span></label>
       <input
@@ -11017,21 +10646,18 @@ const peripheralStatus= getPeripheralStatus();
       />
     </div>
 
-  </div>
-
-  <div className="form-row">
-
-    {/* Date */}
     <div className="form-group">
       <label>Date</label>
-      <input
-        type="date"
-        name="completion_date"
-        value={formData.completion_date || ""}
-        onChange={handleChange}
+      <DatePicker
+        selected={formData.completion_date ? parseDateOnly(formData.completion_date) : null}
+        onChange={(date) => {
+          const v = date ? toDateOnlyValue(date) : "";
+          setFormData((prev) => ({ ...prev, completion_date: v }));
+        }}
+        dateFormat="dd-MM-yyyy"
+        placeholderText="Select date"
       />
     </div>
-
   </div>
 </div>
 

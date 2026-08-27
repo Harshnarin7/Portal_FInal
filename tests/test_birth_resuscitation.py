@@ -83,3 +83,32 @@ def test_birth_resuscitation_schema_preserves_device_and_adrenaline_details():
     assert payload["interface_used"] == "Mask"
     assert payload["adrenaline_cumulative"] == 0.03
     assert payload["fluid_bolus_doses"] == 2
+
+
+def test_form_b_saves_without_baby_uid_or_admission_number():
+    """Hospital file identifiers are optional — Form B is keyed by enrollment_id."""
+    data = BirthResuscitationCreate(
+        screening_id="01-0100",
+        enrollment_id="01-A-100",
+        baby_uid=None,
+        baby_admission_no=None,
+        date_of_birth=date(2026, 8, 27),
+        time_of_birth=time(10, 0, 0),
+        birth_weight=1200,
+        gender="Female",
+        delivery_mode="Vaginal",
+    )
+    payload = data.model_dump()
+    assert payload["baby_uid"] is None
+    assert payload["baby_admission_no"] is None
+    assert payload["enrollment_id"] == "01-A-100"
+
+
+def test_form_b_empty_string_identifiers_become_null():
+    data = BirthResuscitationCreate(
+        enrollment_id="01-A-101",
+        baby_uid="",
+        baby_admission_no="",
+    )
+    assert data.baby_uid is None
+    assert data.baby_admission_no is None

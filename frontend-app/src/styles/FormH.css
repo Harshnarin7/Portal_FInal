@@ -202,6 +202,17 @@
   text-align: left;
   font-family: inherit;
 }
+.formh-modern .fh-card-header-wrap {
+  display: flex;
+  align-items: stretch;
+}
+.formh-modern .fh-card-header-wrap .fh-card-header { flex: 1; min-width: 0; }
+.formh-modern .fh-card-header-action {
+  display: flex;
+  align-items: center;
+  padding: 0 12px 0 0;
+  background: var(--fh-surface);
+}
 .formh-modern .fh-card-header:hover { background: #fafbfc; }
 
 .fh-card-accent {
@@ -281,6 +292,28 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* Nested boxes leftover from the old H3–H12 markup fight the
+   H1/H2 field grid. Flatten them so YesNoToggle / PillSelect /
+   chips share one column rhythm. */
+.formh-modern .fh-card-body .pn-adverse-card,
+.formh-modern .fh-card-body .probiotic-card {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.formh-modern .fh-card-body .adverse-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+  margin: 0 !important;
+  text-transform: none !important;
+}
+.formh-modern .fh-card-body > h4,
+.formh-modern .fh-card-body h4 {
+  display: none;
 }
 
 /* ============================================================
@@ -366,6 +399,16 @@
    re-declare the gap here at the same specificity/!important level so
    it matches the rest of the redesign's spacing scale. */
 .formh-modern .fh-grid-row { gap: 16px !important; }
+/* Identification's single Enrollment ID field must not stretch full
+   width the way the old .form-row did — keep it on the same column
+   rhythm as H1/H2 grids (one of three equal slots). */
+.formh-modern .fh-id-grid > .form-group {
+  flex: 1 1 220px !important;
+  max-width: calc((100% - 32px) / 3) !important;
+}
+.formh-modern .form-section .fh-grid-row + .fh-grid-row {
+  margin-top: 16px;
+}
 
 /* ============================================================
    I — Yes/No compact segmented control (YesNoToggle in FormH.jsx)
@@ -533,12 +576,9 @@
 .formh-modern .required { color: #e11d48 !important; }
 .formh-modern .field-num { color: var(--fh-text-soft) !important; font-weight: 700 !important; }
 
-/* Old-style H2–H12 cards (.card / .card-header-row / .card-body) that
-   haven't been migrated to the new <CollapsibleCard/> component yet —
-   given a lighter version of the same palette/radius so the rest of
-   the form (H2 Respiratory onward) doesn't look visually disconnected
-   from the redesigned H1 Neurological section, without touching their
-   markup, fields, or logic at all. */
+/* H3–H12 accordion cards now use the same <CollapsibleCard/>
+   component as H1/H2. Remaining .card styles below are unused
+   leftovers kept so any stray class does not unstyle. */
 .formh-modern .card {
   background: var(--fh-surface) !important;
   border: 1px solid var(--fh-border) !important;
