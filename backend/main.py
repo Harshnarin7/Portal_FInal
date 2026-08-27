@@ -4963,6 +4963,17 @@ def submit_resp_cv_neuro_day(
     record.submission_status = "submitted"
     record.submitted_at      = data.submitted_at
     record.submitted_by      = data.submitted_by
+    # Re-locking during an active override must end that override
+    # immediately -- otherwise override_unlocked_until stays in the
+    # future, the day still reads as "Reopened (Override)", and the PUT
+    # endpoint above keeps accepting edits until the 2-hour window
+    # expires on its own, even though the user just explicitly re-locked
+    # it. The permanent record of the override (who, when, why) already
+    # lives in the audit trail via record_audit in _override_unlock_day,
+    # so clearing these row fields here doesn't lose anything.
+    record.override_unlocked_until = None
+    record.override_reason = None
+    record.override_by = None
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
@@ -5362,6 +5373,17 @@ def submit_infect_gi_hema_day(
     record.submission_status = "submitted"
     record.submitted_at      = data.submitted_at
     record.submitted_by      = data.submitted_by
+    # Re-locking during an active override must end that override
+    # immediately -- otherwise override_unlocked_until stays in the
+    # future, the day still reads as "Reopened (Override)", and the PUT
+    # endpoint above keeps accepting edits until the 2-hour window
+    # expires on its own, even though the user just explicitly re-locked
+    # it. The permanent record of the override (who, when, why) already
+    # lives in the audit trail via record_audit in _override_unlock_day,
+    # so clearing these row fields here doesn't lose anything.
+    record.override_unlocked_until = None
+    record.override_reason = None
+    record.override_by = None
     db.commit()
     db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
@@ -5582,6 +5604,17 @@ def submit_metab_renal_vasc_eye_day(
     record.submission_status = "submitted"
     record.submitted_at      = data.submitted_at
     record.submitted_by      = data.submitted_by
+    # Re-locking during an active override must end that override
+    # immediately -- otherwise override_unlocked_until stays in the
+    # future, the day still reads as "Reopened (Override)", and the PUT
+    # endpoint above keeps accepting edits until the 2-hour window
+    # expires on its own, even though the user just explicitly re-locked
+    # it. The permanent record of the override (who, when, why) already
+    # lives in the audit trail via record_audit in _override_unlock_day,
+    # so clearing these row fields here doesn't lose anything.
+    record.override_unlocked_until = None
+    record.override_reason = None
+    record.override_by = None
     db.commit(); db.refresh(record)
     return {"message": f"Day {nicu_day} submitted and locked", "status": "submitted"}
 

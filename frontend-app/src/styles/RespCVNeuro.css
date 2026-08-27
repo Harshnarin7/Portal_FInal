@@ -2162,6 +2162,26 @@
 }
 .rcn-override-btn:hover { background: #FEF3C7; }
 
+/* ── History (audit trail) button — superadmin + site PI ──────── */
+.rcn-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1.5px solid #C7D2FE;
+  background: #EEF2FF;
+  color: #3730A3;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.rcn-history-btn:hover { background: #E0E7FF; border-color: #A5B4FC; }
+
+
 /* ── Audit trail modal list ─────────────────────────────────── */
 .rcn-audit-list {
   display: flex;
@@ -2192,6 +2212,17 @@
 }
 .rcn-audit-time { color: #64748B; font-size: 11px; }
 .rcn-audit-user { color: #475569; }
+.rcn-audit-reason {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: #F8FAFC;
+  border-left: 2.5px solid #CBD5E1;
+  border-radius: 4px;
+  color: #334155;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.4;
+}
 .rcn-audit-empty {
   padding: 24px 12px;
   text-align: center;

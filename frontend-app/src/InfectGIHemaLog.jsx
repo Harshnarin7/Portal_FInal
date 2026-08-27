@@ -545,6 +545,10 @@ export default function InfectGIHemaLog() {
   const { user }         = useAuth();
   const userRole         = user?.role || "site_user";
   const isSuperadmin     = (userRole || "").toLowerCase() === "superadmin";
+  const isPI             = (userRole || "").toLowerCase() === "site_pi";
+  // Audit trail ("History") is superadmin + site PI only — matches the
+  // backend's /audit/ role check in routers/audit.py.
+  const canViewAudit     = isSuperadmin || isPI;
 
   /* ── UI state ── */
   const [activeDay, setActiveDay]         = useState(1);
@@ -576,6 +580,11 @@ export default function InfectGIHemaLog() {
   const [showTableView, setShowTableView]   = useState(false);
   const [tableViewRows, setTableViewRows]   = useState([]);
   const [tableViewLoading, setTableViewLoading] = useState(false);
+
+  /* ── Audit trail ── */
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditEntries, setAuditEntries]     = useState([]);
+  const [auditLoading, setAuditLoading]     = useState(false);
 
   /* ── Day 1 Date — backend-synced lock state ── */
   const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
@@ -831,7 +840,13 @@ export default function InfectGIHemaLog() {
   const completionPct = totalFields > 0
     ? Math.min(100, Math.round((totalAnswered / totalFields) * 100))
     : 0;
-  const canSubmit = completionPct === 100 && !isSubmitted;
+  // completionPct===100 alone isn't enough once a day has been overridden:
+  // isSubmitted stays true for the whole override window (the backend only
+  // clears it on an actual re-lock), so without the isOverrideActiveDay
+  // check here canSubmit was permanently false during any override —
+  // the footer always fell to "Save Correction" and the day could never
+  // be re-locked. Allow re-locking while the override window is open.
+  const canSubmit = completionPct === 100 && (!isSubmitted || isOverrideActiveDay);
 
   /* ── Setters ── */
   const setInf  = (k, v) => isFieldEditable && setInfData(p => ({ ...p, [k]: v }));
@@ -1155,6 +1170,10 @@ export default function InfectGIHemaLog() {
       });
       setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.SUBMITTED }));
       setSubmittedAt(now); setSubmittedBy(user?.name || user?.username || "Site User");
+      // Locking now (even mid-override) ends the override immediately on
+      // the backend — mirror that here so the badge/buttons update without
+      // needing a refresh.
+      setOverrideUntil(null);
       setShowModal(false);
       setMessage("🔒 Day " + activeDay + " submitted and locked");
       setTimeout(() => setMessage(""), 5000);
@@ -1221,6 +1240,30 @@ export default function InfectGIHemaLog() {
       setMessage(`❌ Could not load Day ${sourceDay} data`);
       setTimeout(() => setMessage(""), 3000);
     } finally { setLoading(false); }
+  };
+
+  /* ── Audit trail — superadmin + site PI only, scoped to the active day ── */
+  const fetchAuditHistory = async () => {
+    setShowAuditModal(true);
+    setAuditLoading(true);
+    try {
+      const res = await api.get("/audit/", {
+        params: {
+          table_name: "infect_gi_hema_day_logs",
+          enrollment_id: enrollmentId,
+          limit: 200,
+        },
+      });
+      const entries = (res?.data || []).filter(e => {
+        const day = e.new_values?.nicu_day ?? e.old_values?.nicu_day;
+        return day === activeDay;
+      });
+      setAuditEntries(entries);
+    } catch (_) {
+      setAuditEntries([]);
+    } finally {
+      setAuditLoading(false);
+    }
   };
 
   const days = Array.from({ length: totalDays }, (_, i) => i + 1);
@@ -1503,7 +1546,7 @@ export default function InfectGIHemaLog() {
             </h2>
             <div className="rcn-summary-meta">
               <Clock size={13} />
-              <span>{isSaved ? "Completed" : "Not yet started"} — complete by 11:00 AM</span>
+              <span>{isSaved ? "Completed" : "Not yet started"}</span>
             </div>
             {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"
@@ -1952,6 +1995,48 @@ export default function InfectGIHemaLog() {
         </div>
       )}
 
+      {/* ══ AUDIT TRAIL MODAL ══ */}
+      {showAuditModal && (
+        <div className="rcn-modal-overlay" onClick={() => setShowAuditModal(false)}>
+          <div className="rcn-modal" onClick={e => e.stopPropagation()}>
+            <div className="rcn-modal-header">
+              <div className="rcn-modal-icon"><History size={18} /></div>
+              <div>
+                <h3 className="rcn-modal-title">Day {activeDay} History</h3>
+                <p className="rcn-modal-subtitle">Every save, submit, and override for this day</p>
+              </div>
+              <button className="rcn-modal-close" type="button" onClick={() => setShowAuditModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="rcn-modal-body">
+              {auditLoading ? (
+                <div className="rcn-audit-empty">Loading…</div>
+              ) : auditEntries.length === 0 ? (
+                <div className="rcn-audit-empty">No history recorded for this day yet.</div>
+              ) : (
+                <div className="rcn-audit-list">
+                  {auditEntries.map(e => (
+                    <div key={e.id} className="rcn-audit-entry">
+                      <div className="rcn-audit-entry-top">
+                        <span className="rcn-audit-action">{(e.action || "").replace(/_/g, " ")}</span>
+                        <span className="rcn-audit-time">
+                          {e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : ""}
+                        </span>
+                      </div>
+                      <span className="rcn-audit-user">by {e.username || "unknown"}</span>
+                      {e.new_values?.reason && (
+                        <p className="rcn-audit-reason">"{e.new_values.reason}"</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══ SITE-MONITOR OVERRIDE MODAL ══ */}
       {showOverrideModal && (
         <div className="rcn-modal-overlay" onClick={() => !overrideSubmitting && setShowOverrideModal(false)}>
@@ -2023,6 +2108,18 @@ export default function InfectGIHemaLog() {
           onClick={handlePrevious}>
           <ArrowLeft size={15} /> Resp-CV-Neuro
         </button>
+
+        {/* History — superadmin + site PI only, any day/lock state */}
+        {canViewAudit && (
+          <button
+            type="button"
+            className="rcn-history-btn"
+            onClick={fetchAuditHistory}
+            title={`View correction history for Day ${activeDay}`}
+          >
+            <History size={13}/> History
+          </button>
+        )}
 
         {/* Save — always visible when editing */}
         {isFieldEditable && (

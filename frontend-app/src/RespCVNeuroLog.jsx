@@ -510,6 +510,10 @@ export default function RespCVNeuroLog() {
   const { user } = useAuth();
   const userRole    = user?.role || "site_user";
   const isSuperadmin = (userRole || "").toLowerCase() === "superadmin";
+  const isPI         = (userRole || "").toLowerCase() === "site_pi";
+  // Audit trail ("History") is superadmin + site PI only — matches the
+  // backend's /audit/ role check in routers/audit.py.
+  const canViewAudit = isSuperadmin || isPI;
   // Submit button is visible to everyone — no role restriction
   // It only appears when day is saved AND all fields are 100% complete
 
@@ -1051,7 +1055,13 @@ export default function RespCVNeuroLog() {
   const completionPct = totalFields > 0
     ? Math.min(100, Math.round((totalAnswered / totalFields) * 100))
     : 0;
-  const canSubmit = completionPct === 100 && !isSubmitted;
+  // completionPct===100 alone isn't enough once a day has been overridden:
+  // isSubmitted stays true for the whole override window (the backend only
+  // clears it on an actual re-lock), so without the isOverrideActiveDay
+  // check here canSubmit was permanently false during any override —
+  // the footer always fell to "Save Correction" and the day could never
+  // be re-locked. Allow re-locking while the override window is open.
+  const canSubmit = completionPct === 100 && (!isSubmitted || isOverrideActiveDay);
 
   /* ── Helpers ── */
   const toggleMode = (mode) => {
@@ -1192,6 +1202,10 @@ export default function RespCVNeuroLog() {
       setDayStatuses(prev => ({ ...prev, [activeDay]: STATUS.SUBMITTED }));
       setSubmittedAt(now);
       setSubmittedBy(user?.name || user?.username || "Site User");
+      // Locking now (even mid-override) ends the override immediately on
+      // the backend — mirror that here so the badge/buttons update without
+      // needing a refresh.
+      setOverrideUntil(null);
       setShowModal(false);
       setMessage("🔒 Day " + activeDay + " submitted and locked");
       setTimeout(() => setMessage(""), 5000);
@@ -1301,6 +1315,31 @@ export default function RespCVNeuroLog() {
       setLoading(false);
     }
   };
+
+  /* ── Audit trail — superadmin + site PI only, scoped to the active day ── */
+  const fetchAuditHistory = async () => {
+    setShowAuditModal(true);
+    setAuditLoading(true);
+    try {
+      const res = await api.get("/audit/", {
+        params: {
+          table_name: "resp_cv_neuro_day_logs",
+          enrollment_id: enrollmentId,
+          limit: 200,
+        },
+      });
+      const entries = (res?.data || []).filter(e => {
+        const day = e.new_values?.nicu_day ?? e.old_values?.nicu_day;
+        return day === activeDay;
+      });
+      setAuditEntries(entries);
+    } catch (err) {
+      setAuditEntries([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
   /* ── Mark patient as discharged ── */
   const [showDischargeConfirm, setShowDischargeConfirm] = useState(false);
   const handleDischarge = async () => {
@@ -1606,7 +1645,7 @@ export default function RespCVNeuroLog() {
             <div className="rcn-summary-meta">
               <Clock size={13} />
               <span>
-                {isSaved ? "Completed" : "Not yet started"} — complete by 11:00 AM 
+                {isSaved ? "Completed" : "Not yet started"}
               </span>
             </div>
             {/* Copy from previous day button */}
@@ -2422,6 +2461,9 @@ export default function RespCVNeuroLog() {
                         </span>
                       </div>
                       <span className="rcn-audit-user">by {e.username || "unknown"}</span>
+                      {e.new_values?.reason && (
+                        <p className="rcn-audit-reason">"{e.new_values.reason}"</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2504,6 +2546,18 @@ export default function RespCVNeuroLog() {
           onClick={handlePrevious}>
           <ArrowLeft size={15} /> FiO₂ AUC
         </button>
+
+        {/* History — superadmin + site PI only, any day/lock state */}
+        {canViewAudit && (
+          <button
+            type="button"
+            className="rcn-history-btn"
+            onClick={fetchAuditHistory}
+            title={`View correction history for Day ${activeDay}`}
+          >
+            <History size={13}/> History
+          </button>
+        )}
 
         {/* Save — always visible when editing */}
         {isFieldEditable && (
