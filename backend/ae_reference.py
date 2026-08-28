@@ -265,6 +265,46 @@ AE_DEFINITIONS = {
             5: "Death",
         },
     },
+    # --- Domain 4: haematologic / bilirubin, graded off the treatment
+    # recorded in Form H's Haematology section (or the Infect/GI/Hema
+    # day-log treatment booleans as a fallback). Grade text verbatim from
+    # the document's Metabolic and Hematological sections. ---
+    "hyperbilirubinemia": {
+        "name": "Hyperbilirubinemia",
+        "section": "Metabolic",
+        "definition": "A disorder characterized by an increase in indirect bilirubin levels in blood.",
+        "grades": {
+            1: "Hyperbilirubinemia without need of therapy",
+            2: "Hyperbilirubinemia needing treatment with phototherapy",
+            3: "Hyperbilirubinemia needing treatment with blood exchange transfusion",
+            4: "Hyperbilirubinemia with acute bilirubin encephalopathy",
+            5: "Death",
+        },
+    },
+    "anemia": {
+        "name": "Anemia",
+        "section": "Hematological",
+        "definition": "A disorder characterized by a decrease in haemoglobin concentration in blood.",
+        "grades": {
+            1: "Asymptomatic anemia NOT needing blood transfusion",
+            2: "-",
+            3: "Anemia needing blood or exchange transfusion",
+            4: "-",
+            5: "-",
+        },
+    },
+    "thrombocytopenia": {
+        "name": "Thrombocytopenia",
+        "section": "Hematological",
+        "definition": "A disorder characterized by a decrease in the number of platelets in peripheral blood.",
+        "grades": {
+            1: "NOT associated with active bleeding and above the threshold for platelet transfusion",
+            2: "NOT associated with active bleeding but needing platelet transfusion",
+            3: "Associated with bleeding or platelet count less than 20,000",
+            4: "Associated with intracranial bleeding",
+            5: "Death",
+        },
+    },
 }
 
 
@@ -824,5 +864,146 @@ def detect_infection_candidates(nm, infection_windows, day1_date=None):
             ev = (f"Meningitis flagged in the Infect/GI/Hema day log{days}. "
                   "Note: upgrade to Grade 4 if accompanied by shock or end-organ failure.")
             out.append(_fh_candidate("meningitis", 3, start, ev, end_date=end))
+
+    return [c for c in out if c]
+
+
+# --------------------------------------------------------------------------
+# Domain 4 — haematologic / bilirubin (hyperbilirubinemia, anemia,
+# thrombocytopenia), graded off the recorded treatment
+# --------------------------------------------------------------------------
+
+_THROMBO_NOTE = (
+    " Grade 2 = a platelet transfusion was given. The app captures no platelet count "
+    "or bleeding flag — the clinician upgrades to Grade 3 (bleeding / count <20,000) or "
+    "Grade 4 (intracranial bleeding) if applicable."
+)
+
+
+def _int_or_none(v):
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+def _answered(v):
+    """A Yes/No/select field the clinician has actually filled in
+    (as opposed to left blank)."""
+    return v is not None and str(v).strip() != ""
+
+
+def _yes(v):
+    return str(v or "").strip().lower() in ("yes", "true", "1")
+
+
+def _any_day(inf_logs, attr):
+    """Earliest nicu_day where `attr` is True on an InfectGIHema day log,
+    or None."""
+    days = sorted(l.nicu_day for l in inf_logs
+                  if getattr(l, attr, None) is True and l.nicu_day is not None)
+    return days[0] if days else None
+
+
+def detect_form_h_heme_candidates(nm, inf_logs, day1_date=None):
+    """Haematologic / bilirubin AE candidates — hyperbilirubinemia,
+    anemia, thrombocytopenia. Every grade here comes from the *treatment*
+    that was recorded, matching the document's own grade wording.
+
+    Source policy (PI decision 2026-08-27): Form H's Haematology section
+    is PRIMARY, per AE term — if the clinician has answered that term's
+    top-level Form H question, that answer is used and the day log is
+    ignored for it. Otherwise the InfectGIHema day-log treatment booleans
+    are the fallback (a recorded transfusion / phototherapy only —
+    never a bare low haemoglobin).
+
+    Grading (PI decisions 2026-08-27):
+      - Hyperbilirubinemia: BIND ("Bilirubin-Induced Neurologic
+        Dysfunction") = Yes → Grade 4 (acute bilirubin encephalopathy);
+        exchange transfusion → Grade 3; phototherapy → Grade 2; jaundice
+        needing intervention but neither → Grade 2; jaundice with no
+        treatment → Grade 1.
+      - Anemia: PRBC transfusion → Grade 3; anemia = Yes without a
+        transfusion → Grade 1 (the scale defines no Grade 2 for anemia).
+      - Thrombocytopenia: platelet transfusion → Grade 2 (the only grade
+        the app has the data to reach; note directs the clinician on
+        Grade 3/4).
+      - Grade 5 (Death) is never auto-assigned.
+    """
+    inf_logs = inf_logs or []
+    out = []
+
+    # ---------------- Hyperbilirubinemia ----------------
+    jaundice_fields = (getattr(nm, "jaundice_intervention", None),
+                       getattr(nm, "phototherapy", None),
+                       getattr(nm, "bind", None),
+                       getattr(nm, "dvet", None)) if nm is not None else (None, None, None, None)
+    if any(_answered(v) for v in jaundice_fields):
+        j_int, photo, bind, dvet = jaundice_fields
+        if _yes(bind):
+            grade, why = 4, "BIND (acute bilirubin encephalopathy) recorded"
+        elif _yes(dvet):
+            grade, why = 3, "exchange transfusion given"
+        elif _yes(photo):
+            grade, why = 2, "phototherapy given"
+        elif _yes(j_int):
+            grade, why = 2, "jaundice required intervention (modality not phototherapy/exchange per Form H — verify)"
+        else:
+            grade, why = None, None  # all "No"
+        if grade is not None:
+            start = _fh_date(getattr(nm, "jaundice_onset", None), None, day1_date)
+            out.append(_fh_candidate("hyperbilirubinemia", grade, start,
+                                     f"Form H Haematology: {why}."))
+    else:
+        photo_day = _any_day(inf_logs, "phototherapy")
+        exch_day = _any_day(inf_logs, "exchange_transfusion")
+        jaun_day = _any_day(inf_logs, "jaundice")
+        if exch_day is not None:
+            out.append(_fh_candidate("hyperbilirubinemia", 3, _day_to_date(day1_date, exch_day),
+                                     f"Exchange transfusion recorded on NICU day {exch_day} (Infect/GI/Hema day log); Form H Haematology not filled."))
+        elif photo_day is not None:
+            out.append(_fh_candidate("hyperbilirubinemia", 2, _day_to_date(day1_date, photo_day),
+                                     f"Phototherapy recorded on NICU day {photo_day} (Infect/GI/Hema day log); Form H Haematology not filled."))
+        elif jaun_day is not None:
+            out.append(_fh_candidate("hyperbilirubinemia", 1, _day_to_date(day1_date, jaun_day),
+                                     f"Jaundice flagged on NICU day {jaun_day} (Infect/GI/Hema day log), no treatment recorded; Form H Haematology not filled."))
+
+    # ---------------- Anemia ----------------
+    anemia_ans = getattr(nm, "anemia", None) if nm is not None else None
+    if _answered(anemia_ans):
+        if _yes(anemia_ans):
+            prbc = _yes(getattr(nm, "prbc", None))
+            grade = 3 if prbc else 1
+            bits = []
+            lh = getattr(nm, "lowest_hb", None)
+            if _answered(lh):
+                bits.append(f"lowest Hb/Hct {lh}")
+            sym = getattr(nm, "anemia_symptoms", None)
+            if _answered(sym):
+                bits.append(f"symptoms: {sym}")
+            bits.append("PRBC transfusion given" if prbc else "no transfusion recorded")
+            start = _fh_date(None, _int_or_none(getattr(nm, "anemia_onset", None)), day1_date)
+            out.append(_fh_candidate("anemia", grade, start,
+                                     "Form H Haematology: anemia — " + ", ".join(bits) + "."))
+    else:
+        prbc_day = _any_day(inf_logs, "prbc_transfusion")
+        if prbc_day is not None:
+            out.append(_fh_candidate("anemia", 3, _day_to_date(day1_date, prbc_day),
+                                     f"PRBC transfusion recorded on NICU day {prbc_day} (Infect/GI/Hema day log); Form H Haematology not filled."))
+
+    # ---------------- Thrombocytopenia ----------------
+    plt_ans = getattr(nm, "platelets", None) if nm is not None else None
+    if _answered(plt_ans):
+        if _yes(plt_ans):
+            n = getattr(nm, "platelet_number", None)
+            ev = "Form H Haematology: platelet transfusion given"
+            ev += f" ({n} transfusion(s))" if _answered(n) else ""
+            out.append(_fh_candidate("thrombocytopenia", 2, None, ev + "." + _THROMBO_NOTE))
+    else:
+        plt_day = _any_day(inf_logs, "platelet_transfusion")
+        if plt_day is not None:
+            out.append(_fh_candidate("thrombocytopenia", 2, _day_to_date(day1_date, plt_day),
+                                     f"Platelet transfusion recorded on NICU day {plt_day} "
+                                     f"(Infect/GI/Hema day log); Form H Haematology not filled." + _THROMBO_NOTE))
 
     return [c for c in out if c]

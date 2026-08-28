@@ -20,6 +20,7 @@ from ae_reference import (
     detect_metab_renal_vasc_eye_candidates,
     detect_form_h_morbidity_candidates,
     detect_infection_candidates,
+    detect_form_h_heme_candidates,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -4191,7 +4192,11 @@ def get_adverse_event_candidates(
       - Domain 3: infection episodes — culture-positive sepsis,
         culture-negative sepsis, meningitis. Form H's dynamic `infections`
         array is primary; the Infect/GI/Hema day-log trigger windows are
-        the fallback when Form H has no infection episodes."""
+        the fallback when Form H has no infection episodes.
+      - Domain 4: haematologic / bilirubin — hyperbilirubinemia, anemia,
+        thrombocytopenia. Graded off the recorded treatment; Form H's
+        Haematology section is primary, the Infect/GI/Hema day-log
+        treatment booleans are the fallback."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -4226,6 +4231,7 @@ def get_adverse_event_candidates(
     candidates += detect_form_h_morbidity_candidates(nm, day1_date=day1_date)
     infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
     candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
+    candidates += detect_form_h_heme_candidates(nm, inf_logs, day1_date=day1_date)
     return {"has_data": True, "candidates": candidates}
 
 
