@@ -41,7 +41,8 @@ AE_DEFINITIONS exists for lookup only (report text, slug → name/
 definition/section), with no auto-detection attempted yet.
 """
 
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta
 
 UNRESOLVED = "UNRESOLVED"  # grade criteria not yet finalized in the source document
 
@@ -221,6 +222,46 @@ AE_DEFINITIONS = {
             2: "PDA needing medical treatment but NOT cardiac failure",
             3: "PDA needing surgical treatment or resulting in cardiac failure",
             4: "-",
+            5: "Death",
+        },
+    },
+    # --- Domain 3: infection episodes (Form H's dynamic `infections`
+    # array, with the Infect/GI/Hema day-log trigger windows as a
+    # fallback). Grade text verbatim from the document's Infectious and
+    # Neurological sections. ---
+    "sepsis_culture_positive": {
+        "name": "Neonatal Culture Positive Sepsis",
+        "section": "Infectious",
+        "definition": "A systemic inflammatory response to an infection. (MedDRA 10082058; CDISC C154927)",
+        "grades": {
+            1: "Blood culture positive; no care change indicated (e.g. contamination suspected)",
+            2: "Blood culture positive with mild or ambiguous signs",
+            3: "Blood culture positive with severe signs; support treatment escalated or initiated; care change required",
+            4: "Life-threatening consequences (e.g. state of shock, DIC); urgent major care change required",
+            5: "Death",
+        },
+    },
+    "sepsis_culture_negative": {
+        "name": "Neonatal Culture Negative Sepsis",
+        "section": "Infectious",
+        "definition": "A systemic inflammatory response without identifiable cause. (MedDRA 10082059; CDISC C154928)",
+        "grades": {
+            1: "-",
+            2: "Suspected sepsis with mild or ambiguous signs",
+            3: "Suspected sepsis with severe signs (e.g. fever, grunting); support treatment escalated or initiated; care change required",
+            4: "Life-threatening consequences (e.g. state of shock, DIC); urgent major care change required",
+            5: "Death",
+        },
+    },
+    "meningitis": {
+        "name": "Meningitis / Encephalitis",
+        "section": "Neurological",
+        "definition": "A disorder characterized by inflammation of the meninges and/or brain matter caused by an infective agent.",
+        "grades": {
+            1: "-",
+            2: "-",
+            3: "Meningitis/encephalitis without shock or end-organ failure requiring antibiotic therapy, causing prolongation of hospital stay or increased risk of adverse neurological outcome",
+            4: "Accompanied by shock or end-organ failure. Life-threatening consequences; urgent surgical intervention indicated",
             5: "Death",
         },
     },
@@ -467,11 +508,13 @@ def _fh_date(date_val, age_days, day1_date):
     return None
 
 
-def _fh_candidate(slug, grade, start_date, evidence):
-    """Shape one Form H-sourced AE candidate row (same shape as _episode).
-    grade=None → detect-only: no grade proposed, the clinician assigns it."""
+def _fh_candidate(slug, grade, start_date, evidence, end_date=None):
+    """Shape one Form H / Form-H-adjacent AE candidate row (same shape as
+    _episode). grade=None → detect-only: no grade proposed, the clinician
+    assigns it."""
     d = AE_DEFINITIONS[slug]
-    grade_str, severity = "", f"{d['name']} recorded in Form H — grade not auto-assigned."
+    grade_str = ""
+    severity = f"{d['name']} recorded — grade not auto-assigned; the clinician assigns it."
     if grade is not None:
         g, text, note = _resolve_grade(slug, grade)
         if g is not None:
@@ -481,7 +524,7 @@ def _fh_candidate(slug, grade, start_date, evidence):
         "definition_no": slug,
         "description": d["name"],
         "start_date": start_date,
-        "end_date": None,
+        "end_date": end_date,
         "severity_desc": severity,
         "grade": grade_str,
         "evidence": evidence,
@@ -649,5 +692,137 @@ def detect_form_h_morbidity_candidates(nm, day1_date=None):
         elif grade == 3:
             ev += ". Surgical ligation / device closure → Grade 3."
         out.append(_fh_candidate("pda", grade, None, ev))
+
+    return [c for c in out if c]
+
+
+# --------------------------------------------------------------------------
+# Domain 3 — infection episodes (sepsis culture+/−, meningitis)
+# --------------------------------------------------------------------------
+
+_SEPSIS_UPGRADE_NOTE = (
+    " Grade floored at 2 — upgrade to Grade 3 for severe signs (e.g. fever, "
+    "grunting) with support escalation, or Grade 4 for shock / DIC."
+)
+
+
+def _infection_episodes(nm):
+    """Form H's `infections` JSON as a list of dicts (tolerant of a
+    JSON-string column value or None)."""
+    raw = getattr(nm, "infections", None) if nm is not None else None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = None
+    return [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
+
+
+def _hours_to_date(onset_hours, day1_date):
+    """Age-at-onset in hours (Form H infection episode) → calendar date,
+    counting day1_date as the birth day. None if not resolvable."""
+    if day1_date is None:
+        return None
+    try:
+        h = float(onset_hours)
+    except (TypeError, ValueError):
+        return None
+    if h < 0:
+        return None
+    return (datetime(day1_date.year, day1_date.month, day1_date.day)
+            + timedelta(hours=h)).date().isoformat()
+
+
+def detect_infection_candidates(nm, infection_windows, day1_date=None):
+    """Infection-episode AE candidates — culture-positive sepsis,
+    culture-negative sepsis, and meningitis.
+
+    Source policy (PI decision 2026-08-27): **Form H primary, day log as
+    fallback.** If Form H's dynamic `infections` array has at least one
+    `sepsis = "Yes"` episode, those episodes are the whole story and the
+    day-log windows are ignored. Otherwise the trigger windows from
+    `_compute_infection_windows()` (passed in as `infection_windows`) are
+    used.
+
+    Grading (PI decisions 2026-08-27):
+      - a Form H sepsis episode → floor Grade 2 (a clinician entering the
+        episode has ruled out Grade 1 "contamination"); the G2/G3/G4 split
+        (mild vs severe signs vs life-threatening) stays the clinician's
+        call, surfaced in the evidence text.
+      - meningitis (Form H `focus_meningitis` on an episode, or a day-log
+        meningitis window) → Grade 3 — the scale defines no lower grade
+        for meningitis; note directs upgrade to Grade 4 for shock /
+        end-organ failure.
+      - day-log fallback with no Form H episode:
+          * "culture" window  → culture-positive sepsis, **detect-only**
+            (a lone positive culture with no episode may be a contaminant)
+          * "screen" window   → culture-negative sepsis, Grade 2
+          * "clinical" window (antibiotics > 5 continuous days) →
+            culture-negative sepsis, Grade 2
+      - Grade 5 (Death) is never auto-assigned.
+    """
+    out = []
+    episodes = _infection_episodes(nm)
+
+    if episodes:
+        for i, e in enumerate(episodes, start=1):
+            if str(e.get("sepsis") or "").strip().lower() != "yes":
+                continue
+            num = e.get("sepsis_episode_number") or i
+            onset_h = e.get("sepsis_onset_age")
+            start = _hours_to_date(onset_h, day1_date)
+            culture_pos = bool(e.get("sepsis_culture"))
+            slug = "sepsis_culture_positive" if culture_pos else "sepsis_culture_negative"
+
+            src_map = {"culture_blood": "Blood", "culture_csf": "CSF",
+                       "culture_urine": "Urine", "culture_other": "Other"}
+            src = [v for k, v in src_map.items() if e.get(k)]
+            org_map = {"gram_positive": "Gram-positive", "gram_negative": "Gram-negative",
+                       "fungus": "Fungus"}
+            org = [v for k, v in org_map.items() if e.get(k)]
+
+            ev = f"Form H infection episode #{num}: "
+            ev += "culture-positive" if culture_pos else (
+                "screen-positive" if e.get("sepsis_screen") else "clinical / screen-negative")
+            if onset_h:
+                ev += f", onset ~{onset_h} h of life"
+            if src:
+                ev += f", culture source: {', '.join(src)}"
+            if org:
+                ev += f", organism: {', '.join(org)}"
+            ev += "." + _SEPSIS_UPGRADE_NOTE
+            out.append(_fh_candidate(slug, 2, start, ev))
+
+            if e.get("focus_meningitis") or e.get("culture_csf"):
+                mev = (f"Form H infection episode #{num} flags meningitis"
+                       + (" (CSF culture positive)" if e.get("culture_csf") else "")
+                       + ". Note: upgrade to Grade 4 if accompanied by shock or end-organ failure.")
+                out.append(_fh_candidate("meningitis", 3, start, mev))
+        return [c for c in out if c]
+
+    # --- fallback: day-log trigger windows ---
+    for w in infection_windows or []:
+        stype = w.get("suggested_type")
+        start, end = w.get("date_start"), w.get("date_end")
+        days = f" (NICU day {w.get('nicu_day_start')}"
+        days += f"–{w.get('nicu_day_end')})" if w.get("nicu_day_end") != w.get("nicu_day_start") else ")"
+        if stype == "culture":
+            ev = (f"Blood culture positive{days}. Grade not auto-assigned from the day log "
+                  "alone — a positive culture with no corresponding Form H episode may be a "
+                  "contaminant; the clinician confirms the episode and grades it.")
+            out.append(_fh_candidate("sepsis_culture_positive", None, start, ev, end_date=end))
+        elif stype == "screen":
+            ev = (f"Sepsis screen positive{days} (no blood culture positive on those days). "
+                  + _SEPSIS_UPGRADE_NOTE.strip())
+            out.append(_fh_candidate("sepsis_culture_negative", 2, start, ev, end_date=end))
+        elif stype == "clinical":
+            ev = (f"Antibiotics given for > 5 continuous days{days}, with no positive culture or "
+                  "screen on those days — a probable clinically-diagnosed sepsis episode. "
+                  + _SEPSIS_UPGRADE_NOTE.strip())
+            out.append(_fh_candidate("sepsis_culture_negative", 2, start, ev, end_date=end))
+        elif w.get("meningitis"):
+            ev = (f"Meningitis flagged in the Infect/GI/Hema day log{days}. "
+                  "Note: upgrade to Grade 4 if accompanied by shock or end-organ failure.")
+            out.append(_fh_candidate("meningitis", 3, start, ev, end_date=end))
 
     return [c for c in out if c]

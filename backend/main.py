@@ -19,6 +19,7 @@ import models
 from ae_reference import (
     detect_metab_renal_vasc_eye_candidates,
     detect_form_h_morbidity_candidates,
+    detect_infection_candidates,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -4186,7 +4187,11 @@ def get_adverse_event_candidates(
         hard numeric / clinician-staged thresholds (Metabolic, Electrolyte,
         Thermoregulation, Renal/AKI).
       - Domain 2: Form H (NeonatalMorbidities) — IVH, PVL, NEC, BPD, ROP,
-        PDA, using the stage/grade a clinician already adjudicated there."""
+        PDA, using the stage/grade a clinician already adjudicated there.
+      - Domain 3: infection episodes — culture-positive sepsis,
+        culture-negative sepsis, meningitis. Form H's dynamic `infections`
+        array is primary; the Infect/GI/Hema day-log trigger windows are
+        the fallback when Form H has no infection episodes."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -4199,7 +4204,13 @@ def get_adverse_event_candidates(
         .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
         .first()
     )
-    if not logs and nm is None:
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    if not logs and nm is None and not inf_logs:
         return {"has_data": False, "candidates": []}
 
     nicu = (
@@ -4213,6 +4224,8 @@ def get_adverse_event_candidates(
     if logs:
         candidates += detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
     candidates += detect_form_h_morbidity_candidates(nm, day1_date=day1_date)
+    infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
+    candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
     return {"has_data": True, "candidates": candidates}
 
 
