@@ -625,6 +625,39 @@
 }
 .multi-check-other-input:disabled { background: #f9fafb; color: #9ca3af; cursor: not-allowed; }
 
+.form-group .multi-check-item .multi-check-inline-input {
+  flex: 1;
+  min-width: 140px;
+  width: auto !important;
+  height: 30px !important;
+  padding: 0 10px !important;
+  border: 1.5px solid #d1d5db !important;
+  border-radius: 6px !important;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111827 !important;
+  background: #fff !important;
+  outline: none;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.multi-check-item .multi-check-item-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  margin: 0;
+}
+.multi-check-item.checked .multi-check-inline-input {
+  border-color: #bfdbfe !important;
+}
+.form-group .multi-check-item .multi-check-inline-input:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+}
+
 /* ─── STATUS MESSAGE ──────────────────────────────────────── */
 .form-message {
   display: flex; align-items: center; gap: 8px;

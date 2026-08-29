@@ -2,13 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, ChevronDown, ChevronRight, Plus, Save, Trash2, CheckCircle2,
-  Heart, Wind, Beaker, Utensils, Brain, Droplet,
+  Heart, Wind, Beaker, Utensils, Brain, Droplet, Clock,
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
-import { toDateOnlyValue, formatDateToDDMMYYYY } from "./utils/datetime";
+import { toDateOnlyValue, formatDateToDDMMYYYY, formatTimeAmPm, openNativeDatePicker } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
@@ -70,6 +70,40 @@ const BLOCK_META = {
 const pad2 = n => String(n).padStart(2, "0");
 const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Parse stored respiratory time range ("08:00–14:00", "8:00 AM - 2:00 PM", or a single time). */
+function parseTimeRange(value) {
+  const s = String(value || "").trim();
+  if (!s) return { from: "", to: "" };
+  const parts = s.split(/\s*[–—−-]\s*|\s+to\s+/i).map(p => p.trim()).filter(Boolean);
+  const toHHmm = raw => {
+    const t = String(raw || "").trim();
+    const ampm = t.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+    if (!ampm) return "";
+    let h = Number(ampm[1]);
+    const min = ampm[2];
+    const ap = (ampm[3] || "").toUpperCase();
+    if (ap === "PM" && h < 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    if (!Number.isFinite(h) || h < 0 || h > 23) return "";
+    return `${pad2(h)}:${min}`;
+  };
+  if (parts.length === 1) return { from: toHHmm(parts[0]), to: "" };
+  return { from: toHHmm(parts[0]), to: toHHmm(parts[1]) };
+}
+
+function joinTimeRange(from, to) {
+  if (from && to) return `${from}–${to}`;
+  return from || to || "";
+}
+
+function formatTimeRangeAmPm(value) {
+  const { from, to } = parseTimeRange(value);
+  if (!from && !to) return "";
+  const a = from ? formatTimeAmPm(from) : "—";
+  const b = to ? formatTimeAmPm(to) : "";
+  return b ? `${a} – ${b}` : a;
+}
 
 const ans = v => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 const listToString = v => Array.isArray(v) ? v.join(",") : (v || "");
@@ -287,9 +321,9 @@ function MetricCard({ label, value, tone = "blue" }) {
   );
 }
 
-function Item({ n, label, sub, error, children }) {
+function Item({ n, label, sub, error, children, wide }) {
   return (
-    <div className="rcn-field-group">
+    <div className={`rcn-field-group${wide ? " mml-item-wide" : ""}`}>
       <label className="rcn-field-label rcn-field-label--exact-case">
         {n != null && <span className="mml-item-num">{n}.</span>} {label}
         {sub && <span className="rcn-field-sub">{sub}</span>}
@@ -315,6 +349,73 @@ function Txt({ value, onChange, disabled, placeholder, type = "text", error }) {
     <input type={type} className={`rcn-text-input${error ? " rcn-text-input--error" : ""}`}
       value={value ?? ""} placeholder={placeholder} disabled={disabled}
       onChange={e => onChange(e.target.value)} />
+  );
+}
+
+function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "— : —" }) {
+  const ref = useRef(null);
+  const label = value ? formatTimeAmPm(value) : "";
+  const open = () => { if (!disabled) openNativeDatePicker(ref.current); };
+  return (
+    <div
+      className={`mml-ampm-time${value ? "" : " mml-ampm-time--empty"}${disabled ? " mml-ampm-time--disabled" : ""}`}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      onClick={open}
+      onKeyDown={e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+    >
+      <Clock size={14} strokeWidth={2.2} />
+      <span>{label || placeholder}</span>
+      <input
+        ref={ref}
+        type="time"
+        value={value || ""}
+        disabled={disabled}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="mml-ampm-time-native"
+        onChange={e => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+function TimeRangePicker({ value, onChange, disabled }) {
+  const { from, to } = parseTimeRange(value);
+  const setPart = (which, next) => {
+    onChange(which === "from" ? joinTimeRange(next, to) : joinTimeRange(from, next));
+  };
+  return (
+    <div className="mml-time-range">
+      <div className="mml-time-range-slot">
+        <span className="mml-time-range-label">From</span>
+        <AmPmTimeInput
+          value={from}
+          onChange={v => setPart("from", v)}
+          disabled={disabled}
+          ariaLabel="From time"
+          placeholder="From"
+        />
+      </div>
+      <span className="mml-time-range-sep" aria-hidden="true">to</span>
+      <div className="mml-time-range-slot">
+        <span className="mml-time-range-label">To</span>
+        <AmPmTimeInput
+          value={to}
+          onChange={v => setPart("to", v)}
+          disabled={disabled}
+          ariaLabel="To time"
+          placeholder="To"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -441,6 +542,9 @@ const BLOCK_FIELDS = {
 /** Renders one summary-table cell for a field, using its column metadata. */
 function formatCell(field, entry) {
   const v = entry ? entry[field.key] : undefined;
+  if (field.key === "time_range") {
+    return formatTimeRangeAmPm(v) || "—";
+  }
   if (field.bool) {
     if (v === true) return "Yes";
     if (v === false) return "No";
@@ -467,6 +571,7 @@ function EntryBlock({
     .map((entry, idx) => ({ entry, idx }))
     .filter(({ entry, idx }) => idx !== draftIdx && hasEntryData(entry));
   const fieldsMeta = BLOCK_FIELDS[blockKey] || [];
+  const hideStampTime = blockKey === "resp_a";
 
   return (
     <div className="rcn-subsection mml-subblock">
@@ -483,11 +588,13 @@ function EntryBlock({
               <input type="date" className="rcn-text-input mml-date-input" value={draft.date || ""}
                 disabled={disabled} onChange={e => onChangeEntry(draftIdx, "date", e.target.value)} />
             </label>
-            <label className="mml-meta-field">
-              <span>Time</span>
-              <input type="time" className="rcn-text-input mml-time-input" value={draft.time || ""}
-                disabled={disabled} onChange={e => onChangeEntry(draftIdx, "time", e.target.value)} />
-            </label>
+            {!hideStampTime && (
+              <label className="mml-meta-field">
+                <span>Time</span>
+                <input type="time" className="rcn-text-input mml-time-input" value={draft.time || ""}
+                  disabled={disabled} onChange={e => onChangeEntry(draftIdx, "time", e.target.value)} />
+              </label>
+            )}
           </div>
           {!disabled && hasEntryData(draft) && (
             <button type="button" className="mml-add-btn"
@@ -509,7 +616,7 @@ function EntryBlock({
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Time</th>
+                  {!hideStampTime && <th>Time</th>}
                   {fieldsMeta.map(f => <th key={f.key}>{f.label}</th>)}
                   {!disabled && <th className="mml-history-th-action" aria-hidden="true" />}
                 </tr>
@@ -518,7 +625,7 @@ function EntryBlock({
                 {history.slice().reverse().map(({ entry, idx }) => (
                   <tr key={entry.id || idx}>
                     <td>{entry.date ? formatDateToDDMMYYYY(entry.date) : "—"}</td>
-                    <td>{entry.time || "—"}</td>
+                    {!hideStampTime && <td>{entry.time || "—"}</td>}
                     {fieldsMeta.map(f => <td key={f.key}>{formatCell(f, entry)}</td>)}
                     {!disabled && (
                       <td className="mml-history-td-action">
@@ -954,9 +1061,11 @@ export default function MinimalMonitoringLog() {
             blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Time: Btw" sub="AM/PM range">
-                  <Txt value={e.time_range} onChange={v => setEntryField("resp_a", i, "time_range", v)}
-                    disabled={!isEditable} placeholder="e.g. 08:00–14:00" />
+                <Item n={1} label="Time: Btw" sub="AM/PM range" wide>
+                  <TimeRangePicker
+                    value={e.time_range}
+                    onChange={v => setEntryField("resp_a", i, "time_range", v)}
+                    disabled={!isEditable} />
                 </Item>
                 <Item n={2} label="Mode">
                   <PillMulti options={["NC", "HFNC", "CPAP", "NIPPV", "SIMV", "A/C", "PSV", "HFOV"]}
@@ -1308,7 +1417,11 @@ export default function MinimalMonitoringLog() {
                   <span className="mml-subblock-code">{BLOCK_META[activeBlock].code}</span>
                   <h2>{BLOCK_META[activeBlock].label}</h2>
                 </div>
-                <p className="mml-fields-list-hint">Date and time are auto-filled to now — adjust if needed.</p>
+                <p className="mml-fields-list-hint">
+                  {activeBlock === "resp_a"
+                    ? "Date is auto-filled to today — adjust if needed."
+                    : "Date and time are auto-filled to now — adjust if needed."}
+                </p>
                 {renderBlockBody(activeBlock)}
               </div>
             )}

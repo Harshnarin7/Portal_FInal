@@ -194,6 +194,23 @@ const CRF_INDICATIONS = [
   "pPROM", "PTL", "APH", "Placenta Previa", "PIH", "PE/Imminent Eclampsia", "Other",
 ];
 
+/* CRF Q60 — reasons the PORTAL blender was interrupted before 30 minutes. */
+const BLENDER_INTERRUPT_REASONS = [
+  "Blender stopped abruptly",
+  "Surfactant decision",
+  "Intubation",
+  "FiO₂ – 21 or 100%",
+  "Early transfer",
+];
+const BLENDER_ABRUPT_REASON = "Blender stopped abruptly";
+const parseBlenderInterruptReasons = (raw) => {
+  if (Array.isArray(raw)) return raw.map(v => String(v).trim()).filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.split(",").map(v => v.trim()).filter(Boolean);
+  }
+  return [];
+};
+
 const padDur = n => String(n).padStart(2, "0");
 /** Enrollment IDs are `{site}-{A|B|C|D}-{serial}` — the letter is the blender unit. */
 const blenderLetterFromEnrollmentId = (v) => {
@@ -581,7 +598,7 @@ export default function BirthResuscitationForm() {
     resus_failure:"",
     spo2_exit_trial_gas:"", total_resus_time:"",
     reason_exit_trial_gas:"", reason_exit_trial_gas_other:"",
-    blender_stopped:"", blender_stopped_description:"",
+    blender_stopped:"", blender_interrupt_reasons:[], blender_stopped_description:"",
     /* B5 intervention table — Oxygen, CPAP, Apgar only (CRF 48–50) */
     interventions:{
       oxygen:{}, cpap:{}, apgar:{},
@@ -799,7 +816,7 @@ export default function BirthResuscitationForm() {
     }
   }, [formData.resus_failure]); // eslint-disable-line
 
-  /* ── Blender Unit ID (field 60) from Enrollment ID letter ── */
+  /* ── Blender Unit ID (field 61) from Enrollment ID letter ── */
   useEffect(() => {
     const fromEid = blenderLetterFromEnrollmentId(formData.enrollment_id);
     if (formData.blender_letter !== fromEid) set({ blender_letter: fromEid });
@@ -1010,7 +1027,13 @@ export default function BirthResuscitationForm() {
       reason_exit_trial_gas: fd.reason_exit_trial_gas==="Other"
         ? fd.reason_exit_trial_gas_other : fd.reason_exit_trial_gas,
       blender_stopped:     yn(fd.blender_stopped),
-      blender_stopped_description: fd.blender_stopped_description || null,
+      blender_interrupt_reasons: fd.blender_stopped === "Yes"
+        ? ((fd.blender_interrupt_reasons || []).join(", ") || null)
+        : null,
+      blender_stopped_description: fd.blender_stopped === "Yes"
+        && (fd.blender_interrupt_reasons || []).includes(BLENDER_ABRUPT_REASON)
+        ? (fd.blender_stopped_description || null)
+        : null,
       blender_letter:      blenderLetterFromEnrollmentId(fd.enrollment_id)
         || (["A", "B", "C", "D"].includes(fd.blender_letter) ? fd.blender_letter : null),
       interventions:       {
@@ -1147,9 +1170,13 @@ export default function BirthResuscitationForm() {
       if(!formData.reason_exit_trial_gas) add("B6. Reason for Exit",  "reason_exit_trial_gas");
       if(formData.reason_exit_trial_gas==="Other" && !formData.reason_exit_trial_gas_other)
         add("B6. Other Exit Reason", "reason_exit_trial_gas_other");
-      if(!formData.blender_stopped) add("B6. PORTAL Blender Status",  "blender_stopped");
-      if(formData.blender_stopped==="Yes" && !formData.blender_stopped_description)
-        add("B6. Blender Stop Description", "blender_stopped_description");
+      if(!formData.blender_stopped) add("B6. PORTAL blender interrupted before 30 minutes",  "blender_stopped");
+      if(formData.blender_stopped==="Yes" && !(formData.blender_interrupt_reasons||[]).length)
+        add("B6. Reason blender was interrupted", "blender_interrupt_reasons");
+      if(formData.blender_stopped==="Yes"
+          && (formData.blender_interrupt_reasons||[]).includes(BLENDER_ABRUPT_REASON)
+          && !formData.blender_stopped_description)
+        add("B6. Blender stopped abruptly — describe", "blender_stopped_description");
       if(!["A","B","C","D"].includes(formData.blender_letter))
         add("B6. Blender Unit ID", "blender_letter");
       }
@@ -1523,6 +1550,14 @@ export default function BirthResuscitationForm() {
             ? d.adrenaline_route.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.adrenaline_route || []),
           blender_stopped:   d.blender_stopped===true?"Yes":d.blender_stopped===false?"No":"",
+          blender_interrupt_reasons: (() => {
+            const reasons = parseBlenderInterruptReasons(d.blender_interrupt_reasons);
+            if (reasons.length) return reasons;
+            // Pre-Q60 records only stored a free-text description.
+            if (d.blender_stopped === true && d.blender_stopped_description)
+              return [BLENDER_ABRUPT_REASON];
+            return [];
+          })(),
           blender_letter:    blenderLetterFromEnrollmentId(d.enrollment_id)
             || (["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : ""),
           time_to_respiration: secondsToDurationHms(d.time_to_respiration),
@@ -2682,24 +2717,52 @@ export default function BirthResuscitationForm() {
                     <div/>
                   </div>
 
-                  <YesNoToggle label={<>59. Did the PORTAL blender stop suddenly during use?{requiredMark}</>}
+                  <YesNoToggle label={<>59. Was the PORTAL blender interrupted before 30 minutes:{requiredMark}</>}
                     name="blender_stopped" value={formData.blender_stopped}
-                    onChange={e=>{handleChange(e);if(e.target.value==="No")set({blender_stopped_description:""});}}
+                    onChange={e=>{
+                      handleChange(e);
+                      if(e.target.value==="No") set({blender_stopped_description:"", blender_interrupt_reasons:[]});
+                    }}
                     disabled={!isFieldEditable}/>
                   {formData.blender_stopped==="Yes" && (
                     <div className="followup-box">
-                      <div className="form-group">
-                        <label>If yes, describe{requiredMark}</label>
-                        <textarea name="blender_stopped_description"
-                          value={formData.blender_stopped_description||""}
-                          maxLength={1000} rows={3} readOnly={!isFieldEditable}
-                          onChange={handleChange} placeholder="Describe what happened"/>
+                      <div className="form-group" id="blender_interrupt_reasons">
+                        <label>60. If yes, select reason{requiredMark} <span className="field-note">(select all that apply)</span></label>
+                        <div className="multi-checkbox-group">
+                          {BLENDER_INTERRUPT_REASONS.map(opt => (
+                            <div key={opt} className={`multi-check-item${!isFieldEditable?" disabled":""}${(formData.blender_interrupt_reasons||[]).includes(opt)?" checked":""}`}>
+                              <label className="multi-check-item-label">
+                                <input type="checkbox"
+                                  checked={(formData.blender_interrupt_reasons||[]).includes(opt)}
+                                  disabled={!isFieldEditable}
+                                  onChange={()=>{
+                                    const cur = formData.blender_interrupt_reasons||[];
+                                    const next = cur.includes(opt) ? cur.filter(x=>x!==opt) : [...cur,opt];
+                                    const patch = { blender_interrupt_reasons: next };
+                                    if (!next.includes(BLENDER_ABRUPT_REASON)) patch.blender_stopped_description = "";
+                                    set(patch);
+                                  }}/>
+                                <span>{opt === BLENDER_ABRUPT_REASON ? "Blender stopped abruptly, describe" : opt}</span>
+                              </label>
+                              {opt === BLENDER_ABRUPT_REASON && (formData.blender_interrupt_reasons||[]).includes(opt) && (
+                                <input type="text"
+                                  className="multi-check-inline-input"
+                                  name="blender_stopped_description"
+                                  value={formData.blender_stopped_description||""}
+                                  maxLength={1000}
+                                  onChange={handleChange}
+                                  placeholder="Describe *"
+                                  readOnly={!isFieldEditable}/>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
 
                   <LetterToggle
-                    label={<>60. Blender Unit ID{requiredMark} <span className="field-note">(auto, from Enrollment ID)</span></>}
+                    label={<>61. Blender Unit ID{requiredMark} <span className="field-note">(auto, from Enrollment ID)</span></>}
                     name="blender_letter"
                     value={formData.blender_letter}
                     onChange={handleChange}

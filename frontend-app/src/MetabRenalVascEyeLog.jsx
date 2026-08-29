@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, openNativeDatePicker } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -13,7 +13,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock,
   Lock, Copy, Edit,
-  AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2, ListChecks,
+  AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2, ListChecks, Calendar,
 } from "lucide-react";
 import "./styles/MinimalMonitoring.css";
 
@@ -96,7 +96,6 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "rop_screening_due",     label: "ROP Screening Due", bool: true },
       { key: "rop_screened",          label: "ROP Screened", bool: true },
       { key: "rop_detected",          label: "ROP Detected", bool: true },
-      { key: "rop_stage",             label: "ROP Stage" },
       { key: "plus_disease",          label: "Plus Disease", bool: true },
       { key: "rop_treatment",         label: "ROP Treatment", bool: true },
     ],
@@ -507,22 +506,6 @@ function isEmptyMetabField(v) {
 
 const listToString = v => Array.isArray(v) ? v.join(",") : (v || "");
 const stringToList = v => Array.isArray(v) ? v : String(v || "").split(",").map(s => s.trim()).filter(Boolean);
-
-/* Grade/Stage selection cards — same pattern as IVH Grade in Helper Form 2 */
-function StageCards({ options, value, onChange, disabled }) {
-  return (
-    <div className="rcn-grade-grid">
-      {options.map(opt => (
-        <div key={opt}
-          className={`rcn-grade-card${value === opt ? " rcn-grade-card--on" : ""}${disabled ? " rcn-grade-card--disabled" : ""}`}
-          onClick={() => !disabled && onChange(value === opt ? null : opt)}>
-          <span className="rcn-grade-roman">{opt}</span>
-          <span className="rcn-grade-label">Stage</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /* Multi-select pills (Dyselectrolytemia type) */
 function PillMulti({ options, value=[], onChange, disabled }) {
@@ -1936,54 +1919,86 @@ export default function MetabRenalVascEyeLog() {
             >
               <History size={13} /> Table View
             </button>
-            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}>
-              <span className="rcn-day1-picker-icon">📅</span>
+            <div
+              className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}
+              role={day1DateLocked ? undefined : "button"}
+              tabIndex={day1DateLocked ? -1 : 0}
+              aria-label={day1Date ? `Day 1 Date ${formatIsoDateMedium(day1Date)}` : "Day 1 Date, select date"}
+              title={day1DateLocked
+                ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
+                : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
+              onClick={(e) => {
+                if (day1DateLocked || e.target.closest(".rcn-day1-admin-unlock")) return;
+                openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
+              }}
+              onKeyDown={(e) => {
+                if (day1DateLocked) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
+                }
+              }}
+            >
+              <span className="rcn-day1-picker-icon" aria-hidden="true">
+                <Calendar size={16} strokeWidth={1.75} />
+              </span>
               <div className="rcn-day1-picker-body">
-                <label className="rcn-day1-picker-label">
+                <span className="rcn-day1-picker-label">
                   Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
-                  {day1DateLocked && <Lock size={10} className="rcn-day1-picker-lock" />}
-                </label>
-                <input
-                  type="date"
-                  className="rcn-day1-picker-input"
-                  value={day1Date}
-                  readOnly={day1DateLocked}
-                  disabled={day1DateLocked}
-                  min={day1EditArmed ? undefined : day1DateBounds.min}
-                  max={day1EditArmed ? undefined : day1DateBounds.max}
-                  required
-                  title={day1DateLocked
-                    ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                    : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
-                  onChange={async e => {
-                    if (day1DateLocked) return;
-                    const v = e.target.value;
-                    if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
-                      setMessage(
-                        `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
-                      );
-                      setTimeout(() => setMessage(""), 4000);
-                      return;
-                    }
-                    setDay1Date(v);
-                    if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
-                    try {
-                      await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
-                      setDay1EditArmed(false);
-                      setDay1DateSetBy(user?.username || "");
-                    } catch (err) {
-                      setMessage("⚠️ Could not save Day 1 Date — " +
-                        (err?.response?.data?.detail || "it may already be locked"));
-                    }
-                  }}
-                />
+                </span>
+                <span className="rcn-day1-picker-value">
+                  {day1Date ? formatIsoDateMedium(day1Date) : "Select date"}
+                </span>
               </div>
+              <input
+                type="date"
+                className="rcn-day1-picker-input"
+                tabIndex={-1}
+                aria-hidden="true"
+                value={day1Date}
+                readOnly={day1DateLocked}
+                disabled={day1DateLocked}
+                min={day1EditArmed ? undefined : day1DateBounds.min}
+                max={day1EditArmed ? undefined : day1DateBounds.max}
+                required
+                onChange={async e => {
+                  if (day1DateLocked) return;
+                  const v = e.target.value;
+                  if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
+                    setMessage(
+                      `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
+                    );
+                    setTimeout(() => setMessage(""), 4000);
+                    return;
+                  }
+                  setDay1Date(v);
+                  if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
+                  try {
+                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
+                    setDay1EditArmed(false);
+                    setDay1DateSetBy(user?.username || "");
+                  } catch (err) {
+                    setMessage("⚠️ Could not save Day 1 Date — " +
+                      (err?.response?.data?.detail || "it may already be locked"));
+                  }
+                }}
+              />
+              {day1DateLocked && (
+                <span
+                  className="rcn-day1-picker-lock-chip"
+                  title={`Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`}
+                >
+                  <Lock size={11} strokeWidth={2.25} />
+                  Locked
+                </span>
+              )}
               {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
                 <button
                   type="button"
                   className="rcn-day1-admin-unlock"
                   title="Superadmin: unlock Day 1 Date for correction"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     if (window.confirm(
                       "Changing Day 1 Date after daily data exists can reshuffle which days are " +
                       "counted as past/future for every nurse. Continue only for a genuine correction."
@@ -2549,12 +2564,6 @@ export default function MetabRenalVascEyeLog() {
               {ropYes && (
                 <div className="rcn-subsection">
                   <div className="rcn-subsection-title">Optional detail (not on paper CRF)</div>
-                  <StageCards
-                    options={["Stage 1","Stage 2","Stage 3","Stage 4","Stage 5"]}
-                    value={eyeData.rop_stage}
-                    onChange={v => isFieldEditable && setEyeData(p=>({...p,rop_stage:v}))}
-                    disabled={!isFieldEditable}
-                  />
                   <div className="rcn-yn-list" style={{marginTop:16}}>
                     <YNRow label="Plus Disease"   value={eyeData.plus_disease}   onChange={v=>setEye("plus_disease",v)}   disabled={!isFieldEditable}/>
                     <YNRow label="ROP Treatment"  value={eyeData.rop_treatment}  onChange={v=>setEye("rop_treatment",v)}  disabled={!isFieldEditable}/>

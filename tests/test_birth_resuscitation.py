@@ -26,6 +26,7 @@ def test_birth_resuscitation_schema_preserves_clinical_sections():
         respiration_days=0,
         respiration_hours=2,
         blender_stopped=True,
+        blender_interrupt_reasons="Blender stopped abruptly, Intubation",
         blender_stopped_description="Unexpected shutdown",
         interventions=interventions,
     )
@@ -36,6 +37,7 @@ def test_birth_resuscitation_schema_preserves_clinical_sections():
     assert payload["cord_clamp_timestamp"] == time(0, 0, 15)
     assert payload["cord_ph"] == 7.21
     assert payload["blender_stopped_description"] == "Unexpected shutdown"
+    assert payload["blender_interrupt_reasons"] == "Blender stopped abruptly, Intubation"
     assert payload["interventions"] == interventions
 
 
@@ -60,6 +62,15 @@ def test_blender_letter_autofills_from_enrollment_id():
     assert data.blender_letter == "A"
     data = BirthResuscitationCreate(enrollment_id="02-C-012", blender_letter="B")
     assert data.blender_letter == "C"
+
+
+def test_blender_interrupt_reasons_joins_list():
+    data = BirthResuscitationCreate(
+        blender_interrupt_reasons=["Blender stopped abruptly", "Intubation"],
+    )
+    assert data.blender_interrupt_reasons == "Blender stopped abruptly, Intubation"
+    data = BirthResuscitationCreate(blender_interrupt_reasons="")
+    assert data.blender_interrupt_reasons is None
 
 
 def test_birth_resuscitation_schema_preserves_device_and_adrenaline_details():

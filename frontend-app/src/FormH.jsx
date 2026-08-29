@@ -194,6 +194,8 @@ const [hemeStale, setHemeStale] = useState({});
 // Neurological (H1) auto-fill — same pattern as Vascular Access/Metabolic/
 // Renal/Heme above, from /neonatal-morbidities/neuro-prefill.
 const [neuroPrefill, setNeuroPrefill] = useState(null);
+const [vmDopplerPrefill, setVmDopplerPrefill] = useState(null);
+const [vmDopplerAutoFilled, setVmDopplerAutoFilled] = useState({});
 const [neuroAutoFilled, setNeuroAutoFilled] = useState({});
 const [neuroStale, setNeuroStale] = useState({});
 
@@ -840,6 +842,7 @@ useEffect(() => {
       fetchRenalPrefill();
       fetchHemePrefill();
       fetchNeuroPrefill();
+      fetchVmDopplerPrefill();
       fetchGiPrefill();
       fetchRopThermoPrefill();
       fetchCvPrefill();
@@ -2123,7 +2126,7 @@ const METABOLIC_PREFILL_FIELDS = [
 // daily-log entries come in, so flagging them would be constant noise, not
 // a signal that Form H's *answer* is now wrong.
 const METABOLIC_STALE_CHECK_FIELDS = [
-  "hypoglycemia", "hypoglycemia_rx", "hyperglycemia", "hyperglycemia_rx",
+  "hypoglycemia_rx", "hyperglycemia", "hyperglycemia_rx",
   "metabolic_acidosis", "dyselectrolytemia",
   "dyselectro_na", "dyselectro_k", "dyselectro_ca",
   "hyponatremia", "hypernatremia", "hypokalemia", "hyperkalemia",
@@ -2144,7 +2147,7 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
     const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
-      METABOLIC_PREFILL_FIELDS.forEach((field) => {
+      METABOLIC_PREFILL_FIELDS.filter((field) => field !== "hypoglycemia").forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
         const currentlyBlank = isBlank(prev[field]);
@@ -2158,6 +2161,13 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
           stale[field] = true;
         }
       });
+      // Hypoglycemia always follows the daily-log any-day low-glucose flag —
+      // no blank-only fill and no stale/force-refill gate. Missing logs
+      // (has_data false) already returned above, so a manual answer is kept.
+      if (!isBlank(data.hypoglycemia)) {
+        next.hypoglycemia = data.hypoglycemia;
+        filled.hypoglycemia = true;
+      }
       return next;
     });
     if (Object.keys(filled).length) {
@@ -2408,6 +2418,61 @@ const handleNeuroChange = (e) => {
   handleChange(e);
 };
 
+// Ventriculomegaly measurements (H1.3 CRF #22-26) from Minimal Monitoring
+// day logs — see /neonatal-morbidities/vm-doppler-prefill. MAX-RATCHET:
+// a field only updates when the incoming value is higher than what's
+// already there (blank counts as "no current value"). Severity is not
+// independently maximized; it travels with vi_max and only updates when
+// a new, higher VI is found. No Force Refill for this domain.
+const fetchVmDopplerPrefill = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/vm-doppler-prefill/${enrollmentId}`);
+    const data = res.data;
+    setVmDopplerPrefill(data);
+    if (!data || !data.has_data) return;
+
+    const filled = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+
+      // VI and severity travel together — severity only updates when
+      // a new, higher VI is found, using the severity recorded
+      // alongside that specific reading.
+      if (data.vi_max != null) {
+        const currentVi = prev.vi_max === "" || prev.vi_max == null ? null : Number(prev.vi_max);
+        if (currentVi == null || data.vi_max > currentVi) {
+          next.vi_max = data.vi_max;
+          filled.vi_max = true;
+          if (data.ventriculomegaly_severity) {
+            next.ventriculomegaly_severity = data.ventriculomegaly_severity;
+            filled.ventriculomegaly_severity = true;
+          }
+        }
+      }
+
+      // AHW/TOD/ACA-RI/MCA-RI ratchet independently of VI and of each other.
+      ["ahw", "tod_max", "aca_ri", "mca_ri"].forEach((field) => {
+        const incoming = data[field];
+        if (incoming == null) return;
+        const current = prev[field];
+        const currentNum = current === "" || current == null ? null : Number(current);
+        if (currentNum == null || incoming > currentNum) {
+          next[field] = incoming;
+          filled[field] = true;
+        }
+      });
+
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setVmDopplerAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+  } catch (err) {
+    console.log("Error fetching VM/doppler prefill", err);
+  }
+};
+
 // Gastrointestinal (H3) auto-fill — same pattern as the other domains
 // above. nec is driven by the day log's `nec_suspected` flag, the same
 // "suspected drives the top-level Yes/No, clinician reviews/can uncheck"
@@ -2589,7 +2654,7 @@ const CV_PREFILL_FIELDS = [
 // went by"), which is exactly the kind of change worth flagging for review
 // rather than silently keeping the old, now-stale, lowest-so-far value.
 const CV_STALE_CHECK_FIELDS = [
-  "hs_pda", "pda_medical_rx", "shock", "fluid_bolus", "inotropes",
+  "pda_medical_rx", "shock", "fluid_bolus", "inotropes",
   "inotrope_dopa", "inotrope_dobu", "inotrope_adr",
   "inotrope_nadr", "inotrope_milri", "inotrope_vaso",
   "sbp", "dbp", "map",
@@ -2609,7 +2674,7 @@ const fetchCvPrefill = async ({ force = false } = {}) => {
     const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
-      CV_PREFILL_FIELDS.forEach((field) => {
+      CV_PREFILL_FIELDS.filter((field) => field !== "hs_pda").forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
         const currentlyBlank = isBlank(prev[field]);
@@ -2623,6 +2688,13 @@ const fetchCvPrefill = async ({ force = false } = {}) => {
           stale[field] = true;
         }
       });
+      // HS-PDA always follows the daily-log any-day flag — no blank-only
+      // fill and no stale/force-refill gate. Missing logs (has_data false)
+      // already returned above, so a clinician's manual answer is kept.
+      if (!isBlank(data.hs_pda)) {
+        next.hs_pda = data.hs_pda;
+        filled.hs_pda = true;
+      }
       return next;
     });
     if (Object.keys(filled).length) {
@@ -6082,6 +6154,7 @@ const peripheralStatus= getPeripheralStatus();
                 options={["Mild", "Moderate", "Severe"]}
                 onChange={handleChange}
               />
+              {vmDopplerAutoFilled.ventriculomegaly_severity && <span className="field-hint-auto-inline">from daily logs, day of highest VI</span>}
             </div>
 
             <div className="form-group">
@@ -6096,6 +6169,7 @@ const peripheralStatus= getPeripheralStatus();
                 onBlur={handleBlur}
                 placeholder="0–30"
               />
+              {vmDopplerAutoFilled.vi_max && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
               {touched.vi_max && errors.vi_max && (
                 <div className="error-text">{errors.vi_max}</div>
               )}
@@ -6117,6 +6191,7 @@ const peripheralStatus= getPeripheralStatus();
                 onBlur={handleBlur}
                 placeholder="0–10"
               />
+              {vmDopplerAutoFilled.ahw && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
               {touched.ahw && errors.ahw && (
                 <div className="error-text">{errors.ahw}</div>
               )}
@@ -6134,6 +6209,7 @@ const peripheralStatus= getPeripheralStatus();
                 onBlur={handleBlur}
                 placeholder="0–40"
               />
+              {vmDopplerAutoFilled.tod_max && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
               {touched.tod_max && errors.tod_max && (
                 <div className="error-text">{errors.tod_max}</div>
               )}
@@ -6156,6 +6232,7 @@ const peripheralStatus= getPeripheralStatus();
                 onBlur={handleBlur}
                 placeholder="0.2–2.0"
               />
+              {vmDopplerAutoFilled.aca_ri && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
               {touched.aca_ri && errors.aca_ri && (
                 <div className="error-text">{errors.aca_ri}</div>
               )}
@@ -6174,6 +6251,7 @@ const peripheralStatus= getPeripheralStatus();
                 onBlur={handleBlur}
                 placeholder="0.4–1.0"
               />
+              {vmDopplerAutoFilled.mca_ri && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
               {touched.mca_ri && errors.mca_ri && (
                 <div className="error-text">{errors.mca_ri}</div>
               )}

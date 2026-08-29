@@ -503,6 +503,7 @@ class BirthResuscitationCreate(BaseModel):
     spo2_exit_trial_gas: Optional[float] = None
     total_resus_time: Optional[str] = None  # MM:SS from APGAR timer
     blender_stopped: Optional[bool] = None
+    blender_interrupt_reasons: Optional[str] = None
     blender_stopped_description: Optional[str] = None
     explicitly_saved: Optional[bool] = None
 
@@ -599,6 +600,17 @@ class BirthResuscitationCreate(BaseModel):
         if letter not in {"A", "B", "C", "D"}:
             raise ValueError("Blender Unit ID must be A, B, C, or D")
         return letter
+
+    @field_validator("blender_interrupt_reasons", mode="before")
+    @classmethod
+    def coerce_blender_interrupt_reasons(cls, v):
+        """Accept a list from the UI, or a stored comma-separated string."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, list):
+            joined = ", ".join(str(x).strip() for x in v if str(x).strip())
+            return joined or None
+        return str(v).strip() or None
 
     @model_validator(mode="after")
     def blender_letter_from_enrollment_id(self):

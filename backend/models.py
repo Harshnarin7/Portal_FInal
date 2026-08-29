@@ -281,6 +281,7 @@ class BirthResuscitation(Base):
     spo2_exit_trial_gas = Column(Float)
     total_resus_time = Column(String, nullable=True)  # MM:SS from APGAR timer (was Integer minutes)
     blender_stopped = Column(Boolean, nullable=True)
+    blender_interrupt_reasons = Column(String, nullable=True)
     blender_stopped_description = Column(String, nullable=True)
     explicitly_saved = Column(Boolean, default=False, nullable=True)
 
