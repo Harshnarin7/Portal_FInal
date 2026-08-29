@@ -16,7 +16,12 @@ from config import ACCESS_TOKEN_EXPIRE_MINUTES
 from db import Base, engine, SessionLocal, get_db
 from models import SteroidData
 import models
-from ae_reference import detect_metab_renal_vasc_eye_candidates
+from ae_reference import (
+    detect_metab_renal_vasc_eye_candidates,
+    detect_form_h_morbidity_candidates,
+    detect_infection_candidates,
+    detect_form_h_heme_candidates,
+)
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -4171,16 +4176,27 @@ def get_adverse_event_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """AE-candidate detection — first domain of the AE/SAE auto-fill
-    project (Metabolic, Electrolyte, Thermal, AKI — the 8 AE terms in the
-    site's AE severity document that have hard numeric or clinician-staged
-    thresholds already captured in the Metab/Renal/Vasc/Eye daily helper
-    log). Returns candidate rows shaped to drop straight into
-    AdverseEventsForm's `events` list; the frontend only ever offers these
-    as suggestions to add — nothing here writes to the AE form directly.
-    Every other AE term in the document has no detector yet and simply
-    won't appear here (silently, not as an error) — this list is expected
-    to grow domain by domain, same as the Form H auto-fill project."""
+    """AE-candidate detection for the AE/SAE auto-fill project. Returns
+    candidate rows shaped to drop straight into AdverseEventsForm's
+    `events` list; the frontend only ever offers these as suggestions to
+    add — nothing here writes to the AE form directly. AE terms with no
+    detector yet simply don't appear (silently, not as an error) — this
+    list grows domain by domain, same as the Form H auto-fill project.
+
+    Sources so far:
+      - Domain 1: the Metab/Renal/Vasc/Eye daily helper log — 8 terms with
+        hard numeric / clinician-staged thresholds (Metabolic, Electrolyte,
+        Thermoregulation, Renal/AKI).
+      - Domain 2: Form H (NeonatalMorbidities) — IVH, PVL, NEC, BPD, ROP,
+        PDA, using the stage/grade a clinician already adjudicated there.
+      - Domain 3: infection episodes — culture-positive sepsis,
+        culture-negative sepsis, meningitis. Form H's dynamic `infections`
+        array is primary; the Infect/GI/Hema day-log trigger windows are
+        the fallback when Form H has no infection episodes.
+      - Domain 4: haematologic / bilirubin — hyperbilirubinemia, anemia,
+        thrombocytopenia. Graded off the recorded treatment; Form H's
+        Haematology section is primary, the Infect/GI/Hema day-log
+        treatment booleans are the fallback."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -4188,7 +4204,18 @@ def get_adverse_event_candidates(
         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
         .all()
     )
-    if not logs:
+    nm = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .first()
+    )
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    if not logs and nm is None and not inf_logs:
         return {"has_data": False, "candidates": []}
 
     nicu = (
@@ -4198,7 +4225,13 @@ def get_adverse_event_candidates(
     )
     day1_date = nicu.day1_date if nicu else None
 
-    candidates = detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
+    candidates = []
+    if logs:
+        candidates += detect_metab_renal_vasc_eye_candidates(logs, day1_date=day1_date)
+    candidates += detect_form_h_morbidity_candidates(nm, day1_date=day1_date)
+    infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
+    candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
+    candidates += detect_form_h_heme_candidates(nm, inf_logs, day1_date=day1_date)
     return {"has_data": True, "candidates": candidates}
 
 

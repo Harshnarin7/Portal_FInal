@@ -326,8 +326,8 @@ export default function AdverseEventsForm() {
       if (!candidates.length) {
         setScanMessage(
           res.data?.has_data === false
-            ? "No daily logs found for this baby yet."
-            : "No adverse-event candidates found in the metabolic/electrolyte/thermal/AKI daily-log data.",
+            ? "No daily logs or Form H data found for this baby yet."
+            : "No adverse-event candidates found in this baby's daily logs or Form H.",
         );
         setScanning(false);
         return;
