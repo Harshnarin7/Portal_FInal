@@ -1,6 +1,6 @@
 ﻿from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -4041,6 +4041,163 @@ def list_sae_reports(
         .order_by(SAEReport.id.desc())
         .all()
     )
+
+_DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _concomitant_from_logs(db, enrollment_id, day1_date):
+    """Build the DSMC item-14 concomitant-therapy table from the daily
+    study logs. One row per therapy, spanning the first and last NICU day
+    it was recorded."""
+    def day_label(n):
+        if day1_date and n:
+            return f"Day {n} ({(day1_date + timedelta(days=n - 1)).isoformat()})"
+        return f"Day {n}" if n else "—"
+
+    spec = [
+        (RespCVNeuroDayLog, [
+            ("surfactant", "Surfactant"),
+            ("caffeine", "Caffeine"),
+            ("postnatal_steroids", "Postnatal corticosteroids"),
+            ("vasoactive_support", "Vasoactive / inotrope support"),
+        ]),
+        (InfectGIHemaDayLog, [
+            ("antibiotics", "Antibiotics"),
+            ("phototherapy", "Phototherapy"),
+            ("exchange_transfusion", "Exchange transfusion"),
+            ("prbc_transfusion", "Packed red cell transfusion"),
+            ("platelet_transfusion", "Platelet transfusion"),
+            ("ffp_cryo", "FFP / cryoprecipitate"),
+            ("parenteral_nutrition", "Parenteral nutrition"),
+        ]),
+        (MetabRenalVascEyeDayLog, [
+            ("insulin", "Insulin"),
+            ("dialysis_crrt", "Dialysis / CRRT"),
+        ]),
+    ]
+    rows = []
+    for model, fields in spec:
+        logs = db.query(model).filter(model.enrollment_id == enrollment_id).all()
+        for attr, label in fields:
+            days = sorted(l.nicu_day for l in logs
+                          if getattr(l, attr, None) is True and l.nicu_day is not None)
+            if days:
+                rows.append({
+                    "therapy": label,
+                    "first_day": day_label(days[0]),
+                    "last_day": day_label(days[-1]),
+                    "notes": f"{len(days)} day(s) recorded",
+                })
+    return rows
+
+
+def _assemble_sae_context(db, enrollment_id, record, current_user):
+    import sae_report  # noqa: F401  (keeps the docx import lazy)
+
+    site_code = (record.site or "").strip()
+    if not site_code:
+        scr = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
+        site_code = (scr.site_name or "").strip() if scr else ""
+
+    br = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    scr = db.query(Screening).filter(Screening.enrollment_id == enrollment_id).first()
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    day1_date = nicu.day1_date if nicu else None
+
+    pii = None
+    try:
+        pii = get_pii_for_participant(db, enrollment_id=enrollment_id)
+    except Exception:  # decryption / KMS issues must not break the report
+        pii = None
+
+    initials = None
+    if pii and getattr(pii, "baby_name", None):
+        initials = pii.baby_name
+    elif pii and (getattr(pii, "mother_first_name", None) or getattr(pii, "mother_surname", None)):
+        initials = f"Baby of {(pii.mother_first_name or '').strip()} {(pii.mother_surname or '').strip()}".strip()
+
+    identifier_bits = [enrollment_id]
+    if br and br.baby_admission_no:
+        identifier_bits.append(f"Adm. no. {br.baby_admission_no}")
+    if pii and getattr(pii, "hospital_admission_number", None):
+        identifier_bits.append(f"Hosp. no. {pii.hospital_admission_number}")
+    if br and br.baby_uid:
+        identifier_bits.append(f"Baby UID {br.baby_uid}")
+
+    dob = br.date_of_birth.isoformat() if br and br.date_of_birth else None
+    gest_wk = (br.gestation_weeks if br else None) or (scr.gestation_weeks if scr else None)
+    gest_d = (br.gestation_days if br else None) or (scr.gestation_days if scr else None)
+    gestation = f"{gest_wk} weeks {gest_d or 0} days" if gest_wk else None
+
+    prior = (
+        db.query(SAEReport)
+        .filter(SAEReport.enrollment_id == enrollment_id, SAEReport.id != record.id)
+        .order_by(SAEReport.id.asc())
+        .all()
+    )
+
+    return {
+        "site_code": site_code,
+        "patient": {
+            "initials": initials,
+            "identifier": " · ".join(identifier_bits),
+            "gender": (br.gender if br else None),
+            "dob": dob,
+            "age_text": None,
+            "weight_kg": f"{br.birth_weight} kg (birth weight)" if br and br.birth_weight else None,
+            "gestation": gestation,
+        },
+        "concomitant": _concomitant_from_logs(db, enrollment_id, day1_date),
+        "prior_reports": [
+            {"report_type": r.report_type, "report_date": r.report_date, "diary_no": None}
+            for r in prior
+        ],
+        "linked_ae": None,
+        "generated_by": getattr(current_user, "username", None),
+    }
+
+
+@app.get("/sae-report/{enrollment_id}/{report_id}/document")
+def download_sae_report_document(
+    enrollment_id: str,
+    report_id: int,
+    kind: str = "report",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate the PGIMER-DSMC SAE Reporting Form (kind='report') or the
+    PI 24-hour covering letter (kind='covering_letter') as a .docx,
+    pre-filled from the saved SAE report + the enrolment's clinical data.
+    Blinded to the randomised oxygen arm. Trial/site constants that have
+    not been configured print as explicit [TO BE PROVIDED] blanks."""
+    record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
+    if not record or record.enrollment_id != enrollment_id:
+        raise HTTPException(status_code=404, detail="SAE report not found")
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    import sae_report
+    ctx = _assemble_sae_context(db, enrollment_id, record, current_user)
+    if kind == "covering_letter":
+        data = sae_report.build_covering_letter_docx(record, ctx)
+        fname = f"SAE_covering_letter_{enrollment_id}_{report_id}.docx"
+    else:
+        data = sae_report.build_sae_report_docx(record, ctx)
+        fname = f"SAE_report_{enrollment_id}_{report_id}.docx"
+
+    return Response(
+        content=data,
+        media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
 
 @app.post("/adverse-events/", response_model=AdverseEventsOut)
 def create_adverse_events(
