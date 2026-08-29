@@ -11,7 +11,7 @@ import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
-import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle } from "lucide-react";
+import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
 import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
 
@@ -141,6 +141,10 @@ const [openSection, setOpenSection] = useState("ivh"); // default open
 // switching tabs just toggles a "cat-hidden" class, see FORMH_CATEGORIES.
 const [activeCategory, setActiveCategory] = useState("neuro");
 const jumpNavContentRef = React.useRef(null);
+// Set inside loadExistingFormH: true once we know whether a Form H record
+// already existed for this enrollment before this page load. Used to gate
+// the Cranial USG (IVH/cPVL) auto-force-sync below — see its own comment.
+const formHRecordExistedOnLoadRef = React.useRef(null);
 const goToCategory = (key) => {
   setActiveCategory(key);
   // Scroll the content area (not the whole page) back to the top of
@@ -238,6 +242,11 @@ const [forceRefillingAll, setForceRefillingAll] = useState(false);
 const [cranialUsgPrefill, setCranialUsgPrefill] = useState(null);
 const [cranialUsgAutoFilled, setCranialUsgAutoFilled] = useState({});
 const [cranialUsgStale, setCranialUsgStale] = useState({});
+// Blank Form H fields that Form F now has data for, but that we did not
+// auto-fill because a saved Form H record already existed on this page
+// load (autoFillBlanks: false). Surfaced as a per-card hint so the
+// clinician can pull them in with "Refill empty fields from Form F".
+const [cranialUsgNewlyAvailable, setCranialUsgNewlyAvailable] = useState({});
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -691,6 +700,7 @@ useEffect(() => {
         // Prefer newest row (matches POST upsert which updates the latest
         // duplicate when any exist from the old always-insert bug).
         const existing = rows.length ? rows[rows.length - 1] : null;
+        formHRecordExistedOnLoadRef.current = !!existing;
         if (!existing) return;
 
         setFormData(prev => {
@@ -793,6 +803,7 @@ useEffect(() => {
         });
       } catch (err) {
         // No saved Form H yet for this enrollment — start blank, this is expected for a new form.
+        formHRecordExistedOnLoadRef.current = false;
         console.log("No existing Form H record yet for this enrollment.");
       }
     };
@@ -808,8 +819,21 @@ useEffect(() => {
     // own comment) but still chained the same way for consistency.
     // fetchCranialUsgPrefill isn't fully disjoint from fetchNeuroPrefill
     // (both can offer ivh_present/pvl_present) but both use the same
-    // fill-if-blank discipline, so their relative order genuinely
-    // doesn't matter — see fetchCranialUsgPrefill's own comment.
+    // fill-if-blank discipline on first load, so their relative order
+    // genuinely doesn't matter — see fetchCranialUsgPrefill's own comment.
+    //
+    // fetchCranialUsgPrefill runs with force: true AND autoFillBlanks: true
+    // here ONLY when this is the very first time Form H is being created
+    // for this enrollment (formHRecordExistedOnLoadRef is false — no saved
+    // record found by loadExistingFormH above). In that case there's
+    // nothing to overwrite yet, so it's safe to seed IVH/cPVL straight
+    // from Form F's current max grade per side without a click. Once Form
+    // H has been saved once, later loads use force: false and
+    // autoFillBlanks: false — neither a clinician's saved answer nor a
+    // still-blank field is silently written from Form F again after that.
+    // A genuine disagreement shows as a stale-answer warning (Force refill);
+    // a blank field that Form F now has data for shows as a newly-available
+    // hint ("Refill empty fields from Form F") in the IVH/PVL cards below.
     loadExistingFormH().then(() => {
       fetchVascularAccessPrefill();
       fetchMetabolicPrefill();
@@ -822,7 +846,10 @@ useEffect(() => {
       fetchInfectionWindows();
       fetchRespPrefill();
       fetchSurvivalCheck();
-      fetchCranialUsgPrefill();
+      fetchCranialUsgPrefill({
+        force: !formHRecordExistedOnLoadRef.current,
+        autoFillBlanks: !formHRecordExistedOnLoadRef.current,
+      });
     });
   }, [enrollmentId]);
 
@@ -1982,6 +2009,10 @@ const PREFILL_FIELD_LABELS = {
   ivh_side: "IVH Side", pvl_side: "cPVL Side", vp_shunt: "VP Shunt",
   ivh_grade_right: "IVH Grade (Right)", ivh_grade_left: "IVH Grade (Left)",
   pvl_grade_right: "cPVL Grade (Right)", pvl_grade_left: "cPVL Grade (Left)",
+  ivh_date_right: "IVH Date (Right)", ivh_date_left: "IVH Date (Left)",
+  ivh_age_days_right: "IVH Age (Right)", ivh_age_days_left: "IVH Age (Left)",
+  pvl_date_right: "cPVL Date (Right)", pvl_date_left: "cPVL Date (Left)",
+  pvl_age_days_right: "cPVL Age (Right)", pvl_age_days_left: "cPVL Age (Left)",
 };
 
 // Vascular Access (H10.1/H10.2) auto-fill. Only ever fills a field that is
@@ -2769,22 +2800,21 @@ const handleRespChange = (e) => {
 
 // Shared confirm gate for the "Force refill" actions below — this is
 // the one action in the auto-fill machinery that can genuinely destroy a
-// clinician's entered answer (replacing it with a daily-log-derived value),
-// so it always requires an explicit confirmation, unlike the empty-fields
-// refill which is always safe to re-run.
-const confirmForceRefill = (domainLabel, fetchFn) => {
-  if (
-    window.confirm(
-      `Overwrite already-answered ${domainLabel} fields with the latest daily-log data?\n\n` +
-      "This replaces existing answers, not just blank ones — use this only when Form H " +
-      "was filled in before the daily logs had this data (or the daily logs were corrected " +
-      "afterward). Any field you've entered manually and that now differs from the daily " +
-      "logs will be overwritten."
-    )
-  ) {
-    fetchFn({ force: true });
-  }
+// clinician's entered answer (replacing it with a derived value), so it
+// always requires an explicit confirmation, unlike the empty-fields
+// refill which is always safe to re-run. Renders a styled in-app dialog
+// (see forceRefillConfirm state + the <ForceRefillConfirmDialog> render
+// below) instead of the native window.confirm() popup.
+const [forceRefillConfirm, setForceRefillConfirm] = useState(null);
+const confirmForceRefill = (domainLabel, fetchFn, sourceLabel = "the latest daily-log data") => {
+  setForceRefillConfirm({ domainLabel, fetchFn, sourceLabel });
 };
+const runConfirmedForceRefill = () => {
+  if (!forceRefillConfirm) return;
+  forceRefillConfirm.fetchFn({ force: true });
+  setForceRefillConfirm(null);
+};
+const cancelForceRefill = () => setForceRefillConfirm(null);
 
 // "Did not survive" prompt — checks the one day-log field
 // (metab_renal_vasc_eye_day_logs.survived_the_day) that records this,
@@ -2841,27 +2871,50 @@ const forceRefillAllDomains = async () => {
 // docstring for the full derivation and why offering ivh_present/
 // pvl_present here too (alongside the Neuro domain's day-log version)
 // is safe rather than a race.
-const CRANIAL_USG_PREFILL_FIELDS = [
+const CRANIAL_USG_IVH_FIELDS = [
   "ivh_present", "ivh_side",
   "ivh_grade_right", "ivh_date_right", "ivh_age_days_right",
   "ivh_grade_left", "ivh_date_left", "ivh_age_days_left",
+  "vp_shunt",
+];
+const CRANIAL_USG_PVL_FIELDS = [
   "pvl_present", "pvl_side",
   "pvl_grade_right", "pvl_date_right", "pvl_age_days_right",
   "pvl_grade_left", "pvl_date_left", "pvl_age_days_left",
-  "vp_shunt",
+];
+const CRANIAL_USG_PREFILL_FIELDS = [
+  ...CRANIAL_USG_IVH_FIELDS,
+  ...CRANIAL_USG_PVL_FIELDS,
 ];
 
 // Only the categorical fields get checked for staleness — dates/ages are
 // excluded on purpose, same reasoning as every other domain.
-const CRANIAL_USG_STALE_CHECK_FIELDS = [
-  "ivh_present", "ivh_side", "ivh_grade_right", "ivh_grade_left",
+const CRANIAL_USG_IVH_STALE_CHECK_FIELDS = [
+  "ivh_present", "ivh_side", "ivh_grade_right", "ivh_grade_left", "vp_shunt",
+];
+const CRANIAL_USG_PVL_STALE_CHECK_FIELDS = [
   "pvl_present", "pvl_side", "pvl_grade_right", "pvl_grade_left",
-  "vp_shunt",
+];
+const CRANIAL_USG_STALE_CHECK_FIELDS = [
+  ...CRANIAL_USG_IVH_STALE_CHECK_FIELDS,
+  ...CRANIAL_USG_PVL_STALE_CHECK_FIELDS,
 ];
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
-// already-answered fields instead of only blank ones.
-const fetchCranialUsgPrefill = async ({ force = false } = {}) => {
+// already-answered fields instead of only blank ones. force also fills
+// blanks regardless of autoFillBlanks.
+// autoFillBlanks: when true (default), currently-blank fields are filled
+// from Form F automatically. When false (post-first-save auto-load), a
+// blank field that Form F now has data for is flagged in
+// cranialUsgNewlyAvailable instead of being written — the clinician
+// pulls it in with the manual "Refill empty fields from Form F" button.
+// scope: "all" (default, used by the initial auto-load and the bulk
+// "did not survive" force-refill-everything action) touches every IVH +
+// PVL field. "ivh"/"pvl" restrict the pass to just that card's fields —
+// the two Force Refill buttons (H1.1 IVH card, H1.2 PVL card) pass their
+// own scope so overwriting one card's answers never touches the other's,
+// even though both cards read from the same Form F endpoint.
+const fetchCranialUsgPrefill = async ({ force = false, scope = "all", autoFillBlanks = true } = {}) => {
   if (!enrollmentId) return;
   try {
     const res = await api.get(`/neonatal-morbidities/cranial-usg-prefill/${enrollmentId}`);
@@ -2869,20 +2922,31 @@ const fetchCranialUsgPrefill = async ({ force = false } = {}) => {
     setCranialUsgPrefill(data);
     if (!data || !data.has_data) return;
 
+    const fields = scope === "ivh" ? CRANIAL_USG_IVH_FIELDS
+      : scope === "pvl" ? CRANIAL_USG_PVL_FIELDS
+      : CRANIAL_USG_PREFILL_FIELDS;
+    const staleCheckFields = scope === "ivh" ? CRANIAL_USG_IVH_STALE_CHECK_FIELDS
+      : scope === "pvl" ? CRANIAL_USG_PVL_STALE_CHECK_FIELDS
+      : CRANIAL_USG_STALE_CHECK_FIELDS;
+
     const filled = {};
     const stale = {};
+    const newlyAvailable = {};
     setFormData((prev) => {
       const next = { ...prev };
-      CRANIAL_USG_PREFILL_FIELDS.forEach((field) => {
+      fields.forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
         const currentlyBlank = isBlank(prev[field]);
         const disagrees = !currentlyBlank
-          && CRANIAL_USG_STALE_CHECK_FIELDS.includes(field)
+          && staleCheckFields.includes(field)
           && String(prev[field]) !== String(value);
-        if (currentlyBlank || (force && disagrees)) {
+        const shouldFillBlank = currentlyBlank && (autoFillBlanks || force);
+        if (shouldFillBlank || (force && disagrees)) {
           next[field] = value;
           filled[field] = true;
+        } else if (currentlyBlank) {
+          newlyAvailable[field] = true;
         } else if (disagrees) {
           stale[field] = true;
         }
@@ -2892,7 +2956,22 @@ const fetchCranialUsgPrefill = async ({ force = false } = {}) => {
     if (Object.keys(filled).length) {
       setCranialUsgAutoFilled((prev) => ({ ...prev, ...filled }));
     }
-    setCranialUsgStale(stale);
+    // Scoped refills only touch their own card's stale / newly-available
+    // sets — keep the other card's existing flags intact instead of
+    // wiping them. Entries are cleared once the field is actually filled
+    // (blank-fill or force-fill), same lifecycle for both sets.
+    setCranialUsgStale((prev) => {
+      if (scope === "all") return stale;
+      const next = { ...prev };
+      fields.forEach((field) => { delete next[field]; });
+      return { ...next, ...stale };
+    });
+    setCranialUsgNewlyAvailable((prev) => {
+      if (scope === "all") return newlyAvailable;
+      const next = { ...prev };
+      fields.forEach((field) => { delete next[field]; });
+      return { ...next, ...newlyAvailable };
+    });
   } catch (err) {
     console.log("Error fetching cranial USG prefill", err);
   }
@@ -5530,24 +5609,32 @@ const peripheralStatus= getPeripheralStatus();
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
-    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    Empty IVH grade, side, date and age fields below are filled from it automatically — verify before saving.
     {" "}
-    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+    <button type="button" className="link-button"
+      onClick={() => fetchCranialUsgPrefill({ scope: "ivh", autoFillBlanks: true })}>
       Refill empty fields from Form F
     </button>
     {" · "}
     <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      onClick={() => confirmForceRefill("IVH (Form F)", (opts) => fetchCranialUsgPrefill({ ...opts, scope: "ivh" }), "Form F's latest scan data")}>
       Force refill (overwrite existing answers)
     </button>
   </div>
 )}
-{Object.keys(cranialUsgStale).length > 0 && (
+{Object.keys(cranialUsgStale).some((f) => CRANIAL_USG_IVH_STALE_CHECK_FIELDS.includes(f)) && (
   <div className="field-hint field-hint-warning">
     ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
-    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    {Object.keys(cranialUsgStale).filter((f) => CRANIAL_USG_IVH_STALE_CHECK_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
     This can happen if Form H was answered before the scan data existed.
     Use "Force refill" above if Form F is correct.
+  </div>
+)}
+{Object.keys(cranialUsgNewlyAvailable).some((f) => CRANIAL_USG_IVH_FIELDS.includes(f)) && (
+  <div className="field-hint field-hint-warning">
+    Form F (Cranial USG) now has new data for:{" "}
+    {Object.keys(cranialUsgNewlyAvailable).filter((f) => CRANIAL_USG_IVH_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    Use "Refill empty fields from Form F" above to pull it in.
   </div>
 )}
 
@@ -5751,24 +5838,32 @@ const peripheralStatus= getPeripheralStatus();
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
-    Empty IVH/cPVL grade, side and date fields below were filled from it automatically — verify before saving.
+    Empty cPVL grade, side, date and age fields below are filled from it automatically — verify before saving.
     {" "}
-    <button type="button" className="link-button" onClick={() => fetchCranialUsgPrefill()}>
+    <button type="button" className="link-button"
+      onClick={() => fetchCranialUsgPrefill({ scope: "pvl", autoFillBlanks: true })}>
       Refill empty fields from Form F
     </button>
     {" · "}
     <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("IVH/cPVL (Form F)", fetchCranialUsgPrefill)}>
+      onClick={() => confirmForceRefill("cPVL (Form F)", (opts) => fetchCranialUsgPrefill({ ...opts, scope: "pvl" }), "Form F's latest scan data")}>
       Force refill (overwrite existing answers)
     </button>
   </div>
 )}
-{Object.keys(cranialUsgStale).length > 0 && (
+{Object.keys(cranialUsgStale).some((f) => CRANIAL_USG_PVL_STALE_CHECK_FIELDS.includes(f)) && (
   <div className="field-hint field-hint-warning">
     ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
-    {Object.keys(cranialUsgStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    {Object.keys(cranialUsgStale).filter((f) => CRANIAL_USG_PVL_STALE_CHECK_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
     This can happen if Form H was answered before the scan data existed.
     Use "Force refill" above if Form F is correct.
+  </div>
+)}
+{Object.keys(cranialUsgNewlyAvailable).some((f) => CRANIAL_USG_PVL_FIELDS.includes(f)) && (
+  <div className="field-hint field-hint-warning">
+    Form F (Cranial USG) now has new data for:{" "}
+    {Object.keys(cranialUsgNewlyAvailable).filter((f) => CRANIAL_USG_PVL_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    Use "Refill empty fields from Form F" above to pull it in.
   </div>
 )}
 
@@ -10681,6 +10776,40 @@ const peripheralStatus= getPeripheralStatus();
       step={8} totalSteps={17}
       isSaved={isSaved}
     />
+
+    {forceRefillConfirm && (
+      <div className="fh-confirm-overlay" role="presentation" onClick={cancelForceRefill}>
+        <div
+          className="fh-confirm-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="fh-confirm-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="fh-confirm-icon-row">
+            <div className="fh-confirm-icon"><AlertTriangle size={20} /></div>
+            <h3 id="fh-confirm-title" className="fh-confirm-title">Overwrite existing answers?</h3>
+          </div>
+          <div className="fh-confirm-body">
+            This replaces already-answered <strong>{forceRefillConfirm.domainLabel}</strong> fields
+            with {forceRefillConfirm.sourceLabel}, not just blank ones.
+          </div>
+          <div className="fh-confirm-note">
+            Any field you've entered manually that now differs from that source will be
+            overwritten. Use this only when Form H was filled in before the source data existed,
+            or the source data was corrected afterward.
+          </div>
+          <div className="fh-confirm-actions">
+            <button type="button" className="fh-confirm-btn fh-confirm-btn--cancel" onClick={cancelForceRefill}>
+              Cancel
+            </button>
+            <button type="button" className="fh-confirm-btn fh-confirm-btn--danger" onClick={runConfirmedForceRefill}>
+              Overwrite
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
