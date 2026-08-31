@@ -2127,8 +2127,7 @@ const METABOLIC_PREFILL_FIELDS = [
 // a signal that Form H's *answer* is now wrong.
 const METABOLIC_STALE_CHECK_FIELDS = [
   "hypoglycemia_rx", "hyperglycemia", "hyperglycemia_rx",
-  "metabolic_acidosis", "dyselectrolytemia",
-  "dyselectro_na", "dyselectro_k", "dyselectro_ca",
+  "metabolic_acidosis",
   "hyponatremia", "hypernatremia", "hypokalemia", "hyperkalemia",
   "hypocalcemia", "hypercalcemia", "osteopenia",
 ];
@@ -2147,7 +2146,10 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
     const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
-      METABOLIC_PREFILL_FIELDS.filter((field) => field !== "hypoglycemia").forEach((field) => {
+      const alwaysSyncMetabolic = new Set([
+        "hypoglycemia", "dyselectrolytemia", "dyselectro_na", "dyselectro_k", "dyselectro_ca",
+      ]);
+      METABOLIC_PREFILL_FIELDS.filter((field) => !alwaysSyncMetabolic.has(field)).forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
         const currentlyBlank = isBlank(prev[field]);
@@ -2168,6 +2170,15 @@ const fetchMetabolicPrefill = async ({ force = false } = {}) => {
         next.hypoglycemia = data.hypoglycemia;
         filled.hypoglycemia = true;
       }
+      // Dyselectrolytemia + Na/K/Ca types always follow the daily logs so a
+      // later-appearing second electrolyte is checked without Force refill.
+      // false is a real answer (never abnormal), so skip only null/undefined.
+      ["dyselectrolytemia", "dyselectro_na", "dyselectro_k", "dyselectro_ca"].forEach((field) => {
+        const value = data[field];
+        if (value === undefined || value === null) return;
+        next[field] = value;
+        filled[field] = true;
+      });
       return next;
     });
     if (Object.keys(filled).length) {

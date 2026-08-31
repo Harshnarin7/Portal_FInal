@@ -719,6 +719,12 @@ export default function BirthResuscitationForm() {
     if (!match) return null;
     return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
   };
+  /** Field 45 (HH:MM:SS) must not exceed field 57 (MM:SS APGAR timer). */
+  const spontaneousExceedsApgar = (resp, total) => {
+    const r = durationHmsToSeconds(formatDurationHms(resp));
+    const t = durationToSeconds(formatDurationMs(total));
+    return r != null && t != null && r > t;
+  };
   const secondsToDurationHms = value => {
     if (value === "" || value === null || value === undefined) return "";
     const total = Number(value);
@@ -1150,6 +1156,8 @@ export default function BirthResuscitationForm() {
         add("B4. Cord Clamp Timestamp", "cord_clamp_timestamp");
       if(formData.time_to_respiration && durationHmsToSeconds(formatDurationHms(formData.time_to_respiration))===null)
         add("B4. Time to Respiratory Efforts must be HH:MM:SS", "time_to_respiration");
+      if(spontaneousExceedsApgar(formData.time_to_respiration, formData.total_resus_time))
+        add("B4. Time to spontaneous respiratory efforts must be ≤ 57. Total time from APGAR timer", "time_to_respiration");
       if(formData.time_to_spo2_80 && durationToSeconds(formatDurationMs(formData.time_to_spo2_80))===null)
         add("B4. Time to SpO2 >80% must be MM:SS", "time_to_spo2_80");
       if(formData.total_resus_time && durationToSeconds(formatDurationMs(formData.total_resus_time))===null)
@@ -2460,7 +2468,17 @@ export default function BirthResuscitationForm() {
                         value={formData.time_to_respiration}
                         disabled={!isFieldEditable}
                         placeholder="HH:MM:SS" maxLength={8}
-                        onChange={v => set({ time_to_respiration: v })}/>
+                        hasError={!!errors.time_to_respiration || spontaneousExceedsApgar(formData.time_to_respiration, formData.total_resus_time)}
+                        onChange={v => {
+                          set({ time_to_respiration: v });
+                          setErrors(p => ({
+                            ...p,
+                            time_to_respiration: spontaneousExceedsApgar(v, formData.total_resus_time)
+                              ? "Must be ≤ 57. Total time from APGAR timer"
+                              : "",
+                          }));
+                        }}/>
+                      {errors.time_to_respiration && <div className="field-error">{errors.time_to_respiration}</div>}
                     </div>
                     <div className="form-group">
                       <label>46. SpO₂ at 5 min (%) <span className="field-note">1–100 only</span></label>
@@ -2688,7 +2706,15 @@ export default function BirthResuscitationForm() {
                         disabled={!isFieldEditable}
                         placeholder="MM:SS" maxLength={6}
                         hasError={!!errors.total_resus_time}
-                        onChange={v => set({ total_resus_time: v })}/>
+                        onChange={v => {
+                          set({ total_resus_time: v });
+                          setErrors(p => ({
+                            ...p,
+                            time_to_respiration: spontaneousExceedsApgar(formData.time_to_respiration, v)
+                              ? "Must be ≤ 57. Total time from APGAR timer"
+                              : "",
+                          }));
+                        }}/>
                     </div>
                   </div>
 
