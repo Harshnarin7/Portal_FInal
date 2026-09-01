@@ -2777,6 +2777,7 @@ const addInfectionFromWindow = (detectedWindow) => {
   const nextIdx = (formData.infections || []).length;
   const prefill = { ...emptyInfection(), sepsis: "Yes" };
   if (detectedWindow.suggested_type === "culture") prefill.sepsis_culture = true;
+  else if (detectedWindow.suggested_type === "culture_awaited") prefill.sepsis_culture_awaited = true;
   else if (detectedWindow.suggested_type === "screen") prefill.sepsis_screen = true;
   else if (detectedWindow.suggested_type === "clinical") prefill.sepsis_clinical = true;
   if (detectedWindow.clabsi) prefill.clabsi = "Yes";
@@ -4951,6 +4952,7 @@ const emptyInfection = () => ({
   sepsis_clinical: false,
   sepsis_screen: false,
   sepsis_culture: false,
+  sepsis_culture_awaited: false,
   sepsis_onset_age: "",
   blood_culture_age_hours: "",
   blood_culture_age_days: "",
@@ -5028,7 +5030,7 @@ const validateInfectionField = (index, name, value, entry) => {
     case "sepsis_type_group":
       groupField = "sepsis_type_group";
       if (entry.sepsis === "Yes") {
-        const any = entry.sepsis_clinical || entry.sepsis_screen || entry.sepsis_culture;
+        const any = entry.sepsis_clinical || entry.sepsis_screen || entry.sepsis_culture || entry.sepsis_culture_awaited;
         if (!any) error = "Select at least one";
       }
       break;
@@ -5140,6 +5142,7 @@ const handleInfectionChange = (index, name, rawValue) => {
     entry = {
       ...entry,
       sepsis_clinical: false, sepsis_screen: false, sepsis_culture: false,
+      sepsis_culture_awaited: false,
       screen_crp: false, screen_pct: false, screen_other: false, screen_other_text: "",
       culture_blood: false, culture_csf: false, culture_urine: false, culture_other: false, culture_other_text: "",
       gram_positive: false, gram_negative: false, fungus: false,
@@ -5159,6 +5162,14 @@ const handleInfectionChange = (index, name, rawValue) => {
       staph_aureus: false, staph_hemolyticus: false, staph_epidermidis: false, gp_other: false, gp_other_text: "",
       acinetobacter: false, ecoli: false, klebsiella: false, serratia: false, pseudomonas: false, gn_other: false, gn_other_text: "",
     };
+  }
+  if (name === "sepsis_culture" && rawValue) {
+    entry.sepsis_culture_awaited = false;
+  }
+  if (name === "sepsis_culture_awaited" && rawValue) {
+    entry.sepsis_culture = false;
+    entry.culture_blood = false; entry.culture_csf = false;
+    entry.culture_urine = false; entry.culture_other = false; entry.culture_other_text = "";
   }
   // CRF: abnormal params apply when Screen+ OR Culture+ — clear only when both off
   if ((name === "sepsis_screen" || name === "sepsis_culture") && !entry.sepsis_screen && !entry.sepsis_culture) {
@@ -5205,6 +5216,7 @@ const getInfectionEntrySummary = (entry) => {
   if (entry.sepsis_clinical) parts.push("Clinical Sepsis");
   if (entry.sepsis_screen) parts.push("Screen Positive");
   if (entry.sepsis_culture) parts.push("Culture Positive");
+  if (entry.sepsis_culture_awaited) parts.push("Culture Awaited");
   if (entry.gram_positive) parts.push("Gram Positive");
   if (entry.gram_negative) parts.push("Gram Negative");
   if (entry.fungus) parts.push("Fungal");
@@ -10269,6 +10281,7 @@ const peripheralStatus= getPeripheralStatus();
                     { name: "sepsis_clinical", label: "Clinical/Screen-", checked: entry.sepsis_clinical },
                     { name: "sepsis_screen", label: "Screen+", checked: entry.sepsis_screen },
                     { name: "sepsis_culture", label: "Culture+", checked: entry.sepsis_culture },
+                    { name: "sepsis_culture_awaited", label: "Culture Awaited", checked: entry.sepsis_culture_awaited },
                   ]}
                   onToggle={(name, checked) => handleInfectionChange(idx, name, checked)}
                   error={errors.infectionErrors?.[idx]?.sepsis_type_group}

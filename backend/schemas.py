@@ -1044,6 +1044,7 @@ class InfectionEpisode(BaseModel):
     sepsis_clinical: Optional[bool] = None
     sepsis_screen: Optional[bool] = None
     sepsis_culture: Optional[bool] = None
+    sepsis_culture_awaited: Optional[bool] = None
     sepsis_onset_age: Optional[int] = None
     blood_culture_age_hours: Optional[int] = None
     blood_culture_age_days: Optional[int] = None
@@ -2408,6 +2409,8 @@ class InfectGIHemaDayCreate(BaseModel):
     blood_culture_sent:     Optional[bool]  = None  # #2
     blood_culture_positive: Optional[bool]  = None  # #3
     blood_culture_status:   Optional[str]   = None  # Result Awaited
+    sepsis_screen_sent:     Optional[bool]  = None  # gates the Sepsis Screens list
+    sepsis_screens_json:    Optional[str]   = None  # [{id,type,value,result}, ...]
     antibiotics:            Optional[bool]  = None  # #4
     lp_done:                Optional[bool]  = None  # #5
     meningitis:             Optional[bool]  = None  # #6 Y/N

@@ -2775,6 +2775,19 @@ def _compute_infection_windows(logs, nicu):
             f"culture:{start}-{end}", "Blood culture positive", "culture", start, end,
         ))
 
+    # Helper Form 3 stores "Awaited" as sent=True with positive still None.
+    # Do not fold these into culture_days / covered_days — a pending result
+    # must not suppress a >5-day antibiotics clinical-sepsis suggestion.
+    culture_awaited_days = sorted({
+        l.nicu_day for l in logs
+        if l.blood_culture_sent is True and l.blood_culture_positive is None
+    })
+    for start, end in _consecutive_day_runs(culture_awaited_days):
+        windows.append(make_window(
+            f"culture_awaited:{start}-{end}", "Blood culture sent, result awaited",
+            "culture_awaited", start, end,
+        ))
+
     screen_positive_days = set()
     for l in logs:
         try:
@@ -2846,6 +2859,10 @@ def get_infection_detect(
     duration-based clinical diagnosis, since a positive test is a harder
     fact than a duration pattern) — see _compute_infection_windows:
     1. blood_culture_positive = True on any day -> "culture" window.
+    1b. blood_culture_sent = True and blood_culture_positive is still None
+        (Helper Form 3 "Awaited") -> "culture_awaited" window. These days
+        are NOT added to covered_days, so they do not suppress the
+        antibiotics->clinical rule the way a confirmed positive does.
     2. A sepsis_screens_json entry with result="Positive" on a day not
        already covered by a culture window -> "screen" window. (Screen
        result is captured directly by the nurse per screen — CRP/PCT/

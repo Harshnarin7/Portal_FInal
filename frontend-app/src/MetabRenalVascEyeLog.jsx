@@ -774,6 +774,7 @@ export default function MetabRenalVascEyeLog() {
   });
   const [glucoseRefreshing, setGlucoseRefreshing] = useState(false);
   const glucoseAutoDoneRef = useRef(null);
+  const lastAutoComputedRef = useRef({});
 
   // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
@@ -1156,9 +1157,13 @@ export default function MetabRenalVascEyeLog() {
         highest_glucose: false,
       };
       for (const key of ["lowest_glucose", "hypoglycemia_episodes", "highest_glucose"]) {
-        if (force || isEmptyMetabField(base[key])) {
+        const lastComputed = lastAutoComputedRef.current[key];
+        const stillMatchesLastAutoFill = lastComputed !== undefined
+          && String(base[key]) === String(lastComputed);
+        if (force || isEmptyMetabField(base[key]) || stillMatchesLastAutoFill) {
           next[key] = computed[key];
           flags[key] = true;
+          lastAutoComputedRef.current[key] = computed[key];
         }
       }
       const ep = Number(next.hypoglycemia_episodes);
@@ -1303,6 +1308,7 @@ export default function MetabRenalVascEyeLog() {
     const loadDay = async () => {
       setLoading(true);
       glucoseAutoDoneRef.current = null;
+      lastAutoComputedRef.current = {};
       setGlucoseAutofilled({
         lowest_glucose: false,
         hypoglycemia_episodes: false,
@@ -1447,6 +1453,7 @@ export default function MetabRenalVascEyeLog() {
                   if (isEmptyMetabField(loadedMetab[key])) {
                     next[key] = computed[key];
                     flags[key] = true;
+                    lastAutoComputedRef.current[key] = computed[key];
                   }
                 }
                 const ep = Number(next.hypoglycemia_episodes);
@@ -1466,6 +1473,31 @@ export default function MetabRenalVascEyeLog() {
     };
     loadDay();
   }, [enrollmentId, activeDay, day1Date]);
+
+  /* Re-aggregate Helper 5 glucose while today's day is open and editable.
+     Blank or still-auto values update; clinician-typed values are left alone.
+     Manual "Refresh from Helper 5" still force-overwrites. */
+  useEffect(() => {
+    if (!enrollmentId || !isActiveDayToday || !isFieldEditable) return;
+    const interval = setInterval(() => {
+      applyGlucoseAutofill({ force: false });
+    }, 60000); // every 60s
+    return () => clearInterval(interval);
+  }, [enrollmentId, activeDay, isActiveDayToday, isFieldEditable]);
+
+  useEffect(() => {
+    if (!enrollmentId || !isActiveDayToday || !isFieldEditable) return;
+    const onFocus = () => applyGlucoseAutofill({ force: false });
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") onFocus();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enrollmentId, activeDay, isActiveDayToday, isFieldEditable]);
 
   const resetFormState = () => {
     setMetabData({

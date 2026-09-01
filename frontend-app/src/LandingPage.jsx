@@ -1,7 +1,42 @@
 // src/LandingPage.jsx — Public PORTAL Trial site
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import {
+  ArrowRight,
+  Baby,
+  Building2,
+  CalendarDays,
+  GitBranch,
+  Landmark,
+  Menu,
+  Users,
+  X,
+} from "lucide-react";
 import "./styles/LandingPage.css";
+
+const NAV_PRIMARY = [
+  { href: "#about", label: "Study" },
+  { href: "#outcomes", label: "Objectives" },
+  { href: "#design", label: "Study Design" },
+  { href: "#team", label: "Investigators" },
+  { href: "#centres", label: "Study Centres" },
+  { href: "#staff", label: "Research Platform" },
+];
+
+const NAV_MORE = [
+  { href: "#journey", label: "How it works" },
+  { href: "#parents", label: "Parents" },
+  { href: "#faq", label: "FAQ" },
+];
+
+const STUDY_PARAMS = [
+  { label: "Funder", value: "ICMR", Icon: Landmark },
+  { label: "Design", value: "Triple-arm Trial", Icon: GitBranch },
+  { label: "Scope", value: "Multi-site", Icon: Building2 },
+  { label: "Target", value: "<32 Weeks", Icon: Baby },
+  { label: "Follow-up", value: "44 Weeks PMA", Icon: CalendarDays },
+  { label: "Sample Size", value: "700 Planned", Icon: Users },
+];
 
 const CENTRES = [
   {
@@ -24,7 +59,7 @@ const CENTRES = [
   },
   {
     city: "Pune",
-    name: "Armed Forces Medical College (AFMC)",
+    name: "Armed Forces Medical College, Pune",
     dept: "Department of Neonatology",
     role: "Participating centre",
   },
@@ -164,13 +199,26 @@ const FAQS = [
 
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
+  const panelId = `faq-${q.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
   return (
     <div className={`lp-faq-item${open ? " is-open" : ""}`}>
-      <button type="button" className="lp-faq-q" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+      <button
+        type="button"
+        className="lp-faq-q"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={panelId}
+      >
         <span>{q}</span>
-        <span className="lp-faq-icon" aria-hidden="true">{open ? "−" : "+"}</span>
+        <span className="lp-faq-icon" aria-hidden="true">
+          {open ? "−" : "+"}
+        </span>
       </button>
-      {open && <div className="lp-faq-a">{a}</div>}
+      {open && (
+        <div id={panelId} className="lp-faq-a" role="region">
+          {a}
+        </div>
+      )}
     </div>
   );
 }
@@ -178,6 +226,7 @@ function FaqItem({ q, a }) {
 export default function LandingPage() {
   const navigate = useNavigate();
   const rootRef = useRef(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -198,390 +247,476 @@ export default function LandingPage() {
     return () => obs.disconnect();
   }, []);
 
-  const goLogin = () => navigate("/login");
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [menuOpen]);
+
+  const goLogin = () => {
+    setMenuOpen(false);
+    navigate("/login");
+  };
+
+  const closeMenu = () => setMenuOpen(false);
 
   return (
-    <div className="lp-root" ref={rootRef}>
+    <div className="lp-root font-portal" ref={rootRef}>
+      <a href="#main" className="lp-skip">
+        Skip to main content
+      </a>
+
       <header className="lp-nav">
-        <a href="#top" className="lp-nav-brand" aria-label="PORTAL Trial home">
-          <img src="/logo.png" alt="" className="lp-nav-mark" />
-          <span className="lp-nav-word">
-            P<span className="lp-o">O</span>RTAL
-          </span>
-        </a>
-        <nav className="lp-nav-links" aria-label="Page sections">
-          <a href="#about">About</a>
-          <a href="#design">Design</a>
-          <a href="#journey">How it works</a>
-          <a href="#parents">Parents</a>
-          <a href="#centres">Centres</a>
-          <a href="#faq">FAQ</a>
-        </nav>
-        <button type="button" className="lp-nav-cta" onClick={goLogin}>
-          Research Staff Login
-        </button>
+        <div className="lp-nav-inner">
+          <a href="#top" className="lp-nav-brand" aria-label="PORTAL Trial home">
+            <img src="/logo.png" alt="" className="lp-nav-mark" />
+            <span className="lp-nav-word">
+              P<span className="lp-o">O</span>RTAL Trial
+            </span>
+          </a>
+
+          <nav className="lp-nav-links" aria-label="Page sections">
+            {NAV_PRIMARY.map((item) => (
+              <a key={item.href} href={item.href}>
+                {item.label}
+              </a>
+            ))}
+          </nav>
+
+          <div className="lp-nav-actions">
+            <img
+              src="/icmr-logo.jpg"
+              alt="Indian Council of Medical Research"
+              className="lp-nav-icmr"
+            />
+            <button type="button" className="lp-nav-cta" onClick={goLogin}>
+              Login to Research Portal
+            </button>
+            <button
+              type="button"
+              className="lp-nav-menu-btn"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-expanded={menuOpen}
+              aria-controls="lp-mobile-nav"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+            >
+              {menuOpen ? <X size={22} strokeWidth={1.6} /> : <Menu size={22} strokeWidth={1.6} />}
+            </button>
+          </div>
+        </div>
+
+        {menuOpen && (
+          <div id="lp-mobile-nav" className="lp-mobile-nav" role="dialog" aria-label="Site menu">
+            <nav className="lp-mobile-nav-list" aria-label="Mobile page sections">
+              {[...NAV_PRIMARY, ...NAV_MORE].map((item) => (
+                <a key={item.href} href={item.href} onClick={closeMenu}>
+                  {item.label}
+                </a>
+              ))}
+              <button type="button" className="lp-nav-cta lp-mobile-cta" onClick={goLogin}>
+                Login to Research Portal
+              </button>
+            </nav>
+          </div>
+        )}
       </header>
 
-      {/* ── Hero ── */}
-      <section className="lp-hero" id="top">
-        <div className="lp-hero-atmosphere" aria-hidden="true">
-          <div className="lp-orb lp-orb-a" />
-          <div className="lp-orb lp-orb-b" />
-          <div className="lp-grid-fade" />
-        </div>
+      <div id="main">
+        {/* ── Hero ── */}
+        <section className="lp-hero" id="top">
+          <div className="lp-hero-atmosphere" aria-hidden="true">
+            <div className="lp-hero-shader" />
+            <div className="lp-grid-bg" />
+          </div>
 
-        <div className="lp-hero-inner">
-          <div className="lp-hero-copy">
-            <div className="lp-hero-funders lp-anim-in">
-              <img src="/logo.png" alt="PORTAL Trial" className="lp-hero-logo" />
-              <img src="/icmr-logo.jpg" alt="Indian Council of Medical Research" className="lp-hero-icmr" />
+          <div className="lp-hero-inner">
+            <div className="lp-hero-copy">
+              <div className="lp-hero-badge lp-anim-in">
+                <span>ICMR Funded · IIRPIG-01-00478 · Multi-site RCT</span>
+              </div>
+
+              <h1 className="lp-hero-title lp-anim-in lp-delay-1">
+                Initial Oxygen for Delivery Room Resuscitation of Preterm Neonates
+              </h1>
+
+              <p className="lp-hero-tagline lp-anim-in lp-delay-2">
+                Finding the right first oxygen for very preterm newborns
+              </p>
+
+              <p className="lp-hero-lede lp-anim-in lp-delay-3">
+                A triple-arm, multi-site, randomized, blinded trial comparing 30%, 60%, and 90%
+                initial FiO₂ for delivery-room resuscitation of neonates born before 32 weeks.
+              </p>
+
+              <div className="lp-hero-actions lp-anim-in lp-delay-4">
+                <button type="button" className="lp-btn-solid" onClick={goLogin}>
+                  Access Research Portal
+                  <ArrowRight size={18} strokeWidth={1.75} aria-hidden="true" />
+                </button>
+                <a href="#about" className="lp-btn-ghost">
+                  Explore the Study
+                </a>
+              </div>
             </div>
 
-            <p className="lp-kicker lp-anim-in lp-delay-1">ICMR · IIRPIG-01-00478</p>
+            <div className="lp-hero-visual lp-anim-in lp-delay-3">
+              <div className="lp-visual-frame">
+                <img
+                  src="/landing-hero.jpg"
+                  alt="Neonatal intensive care: clinical monitor and preterm infant care"
+                  className="lp-visual-photo"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
 
-            <h1 className="lp-brand-title lp-anim-in lp-delay-2">
-              P<span className="lp-o">O</span>RTAL
-            </h1>
+        {/* ── Study parameters ── */}
+        <section className="lp-params" id="study" aria-labelledby="lp-params-heading">
+          <div className="lp-wrap" data-reveal>
+            <div className="lp-params-head">
+              <h2 id="lp-params-heading" className="lp-h2 lp-h2-center">
+                Study Parameters
+              </h2>
+              <div className="lp-rule" aria-hidden="true" />
+            </div>
+            <ul className="lp-params-grid">
+              {STUDY_PARAMS.map(({ label, value, Icon }) => (
+                <li key={label} className="lp-param">
+                  <div className="lp-param-icon" aria-hidden="true">
+                    <Icon size={22} strokeWidth={1.5} />
+                  </div>
+                  <h3>{label}</h3>
+                  <p>{value}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
 
-            <p className="lp-headline lp-anim-in lp-delay-3">
-              Finding the right first oxygen for very preterm newborns
+        {/* ── About ── */}
+        <section className="lp-section" id="about">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Why this trial</p>
+            <h2 className="lp-h2">
+              The first minutes of oxygen may shape a lifetime of outcomes
+            </h2>
+            <p className="lp-body">
+              Prematurity remains a leading cause of neonatal death in India and worldwide.
+              Very preterm infants (born before 32 weeks) often need oxygen during delivery-room
+              resuscitation — yet the ideal starting concentration is still uncertain.
+            </p>
+            <p className="lp-body lp-body-follow">
+              Guidelines currently favour starting at 21–30% FiO₂. A recent individual-participant
+              data network meta-analysis of 12 trials raised the possibility that higher initial
+              oxygen (≥90%) may reduce mortality — challenging that recommendation. PORTAL was
+              designed in an Indian multi-centre setting to settle the question with patient-centred
+              hard outcomes.
+            </p>
+          </div>
+        </section>
+
+        {/* ── Design ── */}
+        <section className="lp-section lp-section-alt" id="design">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Study design</p>
+            <h2 className="lp-h2">Three initial oxygen arms. One primary question.</h2>
+            <p className="lp-body">
+              Eligible inborn neonates requiring positive pressure ventilation are randomized 1:1:1,
+              stratified by gestation (&lt;28 vs 28–31 weeks) and study site. Allocation uses opaque
+              sealed envelopes. The resuscitation team is blinded to the assigned concentration.
             </p>
 
-            <p className="lp-lede lp-anim-in lp-delay-4">
-              A triple-arm, multi-site, randomized, blinded trial comparing 30%, 60%, and 90%
-              initial FiO₂ for delivery-room resuscitation of neonates born before 32 weeks.
-            </p>
-
-            <div className="lp-hero-actions lp-anim-in lp-delay-5">
-              <a href="#about" className="lp-btn-primary">
-                Learn about the trial
-              </a>
-              <button type="button" className="lp-btn-ghost" onClick={goLogin}>
-                Research Staff Login
-              </button>
+            <div className="lp-arms" data-reveal>
+              <div className="lp-arm">
+                <span className="lp-arm-pct">30%</span>
+                <span className="lp-arm-name">Control</span>
+                <span className="lp-arm-desc">Initial FiO₂, then titrated to SpO₂ targets</span>
+              </div>
+              <div className="lp-arm lp-arm-mid">
+                <span className="lp-arm-pct">60%</span>
+                <span className="lp-arm-name">Experimental</span>
+                <span className="lp-arm-desc">Intermediate initial oxygen</span>
+              </div>
+              <div className="lp-arm lp-arm-high">
+                <span className="lp-arm-pct">90%</span>
+                <span className="lp-arm-name">Experimental</span>
+                <span className="lp-arm-desc">High initial oxygen</span>
+              </div>
             </div>
-          </div>
 
-          <div className="lp-hero-visual lp-anim-in lp-delay-3" aria-hidden="true">
-            <div className="lp-visual-frame">
-              <img src="/logo.png" alt="" className="lp-visual-logo" />
-              <div className="lp-breath" />
-            </div>
-          </div>
-        </div>
-
-        <a href="#about" className="lp-scroll-hint" aria-label="Scroll to about">
-          <span />
-        </a>
-      </section>
-
-      {/* ── Full title strip ── */}
-      <section className="lp-titleband" data-reveal>
-        <div className="lp-titleband-inner">
-          <p className="lp-titleband-label">Official study title</p>
-          <p className="lp-titleband-text">
-            Initial Oxygen for Delivery Room Resuscitation of Preterm Neonates:
-            a triple-arm, multi-site, randomized, controlled trial
-          </p>
-        </div>
-      </section>
-
-      {/* ── About ── */}
-      <section className="lp-section" id="about">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Why this trial</p>
-          <h2 className="lp-section-title">
-            The first minutes of oxygen may shape a lifetime of outcomes
-          </h2>
-          <p className="lp-section-text">
-            Prematurity remains a leading cause of neonatal death in India and worldwide.
-            Very preterm infants (born before 32 weeks) often need oxygen during delivery-room
-            resuscitation — yet the ideal starting concentration is still uncertain.
-          </p>
-          <p className="lp-section-text lp-section-text-follow">
-            Guidelines currently favour starting at 21–30% FiO₂. A recent individual-participant
-            data network meta-analysis of 12 trials raised the possibility that higher initial
-            oxygen (≥90%) may reduce mortality — challenging that recommendation. PORTAL was
-            designed in an Indian multi-centre setting to settle the question with patient-centred
-            hard outcomes.
-          </p>
-        </div>
-      </section>
-
-      {/* ── Design ── */}
-      <section className="lp-section lp-section-alt" id="design">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Study design</p>
-          <h2 className="lp-section-title">Three initial oxygen arms. One primary question.</h2>
-          <p className="lp-section-text">
-            Eligible inborn neonates requiring positive pressure ventilation are randomized 1:1:1,
-            stratified by gestation (&lt;28 vs 28–31 weeks) and study site. Allocation uses opaque
-            sealed envelopes. The resuscitation team is blinded to the assigned concentration.
-          </p>
-
-          <div className="lp-arms" data-reveal>
-            <div className="lp-arm">
-              <span className="lp-arm-pct">30%</span>
-              <span className="lp-arm-name">Control</span>
-              <span className="lp-arm-desc">Initial FiO₂, then titrated to SpO₂ targets</span>
-            </div>
-            <div className="lp-arm lp-arm-mid">
-              <span className="lp-arm-pct">60%</span>
-              <span className="lp-arm-name">Experimental</span>
-              <span className="lp-arm-desc">Intermediate initial oxygen</span>
-            </div>
-            <div className="lp-arm lp-arm-high">
-              <span className="lp-arm-pct">90%</span>
-              <span className="lp-arm-name">Experimental</span>
-              <span className="lp-arm-desc">High initial oxygen</span>
-            </div>
-          </div>
-
-          <ul className="lp-facts" data-reveal>
-            <li><strong>700</strong> neonates (target enrollment)</li>
-            <li><strong>6</strong> tertiary centres across India</li>
-            <li><strong>Blinded</strong> allocation from the resuscitating team</li>
-            <li><strong>MRI subset</strong> at term-equivalent age (~25%)</li>
-          </ul>
-        </div>
-      </section>
-
-      {/* ── Outcomes ── */}
-      <section className="lp-section" id="outcomes">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">What we measure</p>
-          <h2 className="lp-section-title">Outcomes that matter to families</h2>
-          <p className="lp-section-text">
-            The trial focuses on hard clinical endpoints — not laboratory markers alone — so
-            results can change practice.
-          </p>
-          <div className="lp-outcomes">
-            {OUTCOMES.map((o) => (
-              <article key={o.title} className="lp-outcome" data-reveal>
-                <span className="lp-outcome-label">{o.label}</span>
-                <h3>{o.title}</h3>
-                <p>{o.body}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Journey ── */}
-      <section className="lp-section lp-section-alt" id="journey">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">How the trial works</p>
-          <h2 className="lp-section-title">From consent to follow-up</h2>
-          <p className="lp-section-text">
-            A clear path for families and clinicians — designed for the urgency of the delivery room
-            without compromising informed choice.
-          </p>
-          <ol className="lp-journey">
-            {JOURNEY.map((j) => (
-              <li key={j.step} data-reveal>
-                <span className="lp-journey-step">{j.step}</span>
-                <div>
-                  <h3>{j.title}</h3>
-                  <p>{j.body}</p>
-                </div>
+            <ul className="lp-facts" data-reveal>
+              <li>
+                <strong>700</strong> neonates (target enrollment)
               </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {/* ── Eligibility ── */}
-      <section className="lp-section" id="eligibility">
-        <div className="lp-section-inner lp-split" data-reveal>
-          <div>
-            <p className="lp-section-label">Who can join</p>
-            <h2 className="lp-section-title">Inclusion &amp; exclusion</h2>
-            <p className="lp-section-text">
-              Antenatal consent is sought when there is adequate time before birth. Participation
-              can be withdrawn at any time without affecting clinical care.
-            </p>
+              <li>
+                <strong>6</strong> tertiary centres across India
+              </li>
+              <li>
+                <strong>Blinded</strong> allocation from the resuscitating team
+              </li>
+              <li>
+                <strong>MRI subset</strong> at term-equivalent age (~25%)
+              </li>
+            </ul>
           </div>
-          <div className="lp-criteria">
+        </section>
+
+        {/* ── Outcomes ── */}
+        <section className="lp-section" id="outcomes">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">What we measure</p>
+            <h2 className="lp-h2">Outcomes that matter to families</h2>
+            <p className="lp-body">
+              The trial focuses on hard clinical endpoints — not laboratory markers alone — so
+              results can change practice.
+            </p>
+            <div className="lp-outcomes">
+              {OUTCOMES.map((o) => (
+                <article key={o.title} className="lp-outcome" data-reveal>
+                  <span className="lp-outcome-label">{o.label}</span>
+                  <h3>{o.title}</h3>
+                  <p>{o.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Journey ── */}
+        <section className="lp-section lp-section-alt" id="journey">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">How the trial works</p>
+            <h2 className="lp-h2">From consent to follow-up</h2>
+            <p className="lp-body">
+              A clear path for families and clinicians — designed for the urgency of the delivery room
+              without compromising informed choice.
+            </p>
+            <ol className="lp-journey">
+              {JOURNEY.map((j) => (
+                <li key={j.step} data-reveal>
+                  <span className="lp-journey-step">{j.step}</span>
+                  <div>
+                    <h3>{j.title}</h3>
+                    <p>{j.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ── Eligibility ── */}
+        <section className="lp-section" id="eligibility">
+          <div className="lp-wrap lp-split" data-reveal>
             <div>
-              <h3>Included</h3>
-              <p>
-                Inborn preterm neonates of less than 32 completed weeks who require delivery-room
-                resuscitation with positive pressure ventilation (PPV), as per current NRP guidance.
+              <p className="lp-eyebrow">Who can join</p>
+              <h2 className="lp-h2">Inclusion &amp; exclusion</h2>
+              <p className="lp-body">
+                Antenatal consent is sought when there is adequate time before birth. Participation
+                can be withdrawn at any time without affecting clinical care.
               </p>
             </div>
-            <div>
-              <h3>Not included</h3>
-              <p>
-                Insufficient antenatal time for consent; major structural anomalies; decision to
-                forego resuscitation; or refusal of consent.
-              </p>
+            <div className="lp-criteria">
+              <div>
+                <h3>Included</h3>
+                <p>
+                  Inborn preterm neonates of less than 32 completed weeks who require delivery-room
+                  resuscitation with positive pressure ventilation (PPV), as per current NRP guidance.
+                </p>
+              </div>
+              <div>
+                <h3>Not included</h3>
+                <p>
+                  Insufficient antenatal time for consent; major structural anomalies; decision to
+                  forego resuscitation; or refusal of consent.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ── Parents ── */}
-      <section className="lp-section lp-section-alt" id="parents">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">For parents &amp; families</p>
-          <h2 className="lp-section-title">Your questions come first</h2>
-          <p className="lp-section-text">
-            If you are offered participation, the research team will share a parent information
-            sheet in a language you understand, explain possible benefits and risks, and give you
-            time to ask questions. Clinical care for mother and baby continues whether you join
-            or not.
-          </p>
-          <div className="lp-parent-points" data-reveal>
-            <div>
-              <h3>No payment to join</h3>
-              <p>Families are not paid to enrol. Hospital charges follow each site’s usual rules.</p>
-            </div>
-            <div>
-              <h3>Standard care continues</h3>
-              <p>Resuscitation follows ILCOR 2020 guidance; only the starting oxygen concentration is assigned by the trial.</p>
-            </div>
-            <div>
-              <h3>Right to withdraw</h3>
-              <p>You may leave the study at any time. Withdrawal never changes the quality of care your baby receives.</p>
+        {/* ── Parents ── */}
+        <section className="lp-section lp-section-alt" id="parents">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">For parents &amp; families</p>
+            <h2 className="lp-h2">Your questions come first</h2>
+            <p className="lp-body">
+              If you are offered participation, the research team will share a parent information
+              sheet in a language you understand, explain possible benefits and risks, and give you
+              time to ask questions. Clinical care for mother and baby continues whether you join
+              or not.
+            </p>
+            <div className="lp-parent-points" data-reveal>
+              <div>
+                <h3>No payment to join</h3>
+                <p>Families are not paid to enrol. Hospital charges follow each site’s usual rules.</p>
+              </div>
+              <div>
+                <h3>Standard care continues</h3>
+                <p>
+                  Resuscitation follows ILCOR 2020 guidance; only the starting oxygen concentration is
+                  assigned by the trial.
+                </p>
+              </div>
+              <div>
+                <h3>Right to withdraw</h3>
+                <p>
+                  You may leave the study at any time. Withdrawal never changes the quality of care
+                  your baby receives.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ── Ethics ── */}
-      <section className="lp-section" id="ethics">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Ethics &amp; oversight</p>
-          <h2 className="lp-section-title">Built for accountability</h2>
-          <p className="lp-section-text">
-            The study begins at each hospital only after Institutional Ethics Committee approval.
-            Investigators hold valid Good Clinical Practice training. The protocol will be registered
-            with the Clinical Trials Registry of India (CTRI).
-          </p>
-          <ul className="lp-ethics" data-reveal>
-            <li>
-              <strong>Technical Advisory Committee</strong>
-              <span>Independent technical oversight of protocol quality and progress</span>
-            </li>
-            <li>
-              <strong>Trial Management Committee</strong>
-              <span>Site principal investigators coordinate day-to-day conduct and training</span>
-            </li>
-            <li>
-              <strong>Data &amp; Safety Monitoring Board</strong>
-              <span>Independent board reviews interim safety and outcome data</span>
-            </li>
-            <li>
-              <strong>SAE reporting</strong>
-              <span>Serious adverse events are reported to IEC and DSMB; study-related harm follows Government of India compensation rules</span>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      {/* ── Impact ── */}
-      <section className="lp-section lp-section-alt" id="impact">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Expected impact</p>
-          <h2 className="lp-section-title">Evidence that can change practice</h2>
-          <p className="lp-section-text">
-            PORTAL aims to identify which initial FiO₂ best reduces death or BPD — and related
-            serious outcomes — in very preterm infants. Results are intended to inform neonatal
-            resuscitation guidelines in India and internationally, including updates considered by
-            bodies such as the American Academy of Pediatrics NRP programme.
-          </p>
-          <p className="lp-section-text lp-section-text-follow">
-            Priority areas: perinatal care and prematurity. Area of research: Discovery.
-            Keywords: prematurity, delivery room, resuscitation, oxygen, mortality, BPD.
-          </p>
-        </div>
-      </section>
-
-      {/* ── Centres ── */}
-      <section className="lp-section" id="centres">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Network</p>
-          <h2 className="lp-section-title">Six centres. One national trial.</h2>
-          <p className="lp-section-text">
-            Delivery rooms and Level-3 NICUs across North, South, East, and West India — selected
-            for volume of very preterm births, round-the-clock neonatal coverage, and blended
-            oxygen capability in the delivery room.
-          </p>
-          <ul className="lp-centres">
-            {CENTRES.map((c) => (
-              <li key={c.name} data-reveal>
-                <span className="lp-centre-city">{c.city}</span>
-                <span className="lp-centre-name">{c.name}</span>
-                <span className="lp-centre-dept">{c.dept}</span>
-                <span className="lp-centre-role">{c.role}</span>
+        {/* ── Ethics ── */}
+        <section className="lp-section" id="ethics">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Ethics &amp; oversight</p>
+            <h2 className="lp-h2">Built for accountability</h2>
+            <p className="lp-body">
+              The study begins at each hospital only after Institutional Ethics Committee approval.
+              Investigators hold valid Good Clinical Practice training. The protocol will be registered
+              with the Clinical Trials Registry of India (CTRI).
+            </p>
+            <ul className="lp-ethics" data-reveal>
+              <li>
+                <strong>Technical Advisory Committee</strong>
+                <span>Independent technical oversight of protocol quality and progress</span>
               </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* ── Team ── */}
-      <section className="lp-section lp-section-alt" id="team">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">Investigators</p>
-          <h2 className="lp-section-title">PI, co-investigators &amp; core team</h2>
-          <p className="lp-section-text">
-            Coordinating investigators at PGIMER, Chandigarh. The PI’s group previously led India’s
-            first blinded delivery-room oxygen trial in preterm neonates and contributed to the
-            JAMA Pediatrics 2024 IPD network meta-analysis on initial oxygen.
-          </p>
-          <ul className="lp-team">
-            {TEAM.map((m) => (
-              <li key={m.name} data-reveal>
-                <span className="lp-team-role">{m.role}</span>
-                <span className="lp-team-name">{m.name}</span>
-                <span className="lp-team-title">{m.title}</span>
-                <span className="lp-team-inst">{m.inst}</span>
+              <li>
+                <strong>Trial Management Committee</strong>
+                <span>Site principal investigators coordinate day-to-day conduct and training</span>
               </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* ── FAQ ── */}
-      <section className="lp-section" id="faq">
-        <div className="lp-section-inner" data-reveal>
-          <p className="lp-section-label">FAQ</p>
-          <h2 className="lp-section-title">Common questions</h2>
-          <div className="lp-faq">
-            {FAQS.map((f) => (
-              <FaqItem key={f.q} q={f.q} a={f.a} />
-            ))}
+              <li>
+                <strong>Data &amp; Safety Monitoring Board</strong>
+                <span>Independent board reviews interim safety and outcome data</span>
+              </li>
+              <li>
+                <strong>SAE reporting</strong>
+                <span>
+                  Serious adverse events are reported to IEC and DSMB; study-related harm follows
+                  Government of India compensation rules
+                </span>
+              </li>
+            </ul>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ── Staff CTA ── */}
-      <section className="lp-staff" id="staff">
-        <div className="lp-staff-inner" data-reveal>
-          <div>
-            <p className="lp-section-label lp-label-on-dark">Electronic data capture</p>
-            <h2 className="lp-staff-title">Research staff access</h2>
-            <p>
-              Site investigators and research nurses use the PORTAL webforms for screening,
-              resuscitation, and follow-up data. Public visitors stay on this page — login is for
-              authorised trial personnel only.
+        {/* ── Impact ── */}
+        <section className="lp-section lp-section-alt" id="impact">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Expected impact</p>
+            <h2 className="lp-h2">Evidence that can change practice</h2>
+            <p className="lp-body">
+              PORTAL aims to identify which initial FiO₂ best reduces death or BPD — and related
+              serious outcomes — in very preterm infants. Results are intended to inform neonatal
+              resuscitation guidelines in India and internationally, including updates considered by
+              bodies such as the American Academy of Pediatrics NRP programme.
+            </p>
+            <p className="lp-body lp-body-follow">
+              Priority areas: perinatal care and prematurity. Area of research: Discovery.
+              Keywords: prematurity, delivery room, resuscitation, oxygen, mortality, BPD.
             </p>
           </div>
-          <button type="button" className="lp-btn-primary lp-btn-on-dark" onClick={goLogin}>
-            Go to staff login
-          </button>
-        </div>
-      </section>
+        </section>
 
-      {/* ── Footer ── */}
+        {/* ── Centres ── */}
+        <section className="lp-section" id="centres">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Network</p>
+            <h2 className="lp-h2">Six centres. One national trial.</h2>
+            <p className="lp-body">
+              Delivery rooms and Level-3 NICUs across North, South, East, and West India — selected
+              for volume of very preterm births, round-the-clock neonatal coverage, and blended
+              oxygen capability in the delivery room.
+            </p>
+            <ul className="lp-centres">
+              {CENTRES.map((c) => (
+                <li key={c.name} data-reveal>
+                  <span className="lp-centre-city">{c.city}</span>
+                  <span className="lp-centre-name">{c.name}</span>
+                  <span className="lp-centre-dept">{c.dept}</span>
+                  <span className="lp-centre-role">{c.role}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* ── Team ── */}
+        <section className="lp-section lp-section-alt" id="team">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">Investigators</p>
+            <h2 className="lp-h2">PI, co-investigators &amp; core team</h2>
+            <p className="lp-body">
+              Coordinating investigators at PGIMER, Chandigarh. The PI’s group previously led India’s
+              first blinded delivery-room oxygen trial in preterm neonates and contributed to the
+              JAMA Pediatrics 2024 IPD network meta-analysis on initial oxygen.
+            </p>
+            <ul className="lp-team">
+              {TEAM.map((m) => (
+                <li key={m.name} data-reveal>
+                  <span className="lp-team-role">{m.role}</span>
+                  <span className="lp-team-name">{m.name}</span>
+                  <span className="lp-team-title">{m.title}</span>
+                  <span className="lp-team-inst">{m.inst}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* ── FAQ ── */}
+        <section className="lp-section" id="faq">
+          <div className="lp-wrap lp-wrap-copy" data-reveal>
+            <p className="lp-eyebrow">FAQ</p>
+            <h2 className="lp-h2">Common questions</h2>
+            <div className="lp-faq">
+              {FAQS.map((f) => (
+                <FaqItem key={f.q} q={f.q} a={f.a} />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Staff CTA ── */}
+        <section className="lp-staff" id="staff">
+          <div className="lp-staff-inner" data-reveal>
+            <div>
+              <p className="lp-eyebrow lp-eyebrow-on-dark">Electronic data capture</p>
+              <h2 className="lp-staff-title">Research staff access</h2>
+              <p>
+                Site investigators and research nurses use the PORTAL webforms for screening,
+                resuscitation, and follow-up data. Public visitors stay on this page — login is for
+                authorised trial personnel only.
+              </p>
+            </div>
+            <button type="button" className="lp-btn-solid lp-btn-on-dark" onClick={goLogin}>
+              Go to staff login
+              <ArrowRight size={18} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+      </div>
+
       <footer className="lp-footer" id="contact">
         <div className="lp-footer-inner">
-          <div className="lp-footer-brands">
-            <img src="/logo.png" alt="PORTAL Trial" />
-            <img src="/icmr-logo.jpg" alt="ICMR" className="lp-footer-icmr" />
-          </div>
-          <div className="lp-footer-meta">
+          <div className="lp-footer-brand-block">
+            <div className="lp-footer-brands">
+              <img src="/logo.png" alt="PORTAL Trial" />
+              <img src="/icmr-logo.jpg" alt="ICMR" className="lp-footer-icmr" />
+            </div>
+            <p className="lp-footer-name">PORTAL Trial</p>
             <p>
               <strong>PORTAL</strong> — Preterm Oxygen for Resuscitation Trial At deLivery
             </p>
@@ -590,18 +725,20 @@ export default function LandingPage() {
               Protocol version 0.1 · 17 September 2024.
             </p>
             <p>
-              Coordinating centre: Division of Neonatology, PGIMER, Chandigarh.
-              Investigators declare no conflict of interest.
+              Coordinating centre: Division of Neonatology, PGIMER, Chandigarh. Academic partner:
+              PGIMER Chandigarh. Investigators declare no conflict of interest.
             </p>
           </div>
-          <div className="lp-footer-links">
+          <nav className="lp-footer-links" aria-label="Footer">
             <Link to="/login">Research Staff Login</Link>
-            <a href="#about">About</a>
+            <a href="#about">Study</a>
+            <a href="#design">Study Design</a>
             <a href="#journey">How it works</a>
             <a href="#parents">Parents</a>
+            <a href="#centres">Study Centres</a>
             <a href="#faq">FAQ</a>
-            <a href="#team">Team</a>
-          </div>
+            <a href="#team">Investigators</a>
+          </nav>
         </div>
       </footer>
     </div>

@@ -548,6 +548,21 @@ body,
 }
 .form-page-layout .app-main { margin-left: 0 !important; padding: 0 !important; }
 .form-page-layout .content-wrapper { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+
+/* Public landing page — full-bleed chrome only; routes unchanged */
+.landing-page-layout {
+  background: #ffffff;
+}
+.landing-page-layout .app-main {
+  padding: 0;
+  width: 100%;
+}
+.landing-page-layout .content-wrapper {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
 /* ── Research Staff Login bar (shown when not logged in) ── */
 .header-login-bar {
   display: flex;

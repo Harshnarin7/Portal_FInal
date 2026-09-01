@@ -72,7 +72,7 @@ function AppContent() {
     location.pathname.includes("/sae-");
 
   return (
-    <div className={`app-container ${isFormPage ? "form-page-layout" : ""}`}>
+    <div className={`app-container${isFormPage ? " form-page-layout" : ""}${isLandingPage ? " landing-page-layout" : ""}`}>
 
       {/* ===== HEADER — hidden on landing, login, password change, forms ===== */}
       {!isFormPage && !isLandingPage && !isAuthChromePage && (
