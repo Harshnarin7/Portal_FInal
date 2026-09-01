@@ -27,8 +27,13 @@ TRIAL = {
     ),
     "protocol_no": "IIRPIG-01-00478",
     "ctri_no": "CTRI/2025/09/094952 (registered 17 September 2025)",
-    "cdsco_permission": ph(
-        "CDSCO clinical trial permission no. + date, or 'Not applicable' with reason"
+    "cdsco_permission": (
+        "Not applicable — investigator-initiated academic trial comparing oxygen "
+        "concentrations for delivery-room resuscitation; not a new-drug clinical "
+        "trial under the New Drugs and Clinical Trials Rules, 2019, so CDSCO "
+        "clinical trial permission is not required. Ethics oversight is by the "
+        "Institutional Ethics Committees; the trial is registered with CTRI "
+        "(CTRI/2025/09/094952)."
     ),
     "country": "India",
     "funding": "Indian Council of Medical Research (ICMR)",
