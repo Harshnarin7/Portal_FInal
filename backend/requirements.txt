@@ -21,3 +21,6 @@ sniffio==1.3.1
 # 2026-08-09: participant_pii field-level encryption (AWS KMS + Fernet)
 boto3==1.43.67
 cryptography==50.0.0
+
+# 2026-08-29: SAE / IEC report generator (.docx) — pulls lxml + typing_extensions
+python-docx==1.2.0

@@ -447,3 +447,13 @@
   background: #92400e;
   color: #fff;
 }
+
+/* SAE — inline hint text (severity scale note, AE-prefill note, IEC report card) */
+.fy-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b7280;
+}
+p.fy-hint { margin-bottom: 10px; }

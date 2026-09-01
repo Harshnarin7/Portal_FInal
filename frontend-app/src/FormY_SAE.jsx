@@ -43,11 +43,42 @@ const SERIOUSNESS_ALIASES = {
   "Other medically important event": "Other Medically Important Event",
 };
 
+// INC Neonatal Adverse Event Severity Scale (NAESS) — the same 5-grade
+// scale the AE-detection work uses, so an SAE that links to a recorded
+// AE carries the same grade end-to-end.
 const SEVERITY_OPTIONS = [
-  "Mild (Transient)",
-  "Moderate (Interferes with activity)",
-  "Severe (Incapacitating)",
+  "Grade 1 — Mild",
+  "Grade 2 — Moderate",
+  "Grade 3 — Severe",
+  "Grade 4 — Life-threatening",
+  "Grade 5 — Death",
 ];
+
+// Legacy 3-level values (and bare grade digits) → current label, so
+// already-saved reports reload without losing their severity.
+const SEVERITY_ALIASES = {
+  "Mild (Transient)": "Grade 1 — Mild",
+  "Moderate (Interferes with activity)": "Grade 2 — Moderate",
+  "Severe (Incapacitating)": "Grade 3 — Severe",
+  "1": "Grade 1 — Mild",
+  "2": "Grade 2 — Moderate",
+  "3": "Grade 3 — Severe",
+  "4": "Grade 4 — Life-threatening",
+  "5": "Grade 5 — Death",
+};
+
+function normalizeSeverity(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+  if (SEVERITY_OPTIONS.includes(s)) return s;
+  if (SEVERITY_ALIASES[s]) return SEVERITY_ALIASES[s];
+  const m = s.match(/grade\s*([1-5])/i);
+  return m ? SEVERITY_OPTIONS[Number(m[1]) - 1] : s;
+}
+
+// AE-detection grade digit → severity label (for the "prefill from a
+// recorded AE" picker).
+const gradeToSeverity = (g) => SEVERITY_ALIASES[String(g || "").trim()] || "";
 
 const CAUSALITY_OPTIONS = [
   "Not Related (Clearly extraneous)",
@@ -172,7 +203,7 @@ function mapApiToForm(row) {
     end_time: end.time,
     ongoing: !!row.ongoing,
     seriousness: normalizeSeriousness(row.seriousness),
-    severity: row.severity || "",
+    severity: normalizeSeverity(row.severity),
     causality: normalizeCausality(row.causality),
     action_taken: row.action_taken || "",
     outcome: row.outcome || "",
@@ -452,6 +483,8 @@ export default function FormY_SAE() {
   const [saveMessage, setSaveMessage] = useState("");
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
+  const [aeRows, setAeRows] = useState([]);       // recorded AEs for this baby
+  const [downloading, setDownloading] = useState("");
 
   const set = (field, value) => {
     setIsSaved(false);
@@ -523,7 +556,58 @@ export default function FormY_SAE() {
       .catch((err) => {
         if (err?.response?.status !== 404) console.error("Failed to load SAE reports", err);
       });
+
+    api
+      .get(`/adverse-events/${encodeURIComponent(id)}`)
+      .then((res) => {
+        const evs = Array.isArray(res.data?.events) ? res.data.events : [];
+        setAeRows(evs.filter((e) => e && (e.description || e.definition_no)));
+      })
+      .catch(() => setAeRows([]));
   }, [routeId, patientData, location.state]);
+
+  const prefillFromAe = (idx) => {
+    const e = aeRows[Number(idx)];
+    if (!e) return;
+    setIsSaved(false);
+    setFormData((p) => ({
+      ...p,
+      diagnosis: p.diagnosis || e.description || "",
+      severity: p.severity || gradeToSeverity(e.grade),
+      onset_date: p.onset_date || dateOnly(e.start_date),
+      end_date: p.end_date || dateOnly(e.end_date),
+    }));
+  };
+
+  const downloadDoc = async (kind) => {
+    if (!formData._record_id) return;
+    setDownloading(kind);
+    try {
+      const res = await api.get(
+        `/sae-report/${encodeURIComponent(formData.enrollment_id)}/${formData._record_id}/document`,
+        { params: { kind }, responseType: "blob" },
+      );
+      const cd = res.headers?.["content-disposition"] || "";
+      const m = cd.match(/filename="?([^"]+)"?/);
+      const name =
+        (m && m[1]) ||
+        `${kind === "covering_letter" ? "SAE_covering_letter" : "SAE_report"}_${formData.enrollment_id}.docx`;
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("SAE document download failed", err);
+      setSaveMessage("❌ Could not generate the document — try again.");
+      setTimeout(() => setSaveMessage(""), 5000);
+    } finally {
+      setDownloading("");
+    }
+  };
 
   useEffect(() => {
     const site = siteName || formData.site || patientData?.site_name || patientData?.site || "";
@@ -689,6 +773,33 @@ export default function FormY_SAE() {
       </SectionCard>
 
       <SectionCard icon={Activity} num="II" title="Event description">
+        {aeRows.length > 0 && (
+          <div className="fy-block" style={{ marginBottom: 8 }}>
+            <div className="form-group">
+              <label>Prefill from a recorded adverse event (optional)</label>
+              <select
+                className="fy-input"
+                defaultValue=""
+                onChange={(e) => {
+                  prefillFromAe(e.target.value);
+                  e.target.value = "";
+                }}
+              >
+                <option value="">Select a recorded AE to copy its term / grade / dates…</option>
+                {aeRows.map((e, i) => (
+                  <option key={i} value={i}>
+                    {(e.description || e.definition_no)}
+                    {e.grade ? ` — Grade ${e.grade}` : ""}
+                    {e.start_date ? ` (${dateOnly(e.start_date)})` : ""}
+                  </option>
+                ))}
+              </select>
+              <small className="fy-hint">
+                Only fills fields that are still blank — your edits are never overwritten.
+              </small>
+            </div>
+          </div>
+        )}
         <div className="fy-block">
           <div className="form-group">
             <label>Diagnosis / Event term</label>
@@ -770,6 +881,10 @@ export default function FormY_SAE() {
           value={formData.severity}
           onChange={(v) => set("severity", v)}
         />
+        <small className="fy-hint">
+          INC Neonatal Adverse Event Severity Scale (NAESS) — the same grade used by
+          the AE detection tool.
+        </small>
       </SectionCard>
 
       <SectionCard icon={Link2} num="V" title="Causality (relationship to oxygen intervention)">
@@ -898,6 +1013,37 @@ export default function FormY_SAE() {
             />
           </div>
         </div>
+      </SectionCard>
+
+      <SectionCard icon={FileText} num="XI" title="IEC report (PGIMER-DSMC format)">
+        <p className="fy-hint" style={{ marginTop: 0 }}>
+          Generates the CDSCO / NDCT Rules 2019 SAE Reporting Form and the PI 24-hour
+          covering letter as editable Word files, pre-filled from this report and the
+          baby&rsquo;s study data. Blinded to the randomised oxygen arm. Trial / site
+          details that have not been configured yet appear as{" "}
+          <strong>[TO BE PROVIDED]</strong> blanks — complete them in Word before submitting.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="fy-new-btn"
+            disabled={!formData._record_id || !!downloading}
+            onClick={() => downloadDoc("report")}
+          >
+            {downloading === "report" ? "Generating…" : "Download SAE Reporting Form (.docx)"}
+          </button>
+          <button
+            type="button"
+            className="fy-new-btn"
+            disabled={!formData._record_id || !!downloading}
+            onClick={() => downloadDoc("covering_letter")}
+          >
+            {downloading === "covering_letter" ? "Generating…" : "Download PI covering letter (.docx)"}
+          </button>
+        </div>
+        {!formData._record_id && (
+          <small className="fy-hint">Save this report first to enable the downloads.</small>
+        )}
       </SectionCard>
 
       {saveMessage && (
