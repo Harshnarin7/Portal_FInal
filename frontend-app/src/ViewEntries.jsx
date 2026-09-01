@@ -12,6 +12,7 @@ import {
   CheckCircle2, Clock, XCircle, ClipboardList,
 } from "lucide-react";
 import "./ViewEntries.css";
+import { formatBabyOfLabel } from "./utils/babyName";
 
 /* ─── Form definitions (from formsConfig.js) ────────────────── */
 const FORM_LABELS = [
@@ -163,7 +164,7 @@ function ActionBtn({ label, variant, onClick }) {
 }
 
 /* ─── Expanded detail panel ──────────────────────────────────── */
-function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm }) {
+function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName }) {
   const [tab, setTab] = useState("Forms");
   const ga = entry.gestation_weeks != null
     ? `${entry.gestation_weeks}w ${entry.gestation_days ?? 0}d`
@@ -240,6 +241,7 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm }) {
         {tab === "Screening Details" && (
           <div className="exp-grid">
             <Field label="Screening ID"    value={entry.screening_id} />
+            <Field label="Baby name"       value={babyName} />
             <Field label="Enrollment ID"   value={entry.enrollment_id} />
             <Field label="Site"            value={entry.site_name} />
             <Field label="Screened By"     value={entry.screened_by} />
@@ -298,6 +300,7 @@ export default function ViewEntries() {
 
   const [entries,    setEntries]    = useState([]);
   const [enrollData, setEnrollData] = useState({});
+  const [piiByScreening, setPiiByScreening] = useState({});
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState("");
   const [filter,     setFilter]     = useState("All");
@@ -309,7 +312,19 @@ export default function ViewEntries() {
     setLoading(true);
     try {
       const res = await api.get("/screenings/?limit=200");
-      setEntries(res.data);
+      const list = Array.isArray(res.data) ? res.data : [];
+      setEntries(list);
+      const sids = list.map(e => e.screening_id).filter(Boolean);
+      if (sids.length) {
+        try {
+          const piiRes = await api.post("/pii/batch", { screening_ids: sids });
+          setPiiByScreening(piiRes.data?.items || {});
+        } catch {
+          setPiiByScreening({});
+        }
+      } else {
+        setPiiByScreening({});
+      }
     } catch (err) {
       console.error("Error fetching entries:", err);
     } finally {
@@ -367,11 +382,15 @@ export default function ViewEntries() {
   /* ── Filter ── */
   const filtered = useMemo(() => entries.filter(e => {
     const q = search.toLowerCase();
+    const baby = formatBabyOfLabel(piiByScreening[e.screening_id]);
+    const mother = piiByScreening[e.screening_id]?.mother_first_name || "";
     const matchQ = !q ||
       (e.screening_id  || "").toLowerCase().includes(q) ||
       (e.enrollment_id || "").toLowerCase().includes(q) ||
       (e.site_name     || "").toLowerCase().includes(q) ||
-      (e.screened_by   || "").toLowerCase().includes(q);
+      (e.screened_by   || "").toLowerCase().includes(q) ||
+      baby.toLowerCase().includes(q) ||
+      String(mother).toLowerCase().includes(q);
     const matchF =
       filter === "All" ||
       (filter === "Eligible"       && e.screening_status === "Eligible") ||
@@ -379,7 +398,7 @@ export default function ViewEntries() {
       (filter === "Not Eligible"   && e.screening_status === "Not Eligible") ||
       (filter === "Pending"        && (!e.screening_status || e.screening_status === "Pending"));
     return matchQ && matchF;
-  }), [entries, search, filter]);
+  }), [entries, search, filter, piiByScreening]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -446,7 +465,7 @@ export default function ViewEntries() {
           <Search size={16} className="ve-search-icon"/>
           <input
             className="ve-search"
-            placeholder="Search Screening ID, Enrollment ID..."
+            placeholder="Search baby name, enrollment ID…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
           />
@@ -474,6 +493,7 @@ export default function ViewEntries() {
             <thead>
               <tr className="ve-thead-row">
                 <th className="ve-th ve-th--sticky">Screening ID</th>
+                <th className="ve-th">Baby name</th>
                 <th className="ve-th">Enrollment ID</th>
                 <th className="ve-th">Site</th>
                 <th className="ve-th ve-th--center">Gestation</th>
@@ -488,7 +508,7 @@ export default function ViewEntries() {
             <tbody>
               {paged.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="ve-empty">
+                    <td colSpan={11} className="ve-empty">
                     <ClipboardList size={32} opacity={0.3}/>
                     <p>No participants match your filters.</p>
                   </td>
@@ -512,6 +532,9 @@ export default function ViewEntries() {
                       onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}
                     >
                       <td className="ve-td ve-td--sticky ve-td--id">{entry.screening_id}</td>
+                      <td className="ve-td ve-td--baby">
+                        {formatBabyOfLabel(piiByScreening[entry.screening_id]) || "—"}
+                      </td>
                       <td className="ve-td ve-td--md">{entry.enrollment_id || "—"}</td>
                       <td className="ve-td ve-td--md">{entry.site_name || "—"}</td>
                       <td className="ve-td ve-td--center ve-td--bold">{ga}</td>
@@ -590,10 +613,11 @@ export default function ViewEntries() {
 
                     {expanded === entry.id && (
                       <tr className="ve-exp-row">
-                        <td colSpan={10} className="ve-exp-cell" onClick={e => e.stopPropagation()}>
+                        <td colSpan={11} className="ve-exp-cell" onClick={e => e.stopPropagation()}>
                           <ExpandedPanel
                             entry={entry}
                             forms={forms}
+                            babyName={formatBabyOfLabel(piiByScreening[entry.screening_id])}
                             onEdit={() => handleEdit(entry)}
                             onDelete={() => handleDelete(entry.id, entry.screening_id)}
                             onViewForm={(formKey) => openForm(entry, formKey)}

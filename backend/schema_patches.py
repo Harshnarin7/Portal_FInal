@@ -1139,6 +1139,14 @@ BIRTH_RESUSCITATION_BLENDER_LETTER_PATCHES = [
     "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_letter VARCHAR",
 ]
 
+# CRF Q60 — reason(s) the PORTAL blender was interrupted before 30 minutes
+# (select-all-that-apply; stored as a comma-separated string, same as
+# indication_for_delivery). Description still lives in blender_stopped_description
+# when "Blender stopped abruptly" is one of the reasons.
+BIRTH_RESUSCITATION_BLENDER_INTERRUPT_REASONS_PATCHES = [
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS blender_interrupt_reasons TEXT",
+]
+
 # Form B may be saved before the baby's hospital file exists, so Baby UID
 # and Admission Number must be nullable. Only ALTER when the column is
 # currently NOT NULL — already-nullable cols and missing tables are no-ops.

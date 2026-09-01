@@ -281,7 +281,7 @@
 
 .ve-table {
   width: 100%; border-collapse: collapse;
-  min-width: 1180px; text-align: left;
+  min-width: 1280px; text-align: left;
   table-layout: auto;
 }
 .ve-td--dots { min-width: 240px; }
@@ -369,6 +369,7 @@
   background: var(--ve-surface);
 }
 .ve-td--id     { font-weight: 700; color: var(--ve-primary); font-size: 13.5px; }
+.ve-td--baby   { font-weight: 700; color: var(--ve-text); white-space: nowrap; }
 .ve-td--md     { font-weight: 500; }
 .ve-td--center { text-align: center; }
 .ve-td--bold   { font-weight: 700; }

@@ -315,7 +315,18 @@ function RespModeSection({ prefix, label, serial, modes, formData, errors, isFie
               className={`rx-horizontal-btn${formData[modeField] === mode ? " active" : ""}`}
               onClick={() => {
                 if (!isFieldEditable) return;
-                setFormData(prev => ({ ...prev, [modeField]: mode, [otherField]: "" }));
+                setFormData(prev => ({
+                  ...prev,
+                  [modeField]: mode,
+                  [otherField]: "",
+                  ...(mode === "Room air" ? {
+                    [`${prefix}_cpap`]: "",
+                    [`${prefix}_pip`]: "",
+                    [`${prefix}_peep`]: "",
+                    [`${prefix}_map`]: "",
+                    [`${prefix}_fio2`]: "",
+                  } : {}),
+                }));
                 setErrors(prev => ({ ...prev, [modeField]: "" }));
               }}
               disabled={!isFieldEditable}>{mode}</button>
@@ -338,9 +349,11 @@ function RespModeSection({ prefix, label, serial, modes, formData, errors, isFie
           </div>
         </div>
       )}
-      <RespParamGrid prefix={prefix} serial={serial}
-        formData={formData} errors={errors}
-        isFieldEditable={isFieldEditable} handleChange={handleChange} />
+      {formData[modeField] && formData[modeField] !== "Room air" && (
+        <RespParamGrid prefix={prefix} serial={serial}
+          formData={formData} errors={errors}
+          isFieldEditable={isFieldEditable} handleChange={handleChange} />
+      )}
     </div>
   );
 }

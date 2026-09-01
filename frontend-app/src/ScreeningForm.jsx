@@ -203,6 +203,7 @@ export default function ScreeningForm() {
   const screeningIdRef = useRef(screeningId);
   const autoSaveRef    = useRef(null);
   const offlineQueueRef = useRef(false);
+  const creatingScreeningRef = useRef(null);
   formDataRef.current = formData;
   screeningIdRef.current = screeningId;
   offlineQueueRef.current = offlineQueue;
@@ -943,6 +944,27 @@ export default function ScreeningForm() {
   useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
   useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
 
+  /* Shared by autoSave / saveForm / saveDraft. If a screening_id already
+     exists, just PUT. If not, and ANOTHER save is already in the middle
+     of creating one (e.g. autosave's POST is still in flight when the
+     nurse clicks Save), await that SAME request instead of firing a
+     second POST — this is what previously let two callers both create
+     separate screening_ids for one in-progress form. */
+  const createOrUpdateScreening = useCallback(async (payload, existingId) => {
+    if (existingId) {
+      return api.put(`/screenings/${existingId}`, payload);
+    }
+    if (creatingScreeningRef.current) {
+      return creatingScreeningRef.current;
+    }
+    const creationPromise = api.post("/screenings/", payload)
+      .finally(() => {
+        creatingScreeningRef.current = null;
+      });
+    creatingScreeningRef.current = creationPromise;
+    return creationPromise;
+  }, []);
+
   /* ─── Auto-save every 10 seconds (silent, no modals, no validation) ──
      Only while the form is editable and has unsaved edits — never on a
      locked/saved view (was PUTting continuously after "Save"). */
@@ -958,8 +980,18 @@ export default function ScreeningForm() {
     const sid = screeningIdRef.current;
     const existingId = (sid || (storedId && storedId !== "undefined" && storedId !== "null" ? storedId : null)) || null;
 
-    /* Don't create a new DB row until the nurse has picked a site */
-    if (!existingId && !fd.site_name) return;
+    /* Don't create a new DB row (and hand out a screening_id) until the
+       nurse has entered at least one piece of A3 identification data —
+       merely picking a site (e.g. browsing the dropdown, then navigating
+       away) shouldn't be enough to spin up a record. site_name is still
+       required too since the backend derives the ID's site prefix from
+       it and will 422 without one. */
+    const hasIdentificationData = [
+      "mother_first_name", "mother_surname",
+      "husband_first_name", "husband_surname",
+      "maternal_uid", "hospital_admission_number",
+    ].some(k => (fd[k] || "").toString().trim() !== "");
+    if (!existingId && (!fd.site_name || !hasIdentificationData)) return;
 
     if (!navigator.onLine) {
       setOfflineQueue(true);
@@ -970,9 +1002,7 @@ export default function ScreeningForm() {
     try {
       const payload = buildPayloadFrom(fd, true, exclYes);
 
-      const res = existingId
-        ? await api.put(`/screenings/${existingId}`, payload)
-        : await api.post("/screenings/", payload);
+      const res = await createOrUpdateScreening(payload, existingId);
 
       const newSid = res.data.screening_id;
       const eid = res.data.enrollment_id;
@@ -1021,9 +1051,7 @@ export default function ScreeningForm() {
       const storedId = localStorage.getItem("current_screening_id");
       const existingId = screeningId || storedId || null;
 
-      const res = existingId
-        ? await api.put(`/screenings/${existingId}`, payload)
-        : await api.post("/screenings/", payload);
+      const res = await createOrUpdateScreening(payload, existingId);
 
       const sid = res.data.screening_id;
       const eid = res.data.enrollment_id;
@@ -1060,9 +1088,7 @@ export default function ScreeningForm() {
       const storedId   = localStorage.getItem("current_screening_id");
       const existingId = screeningId || storedId || null;
 
-      const res = existingId
-        ? await api.put(`/screenings/${existingId}`, payload)
-        : await api.post("/screenings/", payload);
+      const res = await createOrUpdateScreening(payload, existingId);
 
       const sid = res.data.screening_id;
       const eid = res.data.enrollment_id;

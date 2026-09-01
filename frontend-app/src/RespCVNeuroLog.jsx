@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, openNativeDatePicker } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -13,7 +13,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertCircle, Clock,
   Lock, Send, AlertTriangle, X,
-  Copy, History, Unlock, AlertOctagon, Edit, ListChecks,
+  Copy, History, Unlock, AlertOctagon, Edit, ListChecks, Calendar,
 } from "lucide-react";
 
 /* ── Day status constants ── */
@@ -1572,57 +1572,89 @@ export default function RespCVNeuroLog() {
             >
               <History size={13} /> Table View
             </button>
-            <div className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}>
-              <span className="rcn-day1-picker-icon">📅</span>
+            <div
+              className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}
+              role={day1DateLocked ? undefined : "button"}
+              tabIndex={day1DateLocked ? -1 : 0}
+              aria-label={day1Date ? `Day 1 Date ${formatIsoDateMedium(day1Date)}` : "Day 1 Date, select date"}
+              title={day1DateLocked
+                ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
+                : `Required — today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`}
+              onClick={(e) => {
+                if (day1DateLocked || e.target.closest(".rcn-day1-admin-unlock")) return;
+                openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
+              }}
+              onKeyDown={(e) => {
+                if (day1DateLocked) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
+                }
+              }}
+            >
+              <span className="rcn-day1-picker-icon" aria-hidden="true">
+                <Calendar size={16} strokeWidth={1.75} />
+              </span>
               <div className="rcn-day1-picker-body">
-                <label className="rcn-day1-picker-label">
+                <span className="rcn-day1-picker-label">
                   Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
-                  {day1DateLocked && <Lock size={10} className="rcn-day1-picker-lock" />}
-                </label>
-                <input
-                  type="date"
-                  className="rcn-day1-picker-input"
-                  value={day1Date}
-                  readOnly={day1DateLocked}
-                  disabled={day1DateLocked}
-                  min={day1EditArmed ? undefined : day1DateBounds.min}
-                  max={day1EditArmed ? undefined : day1DateBounds.max}
-                  required
-                  title={day1DateLocked
-                    ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                    : `Required — today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`}
-                  onChange={async e => {
-                    if (day1DateLocked) return;
-                    const v = e.target.value;
-                    // Nurses may only pick today, or (until the late-grace
-                    // cutoff) yesterday — prevents an accidental unrelated
-                    // date; superadmin corrections (day1EditArmed) skip this.
-                    if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
-                      setMessage(
-                        `⚠️ Day 1 Date must be today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`
-                      );
-                      setTimeout(() => setMessage(""), 4000);
-                      return;
-                    }
-                    setDay1Date(v);
-                    if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
-                    try {
-                      await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
-                      setDay1EditArmed(false);
-                      setDay1DateSetBy(user?.username || "");
-                    } catch (err) {
-                      setMessage("⚠️ Could not save Day 1 Date — " +
-                        (err?.response?.data?.detail || "it may already be locked"));
-                    }
-                  }}
-                />
+                </span>
+                <span className="rcn-day1-picker-value">
+                  {day1Date ? formatIsoDateMedium(day1Date) : "Select date"}
+                </span>
               </div>
+              <input
+                type="date"
+                className="rcn-day1-picker-input"
+                tabIndex={-1}
+                aria-hidden="true"
+                value={day1Date}
+                readOnly={day1DateLocked}
+                disabled={day1DateLocked}
+                min={day1EditArmed ? undefined : day1DateBounds.min}
+                max={day1EditArmed ? undefined : day1DateBounds.max}
+                required
+                onChange={async e => {
+                  if (day1DateLocked) return;
+                  const v = e.target.value;
+                  // Nurses may only pick today, or (until the late-grace
+                  // cutoff) yesterday — prevents an accidental unrelated
+                  // date; superadmin corrections (day1EditArmed) skip this.
+                  if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
+                    setMessage(
+                      `⚠️ Day 1 Date must be today's date, or yesterday's before ${RCN_LATE_GRACE_HOUR}:00 AM`
+                    );
+                    setTimeout(() => setMessage(""), 4000);
+                    return;
+                  }
+                  setDay1Date(v);
+                  if (enrollmentId) localStorage.setItem(`rcn_day1_${enrollmentId}`, v);
+                  try {
+                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
+                    setDay1EditArmed(false);
+                    setDay1DateSetBy(user?.username || "");
+                  } catch (err) {
+                    setMessage("⚠️ Could not save Day 1 Date — " +
+                      (err?.response?.data?.detail || "it may already be locked"));
+                  }
+                }}
+              />
+              {day1DateLocked && (
+                <span
+                  className="rcn-day1-picker-lock-chip"
+                  title={`Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`}
+                >
+                  <Lock size={11} strokeWidth={2.25} />
+                  Locked
+                </span>
+              )}
               {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
                 <button
                   type="button"
                   className="rcn-day1-admin-unlock"
                   title="Superadmin: unlock Day 1 Date for correction"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     if (window.confirm(
                       "Changing Day 1 Date after daily data exists can reshuffle which days are " +
                       "counted as past/future for every nurse. Continue only for a genuine correction."

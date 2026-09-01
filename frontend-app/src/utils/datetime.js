@@ -66,6 +66,51 @@ export function parseDateOnly(value) {
 }
 
 /**
+ * Format a "YYYY-MM-DD" value as "06 Aug 2026" (always English, never
+ * locale-hyphenated). Used by the helper-form Day 1 Date control so the
+ * visible label cannot be clipped by a native date widget.
+ * @param {string|null|undefined} iso
+ */
+export function formatIsoDateMedium(iso) {
+  const d = parseDateOnly(iso);
+  if (!d) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${pad2(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * Open the OS date picker from a styled control. Windows Chrome's
+ * <input type="date"> ignores opacity and has a large min-width, so the
+ * helper forms keep the native input clipped and call this on click.
+ * @param {HTMLInputElement|null|undefined} input
+ */
+export function openNativeDatePicker(input) {
+  if (!input || input.disabled) return;
+  try {
+    if (typeof input.showPicker === "function") input.showPicker();
+    else input.focus();
+  } catch {
+    try { input.focus(); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Format an "HH:MM" (24h) value as "hh:mm AM/PM".
+ * @param {string|null|undefined} hhmm
+ */
+export function formatTimeAmPm(hhmm) {
+  const m = String(hhmm || "").trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  let h = Number(m[1]);
+  if (!Number.isFinite(h) || h < 0 || h > 23) return "";
+  const min = m[2];
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${pad2(h)}:${min} ${ap}`;
+}
+
+/**
  * Format a date-like value into "DD-MM-YYYY". Returns "" for empty input.
  * Prefer parseDateOnly for "YYYY-MM-DD" so IST/other TZ never shifts the day.
  * @param {Date|string|number|null|undefined} date

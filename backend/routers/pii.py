@@ -1,6 +1,7 @@
 """Access-controlled endpoints for participant personally identifiable information."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from db import get_db
@@ -96,27 +97,34 @@ def get_pii_batch(
         return {"items": {}}
 
     screenings = (
-        db.query(Screening.screening_id, Screening.site_name)
+        db.query(Screening.screening_id, Screening.site_name, Screening.enrollment_id)
         .filter(Screening.screening_id.in_(unique_ids))
         .all()
     )
-    allowed_ids = [
-        sid for sid, site in screenings
+    allowed = [
+        (sid, eid, site) for sid, site, eid in screenings
         if can_view_pii_for_site(current_user, site)
     ]
-    if not allowed_ids:
+    if not allowed:
         return {"items": {}}
 
-    rows = (
-        db.query(ParticipantPII)
-        .filter(ParticipantPII.screening_id.in_(allowed_ids))
-        .all()
-    )
+    allowed_sids = [sid for sid, _, _ in allowed]
+    allowed_eids = [eid for _, eid, _ in allowed if eid]
+    conditions = []
+    if allowed_sids:
+        conditions.append(ParticipantPII.screening_id.in_(allowed_sids))
+    if allowed_eids:
+        conditions.append(ParticipantPII.enrollment_id.in_(allowed_eids))
+    rows = db.query(ParticipantPII).filter(or_(*conditions)).all() if conditions else []
+
+    by_sid = {row.screening_id: row for row in rows if row.screening_id}
+    by_eid = {row.enrollment_id: row for row in rows if row.enrollment_id}
+
     items = {}
-    for row in rows:
-        if not row.screening_id:
-            continue
-        items[row.screening_id] = pii_to_dict(row)
+    for sid, eid, _site in allowed:
+        rec = by_sid.get(sid) or (eid and by_eid.get(eid))
+        if rec:
+            items[sid] = pii_to_dict(rec)
     return {"items": items}
 
 

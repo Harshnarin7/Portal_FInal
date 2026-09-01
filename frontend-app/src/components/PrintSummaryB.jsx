@@ -255,9 +255,15 @@ function PrintReportB({ formData = {} }) {
               {formData.reason_exit_trial_gas_other && (
                 <R label="Exit Reason — Other" value={formData.reason_exit_trial_gas_other} />
               )}
-              <R label="Blender Stopped" value={yn(formData.blender_stopped)} />
+              <R label="Blender interrupted before 30 min" value={yn(formData.blender_stopped)} />
+              {Array.isArray(formData.blender_interrupt_reasons) && formData.blender_interrupt_reasons.length > 0 && (
+                <R label="Interrupt reason" value={formData.blender_interrupt_reasons.join(", ")} />
+              )}
+              {typeof formData.blender_interrupt_reasons === "string" && formData.blender_interrupt_reasons && (
+                <R label="Interrupt reason" value={formData.blender_interrupt_reasons} />
+              )}
               {formData.blender_stopped_description && (
-                <R label="Blender Stopped — Detail" value={formData.blender_stopped_description} />
+                <R label="Blender stopped abruptly — Detail" value={formData.blender_stopped_description} />
               )}
               <R label="Blender Unit ID" value={formData.blender_letter} />
             </tbody></table>

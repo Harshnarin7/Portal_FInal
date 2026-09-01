@@ -752,3 +752,93 @@
 .rx-grid .rx-option input[type="checkbox"]:checked { background-color: #4f46e5 !important; }
 .rx-grid .rx-option:has(input:checked) { border-color: #4f46e5; background: #eef2ff; }
 .rx-grid .rx-option:has(input:checked) span { color: #0f172a; font-weight: 700; }
+
+/* ============================================================
+   FORCE REFILL CONFIRM MODAL — replaces window.confirm() for the
+   one action on this page that can genuinely destroy a clinician's
+   entered answer. Amber is used nowhere else on this page, so its
+   appearance here is itself part of the warning: this dialog means
+   something different from the routine indigo "auto-filled" hints.
+   ============================================================ */
+.formh-modern .fh-confirm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: fh-overlay-in .16s ease-out;
+}
+.formh-modern .fh-confirm-modal {
+  width: 100%; max-width: 420px;
+  background: var(--fh-surface);
+  border-radius: var(--fh-radius-lg);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28), 0 4px 14px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  animation: fh-modal-in .18s cubic-bezier(.2, .9, .3, 1.2);
+}
+.formh-modern .fh-confirm-icon-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 20px 22px 0;
+}
+.formh-modern .fh-confirm-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 999px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  display: flex; align-items: center; justify-content: center;
+}
+.formh-modern .fh-confirm-title {
+  margin: 0; font-size: 16px; font-weight: 800; color: var(--fh-text);
+  letter-spacing: -0.01em;
+}
+.formh-modern .fh-confirm-body {
+  padding: 14px 22px 4px;
+  font-size: 13.5px; line-height: 1.55;
+  color: var(--fh-text-muted);
+}
+.formh-modern .fh-confirm-body strong { color: var(--fh-text); font-weight: 700; }
+.formh-modern .fh-confirm-note {
+  margin: 14px 22px 0;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--fh-radius-sm);
+  font-size: 12.5px; line-height: 1.5;
+  color: #92400e;
+}
+.formh-modern .fh-confirm-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 20px 22px 22px;
+}
+.formh-modern .fh-confirm-btn {
+  height: 38px; padding: 0 16px;
+  border-radius: var(--fh-radius-sm);
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+}
+.formh-modern .fh-confirm-btn:active { transform: scale(.97); }
+.formh-modern .fh-confirm-btn--cancel {
+  background: var(--fh-surface);
+  border: 1.5px solid var(--fh-border);
+  color: var(--fh-text-muted);
+}
+.formh-modern .fh-confirm-btn--cancel:hover { background: #f8fafc; border-color: #cbd5e1; }
+.formh-modern .fh-confirm-btn--danger {
+  background: #dc2626;
+  border: 1.5px solid #dc2626;
+  color: #fff;
+}
+.formh-modern .fh-confirm-btn--danger:hover { background: #b91c1c; border-color: #b91c1c; }
+
+@keyframes fh-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fh-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import { formatBabyOfLabel } from "./utils/babyName";
 import "./Dashboard.css";
 
 // ─────────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ export default function Dashboard() {
 
   // ── Data state (live only) ─────────────────────────────
   const [screenings,   setScreenings]   = useState([]);
+  const [piiByScreening, setPiiByScreening] = useState({});
   const [ops,          setOps]          = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [loadError,    setLoadError]    = useState(null);
@@ -186,7 +188,19 @@ export default function Dashboard() {
         api.get("/screenings/", { params: { limit: 100 } }),
       ]);
       setOps(opsRes.data);
-      setScreenings(Array.isArray(scrRes.data) ? scrRes.data : []);
+      const list = Array.isArray(scrRes.data) ? scrRes.data : [];
+      setScreenings(list);
+      const sids = list.map(d => d.screening_id).filter(Boolean);
+      if (sids.length) {
+        try {
+          const piiRes = await api.post("/pii/batch", { screening_ids: sids });
+          setPiiByScreening(piiRes.data?.items || {});
+        } catch {
+          setPiiByScreening({});
+        }
+      } else {
+        setPiiByScreening({});
+      }
     } catch (err) {
       setLoadError(err.response?.data?.detail || "Failed to load live dashboard data");
     } finally {
@@ -235,11 +249,16 @@ export default function Dashboard() {
   const mort = safety.mortality || {};
   const morb = safety.morbidities || {};
 
-  const filtered = screenings.filter(d =>
-    !search ||
-    (d.enrollment_id || "").toLowerCase().includes(search.toLowerCase()) ||
-    (d.site_name     || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = screenings.filter(d => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const baby = formatBabyOfLabel(piiByScreening[d.screening_id]).toLowerCase();
+    return (
+      (d.enrollment_id || "").toLowerCase().includes(q) ||
+      (d.site_name     || "").toLowerCase().includes(q) ||
+      baby.includes(q)
+    );
+  });
 
   // ── Open enrollment form ───────────────────────────────
   const openEnroll = useCallback(async id => {
@@ -605,7 +624,7 @@ export default function Dashboard() {
             <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center" }}>
               <div className="db-search" style={{ flex: 1, maxWidth: "100%" }}>
                 <Ic d={P.search} s={13} c="#64748b" />
-                <input placeholder="Search enrollment ID, site, status…" value={search} onChange={e => setSearch(e.target.value)} />
+                <input placeholder="Search baby name, enrollment ID, site…" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
             </div>
             <Crd>
@@ -613,13 +632,16 @@ export default function Dashboard() {
               <div className="db-table-wrap">
                 <table className="db-table">
                   <thead>
-                    <tr><th>Enrollment ID</th><th>Site</th><th>Gestation</th><th>Status</th><th>Updated</th><th>Action</th></tr>
+                    <tr><th>Baby name</th><th>Enrollment ID</th><th>Site</th><th>Gestation</th><th>Status</th><th>Updated</th><th>Action</th></tr>
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={6} style={{ textAlign: "center", color: C.slate, padding: 40, fontSize: 13 }}>No records found</td></tr>
+                      <tr><td colSpan={7} style={{ textAlign: "center", color: C.slate, padding: 40, fontSize: 13 }}>No records found</td></tr>
                     ) : filtered.slice(0, 50).map(r => (
                       <tr key={r.screening_id || r.enrollment_id}>
+                        <td style={{ fontWeight: 700, color: "#0b1c30", fontSize: 13 }}>
+                          {formatBabyOfLabel(piiByScreening[r.screening_id]) || "—"}
+                        </td>
                         <td style={{ fontWeight: 700, color: C.tL, fontSize: 12 }}>{r.enrollment_id || r.screening_id || "—"}</td>
                         <td>{r.site_name || "—"}</td>
                         <td>{r.gestation_weeks ? `${r.gestation_weeks}w ${r.gestation_days || 0}d` : "—"}</td>

@@ -2631,6 +2631,97 @@ def get_cv_prefill(
     }
 
 
+@app.get("/neonatal-morbidities/vm-doppler-prefill/{enrollment_id}")
+def get_vm_doppler_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates Minimal Monitoring day logs into Form H's Ventriculomegaly
+    measurement sub-block (H1.3, CRF #22-26: Severity, Maximum VI, AHW,
+    Maximum TOD, ACA RI, MCA RI).
+
+    Each of AHW / TOD / ACA RI / MCA RI is its own independent running
+    maximum across every Minimal Monitoring day row for this enrollment
+    — same convention as CV's lowest_sbp / lowest_dbp / lowest_map, but
+    highest rather than lowest. The row that produced the max VI does
+    not have to be the same row that produced the max AHW/TOD/ACA-RI/
+    MCA-RI.
+
+    VI and severity travel together: ventriculomegaly_severity is taken
+    from the SAME row that produced the highest vi, as-is, with no
+    independent "worst severity" ranking. If that row's severity is
+    blank, severity is None rather than falling back to another day.
+    vi_max_date is that row's imaging_date.
+
+    Flat per-day columns only (imaging_date, ventriculomegaly_severity,
+    vi, ahw, tod, aca_ri, mca_ri) — not the entries_json multi-entry
+    blocks. Response keys vi_max / tod_max match Form H formData; the
+    DB columns stay named vi / tod.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def numeric_values(attr):
+        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
+
+    def iso_date(v):
+        if v is None or v == "":
+            return None
+        if hasattr(v, "isoformat"):
+            d = v.isoformat()
+            return d[:10] if isinstance(d, str) else str(d)
+        s = str(v).strip()
+        return s[:10] if len(s) >= 10 and s[4] == "-" and s[7] == "-" else (s or None)
+
+    ahw_vals = numeric_values("ahw")
+    tod_vals = numeric_values("tod")
+    aca_ri_vals = numeric_values("aca_ri")
+    mca_ri_vals = numeric_values("mca_ri")
+
+    max_vi = None
+    max_vi_row = None
+    for row in logs:
+        v = to_float(row.vi)
+        if v is None:
+            continue
+        if max_vi is None or v > max_vi:
+            max_vi = v
+            max_vi_row = row
+
+    vi_max_date = None
+    ventriculomegaly_severity = None
+    if max_vi_row is not None:
+        vi_max_date = iso_date(max_vi_row.imaging_date)
+        sev = (max_vi_row.ventriculomegaly_severity or "").strip()
+        ventriculomegaly_severity = sev or None
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "ventriculomegaly_severity": ventriculomegaly_severity,
+        "vi_max": max_vi,
+        "vi_max_date": vi_max_date,
+        "ahw": max(ahw_vals) if ahw_vals else None,
+        "tod_max": max(tod_vals) if tod_vals else None,
+        "aca_ri": max(aca_ri_vals) if aca_ri_vals else None,
+        "mca_ri": max(mca_ri_vals) if mca_ri_vals else None,
+    }
+
+
 def _consecutive_day_runs(days):
     """Collapses a sorted, deduplicated list of NICU day numbers into
     maximal consecutive runs, e.g. [4,5,6,9,10] -> [(4,6), (9,10)]."""
