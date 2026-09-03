@@ -50,7 +50,6 @@ function mmlLatestCumulativeFeedVolume(data) {
   const n = Number(data.cumulative_feed_volume);
   return Number.isFinite(n) ? n : null;
 }
-}
 
 function parseJsonArrayIg(raw) {
   if (!raw) return null;
