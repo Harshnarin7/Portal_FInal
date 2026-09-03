@@ -2658,6 +2658,8 @@ const CV_PREFILL_FIELDS = [
 // staleness (drug checkboxes are simple booleans, same as Metabolic's
 // dyselectro_na/k/ca) — fluid_bolus_number/inotrope_duration are excluded
 // on purpose, same reasoning as every other domain's day-count fields.
+// fluid_bolus_number is not flagged stale — it always re-syncs to the latest
+// summed total from Minimal Monitoring (see fetchCvPrefill). No Force refill.
 //
 // sbp/dbp/map ARE included here, unlike those day-count fields — each is a
 // running minimum across the whole Minimal Monitoring history, so it only
@@ -2685,7 +2687,7 @@ const fetchCvPrefill = async ({ force = false } = {}) => {
     const stale = {};
     setFormData((prev) => {
       const next = { ...prev };
-      CV_PREFILL_FIELDS.filter((field) => field !== "hs_pda").forEach((field) => {
+      CV_PREFILL_FIELDS.filter((field) => field !== "hs_pda" && field !== "fluid_bolus_number").forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
         const currentlyBlank = isBlank(prev[field]);
@@ -2705,6 +2707,13 @@ const fetchCvPrefill = async ({ force = false } = {}) => {
       if (!isBlank(data.hs_pda)) {
         next.hs_pda = data.hs_pda;
         filled.hs_pda = true;
+      }
+      // Running bolus-course total from Minimal Monitoring — always follows
+      // the live sum. A later day's extra entries must show up on the next
+      // Form H load/refresh without Force refill (3 → 5 in the worked example).
+      if (data.fluid_bolus_number !== undefined && data.fluid_bolus_number !== null) {
+        next.fluid_bolus_number = data.fluid_bolus_number;
+        filled.fluid_bolus_number = true;
       }
       return next;
     });

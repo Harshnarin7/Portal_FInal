@@ -550,9 +550,9 @@
 .rcn-timeline {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   overflow-x: auto;
-  padding: 12px 2px 14px;
+  padding: 16px 8px 20px;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
   flex: 1;
@@ -570,9 +570,9 @@
   align-items: center;
   justify-content: center;
   gap: 1px;
-  flex: 0 0 48px;
-  width: 48px;
-  height: 60px;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
   border-radius: 14px;
   border: 1.5px dashed #CBD5E1;
   background: transparent;
@@ -584,12 +584,13 @@
 .rcn-day-add:hover         { border-color: #0f4c81; background: #eff6ff; transform: translateY(-1px); }
 .rcn-day-add-plus          { font-size: 22px; font-weight: 700; line-height: 1; color: #64748b; }
 .rcn-day-add:hover .rcn-day-add-plus { color: #0f4c81; }
-.rcn-day-add-label         { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; }
+.rcn-day-add-label         { font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8; }
 .rcn-day-add:hover .rcn-day-add-label { color: #0f4c81; }
 
 .rcn-day-wrap {
   position: relative;
-  flex: 0 0 48px;
+  flex: 0 0 64px;
+  overflow: visible;
 }
 
 .rcn-day-missing-btn {
@@ -691,74 +692,121 @@
 .rcn-legend-lock { color: #94A3B8; }
 
 .rcn-day {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  width: 48px;          /* fixed width — never stretches */
-  flex: 0 0 48px;       /* no grow, no shrink */
-  height: 60px;
+  justify-content: center;
+  gap: 2px;
+  width: 64px;
+  flex: 0 0 64px;
+  height: 64px;
   border-radius: 14px;
-  border: 1px solid #F1F5F9;
-  background: #FBFCFE;
+  border: 1.5px solid #E2E8F0;
+  background: #fff;
   cursor: pointer;
-  padding: 5px 4px;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  padding: 0 3px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s, color 0.15s;
 }
 
-.rcn-day:hover:not(.rcn-day--future):not(.rcn-day--active) {
-  background: #EFF6FF;
-  border-color: #BFDBFE;
+.rcn-day:hover:not(.rcn-day--future):not(.rcn-day--active):not(.rcn-day--discharged) {
   transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
 }
 
 .rcn-day--active {
-  background: linear-gradient(160deg, #1A5F9E, #0F4C81);
-  border-color: transparent;
-  box-shadow: 0 4px 14px rgba(15,76,129,0.32);
-  transform: translateY(-1px);
+  background: #0F4C81;
+  border: 2px solid #0F4C81;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0F4C81;
+  transform: none;
+  z-index: 1;
 }
 
 .rcn-day--future {
-  opacity: 0.45;
+  opacity: 1;
   cursor: default;
+  background: #fff;
+  border: 1.5px dashed #CBD5E1;
+  box-shadow: none;
 }
 
-.rcn-day-d {
-  font-size: 9px;
-  font-weight: 700;
-  color: #94A3B8;
-  letter-spacing: 0.04em;
-}
-.rcn-day--active .rcn-day-d { color: rgba(255,255,255,0.65); }
-
-.rcn-day-num {
-  font-size: 16px;
-  font-weight: 800;
-  color: #475569;
-  line-height: 1;
-}
-.rcn-day--active .rcn-day-num { color: #fff; }
-.rcn-day--done .rcn-day-num   { color: #0F172A; }
-
-.rcn-day-dot {
-  width: 4px;
-  height: 4px;
+.rcn-day-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: #10B981;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0;
+  border: none;
+  box-shadow: 0 0 0 2px #fff;
+  z-index: 3;
+  cursor: inherit;
 }
-.rcn-day--active .rcn-day-dot { background: rgba(255,255,255,0.8); }
-.rcn-day--future .rcn-day-dot { background: #E2E8F0; }
+.rcn-day-badge--list {
+  background: #D97706;
+  cursor: pointer;
+}
+.rcn-day-badge--alert {
+  background: #DC2626;
+}
+
+.rcn-day-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0F172A;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.rcn-day--active .rcn-day-label { color: #fff; }
+.rcn-day--complete .rcn-day-label,
+.rcn-day--submitted .rcn-day-label,
+.rcn-day--draft .rcn-day-label,
+.rcn-day--partial .rcn-day-label { color: #B45309; }
+.rcn-day--late .rcn-day-label,
+.rcn-day--missed .rcn-day-label { color: #991B1B; }
+.rcn-day--future .rcn-day-label { color: #94A3B8; }
+.rcn-day--active.rcn-day--complete .rcn-day-label,
+.rcn-day--active.rcn-day--submitted .rcn-day-label,
+.rcn-day--active.rcn-day--draft .rcn-day-label,
+.rcn-day--active.rcn-day--partial .rcn-day-label,
+.rcn-day--active.rcn-day--late .rcn-day-label,
+.rcn-day--active.rcn-day--missed .rcn-day-label { color: #fff; }
+
+.rcn-day-d,
+.rcn-day-num,
+.rcn-day-dot { display: none; }
 
 .rcn-day-date {
-  font-size: 8px;
-  font-weight: 600;
-  color: #94A3B8;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748B;
   white-space: nowrap;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
-.rcn-day--active .rcn-day-date { color: rgba(255,255,255,0.6); }
-.rcn-day--done   .rcn-day-date { color: #64748B; }
+.rcn-day--active .rcn-day-date { color: rgba(255,255,255,0.9); }
+.rcn-day--complete .rcn-day-date,
+.rcn-day--submitted .rcn-day-date,
+.rcn-day--draft .rcn-day-date,
+.rcn-day--partial .rcn-day-date { color: #92400E; }
+.rcn-day--late .rcn-day-date,
+.rcn-day--missed .rcn-day-date { color: #7F1D1D; }
+.rcn-day--future .rcn-day-date { color: #94A3B8; }
+.rcn-day--active.rcn-day--complete .rcn-day-date,
+.rcn-day--active.rcn-day--submitted .rcn-day-date,
+.rcn-day--active.rcn-day--draft .rcn-day-date,
+.rcn-day--active.rcn-day--partial .rcn-day-date,
+.rcn-day--active.rcn-day--late .rcn-day-date,
+.rcn-day--active.rcn-day--missed .rcn-day-date { color: rgba(255,255,255,0.9); }
 
 /* ── Daily Summary Card ────────────────────────────────────── */
 .rcn-summary {
@@ -824,6 +872,14 @@
   font-weight: 500;
 }
 .rcn-summary-meta svg { color: #94A3B8; flex-shrink: 0; }
+
+.rcn-summary-provenance {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: #94A3B8;
+  line-height: 1.4;
+}
 
 .rcn-summary-right {
   display: flex;
@@ -1662,25 +1718,31 @@
 ══════════════════════════════════════════════════════ */
 
 /* ── Day pill status variants ──────────────────────────────── */
-.rcn-day--submitted .rcn-day-dot {
-  background: #10B981;
-  box-shadow: 0 0 0 2px rgba(16,185,129,0.3);
+.rcn-day--complete,
+.rcn-day--submitted,
+.rcn-day--draft,
+.rcn-day--partial {
+  background: #FFF8E7;
+  border-color: #E8B84A;
+  box-shadow: 0 1px 2px rgba(217, 119, 6, 0.08);
 }
-.rcn-day--submitted .rcn-day-num { color: #10B981; }
-.rcn-day--submitted { border: 1.5px solid rgba(16,185,129,0.4); }
-
-.rcn-day--pending .rcn-day-dot {
-  background: #F59E0B;
-  box-shadow: 0 0 0 2px rgba(245,158,11,0.3);
+.rcn-day--late,
+.rcn-day--missed {
+  background: #FDECEC;
+  border-color: #F0A0A0;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
 }
-.rcn-day--pending .rcn-day-num { color: #B45309; }
-.rcn-day--pending { border: 1.5px solid rgba(245,158,11,0.35); }
 
-/* Keep active style on top of status variants */
+.rcn-day--active.rcn-day--complete,
 .rcn-day--active.rcn-day--submitted,
+.rcn-day--active.rcn-day--draft,
+.rcn-day--active.rcn-day--partial,
+.rcn-day--active.rcn-day--late,
+.rcn-day--active.rcn-day--missed,
 .rcn-day--active.rcn-day--pending {
-  border-color: transparent;
-  box-shadow: 0 3px 12px rgba(15,76,129,0.3);
+  background: #0F4C81 !important;
+  border: 2px solid #0F4C81 !important;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0F4C81;
 }
 
 /* ── Status Banners ────────────────────────────────────────── */
@@ -2069,11 +2131,24 @@
 }
 
 /* ── Day pill status color overrides ──────────────────────── */
-.rcn-day--complete  { border: 1.5px solid rgba(16,185,129,0.4) !important; }
+.rcn-day--complete,
+.rcn-day--submitted,
 .rcn-day--draft,
-.rcn-day--partial   { border: 1.5px solid rgba(245,158,11,0.4) !important; }
-.rcn-day--late      { border: 1.5px solid rgba(239,68,68,0.4)  !important; }
-.rcn-day--submitted { border: 1.5px solid rgba(15,76,129,0.4)  !important; }
+.rcn-day--partial { border-color: #E8B84A !important; }
+.rcn-day--late      { border-color: #F0A0A0 !important; }
+.rcn-day--active,
+.rcn-day--active.rcn-day--complete,
+.rcn-day--active.rcn-day--submitted,
+.rcn-day--active.rcn-day--draft,
+.rcn-day--active.rcn-day--partial,
+.rcn-day--active.rcn-day--late,
+.rcn-day--active.rcn-day--missed {
+  border-color: #0F4C81 !important;
+}
+.rcn-day--future {
+  border: 1.5px dashed #CBD5E1 !important;
+  background: #fff !important;
+}
 .rcn-day--discharged {
   opacity: 0.3;
   cursor: not-allowed !important;
@@ -2300,13 +2375,8 @@
 }
 
 /* ── Missed day marker on timeline buttons ─────────────────── */
-.rcn-day--missed { border: 1.5px solid rgba(220,38,38,0.45) !important; }
-.rcn-day-missed-flag {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  color: #DC2626;
-}
+.rcn-day--missed { border-color: #FCA5A5 !important; }
+.rcn-day-missed-flag { display: none; }
 .rcn-day { position: relative; }
 
 /* ── Missed-days summary banner ────────────────────────────── */

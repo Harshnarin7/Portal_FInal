@@ -1660,10 +1660,10 @@ class Day1DateUpdate(BaseModel):
 
 
 # Nurses may only record Day 1 Date as "today", or as "yesterday" up until
-# this local hour — mirrors the RCN/IGH/MRVE_LATE_GRACE_HOUR used on the
-# frontend so a nurse finishing an overnight shift can still log yesterday's
-# date, without allowing arbitrary/backdated entries afterwards.
-DAY1_DATE_ENTRY_GRACE_HOUR = 11
+# this local hour. Must match frontend `NICU_DAY_GRACE_HOUR` and the
+# helper-form RCN/IGH/MRVE grace constants so "today" never splits.
+NICU_DAY_GRACE_HOUR = 11
+DAY1_DATE_ENTRY_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
 
 def _day1_date_within_allowed_range(value: date) -> bool:
@@ -2058,6 +2058,179 @@ def get_renal_prefill(
     }
 
 
+# Product label as stored in Minimal Monitoring 5.6.A `heme_a.transfusion_products`
+# → Form H *_number key prefix / Helper 3 boolean column.
+_MML_HEME_PRODUCTS = (
+    ("PRBC", "prbc", "prbc_transfusion"),
+    ("Platelets", "platelet", "platelet_transfusion"),
+    ("FFP/Cryo", "ffp", "ffp_cryo"),
+)
+
+
+def _mml_parse_leading_number(raw):
+    """Same leading-number parse as Fluid Bolus 5.1.B: "2" → 2.0,
+    "2 units" → 2.0, blank/non-numeric → None."""
+    if raw is None:
+        return None
+    m = re.match(r"^\s*(\d+(?:\.\d+)?)", str(raw))
+    return float(m.group(1)) if m else None
+
+
+def _mml_load_entries(entries_json):
+    if not entries_json:
+        return {}
+    try:
+        parsed = (
+            json.loads(entries_json)
+            if isinstance(entries_json, str)
+            else entries_json
+        )
+        return parsed or {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _mml_product_list(raw):
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(p).strip() for p in raw if p is not None and str(p).strip()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        return [p.strip() for p in s.split(",") if p.strip()]
+    return []
+
+
+def _mml_heme_a_entries(entries_json):
+    heme_a = _mml_load_entries(entries_json).get("heme_a") or []
+    return heme_a if isinstance(heme_a, list) else []
+
+
+def _format_mml_count(total, found):
+    if not found:
+        return None
+    return int(total) if total == int(total) else total
+
+
+def _sum_minimal_monitoring_transfusions(db, enrollment_id):
+    """Sums 5.6.A `heme_a.transfusion_count` across every Minimal
+    Monitoring day row for this enrollment, per product.
+
+    A single entry's count is added in full to every selected product
+    (PRBC / Platelets / FFP/Cryo) — the data shape does not split one
+    count across products. Rows with no entries_json contribute nothing:
+    MinimalMonitoringDayLog has only combined `transfusion_products` /
+    `transfusion_count` columns, not per-product legacy fields to fall
+    back to (unlike fluid_bolus_given)."""
+    totals = {"prbc": 0.0, "platelet": 0.0, "ffp": 0.0}
+    found = {"prbc": False, "platelet": False, "ffp": False}
+    rows = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    for row in rows:
+        if not row.entries_json:
+            continue
+        for entry in _mml_heme_a_entries(row.entries_json):
+            if not isinstance(entry, dict):
+                continue
+            count = _mml_parse_leading_number(entry.get("transfusion_count"))
+            if count is None:
+                continue
+            products = _mml_product_list(entry.get("transfusion_products"))
+            for label, key, _field in _MML_HEME_PRODUCTS:
+                if label in products:
+                    totals[key] += count
+                    found[key] = True
+    return (
+        _format_mml_count(totals["prbc"], found["prbc"]),
+        _format_mml_count(totals["platelet"], found["platelet"]),
+        _format_mml_count(totals["ffp"], found["ffp"]),
+    )
+
+
+def _sync_helper3_transfusions_from_minimal_monitoring(
+    db, enrollment_id, record_date, entries_json
+):
+    """After a Minimal Monitoring save, set Helper 3's same-calendar-day
+    transfusion Yes/No fields to True when 5.6.A selected those products.
+
+    Only ever sets True (or creates a sparse day row). Never writes
+    False/None. If Helper 3 already has an explicit False, leave it —
+    that disagreement is intentionally not auto-resolved here (same class
+    of conflict as the CV/Metabolic/ROP stale flags); a future
+    InfectGIHemaLog.jsx task can surface it as a stale-style warning.
+    Submitted/locked Helper 3 days are skipped unless a superadmin
+    override is currently active."""
+    present = set()
+    for entry in _mml_heme_a_entries(entries_json):
+        if not isinstance(entry, dict):
+            continue
+        products = _mml_product_list(entry.get("transfusion_products"))
+        for label, _key, field in _MML_HEME_PRODUCTS:
+            if label in products:
+                present.add(field)
+    if not present:
+        return
+
+    nicu = (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not nicu or not nicu.day1_date:
+        return
+
+    try:
+        rec_date = date.fromisoformat(str(record_date))
+    except (TypeError, ValueError):
+        return
+
+    nicu_day = (rec_date - nicu.day1_date).days + 1
+    if nicu_day < 1:
+        return
+
+    row = (
+        db.query(InfectGIHemaDayLog)
+        .filter(
+            InfectGIHemaDayLog.enrollment_id == enrollment_id,
+            InfectGIHemaDayLog.nicu_day == nicu_day,
+        )
+        .first()
+    )
+    if row is None:
+        create_kwargs = {
+            "enrollment_id": enrollment_id,
+            "nicu_day": nicu_day,
+        }
+        for field in present:
+            create_kwargs[field] = True
+        db.add(InfectGIHemaDayLog(**create_kwargs))
+        return
+
+    override_active = (
+        row.override_unlocked_until
+        and row.override_unlocked_until > datetime.utcnow()
+    )
+    if row.submission_status == "submitted" and not override_active:
+        return
+
+    for field in present:
+        current = getattr(row, field)
+        if current is True:
+            continue
+        if current is False:
+            # Explicit Helper 3 "No" vs Minimal Monitoring product on the
+            # same day — do not silently flip to True. Intentionally not
+            # auto-resolved; a future InfectGIHemaLog.jsx task can surface
+            # this as a stale-style warning on fields 28-30.
+            continue
+        setattr(row, field, True)
+
+
 @app.get("/neonatal-morbidities/heme-prefill/{enrollment_id}")
 def get_heme_prefill(
     enrollment_id: str,
@@ -2076,11 +2249,15 @@ def get_heme_prefill(
     - lowest_hb: lowest value recorded across the admission — filled even
       though the parent "Anemia" Yes/No is never auto-derived (see below),
       so it's ready the moment a clinician marks Anemia Yes.
-    - dvet_number / prbc_number / platelet_number: day-count of days the
-      respective boolean was true, as a proxy for "number of transfusions/
-      exchanges" — the day log can't tell multiple same-day events apart
-      from one, so this can undercount, same caveat as Metabolic's
-      hypoglycemia_rx_duration.
+    - dvet_number: day-count of days exchange_transfusion was true, as a
+      proxy for "number of exchanges" — the day log can't tell multiple
+      same-day events apart from one, so this can undercount, same caveat
+      as Metabolic's hypoglycemia_rx_duration.
+    - prbc_number / platelet_number / ffp_number: summed
+      transfusion_count values from Minimal Monitoring 5.6.A (`heme_a`
+      in entries_json) across every MM day row. An entry's count is added
+      in full to each selected product. None when no matching numeric
+      entries exist (not a day-count of Helper 3 booleans).
     - jaundice_onset: earliest NICU day jaundice was true, converted to a
       calendar date via NICUAdmission.day1_date — same pattern as Renal's
       aki_date, only returned when day1_date has been set.
@@ -2121,6 +2298,10 @@ def get_heme_prefill(
         if nicu and nicu.day1_date:
             jaundice_onset = (nicu.day1_date + timedelta(days=min(jaundice_days) - 1)).isoformat()
 
+    prbc_number, platelet_number, ffp_number = (
+        _sum_minimal_monitoring_transfusions(db, enrollment_id)
+    )
+
     return {
         "has_data": True,
         "log_days_count": len(logs),
@@ -2132,11 +2313,11 @@ def get_heme_prefill(
         "dvet_number": count_days("exchange_transfusion") or None,
         "lowest_hb": min(hb_values) if hb_values else None,
         "prbc": "Yes" if any_day("prbc_transfusion") else "No",
-        "prbc_number": count_days("prbc_transfusion") or None,
+        "prbc_number": prbc_number,
         "platelets": "Yes" if any_day("platelet_transfusion") else "No",
-        "platelet_number": count_days("platelet_transfusion") or None,
+        "platelet_number": platelet_number,
         "ffp_cryo": "Yes" if any_day("ffp_cryo") else "No",
-        "ffp_number": count_days("ffp_cryo") or None,
+        "ffp_number": ffp_number,
     }
 
 
@@ -2641,23 +2822,34 @@ def get_vm_doppler_prefill(
     measurement sub-block (H1.3, CRF #22-26: Severity, Maximum VI, AHW,
     Maximum TOD, ACA RI, MCA RI).
 
+    Scans every 5.5.A "Ventriculomegaly" (`neuro_a`) and 5.5.B "Doppler"
+    (`neuro_b`) entry in each day's `entries_json` — a clinician can log
+    multiple readings on the same day, and flattenEntries() only copies
+    the FIRST of each block into the flat columns, so the running maxima
+    must walk the full arrays. Rows saved before the multi-entry redesign
+    have no entries_json (or an empty neuro_a / neuro_b sub-block) — for
+    those, fall back to that row's own legacy flat columns
+    (imaging_date / ventriculomegaly_severity / vi / ahw, and tod /
+    aca_ri / mca_ri), the same row_had_entries pattern as
+    `_lowest_minimal_monitoring_vital` and
+    `_sum_minimal_monitoring_fluid_bolus`.
+
     Each of AHW / TOD / ACA RI / MCA RI is its own independent running
-    maximum across every Minimal Monitoring day row for this enrollment
-    — same convention as CV's lowest_sbp / lowest_dbp / lowest_map, but
-    highest rather than lowest. The row that produced the max VI does
-    not have to be the same row that produced the max AHW/TOD/ACA-RI/
-    MCA-RI.
+    maximum across every entry from every day — same convention as CV's
+    lowest_sbp / lowest_dbp / lowest_map, but highest rather than lowest.
+    The entry that produced the max VI does not have to be the same
+    entry (or day) that produced the max AHW/TOD/ACA-RI/MCA-RI.
 
     VI and severity travel together: ventriculomegaly_severity is taken
-    from the SAME row that produced the highest vi, as-is, with no
-    independent "worst severity" ranking. If that row's severity is
-    blank, severity is None rather than falling back to another day.
-    vi_max_date is that row's imaging_date.
+    from the SAME entry that produced the highest vi, as-is, with no
+    independent "worst severity" ranking. If that entry's severity is
+    blank, severity is None rather than falling back to another entry.
+    vi_max_date is that entry's own `date` field (neuro_a entries carry
+    one, distinct from the row's record_date); for a legacy row with no
+    entries_json it is that row's imaging_date.
 
-    Flat per-day columns only (imaging_date, ventriculomegaly_severity,
-    vi, ahw, tod, aca_ri, mca_ri) — not the entries_json multi-entry
-    blocks. Response keys vi_max / tod_max match Form H formData; the
-    DB columns stay named vi / tod.
+    Response keys vi_max / tod_max match Form H formData; the DB columns
+    stay named vi / tod.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -2675,9 +2867,6 @@ def get_vm_doppler_prefill(
         except (TypeError, ValueError):
             return None
 
-    def numeric_values(attr):
-        return [v for v in (to_float(getattr(l, attr)) for l in logs) if v is not None]
-
     def iso_date(v):
         if v is None or v == "":
             return None
@@ -2687,34 +2876,86 @@ def get_vm_doppler_prefill(
         s = str(v).strip()
         return s[:10] if len(s) >= 10 and s[4] == "-" and s[7] == "-" else (s or None)
 
-    ahw_vals = numeric_values("ahw")
-    tod_vals = numeric_values("tod")
-    aca_ri_vals = numeric_values("aca_ri")
-    mca_ri_vals = numeric_values("mca_ri")
+    def parse_entries_json(row):
+        if not row.entries_json:
+            return None
+        try:
+            parsed = (
+                json.loads(row.entries_json)
+                if isinstance(row.entries_json, str)
+                else row.entries_json
+            )
+            return parsed if isinstance(parsed, dict) else None
+        except (TypeError, ValueError):
+            return None
 
+    def block_entries(parsed, key):
+        """Non-empty list from entries_json, or None to signal fallback."""
+        if parsed is None:
+            return None
+        entries = parsed.get(key) or []
+        if not isinstance(entries, list) or not entries:
+            return None
+        return entries
+
+    ahw_vals = []
+    tod_vals = []
+    aca_ri_vals = []
+    mca_ri_vals = []
     max_vi = None
-    max_vi_row = None
-    for row in logs:
-        v = to_float(row.vi)
-        if v is None:
-            continue
-        if max_vi is None or v > max_vi:
-            max_vi = v
-            max_vi_row = row
+    max_vi_severity = None
+    max_vi_date = None
 
-    vi_max_date = None
-    ventriculomegaly_severity = None
-    if max_vi_row is not None:
-        vi_max_date = iso_date(max_vi_row.imaging_date)
-        sev = (max_vi_row.ventriculomegaly_severity or "").strip()
-        ventriculomegaly_severity = sev or None
+    for row in logs:
+        parsed = parse_entries_json(row)
+
+        neuro_a = block_entries(parsed, "neuro_a")
+        row_had_neuro_a = neuro_a is not None
+        if not row_had_neuro_a:
+            neuro_a = [{
+                "date": row.imaging_date,
+                "ventriculomegaly_severity": row.ventriculomegaly_severity,
+                "vi": row.vi,
+                "ahw": row.ahw,
+            }]
+        for entry in neuro_a:
+            entry = entry or {}
+            vi = to_float(entry.get("vi"))
+            if vi is not None and (max_vi is None or vi > max_vi):
+                max_vi = vi
+                sev = entry.get("ventriculomegaly_severity") or ""
+                max_vi_severity = sev.strip() or None if isinstance(sev, str) else None
+                max_vi_date = iso_date(entry.get("date"))
+            ahw = to_float(entry.get("ahw"))
+            if ahw is not None:
+                ahw_vals.append(ahw)
+
+        neuro_b = block_entries(parsed, "neuro_b")
+        row_had_neuro_b = neuro_b is not None
+        if not row_had_neuro_b:
+            neuro_b = [{
+                "tod": row.tod,
+                "aca_ri": row.aca_ri,
+                "mca_ri": row.mca_ri,
+            }]
+        for entry in neuro_b:
+            entry = entry or {}
+            tod = to_float(entry.get("tod"))
+            if tod is not None:
+                tod_vals.append(tod)
+            aca = to_float(entry.get("aca_ri"))
+            if aca is not None:
+                aca_ri_vals.append(aca)
+            mca = to_float(entry.get("mca_ri"))
+            if mca is not None:
+                mca_ri_vals.append(mca)
 
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "ventriculomegaly_severity": ventriculomegaly_severity,
+        "ventriculomegaly_severity": max_vi_severity,
         "vi_max": max_vi,
-        "vi_max_date": vi_max_date,
+        "vi_max_date": max_vi_date,
         "ahw": max(ahw_vals) if ahw_vals else None,
         "tod_max": max(tod_vals) if tod_vals else None,
         "aca_ri": max(aca_ri_vals) if aca_ri_vals else None,
@@ -5952,9 +6193,10 @@ MINIMAL_MONITORING_FIELDS = [
 ]
 
 
-# Nurse-friendly day boundary (same idea as RespCVNeuroLog's RCN_LATE_GRACE_HOUR):
-# before boundary_hour local time, "today" still means the previous calendar date.
-MML_LATE_GRACE_HOUR = 8
+# Nurse-friendly day boundary: before this local hour, "today" still means
+# the previous calendar date. Same value as NICU_DAY_GRACE_HOUR / the
+# helper-form RCN/IGH/MRVE constants — do not drift this back to 8.
+MML_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
 
 def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
@@ -5999,6 +6241,32 @@ def get_minimal_monitoring_today(
     return record
 
 
+@app.get("/minimal-monitoring/{enrollment_id}/on/{on_date}", response_model=MinimalMonitoringDayOut)
+def get_minimal_monitoring_on_date(
+    enrollment_id: str,
+    on_date: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Load the Minimal Monitoring sheet for a specific calendar date
+    (YYYY-MM-DD). Used by Helper Form 2 to see whether that NICU day had
+    any 5.1.B fluid-bolus entries. Does not create a row if none exists."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", on_date or ""):
+        raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
+    record = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == on_date,
+        )
+        .first()
+    )
+    if not record:
+        return _mml_empty_payload(enrollment_id, on_date)
+    return record
+
+
 @app.put("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
 def upsert_minimal_monitoring_today(
     enrollment_id: str,
@@ -6033,6 +6301,9 @@ def upsert_minimal_monitoring_today(
                 continue
             if hasattr(record, key):
                 setattr(record, key, value)
+        _sync_helper3_transfusions_from_minimal_monitoring(
+            db, enrollment_id, record_date, record.entries_json
+        )
         db.commit()
         db.refresh(record)
         return record
@@ -6042,6 +6313,9 @@ def upsert_minimal_monitoring_today(
     create_data = {k: v for k, v in payload.items() if k in col_keys}
     record = MinimalMonitoringDayLog(**create_data)
     db.add(record)
+    _sync_helper3_transfusions_from_minimal_monitoring(
+        db, enrollment_id, record_date, record.entries_json
+    )
     db.commit()
     db.refresh(record)
     return record

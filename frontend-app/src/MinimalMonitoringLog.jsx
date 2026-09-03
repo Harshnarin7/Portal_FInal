@@ -8,12 +8,12 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
-import { toDateOnlyValue, formatDateToDDMMYYYY, formatTimeAmPm, openNativeDatePicker } from "./utils/datetime";
+import { toDateOnlyValue, formatDateToDDMMYYYY, formatTimeAmPm, openNativeDatePicker, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
 /** Before this local hour, "today" still means the previous calendar date (server + client). */
-const MML_BOUNDARY_HOUR = 8;
+const MML_BOUNDARY_HOUR = NICU_DAY_GRACE_HOUR;
 
 const SECTION_META = {
   cardiovascular: { code: "5.1", title: "Cardiovascular", icon: Heart },
@@ -1002,8 +1002,8 @@ export default function MinimalMonitoringLog() {
             blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
             {(e, i) => (
               <Item n={1} label="Fluid Bolus given">
-                <Txt value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
-                  disabled={!isEditable} placeholder="e.g. 10ml/kg NS" />
+                <Num value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
+                  disabled={!isEditable} placeholder="e.g. 2" />
               </Item>
             )}
           </EntryBlock>
@@ -1378,7 +1378,7 @@ export default function MinimalMonitoringLog() {
               Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers
             </p>
             <p className="mml-sheet-note">
-              Today's sheet{sheetDate ? ` (${formatDateToDDMMYYYY(sheetDate)})` : ""} — clears automatically after 8:00 AM
+              Today's sheet{sheetDate ? ` (${formatDateToDDMMYYYY(sheetDate)})` : ""} — clears automatically after {MML_BOUNDARY_HOUR}:00 AM
             </p>
           </div>
           <div className="rcn-patient-cards">

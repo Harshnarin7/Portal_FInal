@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, openNativeDatePicker } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, openNativeDatePicker, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1, calendarDateForNicuDay } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -11,7 +11,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
-  CheckCircle, AlertCircle, Clock,
+  CheckCircle, AlertCircle, Clock, Check,
   Lock, Send, AlertTriangle, X,
   Copy, History, Unlock, AlertOctagon, Edit, ListChecks, Calendar,
 } from "lucide-react";
@@ -45,6 +45,25 @@ const LEGEND_ITEMS = [
   { label: "Late",        dot: "#EF4444" },
   { label: "Locked",      dot: "#94A3B8", lock: true },
 ];
+
+/** True if this Minimal Monitoring sheet has any numeric 5.1.B bolus entry
+ *  (cv_b in entries_json, or the legacy flat fluid_bolus_given column). */
+function mmlHasFluidBolus(data) {
+  if (!data) return false;
+  const hasLeadingNumber = (raw) => {
+    if (raw == null || raw === "") return false;
+    return /^\s*\d+(?:\.\d+)?/.test(String(raw));
+  };
+  let entries = data.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const cvB = entries?.cv_b;
+  if (Array.isArray(cvB) && cvB.some((e) => hasLeadingNumber(e?.fluid_bolus_given))) {
+    return true;
+  }
+  return hasLeadingNumber(data.fluid_bolus_given);
+}
 
 /* Every field captured for a day, grouped by section, for the
    "All Days — Table View" modal (fields run down the rows, days
@@ -347,11 +366,12 @@ function YNToggle({ value, onChange, disabled }) {
   );
 }
 
-function YNRow({ label, value, onChange, disabled, hint }) {
+function YNRow({ label, value, onChange, disabled, hint, autofilled }) {
   return (
-    <div className="rcn-yn-row">
+    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <span className="rcn-yn-label">
         {label}
+        {autofilled && <span className="rcn-autofill-tag">from Minimal Monitoring</span>}
         {hint && <span className="rcn-yn-hint">{hint}</span>}
       </span>
       <YNToggle value={value} onChange={onChange} disabled={disabled} />
@@ -554,7 +574,7 @@ export default function RespCVNeuroLog() {
   const [isEditing, setIsEditing]         = useState(false);
   const [message, setMessage]             = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [loading, setLoading]             = useState(false);
+  const [loading, setLoading]             = useState(true);
   const [showModal, setShowModal]         = useState(false);
   const [submitting, setSubmitting]       = useState(false);
   const [savedAt, setSavedAt]             = useState(null);
@@ -653,6 +673,7 @@ export default function RespCVNeuroLog() {
     shock: null, vasoactive_support: null, fluid_bolus_given: null,
   });
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
+  const [bolusAutofilled, setBolusAutofilled] = useState(false);
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
@@ -666,47 +687,41 @@ export default function RespCVNeuroLog() {
   const isSubmitted      = currentDayStatus === STATUS.SUBMITTED;
 
   /* ── Calendar-based day locking ──
-     todayNicuDay = which NICU day number corresponds to the real
-     device date, given day1Date (manually entered Day 1 Date).
-     Days after it are "future" (no data allowed yet); days before
-     it are "past" (view-only, even if never submitted). 
-     
-     IMPORTANT: day1Date is NOT the birth date - it's the manually
-     entered "Day 1 Date" in the helper form, which may be different
-     from the actual date of birth. */
-  const todayNicuDay = useMemo(() => {
-    if (!day1Date) return null;
-    const base = new Date(day1Date + "T00:00:00");
-    if (isNaN(base.getTime())) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    base.setHours(0, 0, 0, 0);
-    return Math.floor((today - base) / 86400000) + 1;
-  }, [day1Date]);
+     todayNicuDay = which NICU day is the current *working* day given
+     Day 1 Date, using NICU_DAY_GRACE_HOUR so overnight staff still count
+     as "today" until that hour. Badges, future-locking, and the default
+     tab all use this same number — never a separate midnight calendar
+     today vs an 11am landing tab. */
+  const todayNicuDay = useMemo(
+    () => nicuDayNumberFromDay1(day1Date),
+    [day1Date],
+  );
+
+  const activeDayDate = useMemo(
+    () => calendarDateForNicuDay(day1Date, activeDay),
+    [day1Date, activeDay],
+  );
+  const activeDayDateRef = useRef(activeDayDate);
+  activeDayDateRef.current = activeDayDate;
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   // Informational only now — locking is manual (see the Lock button below),
   // so a past calendar date no longer forces a day read-only by itself.
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
   // Same-morning grace window: still used for the Day 1 Date entry window.
-  const RCN_LATE_GRACE_HOUR = 11;
+  const RCN_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
-  // Default which day's tab opens on first load, following the same
-  // 11am rule as the lock above: before 11am, default to yesterday's
-  // (still-open) day so a nurse finishing an overnight shift lands where
-  // they left off; from 11am on, default to today's day. Runs once —
-  // after that the nurse's own tab clicks take over, so this never
-  // fights manual navigation.
+  // Default tab = the same working day todayNicuDay already computed
+  // (grace hour included). Do not subtract 1 again here — that used to
+  // make the landing tab disagree with badges/future-lock.
   const initialDaySetRef = useRef(false);
   useEffect(() => {
     if (initialDaySetRef.current || todayNicuDay == null) return;
     initialDaySetRef.current = true;
-    const beforeGrace = new Date().getHours() < RCN_LATE_GRACE_HOUR;
-    const defaultDay = (beforeGrace && todayNicuDay - 1 >= 1) ? todayNicuDay - 1 : todayNicuDay;
-    setActiveDay(defaultDay);
+    setActiveDay(todayNicuDay);
   }, [todayNicuDay]);
 
   const isFieldEditable  =
@@ -722,6 +737,25 @@ export default function RespCVNeuroLog() {
     // confirmation modal below), so a past day's calendar date passing no
     // longer forces the record read-only on its own — only isSubmitted
     // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
+
+  const applyFluidBolusFromMml = async (recordDate = activeDayDate) => {
+    if (!enrollmentId || !recordDate) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+      if (activeDayDateRef.current !== recordDate) return;
+      const data = res?.data || {};
+      if (data.record_date && data.record_date !== recordDate) return;
+      if (!mmlHasFluidBolus(data)) return;
+      setCvData((p) => {
+        if (p.fluid_bolus_given === true) return p;
+        setIsEditing(true);
+        return { ...p, fluid_bolus_given: true };
+      });
+      setBolusAutofilled(true);
+    } catch (_) { /* Helper 5 optional */ }
+  };
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving —
@@ -860,10 +894,13 @@ export default function RespCVNeuroLog() {
   /* ── Load saved day data ── */
   useEffect(() => {
     if (!enrollmentId) return;
+    let cancelled = false;
     const loadDay = async () => {
       setLoading(true);
+      setBolusAutofilled(false);
       try {
         const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay}`);
+        if (cancelled) return;
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
           setWeightKg(d.weight_kg || "");
@@ -950,6 +987,7 @@ export default function RespCVNeuroLog() {
           resetFormState();
         }
       } catch (err) {
+        if (cancelled) return;
         // Always clear — never leave previous day's values in the form.
         resetFormState();
         if (err?.response?.status !== 404) {
@@ -957,11 +995,32 @@ export default function RespCVNeuroLog() {
           setTimeout(() => setMessage(""), 5000);
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+      if (!cancelled) await applyFluidBolusFromMml(calendarDateForNicuDay(day1Date, activeDay));
     };
     loadDay();
-  }, [enrollmentId, activeDay]);
+    return () => { cancelled = true; };
+  }, [enrollmentId, activeDay, day1Date]);
+
+  useEffect(() => {
+    if (!enrollmentId || !activeDayDate || loading) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    const tick = () => applyFluidBolusFromMml(activeDayDate);
+    const interval = setInterval(tick, 60000);
+    const onFocus = () => tick();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
 
   const resetFormState = () => {
     setWeightKg("");
@@ -983,6 +1042,7 @@ export default function RespCVNeuroLog() {
       pphn: null, postnatal_steroids: null });
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
       pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus_given: null });
+    setBolusAutofilled(false);
     setVasoactiveDrugs([]);
     setNeuroData({ cranial_usg: null, ivh: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
@@ -1115,7 +1175,11 @@ export default function RespCVNeuroLog() {
     );
   };
   const setResp   = (k, v) => isFieldEditable && setRespEvents(p => ({ ...p, [k]: v }));
-  const setCv     = (k, v) => isFieldEditable && setCvData(p => ({ ...p, [k]: v }));
+  const setCv = (k, v) => {
+    if (!isFieldEditable) return;
+    if (k === "fluid_bolus_given") setBolusAutofilled(false);
+    setCvData(p => ({ ...p, [k]: v }));
+  };
   const setNeuro  = (k, v) => isFieldEditable && setNeuroData(p => ({ ...p, [k]: v }));
 
   /* ── Save (Nurse) ── */
@@ -1700,15 +1764,8 @@ export default function RespCVNeuroLog() {
                       : isMissed   ? `Day ${d} — no data was ever entered (missed)`
                       : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
                     }
-                    style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
                   >
-                    {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
-                    <span className="rcn-day-d">D</span>
-                    <span className="rcn-day-num">{d}</span>
-                    {isFuture
-                      ? <Lock size={10} className="rcn-day-dot" />
-                      : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
-                    }
+                    <span className="rcn-day-label">Day {d}</span>
                     <span className="rcn-day-date">
                       {isDischarge ? "🏠" : (() => {
                         if (!day1Date) return "";
@@ -1718,17 +1775,27 @@ export default function RespCVNeuroLog() {
                       })()}
                     </span>
                   </button>
-
-                  {showMissingBadge && (
-                    <button
-                      type="button"
-                      className="rcn-day-missing-btn"
-                      onClick={(e) => handleToggleMissing(d, e)}
-                      title={`Day ${d} — see what's still missing`}
-                      aria-label={`See missing fields for Day ${d}`}
-                    >
-                      <ListChecks size={10} />
-                    </button>
+                  {!isActive && !isFuture && !isDischarge && (isMissed || st === STATUS.LATE) && (
+                    <span className="rcn-day-badge rcn-day-badge--alert" aria-hidden="true">!</span>
+                  )}
+                  {!isActive && !isFuture && !isDischarge && !(isMissed || st === STATUS.LATE) && (
+                    st === STATUS.COMPLETE || st === STATUS.SUBMITTED || st === STATUS.DRAFT || st === STATUS.PARTIAL
+                  ) && (
+                    showMissingBadge ? (
+                      <button
+                        type="button"
+                        className="rcn-day-badge rcn-day-badge--list"
+                        onClick={(e) => handleToggleMissing(d, e)}
+                        title={`Day ${d} — see what's still missing`}
+                        aria-label={`See missing fields for Day ${d}`}
+                      >
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </button>
+                    ) : (
+                      <span className="rcn-day-badge rcn-day-badge--list" aria-hidden="true">
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </span>
+                    )
                   )}
                 </div>
               );
@@ -1856,6 +1923,27 @@ export default function RespCVNeuroLog() {
                 {isSaved ? "Completed" : "Not yet started"}
               </span>
             </div>
+            {isSaved && (savedBy || savedAt || submittedBy || submittedAt) && (
+              <p className="rcn-summary-provenance">
+                {isSubmitted ? (
+                  <>
+                    Locked by {submittedBy || "Site User"}
+                    {submittedAt ? ` · ${formatStampShort(submittedAt)}` : ""}
+                    {(savedBy || savedAt) ? (
+                      <>
+                        {" · "}last saved by {savedBy || "Unknown"}
+                        {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    Saved by {savedBy || "Unknown"}
+                    {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                  </>
+                )}
+              </p>
+            )}
             {/* Copy from previous day button */}
             {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
               <button
@@ -2487,7 +2575,8 @@ export default function RespCVNeuroLog() {
 
               <div className="rcn-yn-list">
                 <YNRow key="fluid_bolus_given" label="29. Fluid bolus given" value={cvData.fluid_bolus_given}
-                  onChange={v => setCv("fluid_bolus_given", v)} disabled={!isFieldEditable} />
+                  onChange={v => setCv("fluid_bolus_given", v)} disabled={!isFieldEditable}
+                  autofilled={!!bolusAutofilled} />
               </div>
             </SectionCard>
 

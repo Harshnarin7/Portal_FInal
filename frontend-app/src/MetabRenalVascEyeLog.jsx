@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, openNativeDatePicker } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, openNativeDatePicker, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1 } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -11,7 +11,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
-  CheckCircle, AlertTriangle, X, Clock,
+  CheckCircle, AlertTriangle, X, Clock, Check,
   Lock, Copy, Edit,
   AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2, ListChecks, Calendar,
 } from "lucide-react";
@@ -186,12 +186,18 @@ function YNRow({ label, value, onChange, disabled }) {
 
 const STATUS_AWAITED  = "Result Awaited";
 const STATUS_NOT_DONE = "Not Recorded / Not Done";
+const STATUS_NOT_TESTED = "Not Tested";
 const isStatusSentinel = v => v === STATUS_AWAITED || v === STATUS_NOT_DONE;
+const isGlucoseSentinel = v =>
+  v === STATUS_NOT_TESTED || v === "Not Low" || v === "Not High";
 
 /** Small toggle-button pair rendered next to a field label. */
-function StatusToggleGroup({ status, onChange, disabled, allowAwaited = false }) {
+function StatusToggleGroup({
+  status, onChange, disabled, allowAwaited = false,
+  notDoneLabel = STATUS_NOT_DONE, notDoneValue = STATUS_NOT_DONE,
+}) {
   const isAwaited = status === STATUS_AWAITED;
-  const isNotDone = status === STATUS_NOT_DONE;
+  const isNotDone = status === notDoneValue;
   return (
     <div className="rcn-status-toggle-group">
       {allowAwaited && (
@@ -203,15 +209,15 @@ function StatusToggleGroup({ status, onChange, disabled, allowAwaited = false })
       )}
       <button type="button"
         className={`rcn-notdone-toggle${isNotDone ? " rcn-notdone-toggle--on" : ""}`}
-        onClick={() => !disabled && onChange(STATUS_NOT_DONE)}
+        onClick={() => !disabled && onChange(notDoneValue)}
         disabled={disabled}
-      >{isNotDone ? "Undo" : "Not Recorded / Not Done"}</button>
+      >{isNotDone ? "Undo" : notDoneLabel}</button>
     </div>
   );
 }
 
 function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
-  status = null, onStatusChange = null, allowAwaited = false }) {
+  status = null, onStatusChange = null, allowAwaited = false, autofilled = false }) {
   const isAwaited  = status === STATUS_AWAITED;
   const isNotDone  = status === STATUS_NOT_DONE;
   const isSentinel = isAwaited || isNotDone;
@@ -221,14 +227,17 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
     if (status !== s && value !== null && value !== undefined && value !== "") onChange(null);
   };
   return (
-    <div className="rcn-yn-row">
+    <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <div className="rcn-field-label-row">
-        <span className="rcn-yn-label">{label}</span>
+        <span className="rcn-yn-label">
+          {label}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+        </span>
         {onStatusChange && (
           <StatusToggleGroup status={status} onChange={toggle} disabled={disabled} allowAwaited={allowAwaited} />
         )}
       </div>
-      <div className={`rcn-num-input${isSentinel ? ` rcn-num-input--sentinel ${isAwaited ? "rcn-num-input--awaited" : "rcn-num-input--notdone"}` : ""}`} style={{ width:160 }}>
+      <div className={`rcn-num-input${autofilled ? " rcn-num-input--autofill" : ""}${isSentinel ? ` rcn-num-input--sentinel ${isAwaited ? "rcn-num-input--awaited" : "rcn-num-input--notdone"}` : ""}`} style={{ width:160 }}>
         {isSentinel ? (
           <span className="rcn-num-sentinel-text">{status}</span>
         ) : (
@@ -247,16 +256,24 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
   );
 }
 
-/** Text/numeric row for creatinine — accepts a number, or the
- *  "Result Awaited" / "Not Recorded / Not Done" sentinel set via the
- *  toggle buttons (stored directly in the same string field). */
-function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—", allowAwaited = false, allowNotDone = false }) {
-  const isSentinel = isStatusSentinel(value);
+/** Text/numeric row for creatinine / glucose — accepts a number, or a
+ *  sentinel set via the toggle ("Result Awaited", "Not Recorded / Not
+ *  Done", or glucose "Not Tested"). Sentinels never live in the input. */
+function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, placeholder = "—", allowAwaited = false, allowNotDone = false, allowNotTested = false }) {
+  const isGlucoseStatus = allowNotTested && isGlucoseSentinel(value);
+  const isSentinel = isStatusSentinel(value) || isGlucoseStatus;
   const isAwaited  = value === STATUS_AWAITED;
   const toggle = (s) => {
     if (disabled) return;
+    if (allowNotTested && (s === STATUS_NOT_TESTED || isGlucoseSentinel(value))) {
+      onChange(isGlucoseSentinel(value) ? null : STATUS_NOT_TESTED);
+      return;
+    }
     onChange(value === s ? null : s);
   };
+  const toggleStatus = isGlucoseStatus
+    ? STATUS_NOT_TESTED
+    : (isStatusSentinel(value) ? value : null);
   return (
     <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <div className="rcn-field-label-row">
@@ -264,12 +281,14 @@ function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, pl
           {label}
           {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
         </span>
-        {(allowAwaited || allowNotDone) && (
+        {(allowAwaited || allowNotDone || allowNotTested) && (
           <StatusToggleGroup
-            status={isSentinel ? value : null}
+            status={toggleStatus}
             onChange={toggle}
             disabled={disabled}
             allowAwaited={allowAwaited}
+            notDoneLabel={allowNotTested ? "Not Tested" : STATUS_NOT_DONE}
+            notDoneValue={allowNotTested ? STATUS_NOT_TESTED : STATUS_NOT_DONE}
           />
         )}
       </div>
@@ -775,6 +794,8 @@ export default function MetabRenalVascEyeLog() {
   const [glucoseRefreshing, setGlucoseRefreshing] = useState(false);
   const glucoseAutoDoneRef = useRef(null);
   const lastAutoComputedRef = useRef({});
+  // Server's current Minimal Monitoring sheet date (GET /today record_date).
+  const [mmlSheetDate, setMmlSheetDate] = useState(null);
 
   // 💧 RENAL (4.2, items 11-14)
   const [renalData, setRenalData] = useState({
@@ -826,23 +847,14 @@ export default function MetabRenalVascEyeLog() {
   const ropYes      = eyeData.rop_detected        === true;
 
   /* ── Calendar-based day locking ──
-     todayNicuDay = which NICU day number corresponds to the real
-     device date, given day1Date (manually entered Day 1 Date).
-     Days after it are "future" (no data allowed yet); days before
-     it are "past" (view-only, even if never submitted).
-
-     IMPORTANT: day1Date is NOT the birth date - it's the manually
-     entered "Day 1 Date" in the helper form, which may be different
-     from the actual date of birth. */
-  const todayNicuDay = useMemo(() => {
-    if (!day1Date) return null;
-    const base = new Date(day1Date + "T00:00:00");
-    if (isNaN(base.getTime())) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    base.setHours(0, 0, 0, 0);
-    return Math.floor((today - base) / 86400000) + 1;
-  }, [day1Date]);
+     todayNicuDay = which NICU day is the current *working* day given
+     Day 1 Date, using NICU_DAY_GRACE_HOUR so overnight staff still count
+     as "today" until that hour. Badges, future-locking, and the default
+     tab all use this same number. */
+  const todayNicuDay = useMemo(
+    () => nicuDayNumberFromDay1(day1Date),
+    [day1Date],
+  );
 
   /** Calendar date for the open NICU day (day1Date + activeDay − 1). */
   const activeDayDate = useMemo(() => {
@@ -852,33 +864,35 @@ export default function MetabRenalVascEyeLog() {
     base.setDate(base.getDate() + activeDay - 1);
     return toDateOnlyValue(base);
   }, [day1Date, activeDay]);
+  const activeDayDateRef = useRef(activeDayDate);
+  activeDayDateRef.current = activeDayDate;
 
-  /** Autofill only when Form 4 is on today's actual calendar date (Form 5 has no history). */
+  /** Autofill / "Refresh from Helper 5" only when this NICU day is the
+   *  server's current MM sheet — GET /today `record_date` from
+   *  `_mml_sheet_date()`, never `new Date()` on the browser. A skewed
+   *  client clock must not treat a past day as live-today. */
   const isActiveDayToday = useMemo(() => {
-    if (!activeDayDate) return false;
-    return activeDayDate === toDateOnlyValue(new Date());
-  }, [activeDayDate]);
+    if (!activeDayDate || !mmlSheetDate) return false;
+    return activeDayDate === mmlSheetDate;
+  }, [activeDayDate, mmlSheetDate]);
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   // Informational only now — locking is manual (see the Lock button below),
   // so a past calendar date no longer forces a day read-only by itself.
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
   // Complete by 11:00 AM — still used for the Day 1 Date entry window.
-  const MRVE_LATE_GRACE_HOUR = 11;
+  const MRVE_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
-  // Default which day's tab opens on first load: before 11am, default to
-  // yesterday's (still-open) day; from 11am on, default to today's day.
-  // Runs once, so it never fights the nurse's own tab clicks afterward.
+  // Default tab = the same working day todayNicuDay already computed
+  // (grace hour included). Do not subtract 1 again here.
   const initialDaySetRef = useRef(false);
   useEffect(() => {
     if (initialDaySetRef.current || todayNicuDay == null) return;
     initialDaySetRef.current = true;
-    const beforeGrace = new Date().getHours() < MRVE_LATE_GRACE_HOUR;
-    const defaultDay = (beforeGrace && todayNicuDay - 1 >= 1) ? todayNicuDay - 1 : todayNicuDay;
-    setActiveDay(defaultDay);
+    setActiveDay(todayNicuDay);
   }, [todayNicuDay]);
 
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
@@ -1024,6 +1038,17 @@ export default function MetabRenalVascEyeLog() {
     });
   };
 
+  /** Clinician edit of an auto-glucose field: keep the Helper-5 tag only
+   *  while the typed value still equals the last computed autofill. */
+  const setGlucoseField = (k, v) => {
+    setMetab(k, v);
+    const last = lastAutoComputedRef.current[k];
+    const stillMatches = last !== undefined && String(v) === String(last);
+    setGlucoseAutofilled(prev => (
+      prev[k] === stillMatches ? prev : { ...prev, [k]: stillMatches }
+    ));
+  };
+
   const updateReadingList = (listKey, valueKey, updater) => {
     if (!isFieldEditable) return;
     setMetabData(p => {
@@ -1134,19 +1159,22 @@ export default function MetabRenalVascEyeLog() {
   };
   const setTail  = (k, v) => isFieldEditable && setTailData(p => ({ ...p, [k]: v }));
 
-  /* ── Glucose autofill from Helper Form 5 (today's sheet only) ── */
+  /* ── Glucose autofill from Helper Form 5 (this NICU day's MM sheet) ── */
   const metabDataRef = useRef(metabData);
   metabDataRef.current = metabData;
 
   const applyGlucoseAutofill = async ({ force = false, seed = null } = {}) => {
-    if (!enrollmentId || !isActiveDayToday || !activeDayDate) return false;
+    const viewedDate = activeDayDate;
+    if (!enrollmentId || !viewedDate) return false;
     try {
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
-        params: { boundary_hour: 8 },
-      });
+      // Fetch the MM sheet for THIS NICU day's calendar date — never GET /today.
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${viewedDate}`);
+      if (activeDayDateRef.current !== viewedDate) return false;
       const data = res?.data || {};
-      // Form 5 may still be on yesterday before 8am — don't pull the wrong day.
-      if (data.record_date && data.record_date !== activeDayDate) return false;
+      // No MM row for this calendar date — do not invent "Not Tested".
+      if (data.id == null) return false;
+      // Guard of record: the MM row's record_date must be the day being viewed.
+      if (!data.record_date || data.record_date !== viewedDate) return false;
 
       const computed = computeGlucoseAutofill(parseMetAGlucoseReadings(data));
       const base = seed || metabDataRef.current;
@@ -1160,6 +1188,8 @@ export default function MetabRenalVascEyeLog() {
         const lastComputed = lastAutoComputedRef.current[key];
         const stillMatchesLastAutoFill = lastComputed !== undefined
           && String(base[key]) === String(lastComputed);
+        // Empty, or still exactly the last auto value — update. A clinician
+        // overwrite (including a corrected past-day value) is left alone.
         if (force || isEmptyMetabField(base[key]) || stillMatchesLastAutoFill) {
           next[key] = computed[key];
           flags[key] = true;
@@ -1170,6 +1200,7 @@ export default function MetabRenalVascEyeLog() {
       if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
       if (!isNumericHighGlucose(next.highest_glucose)) next.insulin = null;
 
+      if (activeDayDateRef.current !== viewedDate) return false;
       setMetabData(next);
       setGlucoseAutofilled(prev => ({
         lowest_glucose: flags.lowest_glucose ? true : (force ? false : prev.lowest_glucose),
@@ -1183,13 +1214,13 @@ export default function MetabRenalVascEyeLog() {
   };
 
   const handleRefreshGlucoseFromHelper5 = async () => {
-    if (!isActiveDayToday || !isFieldEditable) return;
+    if (!isFieldEditable || !activeDayDate) return;
     setGlucoseRefreshing(true);
     try {
       const ok = await applyGlucoseAutofill({ force: true });
       setMessage(ok
         ? "✅ Glucose fields refreshed from Helper 5"
-        : "⚠️ No matching Helper 5 glucose sheet for today");
+        : "⚠️ No matching Helper 5 glucose sheet for this day");
       setTimeout(() => setMessage(""), 3000);
     } finally {
       setGlucoseRefreshing(false);
@@ -1302,9 +1333,35 @@ export default function MetabRenalVascEyeLog() {
     load();
   }, [enrollmentId]);
 
+  // Server MM "today" (GET /today record_date) — drives isActiveDayToday.
+  useEffect(() => {
+    if (!enrollmentId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
+          params: { boundary_hour: NICU_DAY_GRACE_HOUR },
+        });
+        const rd = res?.data?.record_date;
+        if (!cancelled && rd) setMmlSheetDate(rd);
+      } catch (_) { /* Helper 5 optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [enrollmentId]);
+
   /* ── Load day data ── */
   useEffect(() => {
     if (!enrollmentId) return;
+    let cancelled = false;
+    const emptyMetab = {
+      lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
+      insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+      ionized_calcium_value:null,osteopenia_suspected:null,
+      ph_readings:[blankReading({ ph: "" })],
+      sodium_readings:[blankReading({ value: "" })],
+      potassium_readings:[blankReading({ value: "" })],
+      calcium_readings:[blankReading({ value: "" })],
+    };
     const loadDay = async () => {
       setLoading(true);
       glucoseAutoDoneRef.current = null;
@@ -1317,6 +1374,7 @@ export default function MetabRenalVascEyeLog() {
       let loadedMetab = null;
       try {
         const res = await api.get(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`);
+        if (cancelled) return;
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
           const aki = migrateAkiFromLegacy(d);
@@ -1396,82 +1454,27 @@ export default function MetabRenalVascEyeLog() {
             setCompletedDays(prev => [...prev, activeDay]);
         } else {
           resetFormState();
-          loadedMetab = {
-            lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
-            insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
-            ionized_calcium_value:null,osteopenia_suspected:null,
-            ph_readings:[blankReading({ ph: "" })],
-            sodium_readings:[blankReading({ value: "" })],
-            potassium_readings:[blankReading({ value: "" })],
-            calcium_readings:[blankReading({ value: "" })],
-          };
+          loadedMetab = emptyMetab;
         }
       } catch (err) {
-        if (err?.response?.status === 404) {
-          resetFormState();
-          loadedMetab = {
-            lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
-            insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
-            ionized_calcium_value:null,osteopenia_suspected:null,
-            ph_readings:[blankReading({ ph: "" })],
-            sodium_readings:[blankReading({ value: "" })],
-            potassium_readings:[blankReading({ value: "" })],
-            calcium_readings:[blankReading({ value: "" })],
-          };
+        if (cancelled) return;
+        // Always clear — never leave previous day's values in the form.
+        resetFormState();
+        loadedMetab = emptyMetab;
+        if (err?.response?.status !== 404) {
+          setMessage("❌ Could not load Day " + activeDay + " — save disabled until reload");
+          setTimeout(() => setMessage(""), 5000);
         }
       } finally {
-        setLoading(false);
-        // Soft autofill into empty glucose fields when this NICU day is calendar-today.
-        if (loadedMetab) {
-          const dayDate = (() => {
-            if (!day1Date) return null;
-            const base = new Date(day1Date + "T00:00:00");
-            if (isNaN(base.getTime())) return null;
-            base.setDate(base.getDate() + activeDay - 1);
-            return toDateOnlyValue(base);
-          })();
-          const today = toDateOnlyValue(new Date());
-          if (dayDate && dayDate === today && glucoseAutoDoneRef.current !== activeDay) {
-            glucoseAutoDoneRef.current = activeDay;
-            // Defer so isActiveDayToday/activeDayDate from next render aren't required —
-            // we pass seed and rely on inline date check inside a dedicated call.
-            (async () => {
-              try {
-                const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
-                  params: { boundary_hour: 8 },
-                });
-                const data = res?.data || {};
-                if (data.record_date && data.record_date !== dayDate) return;
-                const computed = computeGlucoseAutofill(parseMetAGlucoseReadings(data));
-                const next = { ...loadedMetab };
-                const flags = {
-                  lowest_glucose: false,
-                  hypoglycemia_episodes: false,
-                  highest_glucose: false,
-                };
-                for (const key of ["lowest_glucose", "hypoglycemia_episodes", "highest_glucose"]) {
-                  if (isEmptyMetabField(loadedMetab[key])) {
-                    next[key] = computed[key];
-                    flags[key] = true;
-                    lastAutoComputedRef.current[key] = computed[key];
-                  }
-                }
-                const ep = Number(next.hypoglycemia_episodes);
-                if (!Number.isFinite(ep) || ep <= 0) next.hypoglycemia_rx = null;
-                if (!isNumericHighGlucose(next.highest_glucose)) next.insulin = null;
-                if (Object.values(flags).some(Boolean)) {
-                  setMetabData(next);
-                  setGlucoseAutofilled(flags);
-                  // Keep fields editable so the nurse can review/save autofill.
-                  setIsEditing(true);
-                }
-              } catch (_) { /* Helper 5 optional */ }
-            })();
-          }
-        }
+        if (!cancelled) setLoading(false);
+      }
+      if (!cancelled && loadedMetab) {
+        const ok = await applyGlucoseAutofill({ seed: loadedMetab });
+        if (!cancelled && ok) setIsEditing(true);
       }
     };
     loadDay();
+    return () => { cancelled = true; };
   }, [enrollmentId, activeDay, day1Date]);
 
   /* Re-aggregate Helper 5 glucose while today's day is open and editable.
@@ -2077,15 +2080,8 @@ export default function MetabRenalVascEyeLog() {
                       : isMissed   ? `Day ${d} — no data was ever entered (missed)`
                       : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
                     }
-                    style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
                   >
-                    {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
-                    <span className="rcn-day-d">D</span>
-                    <span className="rcn-day-num">{d}</span>
-                    {isFuture
-                      ? <Lock size={10} className="rcn-day-dot" />
-                      : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
-                    }
+                    <span className="rcn-day-label">Day {d}</span>
                     <span className="rcn-day-date">
                       {isDischarge ? "🏠" : (() => {
                         if (!day1Date) return "";
@@ -2095,17 +2091,27 @@ export default function MetabRenalVascEyeLog() {
                       })()}
                     </span>
                   </button>
-
-                  {showMissingBadge && (
-                    <button
-                      type="button"
-                      className="rcn-day-missing-btn"
-                      onClick={(e) => handleToggleMissing(d, e)}
-                      title={`Day ${d} — see what's still missing`}
-                      aria-label={`See missing fields for Day ${d}`}
-                    >
-                      <ListChecks size={10} />
-                    </button>
+                  {!isActive && !isFuture && !isDischarge && (isMissed || st === STATUS.LATE) && (
+                    <span className="rcn-day-badge rcn-day-badge--alert" aria-hidden="true">!</span>
+                  )}
+                  {!isActive && !isFuture && !isDischarge && !(isMissed || st === STATUS.LATE) && (
+                    st === STATUS.COMPLETE || st === STATUS.SUBMITTED || st === STATUS.DRAFT || st === STATUS.PARTIAL
+                  ) && (
+                    showMissingBadge ? (
+                      <button
+                        type="button"
+                        className="rcn-day-badge rcn-day-badge--list"
+                        onClick={(e) => handleToggleMissing(d, e)}
+                        title={`Day ${d} — see what's still missing`}
+                        aria-label={`See missing fields for Day ${d}`}
+                      >
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </button>
+                    ) : (
+                      <span className="rcn-day-badge rcn-day-badge--list" aria-hidden="true">
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </span>
+                    )
                   )}
                 </div>
               );
@@ -2230,6 +2236,27 @@ export default function MetabRenalVascEyeLog() {
               <Clock size={13}/>
               <span>{isSaved?"Completed":"Not yet started"}</span>
             </div>
+            {isSaved && (savedBy || savedAt || submittedBy || submittedAt) && (
+              <p className="rcn-summary-provenance">
+                {isSubmitted ? (
+                  <>
+                    Locked by {submittedBy || "Site User"}
+                    {submittedAt ? ` · ${formatStampShort(submittedAt)}` : ""}
+                    {(savedBy || savedAt) ? (
+                      <>
+                        {" · "}last saved by {savedBy || "Unknown"}
+                        {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    Saved by {savedBy || "Unknown"}
+                    {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                  </>
+                )}
+              </p>
+            )}
             {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"
                 onClick={() => {
@@ -2310,13 +2337,13 @@ export default function MetabRenalVascEyeLog() {
             {/* ════ 4.1 METABOLIC ════ */}
             <SectionCard iconEmoji="⚡" title="4.1 Metabolic"
               answered={metabAnswered} total={metabTotal} defaultOpen={true}
-              headerAction={isActiveDayToday ? (
+              headerAction={isFieldEditable ? (
                 <button
                   type="button"
                   className="rcn-refresh-helper5"
                   onClick={handleRefreshGlucoseFromHelper5}
                   disabled={!isFieldEditable || glucoseRefreshing}
-                  title="Re-sync glucose #1–#4 from Helper Form 5 today's sheet"
+                  title="Re-sync glucose #1–#4 from Helper Form 5 for this day's sheet"
                 >
                   <RefreshCw size={12} className={glucoseRefreshing ? "rcn-spin" : ""} />
                   {glucoseRefreshing ? "Refreshing…" : "Refresh from Helper 5"}
@@ -2324,15 +2351,22 @@ export default function MetabRenalVascEyeLog() {
               ) : null}
             >
               <div className="rcn-yn-list">
-                <ReadonlyAutoField
+                <GlucoseTextRow
                   label="1. Lowest glucose reading (if <45 mg/dL)"
                   value={metabData.lowest_glucose}
+                  onChange={v => setGlucoseField("lowest_glucose", v)}
+                  disabled={!isFieldEditable}
                   unit="mg/dL"
                   autofilled={!!glucoseAutofilled.lowest_glucose}
+                  placeholder="e.g. 40"
+                  allowNotTested={true}
                 />
-                <ReadonlyAutoField
+                <NumRow
                   label="2. No of episodes of hypoglycemia"
                   value={metabData.hypoglycemia_episodes}
+                  onChange={v => setGlucoseField("hypoglycemia_episodes", v)}
+                  disabled={!isFieldEditable}
+                  placeholder="0"
                   autofilled={!!glucoseAutofilled.hypoglycemia_episodes}
                 />
                 {hypoRxRequired && (
@@ -2341,11 +2375,15 @@ export default function MetabRenalVascEyeLog() {
                       onChange={v=>setMetab("hypoglycemia_rx",v)} disabled={!isFieldEditable}/>
                   </div>
                 )}
-                <ReadonlyAutoField
+                <GlucoseTextRow
                   label="4. Highest glucose reading (if >180 mg/dL)"
                   value={metabData.highest_glucose}
+                  onChange={v => setGlucoseField("highest_glucose", v)}
+                  disabled={!isFieldEditable}
                   unit="mg/dL"
                   autofilled={!!glucoseAutofilled.highest_glucose}
+                  placeholder="e.g. 200"
+                  allowNotTested={true}
                 />
                 {hyperRxRequired && (
                   <div className="rcn-conditional-block">

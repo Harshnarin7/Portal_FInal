@@ -8,6 +8,42 @@
 const pad2 = (n) => String(n).padStart(2, "0");
 
 /**
+ * Shared NICU "working day" boundary. Before this local hour, "today"
+ * is still yesterday — overnight staff finishing a shift land on (and
+ * lock against) the same day the rest of the UI considers current.
+ * Must stay in lockstep with backend `NICU_DAY_GRACE_HOUR` /
+ * `MML_LATE_GRACE_HOUR` / `DAY1_DATE_ENTRY_GRACE_HOUR`.
+ */
+export const NICU_DAY_GRACE_HOUR = 11;
+
+/**
+ * NICU day number for `day1Date` as of `asOf`, applying the grace hour
+ * so badges, future-locking, and the default tab all share one "today".
+ * Clamped to ≥ 1 when Day 1 Date is calendar-today but the clock is
+ * still inside the overnight window.
+ */
+export function nicuDayNumberFromDay1(day1Date, asOf = new Date(), graceHour = NICU_DAY_GRACE_HOUR) {
+  if (!day1Date) return null;
+  const base = new Date(`${day1Date}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return null;
+  const ref = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  if (asOf.getHours() < graceHour) {
+    ref.setDate(ref.getDate() - 1);
+  }
+  const n = Math.floor((ref - base) / 86400000) + 1;
+  return n < 1 ? 1 : n;
+}
+
+/** Calendar YYYY-MM-DD for NICU day N given Day 1 Date. */
+export function calendarDateForNicuDay(day1Date, nicuDay) {
+  if (!day1Date || nicuDay == null || Number(nicuDay) < 1) return null;
+  const base = new Date(`${day1Date}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setDate(base.getDate() + Number(nicuDay) - 1);
+  return toDateOnlyValue(base);
+}
+
+/**
  * Human-friendly "time since" string for auto-save timestamps.
  * @param {Date|null|undefined} date
  * @returns {string|null} e.g. "just now", "12s ago", "3m ago", "2h ago"
@@ -76,6 +112,22 @@ export function formatIsoDateMedium(iso) {
   if (!d) return "";
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${pad2(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * Short local timestamp for "Saved by X · 02 Sep, 14:30" provenance.
+ * @param {string|Date|null|undefined} value
+ */
+export function formatStampShort(value) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /**

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, openNativeDatePicker } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, openNativeDatePicker, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1, calendarDateForNicuDay } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
 // Repeatable-entry list styling (mml-*) — same component the Metabolic
@@ -16,7 +16,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
-  CheckCircle, AlertTriangle, X, Clock,
+  CheckCircle, AlertTriangle, X, Clock, Check,
   Lock, Copy, Edit,
   AlertOctagon, History, Unlock, Plus, Trash2, ListChecks, Calendar,
 } from "lucide-react";
@@ -28,6 +28,28 @@ const nowTimeIg = (d = new Date()) => `${pad2ig(d.getHours())}:${pad2ig(d.getMin
 function blankSepsisScreen() {
   const d = new Date();
   return { id: uidIg(), date: toDateOnlyValue(d), time: nowTimeIg(d), type: "CRP", value: "", result: "" };
+}
+
+/** Latest numeric 5.4.A cumulative feed volume from a Minimal Monitoring
+ *  sheet (gi_a in entries_json, else the legacy flat column). */
+function mmlLatestCumulativeFeedVolume(data) {
+  if (!data) return null;
+  let entries = data.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const giA = entries?.gi_a;
+  let latest = null;
+  if (Array.isArray(giA)) {
+    for (const e of giA) {
+      const n = Number(e?.cumulative_feed_volume);
+      if (Number.isFinite(n)) latest = n;
+    }
+  }
+  if (latest != null) return latest;
+  const n = Number(data.cumulative_feed_volume);
+  return Number.isFinite(n) ? n : null;
+}
 }
 
 function parseJsonArrayIg(raw) {
@@ -718,44 +740,38 @@ export default function InfectGIHemaLog() {
   const peakTsbError               = validatePeakTsb(hemaData.peak_tsb);
 
   /* ── Calendar-based day locking ──
-     todayNicuDay = which NICU day number corresponds to the real
-     device date, given day1Date (manually entered Day 1 Date).
-     Days after it are "future" (no data allowed yet); days before
-     it are "past" (view-only, even if never submitted).
-
-     IMPORTANT: day1Date is NOT the birth date - it's the manually
-     entered "Day 1 Date" in the helper form, which may be different
-     from the actual date of birth. */
-  const todayNicuDay = useMemo(() => {
-    if (!day1Date) return null;
-    const base = new Date(day1Date + "T00:00:00");
-    if (isNaN(base.getTime())) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    base.setHours(0, 0, 0, 0);
-    return Math.floor((today - base) / 86400000) + 1;
-  }, [day1Date]);
+     todayNicuDay = which NICU day is the current *working* day given
+     Day 1 Date, using NICU_DAY_GRACE_HOUR so overnight staff still count
+     as "today" until that hour. Badges, future-locking, and the default
+     tab all use this same number. */
+  const todayNicuDay = useMemo(
+    () => nicuDayNumberFromDay1(day1Date),
+    [day1Date],
+  );
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   // Informational only now — locking is manual (see the Lock button below),
   // so a past calendar date no longer forces a day read-only by itself.
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
+  const activeDayDate = useMemo(
+    () => calendarDateForNicuDay(day1Date, activeDay),
+    [day1Date, activeDay],
+  );
+  const activeDayDateRef = useRef(activeDayDate);
+  activeDayDateRef.current = activeDayDate;
   // Same-morning grace window: still used for the Day 1 Date entry window.
-  const IGH_LATE_GRACE_HOUR = 11;
+  const IGH_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
-  // Default which day's tab opens on first load: before 11am, default to
-  // yesterday's (still-open) day; from 11am on, default to today's day.
-  // Runs once, so it never fights the nurse's own tab clicks afterward.
+  // Default tab = the same working day todayNicuDay already computed
+  // (grace hour included). Do not subtract 1 again here.
   const initialDaySetRef = useRef(false);
   useEffect(() => {
     if (initialDaySetRef.current || todayNicuDay == null) return;
     initialDaySetRef.current = true;
-    const beforeGrace = new Date().getHours() < IGH_LATE_GRACE_HOUR;
-    const defaultDay = (beforeGrace && todayNicuDay - 1 >= 1) ? todayNicuDay - 1 : todayNicuDay;
-    setActiveDay(defaultDay);
+    setActiveDay(todayNicuDay);
   }, [todayNicuDay]);
 
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
@@ -772,6 +788,27 @@ export default function InfectGIHemaLog() {
     // confirmation modal below), so a past day's calendar date passing no
     // longer forces the record read-only on its own — only isSubmitted
     // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
+
+  const applyFeedVolumeFromMml = async (recordDate = activeDayDate) => {
+    if (!enrollmentId || !recordDate) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+      if (activeDayDateRef.current !== recordDate) return;
+      const data = res?.data || {};
+      if (data.record_date && data.record_date !== recordDate) return;
+      const vol = mmlLatestCumulativeFeedVolume(data);
+      if (vol == null) return;
+      setGiData((p) => {
+        if (p.npo === true) return p;
+        if (p.cumulative_feed_volume != null && p.cumulative_feed_volume !== "") return p;
+        if (p.cumulative_feed_volume_status) return p;
+        setIsEditing(true);
+        return { ...p, cumulative_feed_volume: vol };
+      });
+    } catch (_) { /* Helper 5 optional */ }
+  };
 
   // Day 1 Date drives every day's calendar label and the future/past
   // lock above, so once any daily data exists it must stop moving.
@@ -1020,10 +1057,12 @@ export default function InfectGIHemaLog() {
   /* ── Load saved day data ── */
   useEffect(() => {
     if (!enrollmentId) return;
+    let cancelled = false;
     const loadDay = async () => {
       setLoading(true);
       try {
         const res = await api.get(`/infect-gi-hema/${enrollmentId}/${activeDay}`);
+        if (cancelled) return;
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
           setInfData({
@@ -1087,13 +1126,44 @@ export default function InfectGIHemaLog() {
           setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
-        } else { resetFormState(); }
+        } else {
+          resetFormState();
+        }
       } catch (err) {
-        if (err?.response?.status === 404) resetFormState();
-      } finally { setLoading(false); }
+        if (cancelled) return;
+        // Always clear — never leave previous day's values in the form.
+        resetFormState();
+        if (err?.response?.status !== 404) {
+          setMessage("❌ Could not load Day " + activeDay + " — save disabled until reload");
+          setTimeout(() => setMessage(""), 5000);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+      if (!cancelled) await applyFeedVolumeFromMml(calendarDateForNicuDay(day1Date, activeDay));
     };
     loadDay();
-  }, [enrollmentId, activeDay]);
+    return () => { cancelled = true; };
+  }, [enrollmentId, activeDay, day1Date]);
+
+  useEffect(() => {
+    if (!enrollmentId || !activeDayDate || loading) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    const tick = () => applyFeedVolumeFromMml(activeDayDate);
+    const interval = setInterval(tick, 60000);
+    const onFocus = () => tick();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
 
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
@@ -1606,15 +1676,8 @@ export default function InfectGIHemaLog() {
                       : isMissed   ? `Day ${d} — no data was ever entered (missed)`
                       : `Day ${d} · ${cfg.label}${meta.pct ? ` · ${meta.pct}%` : ""}`
                     }
-                    style={!isActive && !isLocked ? { borderColor: (isMissed ? "#dc2626" : cfg.color) + "66" } : {}}
                   >
-                    {isMissed && <AlertOctagon size={9} className="rcn-day-missed-flag" />}
-                    <span className="rcn-day-d">D</span>
-                    <span className="rcn-day-num">{d}</span>
-                    {isFuture
-                      ? <Lock size={10} className="rcn-day-dot" />
-                      : <span className="rcn-day-dot" style={!isActive ? { background: isMissed ? "#dc2626" : cfg.dot } : {}} />
-                    }
+                    <span className="rcn-day-label">Day {d}</span>
                     <span className="rcn-day-date">
                       {isDischarge ? "🏠" : (() => {
                         if (!day1Date) return "";
@@ -1624,17 +1687,27 @@ export default function InfectGIHemaLog() {
                       })()}
                     </span>
                   </button>
-
-                  {showMissingBadge && (
-                    <button
-                      type="button"
-                      className="rcn-day-missing-btn"
-                      onClick={(e) => handleToggleMissing(d, e)}
-                      title={`Day ${d} — see what's still missing`}
-                      aria-label={`See missing fields for Day ${d}`}
-                    >
-                      <ListChecks size={10} />
-                    </button>
+                  {!isActive && !isFuture && !isDischarge && (isMissed || st === STATUS.LATE) && (
+                    <span className="rcn-day-badge rcn-day-badge--alert" aria-hidden="true">!</span>
+                  )}
+                  {!isActive && !isFuture && !isDischarge && !(isMissed || st === STATUS.LATE) && (
+                    st === STATUS.COMPLETE || st === STATUS.SUBMITTED || st === STATUS.DRAFT || st === STATUS.PARTIAL
+                  ) && (
+                    showMissingBadge ? (
+                      <button
+                        type="button"
+                        className="rcn-day-badge rcn-day-badge--list"
+                        onClick={(e) => handleToggleMissing(d, e)}
+                        title={`Day ${d} — see what's still missing`}
+                        aria-label={`See missing fields for Day ${d}`}
+                      >
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </button>
+                    ) : (
+                      <span className="rcn-day-badge rcn-day-badge--list" aria-hidden="true">
+                        <ListChecks size={10} strokeWidth={2.5} />
+                      </span>
+                    )
                   )}
                 </div>
               );
@@ -1760,6 +1833,27 @@ export default function InfectGIHemaLog() {
               <Clock size={13} />
               <span>{isSaved ? "Completed" : "Not yet started"}</span>
             </div>
+            {isSaved && (savedBy || savedAt || submittedBy || submittedAt) && (
+              <p className="rcn-summary-provenance">
+                {isSubmitted ? (
+                  <>
+                    Locked by {submittedBy || "Site User"}
+                    {submittedAt ? ` · ${formatStampShort(submittedAt)}` : ""}
+                    {(savedBy || savedAt) ? (
+                      <>
+                        {" · "}last saved by {savedBy || "Unknown"}
+                        {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    Saved by {savedBy || "Unknown"}
+                    {savedAt ? ` · ${formatStampShort(savedAt)}` : ""}
+                  </>
+                )}
+              </p>
+            )}
             {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
               <button type="button" className="rcn-copy-btn"
                 onClick={() => {
