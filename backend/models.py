@@ -23,6 +23,7 @@ class User(Base):
 
     full_name = Column(String, nullable=True)
     mobile = Column(String, nullable=True)
+    designation = Column(String, nullable=True)  # "Completed by" auto-fill (site roster)
     must_change_password = Column(Boolean, default=True)
     last_login_at = Column(DateTime, nullable=True)
 
@@ -509,6 +510,7 @@ class NICUAdmission(Base):
 
     admission_datetime = Column(DateTime)
     age_at_admission_hours = Column(Float)
+    age_at_admission_minutes = Column(Integer)  # total whole minutes (hours remain floored)
 
     temp_dr = Column(Float)
     temp_skin = Column(Float)
@@ -1949,6 +1951,7 @@ class MetabRenalVascEyeDayLog(Base):
     highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >180    #4
     insulin                = Column(Boolean, nullable=True)  # Hyperglycemia Rx  #5
     metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6 (derived from ph_readings_json)
+    metabolic_acidosis_status = Column(String, nullable=True)  # "Not Recorded / Not Done" (blood gas not done)
     sodium_value           = Column(String,  nullable=True)  # <135 or >142      #7 (summary: most recent)
     potassium_value        = Column(String,  nullable=True)  # <3.5 or >6        #8 (summary: most recent)
     ionized_calcium_value  = Column(String,  nullable=True)  # <0.9 or >1.2      #9 (summary: most recent)

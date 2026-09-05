@@ -2,8 +2,8 @@
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from rate_limit import get_real_client_ip
 from sqlalchemy.orm import Session
 from datetime import datetime, date, time, timedelta
 import random, string
@@ -31,7 +31,7 @@ from models import (
     CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, UserRosterOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -65,7 +65,7 @@ from audit_service import (
 )
 from schema_patches import apply_schema_patches
 from staff_service import seed_site_staff, deactivate_stale_site_staff
-from user_service import seed_login_users
+from user_service import seed_login_users, backfill_pilot_designations
 import security_monitor
 from crypto import decrypt_value
 from pii_service import (
@@ -85,7 +85,7 @@ from pii_service import (
     can_view_pii_for_site,
 )
 
-from sqlalchemy import text, func
+from sqlalchemy import text, func, or_
 from sqlalchemy.exc import IntegrityError
 import os
 import logging
@@ -102,7 +102,7 @@ logging.getLogger("portal.security").setLevel(logging.INFO)
 # ============================================================================
 
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=get_real_client_ip,
     strategy="moving-window"
 )
 
@@ -179,6 +179,9 @@ def on_startup_migrations():
                 "and delete that file after distributing passwords.",
                 new_accounts,
             )
+        designated = backfill_pilot_designations(db)
+        if designated:
+            logger.info("Backfilled designation on %s user account(s)", designated)
     except Exception as exc:
         logger.warning("Startup migration skipped or failed: %s", exc)
     finally:
@@ -187,7 +190,7 @@ def on_startup_migrations():
 
 @app.middleware("http")
 async def security_monitoring_middleware(request: Request, call_next):
-    client_ip = get_remote_address(request)
+    client_ip = get_real_client_ip(request)
     security_monitor.increment_request_count(client_ip)
     path = request.url.path
     if path.startswith("/docs") or path.startswith("/openapi"):
@@ -204,8 +207,15 @@ app.state.limiter = limiter
 
 def rate_limit_error_handler(request: Request, exc: RateLimitExceeded):
     security_monitor.record_rate_limit(
-        get_remote_address(request), request.url.path
+        get_real_client_ip(request), request.url.path
     )
+    retry_after = getattr(exc, "retry_after", None)
+    headers = {}
+    if retry_after is not None:
+        try:
+            headers["Retry-After"] = str(int(float(retry_after)))
+        except (TypeError, ValueError):
+            headers["Retry-After"] = str(retry_after)
     return JSONResponse(
         status_code=429,
         content={
@@ -213,6 +223,7 @@ def rate_limit_error_handler(request: Request, exc: RateLimitExceeded):
             "error": "Rate limit exceeded",
             "message": "Too many requests. Please try again later.",
         },
+        headers=headers,
     )
 
 app.add_exception_handler(RateLimitExceeded, rate_limit_error_handler)
@@ -234,6 +245,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 # ============================================================================
@@ -466,6 +478,41 @@ def version_check():
 # USER MANAGEMENT ENDPOINTS
 # ============================================================================
 
+@app.get("/users/roster", response_model=list[UserRosterOut])
+def list_site_roster(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Site-scoped "Completed by" names + designations.
+
+    Any authenticated user (not superadmin-only). Returns active accounts
+    with a full_name at the caller's site. Users with no site_name follow
+    the NULL = global convention and see every site's named staff.
+    Superadmin accounts are never listed as completers.
+    """
+    query = (
+        db.query(User)
+        .filter(
+            User.is_active.is_(True),
+            User.full_name.isnot(None),
+            User.full_name != "",
+            User.role != ROLE_SUPERADMIN,
+        )
+    )
+    if current_user.site_name:
+        # Own site only — plus nodal/global accounts (site_name IS NULL)
+        # so PGIMER still sees Mannat Guliani the way the hardcoded list did.
+        # Other sites' named staff are never included.
+        query = query.filter(
+            or_(
+                User.site_name == current_user.site_name,
+                User.site_name.is_(None),
+            )
+        )
+    query = query.order_by(User.full_name)
+    return [{"full_name": u.full_name, "designation": u.designation} for u in query.all()]
+
+
 @app.get("/users/", response_model=list[UserOut])
 def list_users(
     db: Session = Depends(get_db),
@@ -538,6 +585,7 @@ def create_user(
         site_name=user.site_name,
         full_name=user.full_name or user.username,
         mobile=user.mobile,
+        designation=user.designation,
         must_change_password=True,
     )
 
@@ -611,7 +659,7 @@ def get_screenings(
             current_user.username,
             "/screenings/",
             len(rows),
-            get_remote_address(request),
+            get_real_client_ip(request),
         )
     return rows
 
@@ -1958,7 +2006,11 @@ def get_metabolic_prefill(
         "hyperglycemia": "Yes" if glucose_high else "No",
         "hyperglycemia_highest": max(glucose_high) if glucose_high else None,
         "hyperglycemia_rx": "Yes" if any_day("insulin") else "No",
-        "metabolic_acidosis": "Yes" if any_day("metabolic_acidosis") else "No",
+        "metabolic_acidosis": (
+            "Yes" if any(l.metabolic_acidosis is True for l in logs)
+            else "No" if any(l.metabolic_acidosis is False for l in logs)
+            else None  # unanswered or "Not Recorded / Not Done" — don't treat as No
+        ),
         "dyselectrolytemia": "Yes" if (sodium_vals or potassium_vals or calcium_vals) else "No",
         "dyselectro_na": bool(sodium_vals),
         "dyselectro_k": bool(potassium_vals),
@@ -2435,9 +2487,11 @@ def get_gi_prefill(
       judgment call this endpoint shouldn't make.
     - pn_adverse (+ its Cholestasis/Electrolyte/Acidosis/Hypercapnia/Other
       breakdown), probiotic strain type, Lactobacillus/Bifidobacterium,
-      tpn_associated, max_direct_bilirubin, and the feed-intolerance
-      symptom checkboxes (#69) all have no day-log source — the log only
-      has flat top-level booleans, never this level of detail.
+      tpn_associated, and the feed-intolerance symptom checkboxes (#69)
+      all have no day-log source — the log only has flat top-level
+      booleans, never this level of detail. max_direct_bilirubin is
+      filled separately from Minimal Monitoring 5.4.B (`gi_b`) — see
+      get_bilirubin_prefill.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -2960,6 +3014,89 @@ def get_vm_doppler_prefill(
         "tod_max": max(tod_vals) if tod_vals else None,
         "aca_ri": max(aca_ri_vals) if aca_ri_vals else None,
         "mca_ri": max(mca_ri_vals) if mca_ri_vals else None,
+    }
+
+
+@app.get("/neonatal-morbidities/bilirubin-prefill/{enrollment_id}")
+def get_bilirubin_prefill(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregates Minimal Monitoring day logs into Form H's Max Direct
+    Bilirubin field (H3, CRF #94: `max_direct_bilirubin`).
+
+    Scans every 5.4.B "Direct Bilirubin" (`gi_b`) entry in each day's
+    `entries_json` — a clinician can log multiple readings on the same
+    day, and flattenEntries() only copies the FIRST of each block into
+    the flat columns, so the running maximum must walk the full arrays.
+    Rows saved before the multi-entry redesign have no entries_json (or
+    an empty gi_b sub-block) — for those, fall back to that row's own
+    legacy flat `direct_bilirubin` column, the same row_had_entries
+    pattern as `_lowest_minimal_monitoring_vital` and
+    `get_vm_doppler_prefill`.
+
+    Returns the single highest numeric value found across every entry
+    from every day. None when no parseable reading exists. This is a
+    max-ratchet source: Form H only applies a new value when it is
+    higher than (or filling) the current field — it never decreases
+    on its own.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs:
+        return {"has_data": False, "max_direct_bilirubin": None}
+
+    def to_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def parse_entries_json(row):
+        if not row.entries_json:
+            return None
+        try:
+            parsed = (
+                json.loads(row.entries_json)
+                if isinstance(row.entries_json, str)
+                else row.entries_json
+            )
+            return parsed if isinstance(parsed, dict) else None
+        except (TypeError, ValueError):
+            return None
+
+    def block_entries(parsed, key):
+        """Non-empty list from entries_json, or None to signal fallback."""
+        if parsed is None:
+            return None
+        entries = parsed.get(key) or []
+        if not isinstance(entries, list) or not entries:
+            return None
+        return entries
+
+    max_bili = None
+    for row in logs:
+        parsed = parse_entries_json(row)
+        gi_b = block_entries(parsed, "gi_b")
+        row_had_entries = gi_b is not None
+        if not row_had_entries:
+            gi_b = [{"direct_bilirubin": row.direct_bilirubin}]
+        for entry in gi_b:
+            entry = entry or {}
+            val = to_float(entry.get("direct_bilirubin"))
+            if val is not None and (max_bili is None or val > max_bili):
+                max_bili = val
+
+    return {
+        "has_data": True,
+        "log_days_count": len(logs),
+        "max_direct_bilirubin": max_bili,
     }
 
 
@@ -5335,7 +5472,7 @@ def list_resp_cv_neuro_records(
             current_user.username,
             "/resp-cv-neuro/records",
             total,
-            get_remote_address(request),
+            get_real_client_ip(request),
         )
 
     return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
@@ -5979,7 +6116,13 @@ def _metab_completion_pct(r) -> int:
         "sodium_value", "potassium_value", "ionized_calcium_value",
         "osteopenia_suspected",
     ]
-    metab_done  = sum(1 for k in metab_fields if ans(getattr(r, k, None)))
+    metab_done  = sum(
+        1 for k in metab_fields
+        if ans(getattr(r, k, None)) or (
+            k == "metabolic_acidosis"
+            and ans(getattr(r, "metabolic_acidosis_status", None))
+        )
+    )
     metab_total = len(metab_fields)
 
     # #11 Yes/No in aki_suspected; stage only when Yes. Creatinine prefers string col.

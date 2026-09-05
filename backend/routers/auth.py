@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from rate_limit import get_real_client_ip
 
 from auth import hash_password, verify_password
 from core.security import create_access_token, create_refresh_token, verify_refresh_token
@@ -31,7 +31,7 @@ from schemas import (
 import security_monitor
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_real_client_ip)
 
 
 def _to_profile(user: User) -> UserProfileOut:
@@ -56,7 +56,7 @@ async def login(request: Request, data: LoginRequest, db: Session = Depends(get_
     `email_or_username` (+ device metadata, mobile) — same backing table
     either way, so one login works on both apps."""
     identifier = data.identifier()
-    client_ip = get_remote_address(request)
+    client_ip = get_real_client_ip(request)
 
     user = (
         db.query(User)
@@ -69,7 +69,7 @@ async def login(request: Request, data: LoginRequest, db: Session = Depends(get_
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.is_active:
-        raise HTTPException(status_code=401, detail="Account is deactivated")
+        raise HTTPException(status_code=403, detail="Account is deactivated")
 
     security_monitor.record_successful_login(user.username, client_ip)
     user.last_login_at = datetime.now(timezone.utc)

@@ -296,6 +296,8 @@ export default function FormD() {
   const [lastSaved,      setLastSaved]      = useState(null);
   const [isDirty,        setIsDirty]        = useState(false);
   const [isOnline,       setIsOnline]       = useState(navigator.onLine);
+  const [roster, setRoster] = useState([]);
+  const [rosterReady, setRosterReady] = useState(false);
   const autoSaveTimer  = useRef(null);
   const firstErrRef = useRef(null);
 
@@ -412,6 +414,22 @@ export default function FormD() {
   };
 
   const num = (v) => (v === "" || v === undefined) ? null : Number(v);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/users/roster");
+        const rows = Array.isArray(res.data) ? res.data.filter(r => r && r.full_name) : [];
+        if (!cancelled) setRoster(rows);
+      } catch (_) {
+        if (!cancelled) setRoster([]);
+      } finally {
+        if (!cancelled) setRosterReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   /* ── Phase 1: load Form B identification + PII name
      Phase 2: load saved postnatal-day1 record and restore ALL fields ── */
@@ -794,15 +812,11 @@ export default function FormD() {
     }
   };
 
-  const nurses = [
-    "Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
-    "Tanvi Saini", "Yashvi Jolly", "Mannat Guliani", "Shalini Dhiman",
-  ];
-  const getDesignation = (name) => {
-    if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-    if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-    return name ? "Project Nurse III" : "";
-  };
+  const nurses = roster.map(r => r.full_name);
+  const completedByOptions = formData.completed_by && !nurses.includes(formData.completed_by)
+    ? [...nurses, formData.completed_by]
+    : nurses;
+  const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
     touch("completed_by");
@@ -1556,8 +1570,13 @@ export default function FormD() {
                       className={`emr-select${vr("completed_by")?.level === "error" ? " fv-input-error" : vr("completed_by")?.level === "ok" ? " fv-input-ok" : ""}`}
                       required>
                       <option value="">-- Select Nurse --</option>
-                      {nurses.map(n => <option key={n} value={n}>{n}</option>)}
+                      {completedByOptions.map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
+                    {rosterReady && nurses.length === 0 && (
+                      <div className="field-note" style={{ marginTop: 4 }}>
+                        No staff found for your site — contact your admin
+                      </div>
+                    )}
                   </FieldWrap>
                   <div className="form-group">
                     <label>Designation</label>

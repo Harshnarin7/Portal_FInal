@@ -134,6 +134,8 @@ export default function FormH() {
   const [saveMessage, setSaveMessage] = useState("");
   const { enrollmentId } = useParams();
 const [touched, setTouched] = useState({});
+const [roster, setRoster] = useState([]);
+const [rosterReady, setRosterReady] = useState(false);
 const [openSection, setOpenSection] = useState("ivh"); // default open
 
 // Which organ-system tab is currently showing. All 13 sections still
@@ -196,6 +198,8 @@ const [hemeStale, setHemeStale] = useState({});
 const [neuroPrefill, setNeuroPrefill] = useState(null);
 const [vmDopplerPrefill, setVmDopplerPrefill] = useState(null);
 const [vmDopplerAutoFilled, setVmDopplerAutoFilled] = useState({});
+const [bilirubinPrefill, setBilirubinPrefill] = useState(null);
+const [bilirubinAutoFilled, setBilirubinAutoFilled] = useState({});
 const [neuroAutoFilled, setNeuroAutoFilled] = useState({});
 const [neuroStale, setNeuroStale] = useState({});
 
@@ -675,6 +679,22 @@ useEffect(() => {
 }, [enrollmentId]);
 
 useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    try {
+      const res = await api.get("/users/roster");
+      const rows = Array.isArray(res.data) ? res.data.filter(r => r && r.full_name) : [];
+      if (!cancelled) setRoster(rows);
+    } catch (_) {
+      if (!cancelled) setRoster([]);
+    } finally {
+      if (!cancelled) setRosterReady(true);
+    }
+  })();
+  return () => { cancelled = true; };
+}, []);
+
+useEffect(() => {
   if (patientData?.enrollment_id) {
     setFormData((p) => ({
       ...p,
@@ -843,6 +863,7 @@ useEffect(() => {
       fetchHemePrefill();
       fetchNeuroPrefill();
       fetchVmDopplerPrefill();
+      fetchBilirubinPrefill();
       fetchGiPrefill();
       fetchRopThermoPrefill();
       fetchCvPrefill();
@@ -2484,14 +2505,50 @@ const fetchVmDopplerPrefill = async () => {
   }
 };
 
+// Max Direct Bilirubin (H3 CRF #94) from Minimal Monitoring 5.4.B —
+// see /neonatal-morbidities/bilirubin-prefill. MAX-RATCHET: only update
+// when the incoming value is higher than what's already there (blank
+// counts as "no current value"). Never overwrite a clinician's higher
+// typed value. No Force Refill for this field. Visibility (Cholestasis
+// = Yes) is unchanged — formData still updates while the input is hidden.
+const fetchBilirubinPrefill = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/bilirubin-prefill/${enrollmentId}`);
+    const data = res.data;
+    setBilirubinPrefill(data);
+    if (!data || !data.has_data) return;
+    if (data.max_direct_bilirubin == null) return;
+
+    const filled = {};
+    setFormData((prev) => {
+      const next = { ...prev };
+      const incoming = data.max_direct_bilirubin;
+      const current = prev.max_direct_bilirubin;
+      const currentNum = current === "" || current == null ? null : Number(current);
+      if (currentNum == null || incoming > currentNum) {
+        next.max_direct_bilirubin = incoming;
+        filled.max_direct_bilirubin = true;
+      }
+      return next;
+    });
+    if (Object.keys(filled).length) {
+      setBilirubinAutoFilled((prev) => ({ ...prev, ...filled }));
+    }
+  } catch (err) {
+    console.log("Error fetching bilirubin prefill", err);
+  }
+};
+
 // Gastrointestinal (H3) auto-fill — same pattern as the other domains
 // above. nec is driven by the day log's `nec_suspected` flag, the same
 // "suspected drives the top-level Yes/No, clinician reviews/can uncheck"
 // convention already used for Renal's AKI. nec_stage/surgery detail,
 // age_full_feeds, PN adverse-effect breakdown, probiotic strain detail,
-// tpn_associated, max_direct_bilirubin, and the feed-intolerance symptom
-// checkboxes all have no day-log source and stay manual — see the
-// backend endpoint docstring.
+// tpn_associated, and the feed-intolerance symptom checkboxes all have
+// no Helper-3 day-log source and stay manual — see the backend endpoint
+// docstring. max_direct_bilirubin is filled separately from Minimal
+// Monitoring 5.4.B via fetchBilirubinPrefill (max-ratchet).
 const GI_PREFILL_FIELDS = [
   "feed_intolerance",
   "nec", "nec_date", "nec_age_days",
@@ -4655,26 +4712,12 @@ const num = (v) => {
     }
   };
 
-const nurses = [
-  "Geetika",
-        "Navkiran Kaur",
-        "Priyanka Thakur",
-        "Seemran Kaur",
-        "Tanvi Saini",
-        "Yashvi Jolly",
-        "Mannat Guliani",
-        "Shalini Dhiman"
-];
+const nurses = roster.map(r => r.full_name);
+const completedByOptions = formData.completed_by && !nurses.includes(formData.completed_by)
+  ? [...nurses, formData.completed_by]
+  : nurses;
 
-const getDesignation = (name) => {
-  if (name === "Mannat Guliani") {
-    return "Project Research Scientist III (Medical)";
-  }
-  if (name === "Shalini Dhiman") {
-    return "Project Research Scientist III (Non-Medical)";
-  }
-  return name ? "Project Nurse III" : "";
-};
+const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
 
 const handleCompletedByChange = (e) => {
   const name = e.target.value;
@@ -7755,6 +7798,7 @@ const peripheralStatus= getPeripheralStatus();
             min="0"
             max="50"
           />
+          {bilirubinAutoFilled.max_direct_bilirubin && <span className="field-hint-auto-inline">highest recorded, from daily logs</span>}
           {errors.max_direct_bilirubin && (
             <div className="error-text">{errors.max_direct_bilirubin}</div>
           )}
@@ -10835,9 +10879,14 @@ const peripheralStatus= getPeripheralStatus();
         required
         name="completed_by"
         value={formData.completed_by || ""}
-        options={nurses}
+        options={completedByOptions}
         onChange={handleCompletedByChange}
       />
+      {rosterReady && nurses.length === 0 && (
+        <div className="field-note" style={{ marginTop: 4 }}>
+          No staff found for your site — contact your admin
+        </div>
+      )}
     </div>
   </div>
 

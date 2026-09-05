@@ -70,6 +70,23 @@ DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str | None]] = [
     ("keerthana.iog", "S. Keerthana", "nurse", "IOG"),
     ("durga.iog", "S. Durga", "nurse", "IOG"),
 
-    # ---- AFMC: no staff names supplied yet ----
-    # ---- Site PIs, the project scientist (head), and superadmin: add once named ----
+# ---- AFMC: no staff names supplied yet ----
+# ---- Site PIs, the project scientist (head), and superadmin: add once named ----
 ]
+
+# Designations previously hardcoded in Form D/E/H getDesignation(). Applied
+# to matching users.full_name so the PGIMER "Completed by" dropdown stays
+# identical after those arrays are removed. "Dr. …" aliases cover the
+# seeded site-scientist display names.
+PILOT_COMPLETED_BY_DESIGNATIONS: dict[str, str] = {
+    "Mannat Guliani": "Project Research Scientist III (Medical)",
+    "Dr. Mannat Guliani": "Project Research Scientist III (Medical)",
+    "Shalini Dhiman": "Project Research Scientist III (Non-Medical)",
+    "Dr. Shalini Dhiman": "Project Research Scientist III (Non-Medical)",
+    "Geetika": "Project Nurse III",
+    "Navkiran Kaur": "Project Nurse III",
+    "Priyanka Thakur": "Project Nurse III",
+    "Seemran Kaur": "Project Nurse III",
+    "Tanvi Saini": "Project Nurse III",
+    "Yashvi Jolly": "Project Nurse III",
+}

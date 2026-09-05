@@ -180,6 +180,10 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8am_2pm_status VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_2pm_8pm_status VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8pm_8am_status VARCHAR",
+    # Blood-gas "Not Recorded / Not Done" sidecar for Helper 4 field #6
+    # (Metabolic acidosis). Distinguishes "gas wasn't done" from an empty
+    # pH-readings list that hasn't been filled in yet.
+    "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS metabolic_acidosis_status VARCHAR",
     # Superadmin override: temporarily reopens a locked (past/submitted) day
     # for correction — same columns as resp_cv_neuro_day_logs, added here
     # 2026-08-23 alongside the matching backend endpoint (this form never
@@ -274,6 +278,12 @@ USERS_COLUMN_PATCHES = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile VARCHAR",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS designation VARCHAR",
+    # Pilot PGIMER "Completed by" designations (was hardcoded in Form D/E/H).
+    # Only fills rows that still have a null designation.
+    "UPDATE users SET designation = 'Project Research Scientist III (Medical)' WHERE designation IS NULL AND full_name IN ('Mannat Guliani', 'Dr. Mannat Guliani')",
+    "UPDATE users SET designation = 'Project Research Scientist III (Non-Medical)' WHERE designation IS NULL AND full_name IN ('Shalini Dhiman', 'Dr. Shalini Dhiman')",
+    "UPDATE users SET designation = 'Project Nurse III' WHERE designation IS NULL AND full_name IN ('Geetika', 'Navkiran Kaur', 'Priyanka Thakur', 'Seemran Kaur', 'Tanvi Saini', 'Yashvi Jolly')",
 ]
 
 
@@ -378,6 +388,9 @@ NICU_ADMISSION_V2_COLUMN_PATCHES = [
     # background autosave silently persisted an in-progress draft —
     # reopening the latter should stay editable, not lock until Edit.
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS finalized BOOLEAN DEFAULT FALSE",
+    # Form E age-at-admission: total whole minutes alongside floored hours
+    # (a 30-minute DOB→admission gap stores hours=0, minutes=30).
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS age_at_admission_minutes INTEGER",
 ]
 
 BIRTH_RESUSCITATION_SAVE_STATE_PATCHES = [

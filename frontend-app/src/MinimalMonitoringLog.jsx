@@ -290,6 +290,8 @@ function countProgress(entries) {
         if (k === "steroid_other" && !(entry.postnatal_steroids || []).includes("Other")) return;
         if (k === "symptomatic_detail" && entry.symptomatic_status !== "symptomatic") return;
         if (k === "electrolytes" && entry.electrolyte_abnormality !== true) return;
+        if (k === "hypo_hyper" && entry.electrolyte_abnormality !== true) return;
+        if (k === "symptomatic_status" && entry.electrolyte_abnormality !== true) return;
         if ((k === "vasoactive_dose" || k === "vasoactive_unit") && !(entry.vasoactive_drugs || []).length) return;
         if (k === "prbc_volume" && !(entry.transfusion_products || []).includes("PRBC")) return;
         bump(section, block, ans(v));
@@ -971,22 +973,26 @@ export default function MinimalMonitoringLog() {
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Skin/Axillary Temp">
+                <Item n={1} label="Select Shift">
+                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
+                    onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Skin/Axillary Temp">
                   <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
                     disabled={!isEditable} unit="°C" />
                 </Item>
-                <Item n={2} label="SBP">
+                <Item n={3} label="SBP">
                   <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={3} label="DBP">
+                <Item n={4} label="DBP">
                   <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={4} label="MAP">
+                <Item n={5} label="MAP">
                   <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>

@@ -17,7 +17,7 @@ import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock, Check,
-  Lock, Copy, Edit,
+  Lock, Edit,
   AlertOctagon, History, Unlock, Plus, Trash2, ListChecks, Calendar,
 } from "lucide-react";
 
@@ -30,26 +30,30 @@ function blankSepsisScreen() {
   return { id: uidIg(), date: toDateOnlyValue(d), time: nowTimeIg(d), type: "CRP", value: "", result: "" };
 }
 
-/** Latest numeric 5.4.A cumulative feed volume from a Minimal Monitoring
- *  sheet (gi_a in entries_json, else the legacy flat column). */
-function mmlLatestCumulativeFeedVolume(data) {
+/** Sum of numeric 5.4.A cumulative feed volume from a Minimal Monitoring
+ *  sheet — every `gi_a` entry in entries_json for that day. If gi_a is
+ *  missing or empty, falls back to the row's legacy flat
+ *  `cumulative_feed_volume` column as a single value. */
+function mmlSumCumulativeFeedVolume(data) {
   if (!data) return null;
   let entries = data.entries_json;
   if (typeof entries === "string") {
     try { entries = JSON.parse(entries); } catch (_) { entries = null; }
   }
   const giA = entries?.gi_a;
-  let latest = null;
-  if (Array.isArray(giA)) {
+  if (Array.isArray(giA) && giA.length > 0) {
+    let sum = 0;
+    let found = false;
     for (const e of giA) {
       const n = Number(e?.cumulative_feed_volume);
-      if (Number.isFinite(n)) latest = n;
+      if (!Number.isFinite(n)) continue;
+      sum += n;
+      found = true;
     }
+    return found ? sum : null;
   }
-  if (latest != null) return latest;
   const n = Number(data.cumulative_feed_volume);
   return Number.isFinite(n) ? n : null;
-}
 }
 
 function parseJsonArrayIg(raw) {
@@ -294,7 +298,7 @@ const STATUS_NOT_DONE = "Not Recorded / Not Done";
  *  When a status is active, the numeric input is cleared/disabled and the
  *  status string — not a number — is what gets treated as the answer. */
 function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", error, width = 140,
-  status = null, onStatusChange = null, allowAwaited = false }) {
+  status = null, onStatusChange = null, allowAwaited = false, autofilled = false }) {
   const isAwaited  = status === STATUS_AWAITED;
   const isNotDone  = status === STATUS_NOT_DONE;
   const isSentinel = isAwaited || isNotDone;
@@ -309,6 +313,7 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder = "0", err
       <div className="rcn-yn-row">
         <div className="rcn-field-label-row">
           <span className="rcn-yn-label">{label}</span>
+          {autofilled && <span className="rcn-autofill-tag">from Minimal Monitoring</span>}
           {onStatusChange && (
             <div className="rcn-status-toggle-group">
               {allowAwaited && (
@@ -525,47 +530,6 @@ function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
   );
 }
 
-function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
-  const [selected, setSelected] = useState(null);
-  return (
-    <div className="rcn-modal-overlay">
-      <div className="rcn-modal">
-        <div className="rcn-modal-header">
-          <div className="rcn-modal-icon" style={{ background: "#EFF6FF", color: "#0F4C81" }}>
-            <Copy size={22} />
-          </div>
-          <div>
-            <h3 className="rcn-modal-title">Copy from Previous Day</h3>
-            <p className="rcn-modal-subtitle">Pre-fill Day {activeDay} with data from an earlier day</p>
-          </div>
-          <button className="rcn-modal-close" onClick={onCancel} type="button"><X size={18} /></button>
-        </div>
-        <div className="rcn-modal-body">
-          <p className="rcn-copy-hint">Select the day to copy from:</p>
-          <div className="rcn-copy-day-grid">
-            {availableDays.map(d => (
-              <button key={d} type="button"
-                className={`rcn-copy-day-btn${selected === d ? " rcn-copy-day-btn--on" : ""}`}
-                onClick={() => setSelected(d)}>
-                <span className="rcn-copy-day-num">Day {d}</span>
-              </button>
-            ))}
-          </div>
-          {availableDays.length === 0 && <div className="rcn-copy-empty">No previous days with saved data found.</div>}
-        </div>
-        <div className="rcn-modal-footer">
-          <button className="rcn-modal-btn rcn-modal-btn--cancel" onClick={onCancel} type="button">Cancel</button>
-          <button className="rcn-modal-btn rcn-modal-btn--submit"
-            style={{ background: selected ? "linear-gradient(135deg,#0F4C81,#1A5F9E)" : undefined }}
-            onClick={() => selected && onConfirm(selected)} disabled={!selected} type="button">
-            <Copy size={14} /> Copy Day {selected || "—"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ══════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════ */
@@ -616,8 +580,6 @@ export default function InfectGIHemaLog() {
   const [savedBy, setSavedBy]             = useState("");
   const [submittedAt, setSubmittedAt]     = useState(null);
   const [submittedBy, setSubmittedBy]     = useState("");
-  const [showCopyModal, setShowCopyModal] = useState(false);
-  const [copySourceDay, setCopySourceDay] = useState([]);
 
   /* ── All-days table view ── */
   const [showTableView, setShowTableView]   = useState(false);
@@ -759,6 +721,11 @@ export default function InfectGIHemaLog() {
   );
   const activeDayDateRef = useRef(activeDayDate);
   activeDayDateRef.current = activeDayDate;
+  // Last sum this helper itself applied for a given calendar date.
+  // Used so ticks can re-sync while the field still holds that auto
+  // value, but never overwrite a nurse's typed correction.
+  const lastFeedVolumeAutoRef = useRef({ date: null, value: undefined });
+  const [feedVolumeAutofilled, setFeedVolumeAutofilled] = useState(false);
   // Same-morning grace window: still used for the Day 1 Date entry window.
   const IGH_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
@@ -798,12 +765,32 @@ export default function InfectGIHemaLog() {
       if (activeDayDateRef.current !== recordDate) return;
       const data = res?.data || {};
       if (data.record_date && data.record_date !== recordDate) return;
-      const vol = mmlLatestCumulativeFeedVolume(data);
+      const vol = mmlSumCumulativeFeedVolume(data);
       if (vol == null) return;
       setGiData((p) => {
         if (p.npo === true) return p;
-        if (p.cumulative_feed_volume != null && p.cumulative_feed_volume !== "") return p;
         if (p.cumulative_feed_volume_status) return p;
+        const current = p.cumulative_feed_volume;
+        const isEmpty = current == null || current === "";
+        const last = lastFeedVolumeAutoRef.current;
+        const stillMatchesLastAutoFill =
+          last.date === recordDate &&
+          last.value !== undefined &&
+          String(current) === String(last.value);
+        const alreadyInSync = String(current) === String(vol);
+        if (!isEmpty && !stillMatchesLastAutoFill) {
+          // Nurse typed something else — leave it. If the saved value
+          // already equals the live sum, remember it so later ticks
+          // can keep ratcheting (same session after a matching load).
+          if (alreadyInSync) {
+            lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
+            setFeedVolumeAutofilled(true);
+          }
+          return p;
+        }
+        lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
+        setFeedVolumeAutofilled(true);
+        if (alreadyInSync) return p;
         setIsEditing(true);
         return { ...p, cumulative_feed_volume: vol };
       });
@@ -921,7 +908,11 @@ export default function InfectGIHemaLog() {
 
   /* ── Setters ── */
   const setInf  = (k, v) => isFieldEditable && setInfData(p => ({ ...p, [k]: v }));
-  const setGi   = (k, v) => isFieldEditable && setGiData(p => ({ ...p, [k]: v }));
+  const setGi   = (k, v) => {
+    if (!isFieldEditable) return;
+    if (k === "cumulative_feed_volume") setFeedVolumeAutofilled(false);
+    setGiData(p => ({ ...p, [k]: v }));
+  };
   const setHema = (k, v) => isFieldEditable && setHemaData(p => ({ ...p, [k]: v }));
 
   /* ── Sepsis screen list (repeatable, same shape as Helper 4's readings lists) ── */
@@ -1060,6 +1051,8 @@ export default function InfectGIHemaLog() {
     let cancelled = false;
     const loadDay = async () => {
       setLoading(true);
+      lastFeedVolumeAutoRef.current = { date: null, value: undefined };
+      setFeedVolumeAutofilled(false);
       try {
         const res = await api.get(`/infect-gi-hema/${enrollmentId}/${activeDay}`);
         if (cancelled) return;
@@ -1295,55 +1288,6 @@ export default function InfectGIHemaLog() {
       try { await handleSave(); } catch (err) { console.error("Save before next failed:", err); }
     }
     navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
-  };
-
-  /* ── Copy from day ── */
-  const handleCopyFromDay = async (sourceDay) => {
-    setShowCopyModal(false); setLoading(true);
-    try {
-      const res = await api.get(`/infect-gi-hema/${enrollmentId}/${sourceDay}`);
-      const d = res?.data || {};
-      if (!d || Object.keys(d).length === 0) {
-        setMessage(`⚠️ No data found for Day ${sourceDay}`);
-        setTimeout(() => setMessage(""), 3000);
-        return;
-      }
-      setInfData({ sepsis_suspected: d.sepsis_suspected ?? null,
-        blood_culture_sent: d.blood_culture_sent ?? null,
-        blood_culture_positive: d.blood_culture_positive ?? null,
-        blood_culture_status: d.blood_culture_status ?? null,
-        antibiotics: d.antibiotics ?? null, lp_done: d.lp_done ?? null,
-        meningitis: d.meningitis ?? null, meningitis_type: d.meningitis_type ?? null,
-        clabsi: d.clabsi ?? null, vap: d.vap ?? null,
-        sepsis_screen_sent: d.sepsis_screen_sent ?? null,
-        sepsis_screens: parseJsonArrayIg(d.sepsis_screens_json) || [blankSepsisScreen()] });
-      setGiData({ npo: d.npo ?? null, men: d.men ?? null,
-        enteral_feeds_received: d.enteral_feeds_received ?? null,
-        feed_type: d.feed_type
-          ? (Array.isArray(d.feed_type) ? d.feed_type
-            : d.feed_type.split(",").map(s=>s.trim()).filter(Boolean))
-          : [],
-        cumulative_feed_volume: d.cumulative_feed_volume ?? null,
-        cumulative_feed_volume_status: d.cumulative_feed_volume_status ?? null,
-        feed_volume: d.feed_volume ?? null, feed_volume_status: d.feed_volume_status ?? null,
-        iv_fluids: d.iv_fluids ?? null,
-        parenteral_nutrition: d.parenteral_nutrition ?? null, probiotic: d.probiotic ?? null,
-        feed_intolerance: d.feed_intolerance ?? null, nec_suspected: d.nec_suspected ?? null,
-        nec_confirmed_stage: d.nec_confirmed_stage ?? null, cholestasis: d.cholestasis ?? null });
-      setHemaData({ hb_value: d.hb_value ?? null, hb_value_status: d.hb_value_status ?? null,
-        jaundice: d.jaundice ?? null,
-        phototherapy: d.phototherapy ?? null, peak_tsb: d.peak_tsb ?? null,
-        peak_tsb_status: d.peak_tsb_status ?? null,
-        exchange_transfusion: d.exchange_transfusion ?? null,
-        prbc_transfusion: d.prbc_transfusion ?? null, platelet_transfusion: d.platelet_transfusion ?? null,
-        ffp_cryo: d.ffp_cryo ?? null });
-      setIsSaved(false);
-      setMessage(`📋 Copied from Day ${sourceDay} — review and save`);
-      setTimeout(() => setMessage(""), 4000);
-    } catch (_) {
-      setMessage(`❌ Could not load Day ${sourceDay} data`);
-      setTimeout(() => setMessage(""), 3000);
-    } finally { setLoading(false); }
   };
 
   /* ── Audit trail — superadmin + site PI only, scoped to the active day ── */
@@ -1854,16 +1798,6 @@ export default function InfectGIHemaLog() {
                 )}
               </p>
             )}
-            {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
-              <button type="button" className="rcn-copy-btn"
-                onClick={() => {
-                  const available = Object.keys(dayStatuses).map(Number)
-                    .filter(d => d < activeDay && dayStatuses[d] !== STATUS.EMPTY);
-                  setCopySourceDay(available); setShowCopyModal(true);
-                }}>
-                <Copy size={13} /> Copy from previous day
-              </button>
-            )}
           </div>
           <div className="rcn-summary-right">
             <div className="rcn-summary-sections">
@@ -2100,6 +2034,8 @@ export default function InfectGIHemaLog() {
                   onChange={v => {
                     setGi("npo", v);
                     if (v !== false) {
+                      lastFeedVolumeAutoRef.current = { date: null, value: undefined };
+                      setFeedVolumeAutofilled(false);
                       setGiData(p => ({ ...p, men: null, enteral_feeds_received: null,
                         feed_type: [], cumulative_feed_volume: null, feed_volume: null }));
                     }
@@ -2132,7 +2068,8 @@ export default function InfectGIHemaLog() {
 
                   <div className="rcn-yn-list" style={{marginTop:16}}>
                     <NumRow label="14. Cumulative Feed Volume (ml)" value={giData.cumulative_feed_volume} onChange={v => setGi("cumulative_feed_volume", v)} disabled={!isFieldEditable} unit="ml" placeholder="0" error={cumulativeFeedVolumeError} width={220}
-                      status={giData.cumulative_feed_volume_status} onStatusChange={v => setGi("cumulative_feed_volume_status", v)} />
+                      status={giData.cumulative_feed_volume_status} onStatusChange={v => setGi("cumulative_feed_volume_status", v)}
+                      autofilled={!!feedVolumeAutofilled} />
                     <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" error={feedVolumeError} width={220}
                       status={giData.feed_volume_status} onStatusChange={v => setGi("feed_volume_status", v)} />
                   </div>
@@ -2220,10 +2157,6 @@ export default function InfectGIHemaLog() {
       </div>{/* end rcn-page */}
 
       {/* Modals */}
-      {showCopyModal && (
-        <CopyDayModal activeDay={activeDay} availableDays={copySourceDay}
-          onConfirm={handleCopyFromDay} onCancel={() => setShowCopyModal(false)} />
-      )}
       {showModal && (
         <SubmitModal day={activeDay} completionPct={completionPct}
           onConfirm={handleSubmit} onCancel={() => setShowModal(false)} submitting={submitting} />

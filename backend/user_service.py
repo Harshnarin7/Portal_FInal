@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from auth import hash_password
 from models import User
-from user_seed import DEFAULT_LOGIN_USERS
+from user_seed import DEFAULT_LOGIN_USERS, PILOT_COMPLETED_BY_DESIGNATIONS
 
 CREDENTIALS_DIR = os.path.join(os.path.dirname(__file__), "credentials")
 
@@ -46,6 +46,7 @@ def seed_login_users(db: Session) -> int:
             role=role,
             site_name=site_name,
             full_name=full_name,
+            designation=PILOT_COMPLETED_BY_DESIGNATIONS.get(full_name),
             must_change_password=True,
             is_active=True,
         ))
@@ -65,3 +66,24 @@ def seed_login_users(db: Session) -> int:
             f.write(",".join(field if field is not None else "" for field in row) + "\n")
 
     return len(created_rows)
+
+
+def backfill_pilot_designations(db: Session) -> int:
+    """Set designation on the 8 hardcoded Form D/E/H names if still null.
+
+    Schema patches run before login-user seeding on a fresh DB, so new
+    accounts would otherwise come up without a designation. Idempotent.
+    """
+    updated = 0
+    for full_name, designation in PILOT_COMPLETED_BY_DESIGNATIONS.items():
+        rows = (
+            db.query(User)
+            .filter(User.full_name == full_name, User.designation.is_(None))
+            .all()
+        )
+        for row in rows:
+            row.designation = designation
+            updated += 1
+    if updated:
+        db.commit()
+    return updated

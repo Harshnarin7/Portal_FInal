@@ -12,7 +12,7 @@ import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock, Check,
-  Lock, Copy, Edit,
+  Lock, Edit,
   AlertOctagon, Unlock, History, RefreshCw, Plus, Trash2, ListChecks, Calendar,
 } from "lucide-react";
 import "./styles/MinimalMonitoring.css";
@@ -53,7 +53,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
       { key: "hypoglycemia_rx",       label: "Hypoglycemia Rx", bool: true },
       { key: "highest_glucose",       label: "Highest Glucose", suffix: "mg/dL" },
       { key: "insulin",               label: "Hyperglycemia Rx (Insulin)", bool: true },
-      { key: "metabolic_acidosis",    label: "Metabolic Acidosis", bool: true },
+      { key: "metabolic_acidosis",    label: "Metabolic Acidosis", bool: true, statusKey: "metabolic_acidosis_status" },
       { key: "sodium_value",          label: "Sodium Value", suffix: "mmol/L" },
       { key: "potassium_value",       label: "Potassium Value", suffix: "mmol/L" },
       { key: "ionized_calcium_value", label: "Ionized Calcium Value", suffix: "mmol/L" },
@@ -623,47 +623,6 @@ function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
   );
 }
 
-function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
-  const [selected, setSelected] = useState(null);
-  return (
-    <div className="rcn-modal-overlay">
-      <div className="rcn-modal">
-        <div className="rcn-modal-header">
-          <div className="rcn-modal-icon" style={{ background:"#EFF6FF", color:"#0F4C81" }}>
-            <Copy size={22}/>
-          </div>
-          <div>
-            <h3 className="rcn-modal-title">Copy from Previous Day</h3>
-            <p className="rcn-modal-subtitle">Pre-fill Day {activeDay} with data from an earlier day</p>
-          </div>
-          <button className="rcn-modal-close" onClick={onCancel} type="button"><X size={18}/></button>
-        </div>
-        <div className="rcn-modal-body">
-          <p className="rcn-copy-hint">Select the day to copy from:</p>
-          <div className="rcn-copy-day-grid">
-            {availableDays.map(d => (
-              <button key={d} type="button"
-                className={`rcn-copy-day-btn${selected===d ? " rcn-copy-day-btn--on" : ""}`}
-                onClick={() => setSelected(d)}>
-                <span className="rcn-copy-day-num">Day {d}</span>
-              </button>
-            ))}
-          </div>
-          {availableDays.length === 0 && <div className="rcn-copy-empty">No previous days with saved data found.</div>}
-        </div>
-        <div className="rcn-modal-footer">
-          <button className="rcn-modal-btn rcn-modal-btn--cancel" onClick={onCancel} type="button">Cancel</button>
-          <button className="rcn-modal-btn rcn-modal-btn--submit"
-            style={{ background: selected ? "linear-gradient(135deg,#0F4C81,#1A5F9E)" : undefined }}
-            onClick={() => selected && onConfirm(selected)} disabled={!selected} type="button">
-            <Copy size={14}/> Copy Day {selected || "—"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
 // serialize to JSON with no 'Z'/offset suffix even though the value is UTC
 // (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
@@ -715,8 +674,6 @@ export default function MetabRenalVascEyeLog() {
   const [savedBy, setSavedBy]             = useState("");
   const [submittedAt, setSubmittedAt]     = useState(null);
   const [submittedBy, setSubmittedBy]     = useState("");
-  const [showCopyModal, setShowCopyModal] = useState(false);
-  const [copySourceDay, setCopySourceDay] = useState([]);
 
   /* ── All-days table view ── */
   const [showTableView, setShowTableView]   = useState(false);
@@ -776,6 +733,7 @@ export default function MetabRenalVascEyeLog() {
     highest_glucose:        null, // #4 autofill
     insulin:                null, // #5 gated hyper Rx
     metabolic_acidosis:     null, // #6 derived from ph_readings
+    metabolic_acidosis_status: null, // #6 "Not Recorded / Not Done"
     sodium_value:           null, // #7 summary
     potassium_value:        null, // #8 summary
     ionized_calcium_value:  null, // #9 summary
@@ -964,7 +922,12 @@ export default function MetabRenalVascEyeLog() {
     "osteopenia_suspected",
   ];
   const metabTotal   = METAB_BASE.length;
-  const metabAnswered= METAB_BASE.filter(k => ans(metabData[k])).length;
+  const metabAnswered= METAB_BASE.filter(k => {
+    if (k === "metabolic_acidosis") {
+      return ans(metabData.metabolic_acidosis) || ans(metabData.metabolic_acidosis_status);
+    }
+    return ans(metabData[k]);
+  }).length;
 
   // Renal: #11 Yes/No, #12 creatinine_value, #13 any urine window, #14
   const RENAL_KEYS = [
@@ -1056,7 +1019,9 @@ export default function MetabRenalVascEyeLog() {
       const nextList = updater(list);
       const next = { ...p, [listKey]: nextList };
       if (listKey === "ph_readings") {
-        next.metabolic_acidosis = deriveMetabolicAcidosis(nextList);
+        next.metabolic_acidosis = p.metabolic_acidosis_status === STATUS_NOT_DONE
+          ? null
+          : deriveMetabolicAcidosis(nextList);
       } else if (listKey === "sodium_readings") {
         next.sodium_value = latestReadingSummary(nextList, valueKey);
       } else if (listKey === "potassium_readings") {
@@ -1097,6 +1062,26 @@ export default function MetabRenalVascEyeLog() {
   const setLabStatus = (summaryKey, status) => {
     if (!isFieldEditable) return;
     setMetabData(p => ({ ...p, [summaryKey]: p[summaryKey] === status ? null : status }));
+  };
+  /** Field #6 sidecar: "Not Recorded / Not Done" lives in
+   *  metabolic_acidosis_status (same pattern as urine_output_*_status),
+   *  not in the derived boolean. Turning the sentinel on clears pH
+   *  readings and the Yes/No; turning it off restores a blank editable
+   *  readings list. StatusToggleGroup always fires the sentinel value,
+   *  so this handler must toggle — same as setLabStatus / NumRow. */
+  const setAcidosisStatus = (status) => {
+    if (!isFieldEditable) return;
+    setMetabData(p => {
+      if (p.metabolic_acidosis_status === status) {
+        return { ...p, metabolic_acidosis_status: null };
+      }
+      return {
+        ...p,
+        metabolic_acidosis_status: status,
+        metabolic_acidosis: null,
+        ph_readings: [blankReading({ ph: "" })],
+      };
+    });
   };
   const labStatus = summaryKey => {
     const v = metabData[summaryKey];
@@ -1355,7 +1340,7 @@ export default function MetabRenalVascEyeLog() {
     let cancelled = false;
     const emptyMetab = {
       lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
-      insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+      insulin:null,metabolic_acidosis:null,metabolic_acidosis_status:null,sodium_value:null,potassium_value:null,
       ionized_calcium_value:null,osteopenia_suspected:null,
       ph_readings:[blankReading({ ph: "" })],
       sodium_readings:[blankReading({ value: "" })],
@@ -1384,18 +1369,21 @@ export default function MetabRenalVascEyeLog() {
           const caReadings = parseJsonArray(d.calcium_readings_json) || [blankReading({ value: "" })];
           const creatVal = d.creatinine_value
             ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null);
+          const acidosisStatus = d.metabolic_acidosis_status ?? null;
+          const acidosisNotDone = acidosisStatus === STATUS_NOT_DONE;
           loadedMetab = {
             lowest_glucose:         d.lowest_glucose         ?? null,
             hypoglycemia_episodes:  d.hypoglycemia_episodes  ?? null,
             hypoglycemia_rx:        d.hypoglycemia_rx        ?? null,
             highest_glucose:        d.highest_glucose        ?? null,
             insulin:                d.insulin                ?? null,
-            metabolic_acidosis:     d.metabolic_acidosis ?? deriveMetabolicAcidosis(phReadings),
+            metabolic_acidosis:     acidosisNotDone ? null : (d.metabolic_acidosis ?? deriveMetabolicAcidosis(phReadings)),
+            metabolic_acidosis_status: acidosisStatus,
             sodium_value:           d.sodium_value ?? latestReadingSummary(naReadings),
             potassium_value:        d.potassium_value ?? latestReadingSummary(kReadings),
             ionized_calcium_value:  d.ionized_calcium_value ?? latestReadingSummary(caReadings),
             osteopenia_suspected:   d.osteopenia_suspected   ?? null,
-            ph_readings:            phReadings,
+            ph_readings:            acidosisNotDone ? [blankReading({ ph: "" })] : phReadings,
             sodium_readings:        naReadings,
             potassium_readings:     kReadings,
             calcium_readings:       caReadings,
@@ -1505,7 +1493,7 @@ export default function MetabRenalVascEyeLog() {
   const resetFormState = () => {
     setMetabData({
       lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
-      insulin:null,metabolic_acidosis:null,sodium_value:null,potassium_value:null,
+      insulin:null,metabolic_acidosis:null,metabolic_acidosis_status:null,sodium_value:null,potassium_value:null,
       ionized_calcium_value:null,osteopenia_suspected:null,
       ph_readings:[blankReading({ ph: "" })],
       sodium_readings:[blankReading({ value: "" })],
@@ -1536,11 +1524,14 @@ export default function MetabRenalVascEyeLog() {
   };
 
   const buildPayload = (now) => {
-    const phReadings = metabData.ph_readings || [];
+    const acidosisNotDone = metabData.metabolic_acidosis_status === STATUS_NOT_DONE;
+    const phReadings = acidosisNotDone
+      ? [blankReading({ ph: "" })]
+      : (metabData.ph_readings || []);
     const naReadings = metabData.sodium_readings || [];
     const kReadings = metabData.potassium_readings || [];
     const caReadings = metabData.calcium_readings || [];
-    const acidosis = deriveMetabolicAcidosis(phReadings);
+    const acidosis = acidosisNotDone ? null : deriveMetabolicAcidosis(phReadings);
     const naSum = isStatusSentinel(metabData.sodium_value) ? metabData.sodium_value : latestReadingSummary(naReadings);
     const kSum = isStatusSentinel(metabData.potassium_value) ? metabData.potassium_value : latestReadingSummary(kReadings);
     const caSum = isStatusSentinel(metabData.ionized_calcium_value) ? metabData.ionized_calcium_value : latestReadingSummary(caReadings);
@@ -1564,6 +1555,7 @@ export default function MetabRenalVascEyeLog() {
       nicu_day: activeDay,
       ...metabFlat,
       metabolic_acidosis: acidosis,
+      metabolic_acidosis_status: metabData.metabolic_acidosis_status ?? null,
       sodium_value: naSum,
       potassium_value: kSum,
       ionized_calcium_value: caSum,
@@ -1684,72 +1676,6 @@ export default function MetabRenalVascEyeLog() {
       try { await handleSave(); } catch (err) { console.error("Save before next failed:", err); }
     }
     navigate(`/form-f/${enrollmentId}`);
-  };
-
-  /* ── Copy from day ── */
-  const handleCopyFromDay = async (sourceDay) => {
-    setShowCopyModal(false); setLoading(true);
-    try {
-      const res = await api.get(`/metab-renal-vasc-eye/${enrollmentId}/${sourceDay}`);
-      const d = res?.data || {};
-      if (!d || Object.keys(d).length === 0) {
-        setMessage(`⚠️ No data for Day ${sourceDay}`);
-        setTimeout(() => setMessage(""), 3000); return;
-      }
-      const aki = migrateAkiFromLegacy(d);
-      const phReadings = parseJsonArray(d.ph_readings_json) || [blankReading({ ph: "" })];
-      const naReadings = parseJsonArray(d.sodium_readings_json) || [blankReading({ value: "" })];
-      const kReadings = parseJsonArray(d.potassium_readings_json) || [blankReading({ value: "" })];
-      const caReadings = parseJsonArray(d.calcium_readings_json) || [blankReading({ value: "" })];
-      setMetabData({
-        lowest_glucose: d.lowest_glucose??null, hypoglycemia_episodes: d.hypoglycemia_episodes??null,
-        hypoglycemia_rx: d.hypoglycemia_rx??null, highest_glucose: d.highest_glucose??null,
-        insulin: d.insulin??null,
-        metabolic_acidosis: d.metabolic_acidosis ?? deriveMetabolicAcidosis(phReadings),
-        sodium_value: d.sodium_value ?? latestReadingSummary(naReadings),
-        potassium_value: d.potassium_value ?? latestReadingSummary(kReadings),
-        ionized_calcium_value: d.ionized_calcium_value ?? latestReadingSummary(caReadings),
-        osteopenia_suspected: d.osteopenia_suspected??null,
-        ph_readings: phReadings,
-        sodium_readings: naReadings,
-        potassium_readings: kReadings,
-        calcium_readings: caReadings,
-      });
-      setRenalData({
-        aki_suspected: aki.aki_suspected,
-        creatinine_value: d.creatinine_value
-          ?? (d.creatinine != null && d.creatinine !== "" ? String(d.creatinine) : null),
-        urine_output_8am_2pm: d.urine_output_8am_2pm??null,
-        urine_output_8am_2pm_status: d.urine_output_8am_2pm_status ?? null,
-        urine_output_2pm_8pm: d.urine_output_2pm_8pm??null,
-        urine_output_2pm_8pm_status: d.urine_output_2pm_8pm_status ?? null,
-        urine_output_8pm_8am: d.urine_output_8pm_8am??null,
-        urine_output_8pm_8am_status: d.urine_output_8pm_8am_status ?? null,
-        urine_output_total: d.urine_output_total
-          ?? computeUrineTotal(d.urine_output_8am_2pm, d.urine_output_2pm_8pm, d.urine_output_8pm_8am),
-        dialysis_crrt: d.dialysis_crrt??null,
-      });
-      setThermoData({ axillary_temperature: d.axillary_temperature??null });
-      setVascData({ picc_in_situ: d.picc_in_situ??null, uvc_in_situ: d.uvc_in_situ??null,
-        uac_in_situ: d.uac_in_situ??null, peripheral_iv: d.peripheral_iv??null,
-        peripheral_arterial: d.peripheral_arterial??null, extravasation_injury: d.extravasation_injury??null,
-        line_complication: d.line_complication??null });
-      setEyeData({ rop_screening_due: d.rop_screening_due??null, rop_screened: d.rop_screened??null,
-        rop_detected: d.rop_detected??null, rop_stage: d.rop_stage||null,
-        plus_disease: d.plus_disease??null, rop_treatment: d.rop_treatment??null });
-      setTailData({ location: stringToList(d.location), survived_the_day: d.survived_the_day??null });
-      setGlucoseAutofilled({
-        lowest_glucose: false,
-        hypoglycemia_episodes: false,
-        highest_glucose: false,
-      });
-      setIsSaved(false);
-      setMessage(`📋 Copied from Day ${sourceDay} — review and save`);
-      setTimeout(() => setMessage(""), 4000);
-    } catch (_) {
-      setMessage(`❌ Could not load Day ${sourceDay}`);
-      setTimeout(() => setMessage(""), 3000);
-    } finally { setLoading(false); }
   };
 
   /* ── Audit trail — superadmin + site PI only, scoped to the active day ── */
@@ -2257,16 +2183,6 @@ export default function MetabRenalVascEyeLog() {
                 )}
               </p>
             )}
-            {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
-              <button type="button" className="rcn-copy-btn"
-                onClick={() => {
-                  const available = Object.keys(dayStatuses).map(Number)
-                    .filter(d => d < activeDay && dayStatuses[d] !== STATUS.EMPTY);
-                  setCopySourceDay(available); setShowCopyModal(true);
-                }}>
-                <Copy size={13}/> Copy from previous day
-              </button>
-            )}
           </div>
           <div className="rcn-summary-right">
             <div className="rcn-summary-sections">
@@ -2395,7 +2311,13 @@ export default function MetabRenalVascEyeLog() {
                 <div className="rcn-readings-field">
                   <div className="rcn-field-label-row">
                     <span className="rcn-yn-label">6. Metabolic acidosis (pH&lt;7.2) — enter readings</span>
+                    <StatusToggleGroup status={metabData.metabolic_acidosis_status}
+                      onChange={s => setAcidosisStatus(s)}
+                      disabled={!isFieldEditable} />
                   </div>
+                  {metabData.metabolic_acidosis_status === STATUS_NOT_DONE ? (
+                    <div className="rcn-field-sub">{STATUS_NOT_DONE}</div>
+                  ) : (
                   <ReadingsBlock
                     code="pH"
                     entries={metabData.ph_readings}
@@ -2417,13 +2339,15 @@ export default function MetabRenalVascEyeLog() {
                       </label>
                     )}
                   </ReadingsBlock>
+                  )}
                   <div className="rcn-yn-list" style={{ marginTop: 8 }}>
                     <ReadonlyAutoField
                       label="Metabolic acidosis (auto)"
                       value={
-                        metabData.metabolic_acidosis === true ? "Yes"
-                          : metabData.metabolic_acidosis === false ? "No"
-                            : "—"
+                        metabData.metabolic_acidosis_status === STATUS_NOT_DONE ? "Not Done"
+                          : metabData.metabolic_acidosis === true ? "Yes"
+                            : metabData.metabolic_acidosis === false ? "No"
+                              : "—"
                       }
                     />
                   </div>
@@ -2674,10 +2598,6 @@ export default function MetabRenalVascEyeLog() {
       </div>
 
       {/* Modals */}
-      {showCopyModal && (
-        <CopyDayModal activeDay={activeDay} availableDays={copySourceDay}
-          onConfirm={handleCopyFromDay} onCancel={() => setShowCopyModal(false)}/>
-      )}
       {showModal && (
         <SubmitModal day={activeDay} completionPct={completionPct}
           onConfirm={handleSubmit} onCancel={() => setShowModal(false)} submitting={submitting}/>

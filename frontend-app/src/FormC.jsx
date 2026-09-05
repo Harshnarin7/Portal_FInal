@@ -749,8 +749,19 @@ export default function FormC() {
             uterotonic: formCData.uterotonic ?? "",
             uterotonic_timing: formCData.uterotonic_timing ?? "",
           } : {}),
-          lmp: formCData?.lmp ? parseDateOnly(formCData.lmp) : formAData?.lmp_date ? parseDateOnly(formAData.lmp_date) : null,
-          edd: formCData?.edd ? parseDateOnly(formCData.edd) : formAData?.expected_delivery_date ? parseDateOnly(formAData.expected_delivery_date) : null,
+          // LMP/EDD are labeled "(auto from Form A)" — Form A's current
+          // lmp_date / expected_delivery_date always win when present, so a
+          // later correction on Form A shows up the next time Form C opens.
+          // Form C's own saved lmp/edd are a fallback only (Form A empty or
+          // this enrollment predates those fields). They are NOT the source
+          // of truth on load. formAData comes from GET /screenings/by-enrollment
+          // on every Form C mount (not localStorage / a cached screening_id).
+          lmp: formAData?.lmp_date
+            ? parseDateOnly(formAData.lmp_date)
+            : (formCData?.lmp ? parseDateOnly(formCData.lmp) : null),
+          edd: formAData?.expected_delivery_date
+            ? parseDateOnly(formAData.expected_delivery_date)
+            : (formCData?.edd ? parseDateOnly(formCData.edd) : null),
           mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : "",
         });
         if (formCData?.explicitly_saved || isEditMode) setIsSaved(true);
@@ -1158,6 +1169,9 @@ export default function FormC() {
     anc_visits: formData.anc_visits || null, booked: formData.booked || null,
     multiple: formData.multiple || null,
     multiple_other: formData.multiple_other || null,
+    // Snapshot of LMP/EDD at save time for audit/history only. On load the
+    // display always prefers Form A's current lmp_date / expected_delivery_date
+    // (see fetchData); these columns are informational, not the source of truth.
     lmp: formData.lmp ? toDateOnlyValue(formData.lmp) : null,
     edd: formData.edd ? toDateOnlyValue(formData.edd) : null,
     conception: formData.conception || null,

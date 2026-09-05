@@ -13,7 +13,7 @@ import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertCircle, Clock, Check,
   Lock, Send, AlertTriangle, X,
-  Copy, History, Unlock, AlertOctagon, Edit, ListChecks, Calendar,
+  History, Unlock, AlertOctagon, Edit, ListChecks, Calendar,
 } from "lucide-react";
 
 /* ── Day status constants ── */
@@ -477,61 +477,6 @@ function SubmitModal({ day, completionPct, onConfirm, onCancel, submitting }) {
   );
 }
 
-/* ── Copy Day Modal ── */
-function CopyDayModal({ activeDay, availableDays, onConfirm, onCancel }) {
-  const [selected, setSelected] = useState(null);
-  return (
-    <div className="rcn-modal-overlay">
-      <div className="rcn-modal">
-        <div className="rcn-modal-header">
-          <div className="rcn-modal-icon" style={{ background: "#EFF6FF", color: "#0F4C81" }}>
-            <Copy size={22} />
-          </div>
-          <div>
-            <h3 className="rcn-modal-title">Copy from Previous Day</h3>
-            <p className="rcn-modal-subtitle">Pre-fill Day {activeDay} with data from an earlier day</p>
-          </div>
-          <button className="rcn-modal-close" onClick={onCancel} type="button">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="rcn-modal-body">
-          <p className="rcn-copy-hint">Select the day to copy from:</p>
-          <div className="rcn-copy-day-grid">
-            {availableDays.map(d => (
-              <button
-                key={d}
-                type="button"
-                className={`rcn-copy-day-btn${selected === d ? " rcn-copy-day-btn--on" : ""}`}
-                onClick={() => setSelected(d)}
-              >
-                <span className="rcn-copy-day-num">Day {d}</span>
-              </button>
-            ))}
-          </div>
-          {availableDays.length === 0 && (
-            <div className="rcn-copy-empty">No previous days with saved data found.</div>
-          )}
-        </div>
-        <div className="rcn-modal-footer">
-          <button className="rcn-modal-btn rcn-modal-btn--cancel" onClick={onCancel} type="button">
-            Cancel
-          </button>
-          <button
-            className="rcn-modal-btn rcn-modal-btn--submit"
-            style={{ background: selected ? "linear-gradient(135deg,#0F4C81,#1A5F9E)" : undefined }}
-            onClick={() => selected && onConfirm(selected)}
-            disabled={!selected}
-            type="button"
-          >
-            <Copy size={14} /> Copy Day {selected || "—"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Postgres TIMESTAMP (no time zone) columns — e.g. override_unlocked_until —
 // serialize to JSON with no 'Z'/offset suffix even though the value is UTC
 // (set via datetime.utcnow() on the backend). `new Date("...no suffix...")`
@@ -581,8 +526,6 @@ export default function RespCVNeuroLog() {
   const [savedBy, setSavedBy]             = useState("");
   const [submittedAt, setSubmittedAt]     = useState(null);
   const [submittedBy, setSubmittedBy]     = useState("");
-  const [showCopyModal, setShowCopyModal] = useState(false);
-  const [copySourceDay, setCopySourceDay] = useState(null);
 
   /* ── Day 1 Date — backend-synced lock state ── */
   const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
@@ -1325,95 +1268,6 @@ export default function RespCVNeuroLog() {
     navigate(`/infect-gi-hema-log/${enrollmentId}`);
   };
 
-  /* ── Copy from previous day ── */
-  const handleCopyFromDay = async (sourceDay) => {
-    setShowCopyModal(false);
-    setLoading(true);
-    try {
-      const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${sourceDay}`);
-      const d = res?.data || {};
-      if (!d || Object.keys(d).length === 0) {
-        setMessage(`⚠️ No data found for Day ${sourceDay}`);
-        setTimeout(() => setMessage(""), 3000);
-        return;
-      }
-      // Copy all clinical fields — do NOT copy submission status or timestamps
-      setWeightKg(d.weight_kg || "");
-      setSupportModes(d.support_modes ? d.support_modes.split(",").map(s => s.trim()).filter(Boolean) : []);
-      setRespiratorySupport(d.respiratory_support ?? null);
-      setEndotrachealIntubation(d.endotracheal_intubation ?? null);
-      setMapCpap(d.map_cpap != null ? String(d.map_cpap) : "");
-      setMapCpapStatus(d.map_cpap_status ?? null);
-      setMapCpapSecondary(d.map_cpap_secondary != null ? String(d.map_cpap_secondary) : "");
-      setMapCpapSecondaryStatus(d.map_cpap_secondary_status ?? null);
-      setMaxFio2(d.max_fio2 != null ? String(d.max_fio2) : "");
-      setMaxFio2Status(d.max_fio2_status ?? null);
-      setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
-      setMaxFlowStatus(d.max_flow_status ?? null);
-      {
-        const phParsed = parseSingleField(d.lowest_ph);
-        setLowestPh(phParsed.value); setLowestPhNotDone(phParsed.notDone);
-      }
-      {
-        const pao2Parsed = parseRangeField(d.pao2_range);
-        setPao2Low(pao2Parsed.low); setPao2High(pao2Parsed.high); setPao2NotDone(pao2Parsed.notDone);
-        const paco2Parsed = parseRangeField(d.paco2_range);
-        setPaco2Low(paco2Parsed.low); setPaco2High(paco2Parsed.high); setPaco2NotDone(paco2Parsed.notDone);
-      }
-      {
-        const apneaParsed = parseSingleField(d.apnea_count);
-        setApneaCount(apneaParsed.value); setApneaCountNotDone(apneaParsed.notDone);
-        const desatParsed = parseSingleField(d.desaturation_count);
-        setDesatCount(desatParsed.value); setDesatCountNotDone(desatParsed.notDone);
-        const severeParsed = parseSingleField(d.severe_desaturation_count);
-        setSevereDesatCount(severeParsed.value); setSevereDesatCountNotDone(severeParsed.notDone);
-      }
-      setRespEvents({
-        supp_o2:           d.supp_o2           ?? null,
-        surfactant:        d.surfactant         ?? null,
-        caffeine:          d.caffeine           ?? null,
-        extub_attempted:   d.extub_attempted    ?? null,
-        extub_failure:     d.extub_failure      ?? null,
-        pulm_hemorrhage:   d.pulm_hemorrhage    ?? null,
-        pneumothorax:      d.pneumothorax       ?? null,
-        chest_drain:       d.chest_drain        ?? null,
-        pphn:              d.pphn               ?? null,
-        postnatal_steroids:d.postnatal_steroids ?? null,
-      });
-      setCvData({
-        pda_suspected:      d.pda_suspected      ?? null,
-        echo_done:          d.echo_done          ?? null,
-        hs_pda:             d.hs_pda             ?? null,
-        pda_medical_rx:     d.pda_medical_rx     ?? null,
-        shock:              d.shock              ?? null,
-        vasoactive_support: d.vasoactive_support ?? null,
-        fluid_bolus_given:  d.fluid_bolus_given  ?? null,
-      });
-      setVasoactiveDrugs(d.vasoactive_drugs
-        ? d.vasoactive_drugs.split(",").map(s => s.trim()).filter(Boolean) : []);
-      setNeuroData({
-        cranial_usg:          d.cranial_usg          ?? null,
-        ivh:                  d.ivh                  ?? null,
-        pvl_suspected:        d.pvl_suspected        ?? null,
-        cpvl_confirmed:       d.cpvl_confirmed       ?? null,
-        ventriculomegaly:     d.ventriculomegaly     ?? null,
-        clinical_seizures:    d.clinical_seizures    ?? null,
-        eeg_seizures:         d.eeg_seizures         ?? null,
-        aeds_given:           d.aeds_given           ?? null,
-        non_ivh_ich:          d.non_ivh_ich          ?? null,
-        meningitis_suspected: d.meningitis_suspected ?? null,
-      });
-      setIsSaved(false); // mark unsaved — user must save after copying
-      setMessage(`📋 Copied from Day ${sourceDay} — review and save`);
-      setTimeout(() => setMessage(""), 4000);
-    } catch (err) {
-      setMessage(`❌ Could not load Day ${sourceDay} data`);
-      setTimeout(() => setMessage(""), 3000);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   /* ── Audit trail — superadmin + site PI only, scoped to the active day ── */
   const fetchAuditHistory = async () => {
     setShowAuditModal(true);
@@ -1943,22 +1797,6 @@ export default function RespCVNeuroLog() {
                   </>
                 )}
               </p>
-            )}
-            {/* Copy from previous day button */}
-            {!isSubmitted && !isFutureActiveDay && activeDay > 1 && (
-              <button
-                type="button"
-                className="rcn-copy-btn"
-                onClick={() => {
-                  const available = Object.keys(dayStatuses)
-                    .map(Number)
-                    .filter(d => d < activeDay && dayStatuses[d] !== STATUS.EMPTY);
-                  setCopySourceDay(available);
-                  setShowCopyModal(true);
-                }}
-              >
-                <Copy size={13} /> Copy from previous day
-              </button>
             )}
           </div>
           <div className="rcn-summary-right">
@@ -2634,16 +2472,6 @@ export default function RespCVNeuroLog() {
         )}
 
       </div>{/* end rcn-page */}
-
-      {/* ══ COPY MODAL ══ */}
-      {showCopyModal && (
-        <CopyDayModal
-          activeDay={activeDay}
-          availableDays={copySourceDay || []}
-          onConfirm={handleCopyFromDay}
-          onCancel={() => setShowCopyModal(false)}
-        />
-      )}
 
       {/* ══ SUBMIT MODAL ══ */}
       {showModal && (

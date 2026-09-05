@@ -133,6 +133,7 @@ class UserCreate(BaseModel):
     site_name: str | None = None
     full_name: str | None = None
     mobile: str | None = None
+    designation: str | None = None
 
 
 class UserOut(BaseModel):
@@ -143,11 +144,18 @@ class UserOut(BaseModel):
     site_name: str | None
     full_name: str | None
     mobile: str | None
+    designation: str | None = None
     must_change_password: bool
     is_active: bool
 
     class Config:
         from_attributes = True
+
+
+class UserRosterOut(BaseModel):
+    """Public "Completed by" dropdown row — no username/email/mobile."""
+    full_name: str
+    designation: str | None = None
 
 
 class UserProfileOut(BaseModel):
@@ -967,6 +975,7 @@ class NICUAdmissionCreate(BaseModel):
 
     admission_datetime: Optional[datetime] = None
     age_at_admission_hours: Optional[float] = None
+    age_at_admission_minutes: Optional[int] = None  # total whole minutes
 
     temp_dr: Optional[float] = None
     temp_skin: Optional[float] = None
@@ -2483,6 +2492,7 @@ class MetabRenalVascEyeDayCreate(BaseModel):
     highest_glucose:        Optional[str]   = None  # #4
     insulin:                Optional[bool]  = None  # #5
     metabolic_acidosis:     Optional[bool]  = None  # #6 (derived)
+    metabolic_acidosis_status: Optional[str] = None  # "Not Recorded / Not Done"
     sodium_value:           Optional[str]   = None  # #7 summary
     potassium_value:        Optional[str]   = None  # #8 summary
     ionized_calcium_value:  Optional[str]   = None  # #9 summary
