@@ -136,6 +136,17 @@ class UserCreate(BaseModel):
     designation: str | None = None
 
 
+class UserUpdate(BaseModel):
+    """Partial admin edit. Username, role, password, and is_active are
+    intentionally omitted — deactivation is DELETE /users/{id}; identity
+    and role changes are not done through this endpoint."""
+    email: str | None = None
+    full_name: str | None = None
+    mobile: str | None = None
+    designation: str | None = None
+    site_name: str | None = None
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -156,6 +167,14 @@ class UserRosterOut(BaseModel):
     """Public "Completed by" dropdown row — no username/email/mobile."""
     full_name: str
     designation: str | None = None
+
+
+class SitePiContactOut(BaseModel):
+    """Read-only site PI contact from sae_config — not a login account."""
+    site_name: str
+    display: str
+    pi_name: str
+    pi_email: str | None = None
 
 
 class UserProfileOut(BaseModel):

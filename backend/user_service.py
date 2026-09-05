@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from auth import hash_password
 from models import User
-from user_seed import DEFAULT_LOGIN_USERS, PILOT_COMPLETED_BY_DESIGNATIONS
+from user_seed import DEFAULT_LOGIN_USERS, KNOWN_STAFF_EMAILS, PILOT_COMPLETED_BY_DESIGNATIONS
 
 CREDENTIALS_DIR = os.path.join(os.path.dirname(__file__), "credentials")
 
@@ -84,6 +84,32 @@ def backfill_pilot_designations(db: Session) -> int:
         for row in rows:
             row.designation = designation
             updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+def backfill_staff_emails(db: Session) -> int:
+    """Set known contact emails when users.email is still empty.
+
+    Idempotent and will not overwrite an address already saved via
+    Manage Staff / PUT /users/{id}. Skips if another account already
+    holds that address (unique constraint).
+    """
+    updated = 0
+    for username, email in KNOWN_STAFF_EMAILS.items():
+        row = db.query(User).filter(User.username == username).first()
+        if not row or row.email:
+            continue
+        dupe = (
+            db.query(User)
+            .filter(User.email == email, User.id != row.id)
+            .first()
+        )
+        if dupe:
+            continue
+        row.email = email
+        updated += 1
     if updated:
         db.commit()
     return updated

@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request
+﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -31,7 +31,7 @@ from models import (
     CranialUSGRecord, SAEReport, AdverseEvents,
     SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserOut, UserRosterOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserUpdate, UserOut, UserRosterOut, SitePiContactOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -64,8 +64,9 @@ from audit_service import (
     soft_delete_record,
 )
 from schema_patches import apply_schema_patches
+import email_service
 from staff_service import seed_site_staff, deactivate_stale_site_staff
-from user_service import seed_login_users, backfill_pilot_designations
+from user_service import seed_login_users, backfill_pilot_designations, backfill_staff_emails
 import security_monitor
 from crypto import decrypt_value
 from pii_service import (
@@ -182,6 +183,9 @@ def on_startup_migrations():
         designated = backfill_pilot_designations(db)
         if designated:
             logger.info("Backfilled designation on %s user account(s)", designated)
+        emailed = backfill_staff_emails(db)
+        if emailed:
+            logger.info("Backfilled contact email on %s user account(s)", emailed)
     except Exception as exc:
         logger.warning("Startup migration skipped or failed: %s", exc)
     finally:
@@ -524,6 +528,29 @@ def list_users(
     return db.query(User).order_by(User.site_name, User.role, User.username).all()
 
 
+@app.get("/sae-config/pi-contacts", response_model=list[SitePiContactOut])
+def list_pi_contacts(
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-only. Site PI emails used for SAE alerts. These are
+    configured in sae_config — site PI logins are not created, so they
+    do not appear in the staff directory."""
+    require_superadmin(current_user)
+    import sae_config
+    rows = []
+    for code, cfg in sae_config.SITES.items():
+        email = cfg.get("pi_email") or ""
+        if str(email).startswith("[TO BE PROVIDED"):
+            email = None
+        rows.append({
+            "site_name": code,
+            "display": cfg.get("display", code),
+            "pi_name": cfg.get("pi_name") or "",
+            "pi_email": email,
+        })
+    return rows
+
+
 @app.delete("/users/{user_id}")
 def remove_user(
     user_id: int,
@@ -594,6 +621,40 @@ def create_user(
     db.refresh(db_user)
 
     return db_user
+
+
+@app.put("/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: int,
+    data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-only. Partial update — only fields the caller sends
+    are changed. Exists so contact details (email, mobile, designation)
+    can be corrected without touching the database directly."""
+    require_superadmin(current_user)
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    payload = data.model_dump(exclude_unset=True)
+    if "email" in payload and payload["email"]:
+        dupe = (
+            db.query(User)
+            .filter(User.email == payload["email"], User.id != user_id)
+            .first()
+        )
+        if dupe:
+            raise HTTPException(status_code=400, detail="Email already in use by another account")
+
+    for key, value in payload.items():
+        if hasattr(target, key):
+            setattr(target, key, value)
+
+    db.commit()
+    db.refresh(target)
+    return target
 
 
 @app.post("/users/{user_id}/reset-password")
@@ -4458,9 +4519,47 @@ def _sae_payload(data: SAEReportCreate) -> dict:
     return payload
 
 
+def _sae_notification_recipients(db: Session, site: str) -> list[str]:
+    """Site scientist emails on file plus the configured PI email."""
+    import sae_config
+    from deps import ROLE_SITE_SCIENTIST
+
+    recipients = []
+    scientists = (
+        db.query(User)
+        .filter(
+            User.role == ROLE_SITE_SCIENTIST,
+            User.site_name == site,
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    for u in scientists:
+        if u.email:
+            recipients.append(u.email)
+    if not any(u.email for u in scientists):
+        logger.warning("SAE notify: no active site_scientist with an email on file for site=%r", site)
+
+    site_cfg = sae_config.site_for(site)
+    pi_email = site_cfg.get("pi_email", "") or ""
+    if pi_email and not str(pi_email).startswith("[TO BE PROVIDED"):
+        recipients.append(pi_email)
+    else:
+        logger.warning("SAE notify: no pi_email configured for site=%r", site)
+
+    seen = set()
+    unique = []
+    for addr in recipients:
+        if addr not in seen:
+            seen.add(addr)
+            unique.append(addr)
+    return unique
+
+
 @app.post("/sae-report/", response_model=SAEReportOut)
 def create_sae_report(
     data: SAEReportCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -4471,6 +4570,23 @@ def create_sae_report(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    recipients = _sae_notification_recipients(db, record.site or "")
+    if recipients:
+        import sae_config
+        site_cfg = sae_config.site_for(record.site or "")
+        html = email_service.build_sae_notification_html(
+            record,
+            site_display=site_cfg.get("display", record.site or "Unknown site"),
+            severity_label=sae_config.severity_label(record.severity),
+            portal_url=f"https://portaltrial.in/form-y-sae/{record.enrollment_id}",
+        )
+        subject = (
+            f"Serious adverse event reported — "
+            f"{site_cfg.get('display', record.site)} — Enrollment {record.enrollment_id}"
+        )
+        background_tasks.add_task(email_service.send_email, recipients, subject, html)
+
     return record
 
 
@@ -4494,7 +4610,8 @@ def update_sae_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Full-field update so cleared values persist (no data loss / stale fields)."""
+    """Full-field update so cleared values persist (no data loss / stale fields).
+    Follow-up-report notification email is a deliberate separate addition if wanted later."""
     record = db.query(SAEReport).filter(SAEReport.id == report_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="SAE report not found")

@@ -74,6 +74,13 @@ DEFAULT_LOGIN_USERS: list[tuple[str, str, str, str | None]] = [
 # ---- Site PIs, the project scientist (head), and superadmin: add once named ----
 ]
 
+# Contact emails for seeded login accounts. Applied only when users.email
+# is still empty — Manage Staff edits win. PI emails live in sae_config
+# (no site_pi logins), not here.
+KNOWN_STAFF_EMAILS: dict[str, str] = {
+    "shalini.pgimer": "portaloxygen@gmail.com",
+}
+
 # Designations previously hardcoded in Form D/E/H getDesignation(). Applied
 # to matching users.full_name so the PGIMER "Completed by" dropdown stays
 # identical after those arrays are removed. "Dr. …" aliases cover the
