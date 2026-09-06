@@ -325,7 +325,7 @@
 .ms-dir-head,
 .ms-dir-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 150px 110px minmax(170px, 1fr) 168px;
+  grid-template-columns: minmax(220px, 1.6fr) 150px 110px minmax(140px, 1fr) 240px;
   align-items: center;
   justify-items: start;
   column-gap: 16px;
@@ -357,6 +357,15 @@
   background: #fff;
 }
 .ms-dir-row:last-child { border-bottom: none; }
+.ms-dir--pi .ms-dir-head--pi,
+.ms-dir--pi .ms-dir-row--pi {
+  grid-template-columns: 120px minmax(220px, 1.4fr) minmax(220px, 1.6fr);
+  min-width: 0;
+}
+.ms-dir--pi .ms-dir-row--pi > :last-child {
+  justify-self: start;
+  text-align: left;
+}
 .ms-dir-row:hover { background: #f8fcff; }
 .ms-dir-row--inactive { opacity: 0.58; }
 .ms-site {
@@ -403,6 +412,18 @@
   font-size: 12px;
   color: var(--ms-muted);
   font-weight: 500;
+}
+.ms-person-email {
+  font-size: 11.5px;
+  color: #475569;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ms-person-email.ms-muted {
+  font-size: 11.5px;
+  font-weight: 600;
 }
 .ms-you {
   font-size: 10px;
@@ -454,6 +475,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .ms-btn-ghost,
@@ -497,6 +519,17 @@
   z-index: 80;
   padding: 20px;
 }
+.ms-modal--edit {
+  max-width: 460px;
+}
+.ms-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ms-edit-form .ms-banner { margin-top: 0; }
+.ms-edit-form .ms-form-actions { margin-top: 4px; }
+
 .ms-modal {
   position: relative;
   width: 100%;
@@ -565,7 +598,7 @@
   .ms-form-grid { grid-template-columns: 1fr 1fr; }
   .ms-dir { overflow-x: auto; }
   .ms-dir-head,
-  .ms-dir-row { min-width: 860px; }
+  .ms-dir-row { min-width: 980px; }
 }
 @media (max-width: 640px) {
   .ms-title { font-size: 24px; }

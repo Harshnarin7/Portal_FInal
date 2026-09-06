@@ -157,14 +157,21 @@ function normalizeAdmissionLocal(raw) {
   return toDateTimeLocalValue(d);
 }
 
+function isAgeValueSet(v) {
+  return v !== "" && v != null;
+}
+
 /**
- * Age at admission in completed hours (Form B birth datetime → Form E admission).
- * Returns "" when inputs are incomplete or admission is before birth.
+ * Age at admission from Form B birth datetime → Form E admission.
+ * One parse / one diffMs; hours are completed (floored) hours, minutes are
+ * total whole minutes. Returns { hours: "", minutes: "" } when inputs are
+ * incomplete or admission is before birth.
  */
-function calcAgeAtAdmissionHours(dobYmd, tobHms, admissionLocal) {
-  if (!dobYmd || !admissionLocal) return "";
+function calcAgeAtAdmission(dobYmd, tobHms, admissionLocal) {
+  const empty = { hours: "", minutes: "" };
+  if (!dobYmd || !admissionLocal) return empty;
   const birth = parseDateOnly(String(dobYmd).slice(0, 10));
-  if (!birth) return "";
+  if (!birth) return empty;
   const tm = String(tobHms || "00:00:00").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (tm) {
     birth.setHours(Number(tm[1]), Number(tm[2]), Number(tm[3] || 0), 0);
@@ -173,15 +180,34 @@ function calcAgeAtAdmissionHours(dobYmd, tobHms, admissionLocal) {
   }
   const admNorm = normalizeAdmissionLocal(admissionLocal);
   const am = String(admNorm).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/);
-  if (!am) return "";
+  if (!am) return empty;
   const admission = new Date(
     Number(am[1]), Number(am[2]) - 1, Number(am[3]),
     Number(am[4]), Number(am[5]), 0, 0
   );
-  if (Number.isNaN(admission.getTime())) return "";
+  if (Number.isNaN(admission.getTime())) return empty;
   const diffMs = admission.getTime() - birth.getTime();
-  if (diffMs < 0) return "";
-  return String(Math.floor(diffMs / (1000 * 60 * 60)));
+  if (diffMs < 0) return empty;
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  return {
+    hours: String(Math.floor(totalMinutes / 60)),
+    minutes: String(totalMinutes),
+  };
+}
+
+/** "0 hr 30 min" / "2 hr 15 min". Prefers total minutes; falls back to hours. */
+function formatAgeAtAdmissionDisplay(hours, totalMinutes) {
+  if (isAgeValueSet(totalMinutes)) {
+    const n = Number(totalMinutes);
+    if (!Number.isFinite(n) || n < 0) return "";
+    return `${Math.floor(n / 60)} hr ${n % 60} min`;
+  }
+  if (isAgeValueSet(hours)) {
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h < 0) return "";
+    return `${Math.floor(h)} hr 0 min`;
+  }
+  return "";
 }
 
 /* ── Respiratory parameter grid — defined OUTSIDE FormE to prevent remount on state change ── */
@@ -371,6 +397,8 @@ export default function FormE() {
   const [message,   setMessage]   = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isFormELoaded, setIsFormELoaded] = useState(false);
+  const [roster, setRoster] = useState([]);
+  const [rosterReady, setRosterReady] = useState(false);
   const [isBirthLoaded, setIsBirthLoaded] = useState(false);
   const [hasFormERecord, setHasFormERecord] = useState(false);
   const isFieldEditable = !isSaved || isEditing;
@@ -379,7 +407,7 @@ export default function FormE() {
     enrollment_id: "",
     baby_uid: "", annual_number: "", baby_name: "", date_of_birth: "",
     time_of_birth: "",
-    admission_datetime: "", age_at_admission_hours: "",
+    admission_datetime: "", age_at_admission_hours: "", age_at_admission_minutes: "",
     temp_dr: "",
     temp_skin: "", temp_axillary: "",
     transport_incubator: "", transport_mode: "",
@@ -405,6 +433,7 @@ export default function FormE() {
     baby_name: formData.baby_name,
     admission_datetime: formData.admission_datetime || null,
     age_at_admission_hours: num(formData.age_at_admission_hours),
+    age_at_admission_minutes: num(formData.age_at_admission_minutes),
     temp_skin: num(formData.temp_skin),
     temp_axillary: num(formData.temp_axillary),
     temp_dr: num(formData.temp_dr),
@@ -450,6 +479,22 @@ export default function FormE() {
     if (isSaved && !isEditing) return;
     markDirty();
   }, [formData, isFormELoaded, isSaved, isEditing, markDirty]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/users/roster");
+        const rows = Array.isArray(res.data) ? res.data.filter(r => r && r.full_name) : [];
+        if (!cancelled) setRoster(rows);
+      } catch (_) {
+        if (!cancelled) setRoster([]);
+      } finally {
+        if (!cancelled) setRosterReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   /* ════════ ALL ORIGINAL LOGIC PRESERVED ════════ */
 
@@ -512,7 +557,9 @@ export default function FormE() {
         // silently wipe out any already-loaded saved answers whenever that
         // happens. Merging preserves them while still filling identification
         // fields from Form B.
-        setFormData(prev => ({
+        setFormData(prev => {
+          const computed = calcAgeAtAdmission(dob, tob, prev.admission_datetime || "");
+          return {
           ...prev,
           enrollment_id: enrollmentId,
           baby_uid: b?.baby_uid || prev.baby_uid || "",
@@ -520,10 +567,14 @@ export default function FormE() {
           annual_number: b?.annual_number || prev.annual_number || "",
           date_of_birth: dob || prev.date_of_birth,
           time_of_birth: tob || prev.time_of_birth,
-          age_at_admission_hours: prev.age_at_admission_hours
-            || calcAgeAtAdmissionHours(dob, tob, prev.admission_datetime || "")
-            || "",
-        }));
+          age_at_admission_hours: isAgeValueSet(prev.age_at_admission_hours)
+            ? prev.age_at_admission_hours
+            : computed.hours,
+          age_at_admission_minutes: isAgeValueSet(prev.age_at_admission_minutes)
+            ? prev.age_at_admission_minutes
+            : computed.minutes,
+          };
+        });
       })
       .catch(() => {
         if (cancelled) return;
@@ -557,13 +608,16 @@ export default function FormE() {
 
       setFormData(prev => {
         const admission = normalizeAdmissionLocal(e.admission_datetime);
-        const computedAge = calcAgeAtAdmissionHours(
+        const computed = calcAgeAtAdmission(
           prev.date_of_birth,
           prev.time_of_birth,
           admission
         );
-        const storedAge = e.age_at_admission_hours != null && e.age_at_admission_hours !== ""
+        const storedHours = isAgeValueSet(e.age_at_admission_hours)
           ? String(e.age_at_admission_hours)
+          : "";
+        const storedMinutes = isAgeValueSet(e.age_at_admission_minutes)
+          ? String(e.age_at_admission_minutes)
           : "";
         return {
          ...prev,
@@ -572,7 +626,8 @@ export default function FormE() {
           baby_uid:        e.baby_uid      || prev.baby_uid,
 
           admission_datetime: admission,
-          age_at_admission_hours: computedAge !== "" ? computedAge : storedAge,
+          age_at_admission_hours: computed.hours !== "" ? computed.hours : storedHours,
+          age_at_admission_minutes: computed.minutes !== "" ? computed.minutes : storedMinutes,
 
           temp_dr:       e.temp_dr       != null ? String(e.temp_dr)       : "",
           temp_skin:     e.temp_skin     != null ? String(e.temp_skin)     : "",
@@ -632,13 +687,20 @@ export default function FormE() {
     // Wait for Form B load so we don't wipe a stored age while DOB is still empty.
     if (!isBirthLoaded) return;
 
-    const next = calcAgeAtAdmissionHours(
+    const next = calcAgeAtAdmission(
       formData.date_of_birth,
       formData.time_of_birth,
       formData.admission_datetime
     );
-    if (String(formData.age_at_admission_hours ?? "") === String(next)) return;
-    setFormData(prev => ({ ...prev, age_at_admission_hours: next }));
+    if (
+      String(formData.age_at_admission_hours ?? "") === String(next.hours)
+      && String(formData.age_at_admission_minutes ?? "") === String(next.minutes)
+    ) return;
+    setFormData(prev => ({
+      ...prev,
+      age_at_admission_hours: next.hours,
+      age_at_admission_minutes: next.minutes,
+    }));
   }, [
     isBirthLoaded,
     formData.date_of_birth,
@@ -711,7 +773,7 @@ export default function FormE() {
   };
 
   const yesNoToBool = (v) => v === "Yes" ? true : v === "No" ? false : null;
-  const num = (v) => v === "" ? null : Number(v);
+  const num = (v) => (v === "" || v == null) ? null : Number(v);
 
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -793,6 +855,7 @@ export default function FormE() {
       baby_name: formData.baby_name,
       admission_datetime: formData.admission_datetime || null,
       age_at_admission_hours: num(formData.age_at_admission_hours),
+      age_at_admission_minutes: num(formData.age_at_admission_minutes),
       temp_skin: num(formData.temp_skin),
       temp_axillary: num(formData.temp_axillary),
       temp_dr: num(formData.temp_dr),
@@ -890,13 +953,11 @@ export default function FormE() {
     navigate(`/form-d/${enrollmentId}`);
   };
 
-  const nurses = ["Geetika","Navkiran Kaur","Priyanka Thakur","Seemran Kaur",
-    "Tanvi Saini","Yashvi Jolly","Mannat Guliani","Shalini Dhiman"];
-  const getDesignation = (name) => {
-    if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-    if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-    return name ? "Project Nurse III" : "";
-  };
+  const nurses = roster.map(r => r.full_name);
+  const completedByOptions = formData.completed_by && !nurses.includes(formData.completed_by)
+    ? [...nurses, formData.completed_by]
+    : nurses;
+  const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
     setFormData(prev => ({ ...prev, completed_by: name, designation: getDesignation(name) }));
@@ -991,15 +1052,19 @@ export default function FormE() {
                       })()}
                       onChange={date => {
                         const admission = date ? toDateTimeLocalValue(date) : "";
-                        setFormData(prev => ({
-                          ...prev,
-                          admission_datetime: admission,
-                          age_at_admission_hours: calcAgeAtAdmissionHours(
+                        setFormData(prev => {
+                          const age = calcAgeAtAdmission(
                             prev.date_of_birth,
                             prev.time_of_birth,
                             admission
-                          ),
-                        }));
+                          );
+                          return {
+                            ...prev,
+                            admission_datetime: admission,
+                            age_at_admission_hours: age.hours,
+                            age_at_admission_minutes: age.minutes,
+                          };
+                        });
                         let admErr = "";
                         if (admission && formData.date_of_birth) {
                           const birth = parseDateOnly(String(formData.date_of_birth).slice(0, 10));
@@ -1035,11 +1100,12 @@ export default function FormE() {
                   </div>
                   <div className="form-group">
                     <label>4. Age at admission <span className="auto-tag">(AUTO)</span></label>
-                    <div style={{ position:"relative" }}>
+                    <div>
                       <input
-                        value={formData.age_at_admission_hours === "" || formData.age_at_admission_hours == null
-                          ? ""
-                          : formData.age_at_admission_hours}
+                        value={formatAgeAtAdmissionDisplay(
+                          formData.age_at_admission_hours,
+                          formData.age_at_admission_minutes
+                        )}
                         readOnly className="readonly-input"
                         placeholder={
                           !isBirthLoaded
@@ -1048,9 +1114,7 @@ export default function FormE() {
                               ? (formData.admission_datetime ? "Auto-calculated" : "Select admission date/time")
                               : "Needs DOB from Form B"
                         }
-                        style={{ paddingRight: 52 }} />
-                      <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
-                        fontSize:11,color:"#94a3b8",fontWeight:600 }}>hours</span>
+                      />
                     </div>
                     {isBirthLoaded && !formData.date_of_birth && (
                       <div className="field-note" style={{ marginTop: 4, color: "#b45309" }}>
@@ -1290,8 +1354,13 @@ export default function FormE() {
                       onChange={handleCompletedByChange} disabled={!isFieldEditable}
                       className="emr-select" required>
                       <option value="">-- Select Nurse --</option>
-                      {nurses.map(n => <option key={n} value={n}>{n}</option>)}
+                      {completedByOptions.map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
+                    {rosterReady && nurses.length === 0 && (
+                      <div className="field-note" style={{ marginTop: 4 }}>
+                        No staff found for your site — contact your admin
+                      </div>
+                    )}
                     <FieldErr msg={errors.completed_by} />
                   </div>
                   <div className="form-group">

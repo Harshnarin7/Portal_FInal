@@ -4,6 +4,31 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import "./Login.css";
 
+function loginErrorMessage(err) {
+  const status = err?.response?.status;
+  if (!err?.response) {
+    return "Could not reach the server — check your connection and try again";
+  }
+  if (status === 401) {
+    return "Invalid username or password";
+  }
+  if (status === 429) {
+    const retry = err.response.headers?.["retry-after"];
+    const secs = Number(retry);
+    if (Number.isFinite(secs) && secs > 0) {
+      const mins = Math.max(1, Math.ceil(secs / 60));
+      return `Too many login attempts — please wait ${mins} minute${mins === 1 ? "" : "s"} and try again`;
+    }
+    return "Too many login attempts — please wait a few minutes and try again";
+  }
+  if (status === 403) {
+    const detail = err.response.data?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    return "Account is deactivated";
+  }
+  return "Something went wrong, please try again";
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -26,8 +51,8 @@ export default function Login() {
       } else {
         navigate("/dashboard", { replace: true });
       }
-    } catch {
-      setError("Invalid username or password");
+    } catch (err) {
+      setError(loginErrorMessage(err));
     } finally {
       setLoading(false);
     }

@@ -50,7 +50,7 @@ const BLOCKS_BY_SECTION = {
 /** Friendly label + one-line description shown in the field-picker list. */
 const BLOCK_META = {
   cv_a: { code: "5.1.A", label: "Vitals", desc: "Skin/Axillary temp, SBP, DBP, MAP" },
-  cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given" },
+  cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given, or should not have been done" },
   cv_c: { code: "5.1.C", label: "Vasoactive Drugs", desc: "Agent, dose & unit" },
   cv_d: { code: "5.1.D", label: "PDA Medical Rx", desc: "Agent for medical Rx of PDA & dose" },
   resp_a: { code: "5.2.A", label: "Respiratory Support", desc: "Time, mode, max MAP/CPAP, max FiO₂" },
@@ -66,6 +66,13 @@ const BLOCK_META = {
   neuro_b: { code: "5.5.B", label: "Doppler", desc: "TOD, ACA RI, MCA RI" },
   heme_a: { code: "5.6.A", label: "Transfusion", desc: "Products, count, PRBC volume" },
 };
+
+/** Sentinel text stored in `fluid_bolus_given` (5.1.B) when the nurse marks
+ *  the bolus as one that shouldn't have been given, instead of a numeric
+ *  volume/count. Kept as plain text (not a boolean) because the column is a
+ *  free-text VARCHAR and the backend's `_parse_leading_number` already
+ *  ignores non-numeric text when summing fluid bolus totals for Form H. */
+const FLUID_BOLUS_NOT_INDICATED = "Should not have been done";
 
 const pad2 = n => String(n).padStart(2, "0");
 const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -290,6 +297,8 @@ function countProgress(entries) {
         if (k === "steroid_other" && !(entry.postnatal_steroids || []).includes("Other")) return;
         if (k === "symptomatic_detail" && entry.symptomatic_status !== "symptomatic") return;
         if (k === "electrolytes" && entry.electrolyte_abnormality !== true) return;
+        if (k === "hypo_hyper" && entry.electrolyte_abnormality !== true) return;
+        if (k === "symptomatic_status" && entry.electrolyte_abnormality !== true) return;
         if ((k === "vasoactive_dose" || k === "vasoactive_unit") && !(entry.vasoactive_drugs || []).length) return;
         if (k === "prbc_volume" && !(entry.transfusion_products || []).includes("PRBC")) return;
         bump(section, block, ans(v));
@@ -971,22 +980,26 @@ export default function MinimalMonitoringLog() {
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Skin/Axillary Temp">
+                <Item n={1} label="Select Shift">
+                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
+                    onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
+                </Item>
+                <Item n={2} label="Skin/Axillary Temp">
                   <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
                     disabled={!isEditable} unit="°C" />
                 </Item>
-                <Item n={2} label="SBP">
+                <Item n={3} label="SBP">
                   <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={3} label="DBP">
+                <Item n={4} label="DBP">
                   <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={4} label="MAP">
+                <Item n={5} label="MAP">
                   <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
@@ -1000,12 +1013,40 @@ export default function MinimalMonitoringLog() {
             onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
             onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
             blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
-            {(e, i) => (
-              <Item n={1} label="Fluid Bolus given">
-                <Num value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
-                  disabled={!isEditable} placeholder="e.g. 2" />
-              </Item>
-            )}
+            {(e, i) => {
+              const notIndicated = e.fluid_bolus_given === FLUID_BOLUS_NOT_INDICATED;
+              return (
+                <div className="rcn-field-group">
+                  <div className="rcn-field-label-row">
+                    <label className="rcn-field-label rcn-field-label--exact-case">
+                      <span className="mml-item-num">1.</span> Fluid Bolus given
+                    </label>
+                    <button
+                      type="button"
+                      className={`rcn-notdone-toggle${notIndicated ? " rcn-notdone-toggle--on" : ""}`}
+                      onClick={() => isEditable && setEntryField("cv_b", i, "fluid_bolus_given",
+                        notIndicated ? "" : FLUID_BOLUS_NOT_INDICATED)}
+                      disabled={!isEditable}
+                    >{notIndicated ? "Undo" : "Should Not Have Been Done"}</button>
+                  </div>
+                  {notIndicated ? (
+                    <button
+                      type="button"
+                      className="rcn-num-input rcn-num-input--na rcn-num-input--na-clickable"
+                      onClick={() => isEditable && setEntryField("cv_b", i, "fluid_bolus_given", "")}
+                      disabled={!isEditable}
+                      title="Click to enter a value instead"
+                    >
+                      <span className="rcn-na-value">Should Not Have Been Done</span>
+                      <span className="rcn-num-unit">tap to change</span>
+                    </button>
+                  ) : (
+                    <Num value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
+                      disabled={!isEditable} placeholder="e.g. 2" />
+                  )}
+                </div>
+              );
+            }}
           </EntryBlock>
         );
       case "cv_c":

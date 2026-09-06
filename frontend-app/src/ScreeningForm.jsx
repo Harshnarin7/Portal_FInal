@@ -174,7 +174,7 @@ export default function ScreeningForm() {
     }
     if (field === "hospital_admission_number") {
       if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
-      if (site === "GMCH-A") return { pattern: /^\d{11}$/, hint: "Must be exactly 11 digits", charFilter: /[^0-9]/g, maxLen: 11, required: false };
+      if (site === "GMCH-A") return { pattern: /^\d{4,6}$/, hint: "Must be 4–6 digits", charFilter: /[^0-9]/g, maxLen: 6, required: false };
       if (site === "GMCH")   return { pattern: /^\d{9,11}$/, hint: "Must be 9–11 digits", charFilter: /[^0-9]/g, maxLen: 11, required: false };
       if (site === "IOG")    return { pattern: /^\d{4,6}$/, hint: "Must be 4–6 digits", charFilter: /[^0-9]/g, maxLen: 6, required: false };
       if (site === "AMC")    return { pattern: /^\d+\/\d{4}$/, hint: "Must be in serial/year format, e.g. 123/2026", charFilter: /[^0-9/]/g, maxLen: 15, required: false };
@@ -687,7 +687,7 @@ export default function ScreeningForm() {
     if (name === "hospital_admission_number") {
       // Site-specific formats (confirmed 2026-08-01):
       //   PGIMER: required, exactly 10 digits
-      //   GMCH-A: optional, 11 digits if provided
+      //   GMCH-A: optional, 4–6 digit MRD number if provided
       //   GMCH:   optional, 9–11 digits if provided
       //   IOG:    optional, 4–6 digits if provided
       //   AMC:    optional, serial/year if provided (e.g. "123/2026")
@@ -1580,7 +1580,7 @@ export default function ScreeningForm() {
                         maxLength={15}
                         inputMode={["PGIMER","GMCH-A","GMCH","IOG"].includes(formData.site_name) ? "numeric" : "text"}
                         placeholder={
-                          formData.site_name === "GMCH-A"   ? "11-digit admission number" :
+                          formData.site_name === "GMCH-A"   ? "4–6 digit MRD number" :
                           formData.site_name === "AMC"      ? "e.g. 123/2026" :
                           formData.site_name === "GMCH"    ? "9–11 digit number" :
                           formData.site_name === "IOG"         ? "4–6 digit MRD number" :

@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import {
   Users, UserPlus, Search, RefreshCw, Shield, MapPin,
   UserMinus, KeyRound, CheckCircle2, AlertCircle, Loader2,
-  X, Copy, Check, Sparkles,
+  X, Copy, Check, Sparkles, Pencil, Mail,
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
@@ -24,7 +24,7 @@ const GLOBAL_ROLES = ["superadmin", "project_scientist"];
 const SITES = ["PGIMER", "GMCH", "GMCH-A", "AMC", "IOG", "AFMC"];
 
 const BLANK_NEW_USER = {
-  username: "", full_name: "", password: "", role: "nurse", site_name: "PGIMER", mobile: "",
+  username: "", full_name: "", email: "", password: "", role: "nurse", site_name: "PGIMER", mobile: "",
 };
 
 function initials(fullName, username) {
@@ -45,6 +45,7 @@ export default function ManageStaff() {
   const { user } = useAuth();
 
   const [users, setUsers]           = useState([]);
+  const [piContacts, setPiContacts] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [loadError, setLoadError]   = useState("");
   const [newUser, setNewUser]       = useState(BLANK_NEW_USER);
@@ -60,6 +61,9 @@ export default function ManageStaff() {
   const [statusFilter, setStatusFilter] = useState("active");
 
   const [resetModal, setResetModal] = useState(null);
+  const [editModal, setEditModal]   = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError]   = useState("");
 
   const loadUsers = useCallback(() => {
     setLoading(true);
@@ -74,6 +78,9 @@ export default function ManageStaff() {
         );
       })
       .finally(() => setLoading(false));
+    api.get("/sae-config/pi-contacts")
+      .then((res) => setPiContacts(res.data || []))
+      .catch(() => setPiContacts([]));
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
@@ -98,7 +105,7 @@ export default function ManageStaff() {
       if (siteFilter === "global" && u.site_name) return false;
       if (siteFilter !== "all" && siteFilter !== "global" && u.site_name !== siteFilter) return false;
       if (!q) return true;
-      const hay = [u.username, u.full_name, u.role, u.site_name, u.mobile]
+      const hay = [u.username, u.full_name, u.email, u.role, u.site_name, u.mobile]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -141,6 +148,7 @@ export default function ManageStaff() {
       await api.post("/users/", {
         username: newUser.username.trim(),
         full_name: newUser.full_name.trim() || undefined,
+        email: newUser.email.trim() || undefined,
         password: newUser.password,
         role: newUser.role,
         site_name: GLOBAL_ROLES.includes(newUser.role) ? null : newUser.site_name,
@@ -190,6 +198,44 @@ export default function ManageStaff() {
     }
   };
 
+  const openEdit = (targetUser) => {
+    setEditError("");
+    setEditModal({
+      id: targetUser.id,
+      username: targetUser.username,
+      full_name: targetUser.full_name || "",
+      email: targetUser.email || "",
+      mobile: targetUser.mobile || "",
+      designation: targetUser.designation || "",
+    });
+  };
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditModal((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleEditSave = async (e) => {
+    e.preventDefault();
+    if (!editModal) return;
+    setEditError("");
+    setEditSaving(true);
+    try {
+      await api.put(`/users/${editModal.id}`, {
+        email: editModal.email.trim() || null,
+        full_name: editModal.full_name.trim() || null,
+        mobile: editModal.mobile.trim() || null,
+        designation: editModal.designation.trim() || null,
+      });
+      setEditModal(null);
+      loadUsers();
+    } catch (err) {
+      setEditError(err.response?.data?.detail || "Could not update this account.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const copyTempPassword = async (value) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -212,7 +258,7 @@ export default function ManageStaff() {
           </div>
           <h1 className="ms-title">Manage Staff</h1>
           <p className="ms-subtitle">
-            Create login accounts for site staff, and deactivate accounts that no longer need access.
+            Create login accounts, set staff contact emails, and review site PI emails used for SAE alerts.
           </p>
         </div>
         <button type="button" className="ms-icon-btn" onClick={loadUsers} title="Refresh directory" disabled={loading}>
@@ -251,6 +297,34 @@ export default function ManageStaff() {
         </div>
       </div>
 
+      {piContacts.length > 0 && (
+        <section className="ms-card">
+          <div className="ms-card-head">
+            <div className="ms-card-head-icon"><Mail size={16} /></div>
+            <div>
+              <h2>Site PI emails (SAE alerts)</h2>
+              <p>These addresses are on the SAE notification list. Site PIs do not have portal logins, so they are not in the staff directory below.</p>
+            </div>
+          </div>
+          <div className="ms-dir ms-dir--pi">
+            <div className="ms-dir-head ms-dir-head--pi" aria-hidden="true">
+              <span>Site</span>
+              <span>Principal investigator</span>
+              <span>Email</span>
+            </div>
+            {piContacts.map((pi) => (
+              <div key={pi.site_name} className="ms-dir-row ms-dir-row--pi">
+                <span className="ms-site">{pi.site_name}</span>
+                <span className="ms-person-name">{pi.pi_name}</span>
+                {pi.pi_email
+                  ? <span className="ms-person-email">{pi.pi_email}</span>
+                  : <span className="ms-muted">Not configured</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="ms-card">
         <div className="ms-card-head">
           <div className="ms-card-head-icon"><UserPlus size={16} /></div>
@@ -271,6 +345,11 @@ export default function ManageStaff() {
               <span>Full name</span>
               <input name="full_name" value={newUser.full_name} onChange={handleNewUserChange}
                      placeholder="e.g. Asha Kumari" autoComplete="off" />
+            </label>
+            <label className="ms-field">
+              <span>Email</span>
+              <input name="email" type="email" value={newUser.email} onChange={handleNewUserChange}
+                     placeholder="Optional — needed for SAE alerts" autoComplete="off" />
             </label>
             <label className="ms-field">
               <span>Temporary password <em>*</em></span>
@@ -344,7 +423,7 @@ export default function ManageStaff() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name, username, site…"
+              placeholder="Search name, username, email, site…"
             />
           </div>
           <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} aria-label="Filter by role">
@@ -405,6 +484,9 @@ export default function ManageStaff() {
                         {isSelf && <span className="ms-you">You</span>}
                       </div>
                       <div className="ms-person-user">{u.username}</div>
+                      {u.email
+                        ? <div className="ms-person-email">{u.email}</div>
+                        : <div className="ms-person-email ms-muted">No email</div>}
                     </div>
                   </div>
                   <span className={`ms-role ms-role--${meta?.tone || "blue"}`}>
@@ -420,6 +502,16 @@ export default function ManageStaff() {
                     )}
                   </div>
                   <div className="ms-actions">
+                    <button
+                      type="button"
+                      className="ms-btn-ghost"
+                      disabled={busyId === u.id || editSaving}
+                      onClick={() => openEdit(u)}
+                      title="Edit email and contact details"
+                    >
+                      <Pencil size={14} />
+                      Edit
+                    </button>
                     {isSelf ? (
                       <span className="ms-muted">This is you</span>
                     ) : u.is_active ? (
@@ -470,6 +562,54 @@ export default function ManageStaff() {
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editModal && (
+        <div className="ms-modal-overlay" onClick={() => { if (!editSaving) { setEditModal(null); setEditError(""); } }}>
+          <div className="ms-modal ms-modal--edit" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="ms-edit-title">
+            <button
+              type="button"
+              className="ms-modal-close"
+              onClick={() => { if (!editSaving) { setEditModal(null); setEditError(""); } }}
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+            <div className="ms-modal-icon"><Pencil size={18} /></div>
+            <h3 id="ms-edit-title">Edit contact details</h3>
+            <p>Update the email used for SAE alerts and other contact fields for <strong>{editModal.username}</strong>. Username and role stay unchanged.</p>
+            <form className="ms-edit-form" onSubmit={handleEditSave}>
+              <label className="ms-field">
+                <span>Full name</span>
+                <input name="full_name" value={editModal.full_name} onChange={handleEditChange} autoComplete="off" />
+              </label>
+              <label className="ms-field">
+                <span>Email</span>
+                <input name="email" type="email" value={editModal.email} onChange={handleEditChange}
+                       placeholder="e.g. name@hospital.in" autoComplete="off" />
+              </label>
+              <label className="ms-field">
+                <span>Mobile</span>
+                <input name="mobile" value={editModal.mobile} onChange={handleEditChange} inputMode="tel" autoComplete="off" />
+              </label>
+              <label className="ms-field">
+                <span>Designation</span>
+                <input name="designation" value={editModal.designation} onChange={handleEditChange}
+                       placeholder="e.g. Staff Nurse" autoComplete="off" />
+              </label>
+              {editError && (
+                <div className="ms-banner ms-banner--error" role="alert">
+                  <AlertCircle size={16} /> {editError}
+                </div>
+              )}
+              <div className="ms-form-actions">
+                <button type="submit" className="ms-btn-primary" disabled={editSaving}>
+                  {editSaving ? <><Loader2 size={16} className="ms-spin" /> Saving…</> : "Save changes"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

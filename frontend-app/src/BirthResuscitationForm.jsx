@@ -664,6 +664,13 @@ export default function BirthResuscitationForm() {
     ? new Date(`${String(formData.screening_datetime).slice(0, 10)}T00:00:00`)
     : null;
 
+  /* End of today — same pattern as ScreeningForm. Using raw `new Date()`
+     as maxDate includes the current clock time, which can grey out "today"
+     around midnight. End-of-day keeps the picker on calendar dates only so
+     a birth recorded 1–2 days late (ward workload) is still selectable. */
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
   /* Guarded Time of Birth setter: if Date of Birth is the same calendar
      day as screening, block any H:M:S combination that would land before
      the exact screening time (rather than only flagging it after the
@@ -1877,7 +1884,7 @@ export default function BirthResuscitationForm() {
                         set({date_of_birth:toDateOnlyValue(d)});
                       }}
                       minDate={screeningDateOnly || undefined}
-                      maxDate={new Date()}
+                      maxDate={todayEnd}
                       dateFormat="dd-MM-yyyy" placeholderText="dd-MM-yyyy"
                       readOnly={!isFieldEditable}/>
                     {errors.date_of_birth && <div className="field-error">{errors.date_of_birth}</div>}
