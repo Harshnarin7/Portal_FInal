@@ -762,10 +762,35 @@ export default function ScreeningForm() {
     setErrors(newErrors);
   };
 
-  /* ─── Validation ── */
+  /* ─── Validation ──
+     Required fields follow what's currently visible, not a static list.
+     Eligible window is 25w0d–31w6d. Outside that (or GA undeterminable)
+     A2–A5 are hidden, so Save must not demand their contents. */
   const validate = () => {
     const m = [];
     const add = (label, fieldName) => m.push({ label, fieldName });
+
+    if (!formData.gestation_known)       add("Gestation known? (A1)",              "gestation_known");
+    if (formData.gestation_known === "Yes") {
+      if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0)
+                                         add("Best estimate GA — weeks (A1)",      "best_ga_weeks");
+      if (formData.best_ga_days === "")  add("Best estimate GA — days (A1)",       "best_ga_days");
+      if (!formData.gestation_method)    add("Method of gestation assessment (A1)","gestation_method");
+      if (formData.gestation_method === "LMP" && !formData.lmp_date) add("LMP date (A1)", "lmp_date");
+    }
+    if (formData.gestation_known === "No") {
+      if (!formData.ga_source)           add("Known source — LMP / EDD / Neither (A1)", "ga_source");
+      if (formData.ga_source === "LMP" && !formData.lmp_date) add("LMP Date (A1)", "lmp_date");
+      if (formData.ga_source === "EDD" && !formData.edd_date) add("EDD (A1)",       "edd_date");
+    }
+
+    const elig = getEligibilityStatus();
+    const gaUnknown = formData.gestation_known === "No" && formData.ga_source === "Neither";
+    const gaOutOfRange = elig === "high" || elig === "low";
+    const pathComplete = formData.gestation_known === "Yes" ||
+      (formData.gestation_known === "No" && !!formData.edd_date && formData.ga_source !== "Neither");
+    const a2a5Visible = pathComplete && !gaUnknown && !gaOutOfRange;
+    if (!a2a5Visible) return m;
 
     if (!formData.screening_datetime)    add("Screening Date & Time (A2)",        "screening_datetime");
     if (!formData.site_name)             add("Site (A2)",                          "site_name");
@@ -790,20 +815,10 @@ export default function ScreeningForm() {
     }
     if (!formData.mother_contact)        add("Mother's Mobile Number (A3)",        "mother_contact");
     else if (formData.mother_contact.length !== 10) add("Mother's Mobile — must be 10 digits (A3)", "mother_contact");
+    else if (!/^[6-9]/.test(formData.mother_contact)) add("Mother's Mobile — Indian mobile must start with 6, 7, 8, or 9 (A3)", "mother_contact");
     if (!formData.husband_contact)       add("Husband's Mobile Number (A3)",       "husband_contact");
     else if (formData.husband_contact.length !== 10) add("Husband's Mobile — must be 10 digits (A3)", "husband_contact");
-    if (!formData.gestation_known)       add("Gestation known? (A1)",              "gestation_known");
-    if (formData.gestation_known === "Yes") {
-      if (!formData.best_ga_weeks)       add("Best estimate GA — weeks (A1)",      "best_ga_weeks");
-      if (formData.best_ga_days === "")  add("Best estimate GA — days (A1)",       "best_ga_days");
-      if (!formData.gestation_method)    add("Method of gestation assessment (A1)","gestation_method");
-      if (formData.gestation_method === "LMP" && !formData.lmp_date) add("LMP date (A1)", "lmp_date");
-    }
-    if (formData.gestation_known === "No") {
-      if (!formData.ga_source)           add("Known source — LMP / EDD / Neither (A1)", "ga_source");
-      if (formData.ga_source === "LMP" && !formData.lmp_date) add("LMP Date (A1)", "lmp_date");
-      if (formData.ga_source === "EDD" && !formData.edd_date) add("EDD (A1)",       "edd_date");
-    }
+    else if (!/^[6-9]/.test(formData.husband_contact)) add("Husband's Mobile — Indian mobile must start with 6, 7, 8, or 9 (A3)", "husband_contact");
     if (!formData.exclusion_anomaly)     add("Structural Anomaly? (A4)",           "exclusion_anomaly");
     else if (formData.exclusion_anomaly === "Yes" && !formData.exclusion_anomaly_details)
       add("Specify structural anomaly (A4)",                                        "exclusion_anomaly_details");
@@ -813,6 +828,10 @@ export default function ScreeningForm() {
     if (!formData.decision_forego_resus) add("Decision to forego resuscitation? (A4)", "decision_forego_resus");
     else if (formData.decision_forego_resus === "Yes" && formData.decision_forego_resus_reasons.length === 0)
       add("Reason to forego resuscitation — select at least one (A4)",             "decision_forego_resus");
+    else if (formData.decision_forego_resus === "Yes"
+        && formData.decision_forego_resus_reasons.includes("Other")
+        && !formData.decision_forego_resus_reason_other?.trim())
+      add("Specify other reason to forego resuscitation (A4)",                     "decision_forego_resus");
     if (!formData.insufficient_time)     add("Insufficient time for consent? (A4)","insufficient_time");
     else if (formData.insufficient_time === "Yes" && !formData.insufficient_time_reason)
       add("Specify reason for insufficient time (A4)",                             "insufficient_time_reason");
@@ -826,12 +845,22 @@ export default function ScreeningForm() {
       if (!formData.consent_given)       add("Consent (A5)",                       "consent_given");
       if (formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") {
         if (!formData.relationship_to_participant) add("Consent obtained from (A5)", "relationship_to_participant");
+        if (formData.relationship_to_participant === "Other" && !formData.relationship_other?.trim())
+          add("Specify relationship (A5)",                                         "relationship_other");
         if (!formData.consent_taken_by)            add("Consent obtained by nurse (A5)", "consent_taken_by");
       }
       if (formData.consent_given === "No" && formData.reason_for_consent_refusal_list.length === 0)
         add("Reason for consent refusal — select at least one (A5)",               "reason_for_consent_refusal_list");
+      else if (formData.consent_given === "No"
+          && formData.reason_for_consent_refusal_list.includes("Other")
+          && !formData.reason_for_consent_refusal_other?.trim())
+        add("Specify other reason for consent refusal (A5)",                       "reason_for_consent_refusal_list");
       if (formData.consent_given === "Not approached" && formData.reason_not_approached_list.length === 0)
         add("Reason not approached — select at least one (A5)",                    "reason_not_approached_list");
+      else if (formData.consent_given === "Not approached"
+          && formData.reason_not_approached_list.includes("Other")
+          && !formData.reason_not_approached_other?.trim())
+        add("Specify other reason not approached (A5)",                            "reason_not_approached_list");
       /* Video PIS required whenever any consent value is selected */
       if (formData.consent_given && !formData.video_pis_shown)
         add("Video PIS shown? (A5)",                                               "video_pis_shown");
@@ -1046,6 +1075,29 @@ export default function ScreeningForm() {
     }
 
     const payload = buildPayloadFrom(formData, false, anyExclusionYes, true);
+    /* Out-of-range / undeterminable GA hides A2–A5; backend still requires
+       site + screened_by + names to create the screening row. Fill from the
+       locked login when those fields were never shown. */
+    if (endParticipation) {
+      if (!payload.site_name && user?.site) {
+        payload.site_name = user.site;
+        payload.site_id = SITE_ID_MAP[user.site] || payload.site_id;
+      }
+      if (payload.site_name && !payload.site_id) {
+        payload.site_id = SITE_ID_MAP[payload.site_name] || "";
+      }
+      if (!payload.screened_by) {
+        payload.screened_by = (user?.full_name || "").trim() || "N/A";
+      }
+      if (!payload.mother_first_name) payload.mother_first_name = "";
+      if (!payload.husband_first_name) payload.husband_first_name = "";
+      if (payload.exclusion_present == null) payload.exclusion_present = false;
+      if (!payload.site_name) {
+        setMissingFields([{ label: "Site (A2)", fieldName: "site_name" }]);
+        setShowMissingModal(true);
+        return;
+      }
+    }
 
     try {
       const storedId = localStorage.getItem("current_screening_id");
@@ -1271,7 +1323,7 @@ export default function ScreeningForm() {
                         <option value="">-- Select --</option>
                         <option value="LMP">LMP</option>
                         <option value="Early USG">Early USG (&lt;24w)</option>
-                        <option value="Fundal Height">Fundal height</option>
+                        <option value="Fundal Height">Fundal Height</option>
                         <option value="Unknown">Method not known</option>
                       </select>
                     </div>
