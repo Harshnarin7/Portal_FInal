@@ -15,30 +15,57 @@ module.exports = {
     extend: {
       colors: {
         portal: {
-          primary: "#002446",
-          "primary-mid": "#1a3a5f",
-          secondary: "#0060ac",
-          highlight: "#68abff",
-          ink: "#0b1c30",
-          muted: "#43474e",
-          mist: "#f8f9ff",
-          ice: "#e5eeff",
-          line: "#e2e8f0",
-          accent: "#d73f3f",
+          primary: "#00132c",
+          "primary-mid": "#0f2847",
+          secondary: "#006398",
+          highlight: "#5bb8fe",
+          "secondary-fixed": "#cce5ff",
+          ink: "#0e1c2f",
+          muted: "#44474e",
+          outline: "#74777e",
+          mist: "#f9f9ff",
+          ice: "#e7eeff",
+          "surface-low": "#f0f3ff",
+          line: "#c4c6ce",
+          accent: "#ba1a1a",
+          live: "#059669",
+          teal: "#0E7C7B",
+          "teal-bright": "#14A8A7",
         },
       },
       fontFamily: {
         portal: ["Inter", "system-ui", "Segoe UI", "sans-serif"],
+        display: ["Plus Jakarta Sans", "Inter", "system-ui", "sans-serif"],
+        serif: ["Lora", "Georgia", "serif"],
+        "data-mono": ["JetBrains Mono", "ui-monospace", "monospace"],
+      },
+      keyframes: {
+        "ds-pulse": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.4" },
+        },
+        "ds-shimmer": {
+          "0%": { backgroundPosition: "-420px 0" },
+          "100%": { backgroundPosition: "420px 0" },
+        },
+        "ds-typing": {
+          "0%, 80%, 100%": { opacity: "0.25", transform: "translateY(0)" },
+          "40%": { opacity: "1", transform: "translateY(-2px)" },
+        },
+      },
+      animation: {
+        "ds-pulse": "ds-pulse 2s ease-in-out infinite",
+        "ds-shimmer": "ds-shimmer 1.4s linear infinite",
+        "ds-typing": "ds-typing 1s ease-in-out infinite",
       },
       maxWidth: {
         portal: "1440px",
       },
       boxShadow: {
-        card: "0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04)",
-        "portal-subtle":
-          "0 2px 8px -2px rgba(0, 36, 70, 0.05), 0 1px 4px -1px rgba(0, 36, 70, 0.02)",
+        card: "0 1px 8px rgba(0, 0, 0, 0.04)",
+        "portal-subtle": "0 1px 8px rgba(0, 0, 0, 0.04)",
         "portal-elevated":
-          "0 10px 30px -10px rgba(0, 36, 70, 0.08), 0 4px 12px -4px rgba(0, 36, 70, 0.04)",
+          "0 10px 30px -10px rgba(0, 19, 44, 0.08), 0 4px 12px -4px rgba(0, 19, 44, 0.04)",
       },
     },
   },

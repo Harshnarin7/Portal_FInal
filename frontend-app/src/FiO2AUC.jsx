@@ -861,13 +861,9 @@ export default function Fio2AUCForm() {
             const done  = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01
               && windowHasFio2(d.w1) && windowHasFio2(d.w2);
 
-            // Day is locked if any previous *rendered* day is incomplete
-            const isLocked = idx > 0 && days.slice(0, idx).some(prev => {
-              const ph1 = windowHours(prev.w1);
-              const ph2 = windowHours(prev.w2);
-              return Math.abs(ph1 - 12) >= 0.01 || Math.abs(ph2 - 12) >= 0.01;
-            });
-            const prevRendered = idx > 0 ? days[idx - 1] : null;
+            // Listed days are Helper 2 Supplemental O₂ = Yes (union saved FiO₂).
+            // Each is independently editable — do not lock Day N until Day N−1 is complete.
+            const isLocked = false;
 
             return (
               <div key={d.day} className={`day-card${d.expanded ? " day-card--open" : ""}${isLocked ? " day-card--locked" : ""}`}>
@@ -879,14 +875,9 @@ export default function Fio2AUCForm() {
                     <span className={`day-bubble${d.expanded ? " day-bubble--active" : ""}${isLocked ? " day-bubble--locked" : ""}`}>
                       {isLocked ? "L" : d.day}
                     </span>
-                    <span className="day-title" style={{ color: isLocked ? "#94a3b8" : undefined }}>
+                    <span className="day-title">
                       Day {d.day}
                     </span>
-                    {isLocked && prevRendered && (
-                      <span className="locked-hint">
-                        Complete Day {prevRendered.day} first
-                      </span>
-                    )}
                     {!d.expanded && !isLocked && (
                       <div className="day-preview-chips">
                         <span className="chip chip--blue">AUC {dAuc.toFixed(2)}</span>

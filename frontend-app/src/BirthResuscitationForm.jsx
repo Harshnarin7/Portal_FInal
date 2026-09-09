@@ -245,6 +245,26 @@ const EXIT_REASON_OPTIONS = [
   "Required override to 100% O2 or CC",
   "Other",
 ];
+
+/** Calendar date only from Form A screening_datetime (ISO or DD/MM/YYYY).
+ *  Avoids `new Date(iso-Z)` shifting the day, so Q12 elapsed days match mobile. */
+const calendarDateFromDatetime = (raw) => {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
+  const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (dmy) {
+    const d = String(dmy[1]).padStart(2, "0");
+    const mo = String(dmy[2]).padStart(2, "0");
+    let y = dmy[3];
+    if (y.length === 2) y = `20${y}`;
+    return new Date(`${y}-${mo}-${d}T00:00:00`);
+  }
+  const dt = new Date(s);
+  if (isNaN(dt)) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+};
 const normalizeTimeForInput = value => {
   if (value === "" || value == null) return "";
   const s = String(value).trim();
@@ -660,9 +680,7 @@ export default function BirthResuscitationForm() {
   /* Earliest calendar day the baby could have been born — the day of
      screening (Form A). Feeds DatePicker's minDate so dates before
      screening are greyed out and cannot be clicked at all. */
-  const screeningDateOnly = formData.screening_datetime
-    ? new Date(`${String(formData.screening_datetime).slice(0, 10)}T00:00:00`)
-    : null;
+  const screeningDateOnly = calendarDateFromDatetime(formData.screening_datetime);
 
   /* End of today — same pattern as ScreeningForm. Using raw `new Date()`
      as maxDate includes the current clock time, which can grey out "today"
@@ -754,17 +772,25 @@ export default function BirthResuscitationForm() {
 
   /* ── Gestation at randomization (screening GA + elapsed calendar days) ── */
   useEffect(() => {
-    if (!formData.date_of_birth || !formData.screening_datetime || !formData.gestation_weeks) return;
+    if (!formData.date_of_birth || !formData.screening_datetime || !formData.gestation_weeks) {
+      if (formData.gestation_rand_weeks !== "" && formData.gestation_rand_weeks != null) {
+        set({ gestation_rand_weeks: "", gestation_rand_days: "" });
+      }
+      return;
+    }
     const screeningGA = Number(formData.gestation_weeks) * 7 + Number(formData.gestation_days ?? 0);
-    const screeningDay = new Date(formData.screening_datetime);
+    const screeningDay = calendarDateFromDatetime(formData.screening_datetime);
     const birthDay = new Date(`${formData.date_of_birth}T00:00:00`);
+    if (!screeningDay || isNaN(birthDay)) return;
     screeningDay.setHours(0, 0, 0, 0);
     birthDay.setHours(0, 0, 0, 0);
     const elapsedDays = Math.max(0, Math.round((birthDay - screeningDay) / 86400000));
     const randomisationGA = screeningGA + elapsedDays;
     const randW = Math.floor(randomisationGA / 7);
     const randD = randomisationGA % 7;
-    set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
+    if (Number(formData.gestation_rand_weeks) !== randW || Number(formData.gestation_rand_days) !== randD) {
+      set({ gestation_rand_weeks: randW, gestation_rand_days: randD });
+    }
   }, [formData.date_of_birth, formData.screening_datetime, formData.gestation_weeks, formData.gestation_days]); // eslint-disable-line
 
   /* ── Intrauterine growth centile (auto, INTERGROWTH-21st Very Preterm) ──
@@ -2104,6 +2130,13 @@ export default function BirthResuscitationForm() {
                   onChange={e=>{
                     handleChange(e);
                     if(e.target.value==="No"){
+                      set({
+                        randomised: "",
+                        randomisation_date: "",
+                        strata: "",
+                        enrollment_reason_not_randomized: "",
+                        enrollment_reason_not_randomized_other: "",
+                      });
                       localStorage.setItem("enrollment_locked","true");
                       localStorage.setItem("enrollment_lock_reason", "no_ppv");
                       window.dispatchEvent(new Event("storage"));
