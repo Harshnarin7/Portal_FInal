@@ -2460,7 +2460,7 @@ class InfectGIHemaDayCreate(BaseModel):
     probiotic:               Optional[bool]  = None  # #18
     feed_intolerance:        Optional[bool]  = None  # #19
     nec_suspected:           Optional[bool]  = None  # #20
-    nec_confirmed_stage:     Optional[str]   = None  # #21 "Stage I/II/III"
+    nec_confirmed_stage:     Optional[str]   = None  # #21 modified Bell's staging: IA/IB/IIA/IIB/IIIA/IIIB
     cholestasis:             Optional[bool]  = None  # #22
 
     # ── HEMATOLOGY (Fields 23-30) ────────────────────────────

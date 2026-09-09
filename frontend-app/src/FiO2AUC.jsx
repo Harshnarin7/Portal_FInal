@@ -198,6 +198,10 @@ export default function Fio2AUCForm() {
   const [days, setDays] = useState([]);
   const [daysLoading, setDaysLoading] = useState(false);
   const [helper2Refreshing, setHelper2Refreshing] = useState(false);
+  // Persistent (not auto-dismissed) — set whenever the Helper 2 sync fetch
+  // itself fails, so a real load failure is never visually identical to
+  // "Helper 2 legitimately has no Supplemental O₂ days yet".
+  const [helper2SyncError, setHelper2SyncError] = useState(null);
 
   /*  UI state  */
   const [message, setMessage] = useState("");
@@ -331,6 +335,10 @@ export default function Fio2AUCForm() {
         });
       });
 
+      // A successful sync — however many days it found — means the fetch
+      // itself is healthy, so clear any previously shown load-failure banner.
+      setHelper2SyncError(null);
+
       // Any existing FiO₂ row → prefer PUT (backend POST also upserts now).
       if (record) {
         setIsSaved(true);
@@ -346,6 +354,13 @@ export default function Fio2AUCForm() {
       }
     } catch (err) {
       console.log("Error syncing FiO2 days from Helper 2", err);
+      // Persistent banner — shown regardless of showToast, so a failed
+      // background load on page mount doesn't masquerade as "no
+      // Supplemental O₂ days yet". Stays up until a retry succeeds.
+      setHelper2SyncError(
+        "Could not load Supplemental O₂ days from Helper 2 — the day list "
+        + "below may be incomplete or out of date. Try \"Refresh from Helper 2\" below."
+      );
       if (showToast) {
         setMessage("Could not refresh from Helper 2 — try again");
         setTimeout(() => setMessage(""), 3500);
@@ -804,7 +819,7 @@ export default function Fio2AUCForm() {
             <p className="kpi-label kpi-label--muted">Days Complete</p>
             <div className="kpi-value-row">
               <span className="kpi-big kpi-big--dark">
-                {daysComplete} / {Math.max(days.length, 1)}
+                {days.length ? `${daysComplete} / ${days.length}` : "—"}
               </span>
             </div>
             <div className="kpi-progress-track">
@@ -840,12 +855,19 @@ export default function Fio2AUCForm() {
         </div>
 
         {/*  DAY CARDS  */}
+        {helper2SyncError && (
+          <div className="fio2-message fio2-message--err" role="alert">
+            ⚠️ {helper2SyncError}
+          </div>
+        )}
         <div className="day-stack">
           {daysLoading && !days.length ? (
             <div className="fio2-empty-state">Loading Supplemental O₂ days from Helper 2…</div>
           ) : !days.length ? (
             <div className="fio2-empty-state">
-              FiO2 AUC tracking starts once Helper Form 2 records a day with Supplemental O₂ = Yes.
+              {helper2SyncError
+                ? "Couldn't load Helper 2 data — see the message above. This is not the same as \"no Supplemental O₂ days\"."
+                : "FiO2 AUC tracking starts once Helper Form 2 records a day with Supplemental O₂ = Yes."}
             </div>
           ) : days.map((d, idx) => {
             const dAuc  = dayAUC(d.w1, d.w2);

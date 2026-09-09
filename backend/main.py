@@ -2524,10 +2524,13 @@ def get_gi_prefill(
       NICUAdmission.day1_date cross-table pattern; nec_age_days is just
       that same earliest day minus 1 (nicu_day 1 == age 0), no join
       needed — a NICU day number *is* an age in days once day1 is fixed.
-    - nec_stage is deliberately NOT filled: the day log's
-      `nec_confirmed_stage` is coarse ("Stage I/II/III") while Form H's
-      nec_stage is the 6-way Bell staging (IA/IB/IIA/IIB/IIIA/IIIB) —
-      guessing the A/B subdivision would be inventing data, not deriving it.
+    - nec_stage is deliberately NOT filled: Form H's nec_stage is the
+      same 6-way Bell staging (IA/IB/IIA/IIB/IIIA/IIIB) as the day log's
+      `nec_confirmed_stage` field, but this route doesn't backfill it —
+      Form H's nec_stage is the clinician's own confirmed assessment for
+      the CRF, not something to silently overwrite from nursing day-log
+      entries. (Historically this field was coarser than Form H's; both
+      are now the same 6-way scale, see NEC_STAGE_ORDER below.)
       nec_surgery/nec_surgery_type/nec_resection(_length)/nec_stoma have no
       day-log equivalent at all (the log only flags NEC was suspected, not
       what was done about it).

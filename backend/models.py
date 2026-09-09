@@ -1901,7 +1901,7 @@ class InfectGIHemaDayLog(Base):
     probiotic                  = Column(Boolean, nullable=True)  # #18
     feed_intolerance           = Column(Boolean, nullable=True)  # #19
     nec_suspected              = Column(Boolean, nullable=True)  # #20
-    nec_confirmed_stage        = Column(String,  nullable=True)  # #21 "Stage I/II/III"
+    nec_confirmed_stage        = Column(String,  nullable=True)  # #21 modified Bell's staging: IA/IB/IIA/IIB/IIIA/IIIB
     cholestasis                = Column(Boolean, nullable=True)  # #22
 
     # ── HEMATOLOGY (Fields 23-30) ────────────────────────────
