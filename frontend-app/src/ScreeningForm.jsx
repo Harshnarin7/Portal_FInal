@@ -14,7 +14,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   ArrowLeft, ArrowRight, Save, Home, Pencil,
-  Calendar, User, FileText, ShieldAlert, CheckSquare, Info,
+  Calendar, User, FileText, ShieldAlert, CheckSquare, Info, CheckCircle2,
 } from "lucide-react";
 import { useFormProgress } from "./context/FormProgressContext";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
@@ -22,16 +22,22 @@ import { useAuth } from "./context/AuthContext";
 import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd } from "./utils/datetime";
 
 /* ─── YesNoToggle — animated sliding segment ──────────────── */
-function YesNoToggle({ label, name, value, onChange, disabled = false }) {
+function YesNoToggle({ label, name, value, onChange, disabled = false, eligibleWhen }) {
   const fire = (val) => {
     if (disabled) return;
     onChange({ target: { name, value: val } });
   };
   // 0 = neither selected yet (no slide position), 1 = Yes, 2 = No
   const pos = value === "Yes" ? 1 : value === "No" ? 2 : 0;
+  const isEligible = eligibleWhen != null && value === eligibleWhen;
   return (
     <div className={`yes-no-toggle${disabled ? " yn-disabled" : ""}`}>
-      <span className="yes-no-label">{label}</span>
+      <span className="yes-no-label">
+        {label}
+        {isEligible && (
+          <CheckCircle2 className="yn-eligible-tick" size={16} title="Not an exclusion — eligible on this criterion"/>
+        )}
+      </span>
       <div className={`yes-no-buttons yn-pos-${pos}`}>
         <div className="yn-thumb" aria-hidden="true" />
         <button type="button"
@@ -635,6 +641,9 @@ export default function ScreeningForm() {
     const n = Number(displayWeeks);
     return !Number.isNaN(n);
   })();
+  /* GA was typed straight in (field 2) vs derived from LMP/EDD (field 7) —
+     the two cases need different wording in the summary banner below. */
+  const isDirectGaEntry = formData.gestation_known === "Yes";
 
   /* ─── Field-level change handler ── */
   const set = (patch) => setFormData(p => ({ ...p, ...patch }));
@@ -1452,8 +1461,9 @@ export default function ScreeningForm() {
                   <div className={`gestation-info-banner ${eligibilityStatus === "eligible" ? "" : "gestation-info-banner--warn"}`}>
                     <Info size={15} className="banner-info-icon"/>
                     <span className="banner-text">
-                      7. Calculated gestational age: <strong>{displayWeeks} weeks ; {displayDays} days</strong>
-                      <span className="field-note"> (auto calculated in app)</span>
+                      {isDirectGaEntry ? "Gestational age: " : "Calculated gestational age: "}
+                      <strong>{displayWeeks} weeks ; {displayDays} days</strong>
+                      {!isDirectGaEntry && <span className="field-note"> (auto calculated in app)</span>}
                       {" — "}
                       participant is <strong>{eligibilityStatus === "eligible" ? "eligible" : "not eligible"}</strong> for the study.
                     </span>
@@ -1686,7 +1696,7 @@ export default function ScreeningForm() {
 
                   {/* 1. Structural anomaly */}
                   <YesNoToggle label="18. Major structural anomalies or genetic abnormality (suspected/proven)"
-                    name="exclusion_anomaly" value={formData.exclusion_anomaly} onChange={handleChange} disabled={!isFieldEditable}/>
+                    name="exclusion_anomaly" value={formData.exclusion_anomaly} onChange={handleChange} disabled={!isFieldEditable} eligibleWhen="No"/>
                   {formData.exclusion_anomaly === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
@@ -1702,7 +1712,7 @@ export default function ScreeningForm() {
 
                   {/* 2. Fetal Hydrops */}
                   <YesNoToggle label="19. Fetal Hydrops"
-                    name="fetal_hydrops" value={formData.fetal_hydrops} onChange={handleChange} disabled={!isFieldEditable}/>
+                    name="fetal_hydrops" value={formData.fetal_hydrops} onChange={handleChange} disabled={!isFieldEditable} eligibleWhen="No"/>
                   {formData.fetal_hydrops === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
@@ -1722,7 +1732,7 @@ export default function ScreeningForm() {
 
                   {/* 3. Decision to forego resuscitation */}
                   <YesNoToggle label="21. Decision to forego resuscitation"
-                    name="decision_forego_resus" value={formData.decision_forego_resus} onChange={handleChange} disabled={!isFieldEditable}/>
+                    name="decision_forego_resus" value={formData.decision_forego_resus} onChange={handleChange} disabled={!isFieldEditable} eligibleWhen="No"/>
                   {formData.decision_forego_resus === "Yes" && (
                     <div className="followup-box">
                       <label className="followup-label">22. If yes (select all that apply)<span className="required">*</span></label>
@@ -1739,7 +1749,7 @@ export default function ScreeningForm() {
 
                   {/* 4. Insufficient time */}
                   <YesNoToggle label="23. Insufficient time for consent"
-                    name="insufficient_time" value={formData.insufficient_time} onChange={handleChange} disabled={!isFieldEditable}/>
+                    name="insufficient_time" value={formData.insufficient_time} onChange={handleChange} disabled={!isFieldEditable} eligibleWhen="No"/>
                   {formData.insufficient_time === "Yes" && (
                     <div className="followup-box">
                       <div className="form-grid-2">
@@ -1755,7 +1765,7 @@ export default function ScreeningForm() {
 
                   {/* 5. IUFD */}
                   <YesNoToggle label="25. IUFD"
-                    name="iufd" value={formData.iufd} onChange={handleChange} disabled={!isFieldEditable}/>
+                    name="iufd" value={formData.iufd} onChange={handleChange} disabled={!isFieldEditable} eligibleWhen="No"/>
 
                   {anyExclusionYes && (
                     <div className="alert-danger" style={{marginTop:16}}>
@@ -1773,7 +1783,7 @@ export default function ScreeningForm() {
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        All options No — Proceed for consent
+                        Exclusion Criteria Absenst — Proceed for consent
                       </span>
                     </div>
                   )}
@@ -1790,7 +1800,7 @@ export default function ScreeningForm() {
                   <div className="form-section-header">
                     <div className="section-title-left">
                       <CheckSquare size={15} className="section-header-icon"/>
-                      <h3>A5 · Proceed for Consent</h3>
+                      <h3>A5 · Consent Process</h3>
                     </div>
                   </div>
                   <div className="form-section-body">

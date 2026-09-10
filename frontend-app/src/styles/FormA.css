@@ -388,8 +388,9 @@
   letter-spacing: 0.01em;
 }
 .banner-info-icon { color: #2563eb; flex-shrink: 0; margin-top: 1px; }
-.banner-text { font-size: 13px; color: #1e40af; line-height: 1.55; }
+.banner-text { font-size: 15px; color: #1e40af; line-height: 1.55; }
 .banner-text strong { font-weight: 700; }
+.banner-text .field-note { font-size: 12px; }
 
 .alert-danger {
   display: flex; align-items: center; gap: 9px;
@@ -445,6 +446,12 @@
 .yes-no-label {
   font-size: 13px; font-weight: 500; color: #111827;
   flex: 1; line-height: 1.45; padding-right: 16px;
+}
+.yn-eligible-tick {
+  display: inline-block;
+  margin-left: 6px;
+  color: #16a34a;
+  vertical-align: -3px;
 }
 .yes-no-buttons {
   display: inline-flex; align-items: center; flex-shrink: 0;
