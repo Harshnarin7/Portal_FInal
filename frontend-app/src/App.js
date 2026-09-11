@@ -59,7 +59,13 @@ function AppContent() {
   const isLandingPage = location.pathname === "/";
   const isLoginPage   = location.pathname === "/login";
   const isChangePasswordPage = location.pathname === "/change-password";
+  const isDashboardPage = location.pathname === "/dashboard";
   const isAuthChromePage = isLoginPage || isChangePasswordPage;
+  // Workspace links leave /dashboard. Do not re-show the pre-Stitch header/navbar.
+  const isWorkspaceDest =
+    location.pathname === "/entries" ||
+    location.pathname === "/manage-staff" ||
+    location.pathname === "/trial-monitoring";
 
   const isFormPage =
     location.pathname.includes("/form-") ||
@@ -72,10 +78,10 @@ function AppContent() {
     location.pathname.includes("/sae-");
 
   return (
-    <div className={`app-container${isFormPage ? " form-page-layout" : ""}${isLandingPage ? " landing-page-layout" : ""}`}>
+    <div className={`app-container${isFormPage ? " form-page-layout" : ""}${isLandingPage ? " landing-page-layout" : ""}${isDashboardPage ? " dashboard-page-layout" : ""}`}>
 
-      {/* ===== HEADER — hidden on landing, login, password change, forms ===== */}
-      {!isFormPage && !isLandingPage && !isAuthChromePage && (
+      {/* ===== HEADER — hidden on landing, login, password change, forms, dashboard, workspace pages ===== */}
+      {!isFormPage && !isLandingPage && !isAuthChromePage && !isDashboardPage && !isWorkspaceDest && (
         <header className="app-header">
           <div className="header-inner">
 
@@ -124,8 +130,8 @@ function AppContent() {
         </header>
       )}
 
-        {/* ===== NAVBAR — hidden on landing / login / password change ===== */}
-        {token && !isFormPage && !isLandingPage && !isAuthChromePage && (
+        {/* ===== NAVBAR — hidden on landing / login / password change / dashboard / workspace pages ===== */}
+        {token && !isFormPage && !isLandingPage && !isAuthChromePage && !isDashboardPage && !isWorkspaceDest && (
           <nav className="nav-bar">
             <div className="nav-links">
               <NavLink
@@ -190,7 +196,7 @@ function AppContent() {
             <Route
               path="*"
               element={
-                <main className="app-main">
+                <main className={`app-main${isDashboardPage ? " dashboard-fullbleed" : ""}`}>
                   <div className="content-wrapper">
                     <Routes>
                       <Route path="/" element={<LandingPage />} />
@@ -230,7 +236,7 @@ function AppContent() {
         </PatientProvider>
 
         {/* ===== FOOTER ===== */}
-        {!isFormPage && !isLandingPage && !isAuthChromePage && (
+        {!isFormPage && !isLandingPage && !isAuthChromePage && !isDashboardPage && !isWorkspaceDest && (
           <footer className="app-footer">
             <p>© 2025 PORTAL Trial | Developed for Clinical Research Data Entry</p>
           </footer>

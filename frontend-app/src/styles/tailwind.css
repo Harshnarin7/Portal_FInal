@@ -4,4 +4,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
- 
+
+@layer components {
+  .ds-card {
+    @apply rounded-lg border bg-white shadow-portal-subtle;
+    border-color: rgba(14, 28, 47, 0.08);
+  }
+  .ds-focus {
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-portal-secondary;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ds-pulse,
+  .animate-ds-shimmer,
+  .animate-ds-typing {
+    animation: none !important;
+  }
+}

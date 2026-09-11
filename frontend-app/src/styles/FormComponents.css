@@ -566,6 +566,23 @@
   font-size: 12px;
   margin-top: 6px;
 }
+.field-hint-stale-inline {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fef3c7;
+  border: 2px solid #f59e0b;
+  border-left: 6px solid #d97706;
+  border-radius: 8px;
+  color: #78350f;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.field-hint-stale-inline .link-button {
+  margin-left: 6px;
+  font-weight: 800;
+  color: #92400e;
+}
 
 /* ============================================================
    FormH — category jump-nav. Turns the 13-section, 9000+-line

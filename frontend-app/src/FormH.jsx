@@ -2966,6 +2966,24 @@ const runConfirmedForceRefill = () => {
 };
 const cancelForceRefill = () => setForceRefillConfirm(null);
 
+const renderRopThermoFieldStaleBanner = (field, phrase) => {
+  if (!ropThermoStale[field]) return null;
+  const fromLogs = ropThermoPrefill?.[field] || "Yes";
+  const current = formData[field] || "blank";
+  return (
+    <div className="field-hint-stale-inline" role="status">
+      Daily logs show {phrase} ({fromLogs}), but this is currently answered {current}. Click Refill to update.
+      <button
+        type="button"
+        className="link-button"
+        onClick={() => confirmForceRefill("ROP/Thermoregulation", fetchRopThermoPrefill)}
+      >
+        Refill
+      </button>
+    </div>
+  );
+};
+
 // "Did not survive" prompt — checks the one day-log field
 // (metab_renal_vasc_eye_day_logs.survived_the_day) that records this,
 // and if any day was marked "No", offers a single button that runs
@@ -9544,6 +9562,7 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <YesNoToggle label="179. Screened" name="rop_screened" value={formData.rop_screened} onChange={handleRopThermoChange} onBlur={handleBlur} required />
         {ropThermoAutoFilled.rop_screened && <span className="field-hint-auto-inline">from daily logs</span>}
+        {renderRopThermoFieldStaleBanner("rop_screened", "ROP was screened")}
         {touched.rop_screened && errors.rop_screened && <div className="error-text">{errors.rop_screened}</div>}
       </div>
 
@@ -9580,6 +9599,7 @@ const peripheralStatus= getPeripheralStatus();
       <div className="form-group">
         <YesNoToggle label="182. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleRopThermoChange} onBlur={handleBlur} required />
         {ropThermoAutoFilled.rop && <span className="field-hint-auto-inline">from daily logs</span>}
+        {renderRopThermoFieldStaleBanner("rop", "ROP was diagnosed")}
         {touched.rop && errors.rop && <div className="error-text">{errors.rop}</div>}
       </div>
 

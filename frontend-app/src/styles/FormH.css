@@ -174,6 +174,16 @@
   border-radius: var(--fh-radius-md) !important;
   color: #92400e !important;
 }
+.formh-modern .field-hint-stale-inline {
+  background: #fef3c7 !important;
+  border: 2px solid #f59e0b !important;
+  border-left: 6px solid #d97706 !important;
+  color: #78350f !important;
+}
+.formh-modern .field-hint-stale-inline .link-button {
+  color: #92400e !important;
+  font-weight: 800 !important;
+}
 
 /* ============================================================
    F — accordion cards (fh-card / fh-card-header / fh-card-body)

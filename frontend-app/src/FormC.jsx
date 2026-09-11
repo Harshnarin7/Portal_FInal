@@ -63,7 +63,13 @@ const bothSteroidDrugsSelected = (raw) =>
  */
 const toGpalNum = v => (v === "" || v === null || v === undefined ? null : Number(v));
 const computeGpalErrors = (data) => {
-  const errs = {};
+  // Start every field at "" (not just omitted) so callers that merge this
+  // result into existing error state — e.g. setErrors(p => ({ ...p,
+  // ...computeGpalErrors(nextData) })) — actually clear a field's error
+  // once it's no longer invalid, instead of leaving a stale message behind
+  // when a *different* GPAL field is the one that gets edited next (e.g.
+  // lowering Parity while raising Abortions to fix a mismatch).
+  const errs = { gravida: "", parity: "", abortions: "", live: "", still: "" };
   const g = toGpalNum(data.gravida);
   const p = toGpalNum(data.parity);
   const a = toGpalNum(data.abortions);
