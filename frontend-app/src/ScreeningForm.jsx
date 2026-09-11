@@ -10,6 +10,7 @@ import "./styles/FormA.css";
 import "./styles/FormAModernDatePicker.css";
 import PrintSummary from "./components/PrintSummary";
 import NotesBox from "./components/NotesBox";
+import SignaturePad from "./SignaturePad";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
@@ -106,6 +107,7 @@ const BLANK_FORM = {
   iufd:"",
   /* A5 Consent */
   consent_given:"", video_pis_shown:"",
+  consent_signature_image:"", consent_signature_captured_at:"",
   relationship_to_participant:"", relationship_other:"",
   consent_taken_by:"", consent_datetime:"",
   reason_for_consent_refusal_list:[],
@@ -169,7 +171,7 @@ export default function ScreeningForm() {
   /* Per-site format rules for Maternal UID (16) and Hospital Admission
      Number (17) — confirmed with the study team 2026-08-01. Sites/fields
      not listed here have no strict pattern (kept as free alphanumeric,
-     required-non-empty only where applicable) rather than guessing a
+     required only for PGIMER/AMC maternal UID and PGIMER HAN) rather than guessing a
      format that could block a legitimate entry. */
   const idFieldRule = (site, field) => {
     if (field === "maternal_uid") {
@@ -323,6 +325,8 @@ export default function ScreeningForm() {
         reason_not_approached_list:       notApprList,
         reason_not_approached_other:      notApprList.includes("Other") ? (d.reason_not_approached_other||"") : "",
         video_pis_shown:          d.video_pis_shown            || "",
+        consent_signature_image:         d.consent_signature_image         || "",
+        consent_signature_captured_at:   d.consent_signature_captured_at   || "",
       }));
 
       if (d.screening_id) localStorage.setItem("current_screening_id", d.screening_id);
@@ -476,7 +480,17 @@ export default function ScreeningForm() {
   useEffect(() => {
     if (!formData.site_name) { setNurses([]); return; }
     api.get(`/sites/${formData.site_name}/screeners`)
-      .then(r => setNurses(r.data)).catch(() => setNurses([]));
+      .then(r => setNurses((r.data || []).map(n =>
+        String(n).replace(/^\s*dr\.?\s+/i, "").trim()
+      ))).catch(() => setNurses([]));
+  }, [formData.site_name]);
+
+  /* ─── Principal Investigator name for this site (print footer) ── */
+  const [piName, setPiName] = useState("");
+  useEffect(() => {
+    if (!formData.site_name) { setPiName(""); return; }
+    api.get(`/sites/${formData.site_name}/pi-name`)
+      .then(r => setPiName(r.data?.pi_name || "")).catch(() => setPiName(""));
   }, [formData.site_name]);
 
   /* ─── Auto-fill Site + Site ID for the logged-in nurse's site ──
@@ -682,7 +696,7 @@ export default function ScreeningForm() {
       // Site-specific formats:
       //   PGIMER: exactly 12 digits, numeric only
       //   AMC:    serial/year, e.g. "123/2026"
-      //   GMCH / GMCH-A / IOG: free alphanumeric (required-non-empty)
+      //   GMCH / GMCH-A / IOG / AFMC: optional free alphanumeric if provided
       const rule = idFieldRule(formData.site_name, "maternal_uid");
       const filtered = rule ? value.replace(rule.charFilter, "") : value.replace(/[^a-zA-Z0-9/]/g, "");
       const capped = rule ? filtered.slice(0, rule.maxLen) : filtered;
@@ -753,10 +767,10 @@ export default function ScreeningForm() {
     if (name === "mother_first_name" && !value.trim()) newErrors.mother_first_name = "Required";
     if (name === "husband_first_name" && !value.trim()) newErrors.husband_first_name = "Required";
     if (name === "maternal_uid") {
+      const rule = idFieldRule(formData.site_name, "maternal_uid");
       if (!value.trim()) {
-        newErrors.maternal_uid = "Required";
+        newErrors.maternal_uid = rule?.required ? "Required" : "";
       } else {
-        const rule = idFieldRule(formData.site_name, "maternal_uid");
         newErrors.maternal_uid = rule && !rule.pattern.test(value.trim()) ? rule.hint : "";
       }
     }
@@ -806,10 +820,12 @@ export default function ScreeningForm() {
     if (!formData.screened_by?.trim())   add("Screened By (A2)",                   "screened_by");
     if (!formData.mother_first_name?.trim())  add("Mother's First Name (A3)",     "mother_first_name");
     if (!formData.husband_first_name?.trim()) add("Husband's First Name (A3)",    "husband_first_name");
-    if (!formData.maternal_uid?.trim())  add("Maternal UID / CR Number (A3)",      "maternal_uid");
-    else {
+    {
       const uidRule = idFieldRule(formData.site_name, "maternal_uid");
-      if (uidRule && !uidRule.pattern.test(formData.maternal_uid.trim())) {
+      const uidValue = formData.maternal_uid?.trim();
+      if (uidRule?.required && !uidValue) {
+        add("Maternal UID / CR Number (A3)", "maternal_uid");
+      } else if (uidValue && uidRule && !uidRule.pattern.test(uidValue)) {
         add(`Maternal UID — ${uidRule.hint} (A3)`, "maternal_uid");
       }
     }
@@ -965,6 +981,8 @@ export default function ScreeningForm() {
         ? fd.reason_not_approached_list.join(", ") : null,
       reason_not_approached_other: fd.reason_not_approached_other || null,
       video_pis_shown:           fd.video_pis_shown  || null,
+      consent_signature_image:         fd.consent_signature_image || null,
+      consent_signature_captured_at:   fd.consent_signature_captured_at || null,
       ...(explicitlySaved ? { explicitly_saved: true } : {}),
     };
   };
@@ -1256,7 +1274,7 @@ export default function ScreeningForm() {
             {/* ── PAGE HEADER ── */}
             <div className="form-header-action-row">
               <div className="form-header-title-area">
-                <div className="form-breadcrumb"><Home size={12}/> FORM A</div>
+                <div className="form-breadcrumb"><Home size={18} strokeWidth={2.25} aria-hidden="true" /> FORM A</div>
                 <h2 className="form-main-title">Screening Form</h2>
                 <p className="form-main-subtitle">Eligibility Assessment · Fill for pregnant women 25 weeks 0 days to 31 weeks 6 days at admission</p>
               </div>
@@ -1287,7 +1305,7 @@ export default function ScreeningForm() {
               <div className="form-section-header">
                 <div className="section-title-left">
                   <Calendar size={15} className="section-header-icon"/>
-                  <h3>A1 · Screening</h3>
+                  <h3>A1 · Inclusion Criteria</h3>
                 </div>
                 {eligibilityStatus === "eligible" && <span className="badge-eligible">✓ Eligible</span>}
                 {(eligibilityStatus === "high" || eligibilityStatus === "low") && <span className="badge-not-eligible">✗ Not Eligible</span>}
@@ -1542,7 +1560,7 @@ export default function ScreeningForm() {
                       <label>12. Screened by (First name)<span className="required">*</span></label>
                       <select name="screened_by" value={formData.screened_by||""} onChange={handleChange}
                         disabled={!isFieldEditable || !formData.site_name}>
-                        <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
+                        <option value="">{formData.site_name ? "-- Select --" : "Select Site first"}</option>
                         {formData.screened_by && !nurses.includes(formData.screened_by) &&
                           <option value={formData.screened_by}>{formData.screened_by}</option>}
                         {nurses.map(n => <option key={n} value={n}>{n}</option>)}
@@ -1618,7 +1636,7 @@ export default function ScreeningForm() {
                   {/* Row 3: Maternal UID + Hospital admission */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>15. Maternal UID (CR number)<span className="required">*</span></label>
+                      <label>15. Maternal UID (CR number){idFieldRule(formData.site_name, "maternal_uid")?.required && <span className="required">*</span>}</label>
                       <input name="maternal_uid" value={formData.maternal_uid||""}
                         onChange={handleChange}
                         onBlur={handleBlur}
@@ -1783,7 +1801,7 @@ export default function ScreeningForm() {
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        Exclusion Criteria Absenst — Proceed for consent
+                        Exclusion Criteria Absent - Proceed for Consent.
                       </span>
                     </div>
                   )}
@@ -1880,7 +1898,7 @@ export default function ScreeningForm() {
                           <label>30. Consent obtained by (First name)<span className="required">*</span></label>
                           <select name="consent_taken_by" value={formData.consent_taken_by||""}
                             onChange={handleChange} disabled={!isFieldEditable || !formData.site_name}>
-                            <option value="">{formData.site_name ? "-- Select Nurse --" : "Select Site first"}</option>
+                            <option value="">{formData.site_name ? "-- Select --" : "Select Site first"}</option>
                             {formData.consent_taken_by && !nurses.includes(formData.consent_taken_by) &&
                               <option value={formData.consent_taken_by}>{formData.consent_taken_by}</option>}
                             {nurses.map(n => <option key={n} value={n}>{n}</option>)}
@@ -1912,6 +1930,57 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
+                    {/* ICF direct signing on tablet (pen/stylus/finger) */}
+                    {(formData.consent_given === "Yes" || formData.consent_given === "No" ||
+                      formData.consent_given === "Trial run") && (
+                      <div className="followup-box icf-signature-box">
+                        <label className="followup-label">
+                          ICF Signature — sign directly on tablet (optional)
+                        </label>
+                        <SignaturePad
+                          value={formData.consent_signature_image}
+                          disabled={!isFieldEditable}
+                          onChange={(dataUrl) => set({
+                            consent_signature_image: dataUrl || "",
+                            consent_signature_captured_at: dataUrl ? new Date().toISOString() : "",
+                          })}
+                        />
+                        {formData.consent_signature_captured_at && (
+                          <div className="icf-signature-timestamp">
+                            Signed on {new Date(formData.consent_signature_captured_at).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* PIS Document download links */}
+                    {(formData.consent_given === "Yes" || formData.consent_given === "No" ||
+                      formData.consent_given === "Trial run" || formData.consent_given === "Not approached") && (
+                      <div className="followup-box pis-document-box">
+                        <label className="followup-label">PIS Document</label>
+                        <div className="pis-document-buttons">
+                          <a
+                            className="btn btn-secondary pis-document-btn"
+                            href="/documents/PIS_ICF_English.docx"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download
+                          >
+                            PIS Document (English)
+                          </a>
+                          <a
+                            className="btn btn-secondary pis-document-btn"
+                            href="/documents/PIS_ICF_Hindi.docx"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download
+                          >
+                            PIS Document (Hindi)
+                          </a>
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               )}
@@ -1926,7 +1995,7 @@ export default function ScreeningForm() {
               (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
               || formData.screening_id
               || "new"
-            )}`} />
+            )}`} disabled={!isFieldEditable} />
 
             {message && <div className={`form-message${message.startsWith("✅") ? " msg-success" : message.startsWith("⚠️") ? " msg-warn" : " msg-error"}`}>{message}</div>}
 
@@ -2112,7 +2181,7 @@ export default function ScreeningForm() {
         onClose={() => setShowSaveSuccess(false)}
         message="Form A has been saved successfully."
       />
-      <PrintSummary formData={formData} />
+      <PrintSummary formData={formData} preparedByName={user?.full_name || formData.screened_by} piName={piName} />
     </>
   );
 }

@@ -37,6 +37,10 @@ SCREENING_COLUMN_PATCHES = [
     # has to guess.
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS gestation_known VARCHAR",
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS ga_source VARCHAR",
+    # ICF direct signing on tablet: base64 PNG captured from the on-screen
+    # signature pad, plus when it was captured.
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS consent_signature_image TEXT",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS consent_signature_captured_at TIMESTAMP",
 ]
 
 COMPOSITE_OUTCOME_COLUMN_PATCHES = [

@@ -356,6 +356,8 @@ class ScreeningCreate(BaseModel):
     consent_form_version: Optional[str] = None
     consent_language: Optional[str] = None
     consent_obtained_by_signature: Optional[str] = None
+    consent_signature_image: Optional[str] = None
+    consent_signature_captured_at: Optional[datetime] = None
     reconsent_obtained: Optional[bool] = False
     reconsent_datetime: Optional[datetime] = None
     reconsent_form_version: Optional[str] = None
@@ -407,6 +409,8 @@ class ScreeningClinicalOut(BaseModel):
     consent_form_version: Optional[str] = None
     consent_language: Optional[str] = None
     consent_obtained_by_signature: Optional[str] = None
+    consent_signature_image: Optional[str] = None
+    consent_signature_captured_at: Optional[datetime] = None
     reconsent_obtained: Optional[bool] = False
     reconsent_datetime: Optional[datetime] = None
     reconsent_form_version: Optional[str] = None

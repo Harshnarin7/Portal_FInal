@@ -211,6 +211,27 @@
 
   .pr-table tr:last-child td { border-bottom: none; }
 
+  /* ── ICF signature image (captured on tablet) ── */
+  .pr-signature-img {
+    display: block;
+    max-width: 140px;
+    height: 45px;
+    object-fit: contain;
+    background: #fff;
+    border: 0.5px solid #bbb;
+    border-radius: 3px;
+    padding: 2px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .pr-signature-caption {
+    font-size: 6.5pt;
+    font-weight: normal;
+    color: #666;
+    margin-top: 2px;
+  }
+
   /* ── Exclusion table ── */
   .pr-exc-table {
     width: 100%;
@@ -263,15 +284,29 @@
   .pr-sig-area {
     display: flex;
     gap: 20px;
-    margin-top: 10px;
+    margin-top: 25px;
     page-break-inside: avoid;
   }
 
   .pr-sig-block { flex: 1; }
 
+  /* Blank gap reserved for the actual pen/wet-ink signature, above the line */
+  .pr-sig-space {
+    height: 46px;
+  }
+
+  .pr-sig-name {
+    font-size: 8pt;
+    font-weight: bold;
+    text-align: center;
+    margin-top: 3px;
+    margin-bottom: 1px;
+    min-height: 10pt;
+  }
+
   .pr-sig-line {
     border-bottom: 1px solid #000;
-    height: 20px;
+    height: 6px;
     margin-bottom: 2px;
   }
 

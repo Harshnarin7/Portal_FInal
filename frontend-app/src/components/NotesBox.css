@@ -19,6 +19,15 @@
   border-color: #c7d2fe;
   background: #fefeff;
 }
+.nb-wrap--disabled {
+  background: #f8fafc;
+  opacity: 0.85;
+}
+.nb-wrap--disabled .nb-textarea {
+  cursor: not-allowed;
+  background: #f1f5f9;
+  color: #64748b;
+}
 
 /* ── Header ── */
 .nb-header {

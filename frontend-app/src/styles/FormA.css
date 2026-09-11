@@ -108,26 +108,50 @@
 }
 .form-main-subtitle { font-size: 13px; color: #6b7280; margin: 0; line-height: 1.5; }
 
+/* Form A page — larger “FORM A” label (Screening Form keeps main title). */
+.screening-form .form-breadcrumb {
+  font-size: 17px;
+  font-weight: 800;
+  gap: 8px;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.screening-form .form-breadcrumb svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
 .form-header-meta-area {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.btn-print-form {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 12px; border-radius: 7px;
-  border: 1px solid #e5e7eb; background: #fff;
-  color: #374151; font-size: 12px; font-weight: 600;
-  cursor: pointer; font-family: inherit; transition: all 0.12s;
-}
-.btn-print-form:hover { background: #f9fafb; border-color: #d1d5db; }
-
+.btn-print-form,
 .btn-edit-form-header {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 14px; border-radius: 7px;
-  border: 1px solid #d1d5db; background: #fff;
-  color: #374151; font-size: 12px; font-weight: 700;
-  cursor: pointer; font-family: inherit; transition: all 0.12s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 132px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s;
 }
-.btn-edit-form-header:hover { background: #f9fafb; border-color: #9ca3af; }
+.btn-print-form:hover,
+.btn-edit-form-header:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+.btn-edit-form-header { font-weight: 700; }
 .btn-edit-form-header.editing-active {
   background: #f0fdf4; border-color: #86efac; color: #15803d;
 }

@@ -2613,6 +2613,47 @@ label {
   width: auto !important;   /* 🔥 THIS FIXES STACKING */
   flex: 1;                  /* equal width buttons */
 }
+/* ICF signature (tablet/pen signing) */
+.icf-signature-box {
+  margin-top: 10px;
+}
+
+.icf-signature-timestamp {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* PIS Document buttons */
+.pis-document-box {
+  margin-top: 10px;
+}
+
+.pis-document-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.pis-document-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pis-document-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.15);
+}
+
 /* Previous (grey) */
 .btn-secondary {
   background: #64748b;

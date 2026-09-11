@@ -2844,7 +2844,7 @@ export default function BirthResuscitationForm() {
               (screeningId && screeningId !== "undefined" && screeningId !== "null" && screeningId)
               || formData.screening_id
               || "new"
-            )}`}/>
+            )}`} disabled={!isFieldEditable}/>
 
             {message && (
               <div className={`form-message${message.startsWith("✅")?" msg-success":" msg-error"}`}>

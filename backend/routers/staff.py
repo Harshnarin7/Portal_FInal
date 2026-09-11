@@ -30,6 +30,40 @@ def get_site_screeners(
     return [r.name for r in rows]
 
 
+@router.get("/sites/{site_name}/pi-name")
+def get_site_pi_name(
+    site_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Principal Investigator name for a site, for auto-filling the
+    signature footer on printed forms. Checked in order:
+    1) an active site_staff row with role 'pi' (case-insensitive)
+    2) the static sae_config.py PI directory (used for SAE alerts)
+    Returns {"pi_name": "" } if neither has an entry, rather than 404,
+    so the print footer can just show a blank line instead of erroring."""
+    ensure_same_site(site_name, current_user)
+    staff_pi = (
+        db.query(SiteStaff)
+        .filter(
+            SiteStaff.site_name == site_name,
+            SiteStaff.is_active.is_(True),
+            SiteStaff.role.ilike("pi"),
+        )
+        .order_by(SiteStaff.name)
+        .first()
+    )
+    if staff_pi:
+        return {"pi_name": staff_pi.name}
+
+    import sae_config
+    cfg = sae_config.SITES.get(site_name) or {}
+    pi_name = cfg.get("pi_name") or ""
+    if str(pi_name).startswith("[TO BE PROVIDED"):
+        pi_name = ""
+    return {"pi_name": pi_name}
+
+
 @router.get("/admin/site-staff", response_model=list[SiteStaffOut])
 def list_all_staff(
     db: Session = Depends(get_db),
