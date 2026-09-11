@@ -20,7 +20,7 @@ function readNotes(storageKey, formKey) {
   return "";
 }
 
-export default function NotesBox({ formKey }) {
+export default function NotesBox({ formKey, disabled = false }) {
   const storageKey = formKey ? `notes_${formKey}` : null;
   const MAX = 500;
 
@@ -64,7 +64,7 @@ export default function NotesBox({ formKey }) {
   const isAtLimit   = notes.length >= MAX;
 
   return (
-    <div className={`nb-wrap${notes ? " nb-wrap--filled" : ""}${focused ? " nb-wrap--focused" : ""}`}>
+    <div className={`nb-wrap${notes ? " nb-wrap--filled" : ""}${focused ? " nb-wrap--focused" : ""}${disabled ? " nb-wrap--disabled" : ""}`}>
       {/* Header */}
       <div className="nb-header">
         <div className="nb-header-left">
@@ -83,7 +83,7 @@ export default function NotesBox({ formKey }) {
             <p className="nb-subtitle">Add remarks, observations, or follow-up reminders. Not required for submission.</p>
           </div>
         </div>
-        {notes.length > 0 && (
+        {notes.length > 0 && !disabled && (
           <button type="button" className="nb-clear-btn" onClick={clear}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -101,10 +101,12 @@ export default function NotesBox({ formKey }) {
           placeholder="e.g. Mother anxious during screening, follow-up required, special observations…"
           value={notes}
           maxLength={MAX}
-          onChange={e => setNotes(e.target.value)}
+          onChange={e => !disabled && setNotes(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           rows={3}
+          disabled={disabled}
+          readOnly={disabled}
         />
 
         {/* Footer */}

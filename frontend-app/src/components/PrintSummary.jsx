@@ -43,7 +43,7 @@ const E = ({ label, value }) => (
   </tr>
 );
 
-function PrintReport({ formData = {} }) {
+function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
   const gaW = formData.gestation_known === "Yes"
     ? formData.best_ga_weeks : formData.auto_ga_weeks;
   const gaD = formData.gestation_known === "Yes"
@@ -174,6 +174,24 @@ function PrintReport({ formData = {} }) {
               {formData.consent_given === "Yes" && formData.consent_datetime && (
                 <R label="Consent Date & Time" value={fmtDT(formData.consent_datetime)} />
               )}
+              <R label="Video PIS Shown" value={formData.video_pis_shown} />
+              {formData.consent_signature_image && (
+                <tr>
+                  <td className="pr-td-label">ICF Signature</td>
+                  <td className="pr-td-value">
+                    <img
+                      src={formData.consent_signature_image}
+                      alt="ICF signature captured on tablet"
+                      className="pr-signature-img"
+                    />
+                    {formData.consent_signature_captured_at && (
+                      <div className="pr-signature-caption">
+                        Signed {fmtDT(formData.consent_signature_captured_at)}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )}
             </tbody></table>
           </div>
         </div>
@@ -242,19 +260,27 @@ function PrintReport({ formData = {} }) {
 
       </div>
 
-      {/* SIGNATURE */}
+      {/* SIGNATURE — a blank gap is left above each line for the actual
+          wet-ink signature; the printed name/date/PI name and role caption
+          sit below the line as labels, so they never overlap the pen mark. */}
       <div className="pr-sig-area">
         <div className="pr-sig-block">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
-          <div className="pr-sig-cap">Prepared By — Name &amp; Signature</div>
+          <div className="pr-sig-name">{v(preparedByName)}</div>
+          <div className="pr-sig-cap">Prepared By — Signature</div>
         </div>
-        <div className="pr-sig-block">
+        <div className="pr-sig-block pr-sig-block-date">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
+          <div className="pr-sig-name">{fmtDate(new Date())}</div>
           <div className="pr-sig-cap">Date</div>
         </div>
         <div className="pr-sig-block">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
-          <div className="pr-sig-cap">Investigator / Delegate — Signature</div>
+          <div className="pr-sig-name">{v(piName)}</div>
+          <div className="pr-sig-cap">Principal Investigator — Signature</div>
         </div>
       </div>
 
@@ -275,7 +301,7 @@ function PrintReport({ formData = {} }) {
    This means @media print can safely hide #root without
    touching the report at all.
 ─────────────────────────────────────────────────────────── */
-export default function PrintSummary({ formData }) {
+export default function PrintSummary({ formData, preparedByName, piName }) {
   useEffect(() => {
     document.body.classList.add("has-print-summary");
     return () => document.body.classList.remove("has-print-summary");
@@ -290,7 +316,7 @@ export default function PrintSummary({ formData }) {
   }
 
   return ReactDOM.createPortal(
-    <PrintReport formData={formData} />,
+    <PrintReport formData={formData} preparedByName={preparedByName} piName={piName} />,
     portalEl
   );
 }

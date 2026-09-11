@@ -932,7 +932,7 @@ export default function FormF() {
             </div>
           </div>
 
-          <NotesBox formKey={`form_f_${enrollmentId || "new"}`} />
+          <NotesBox formKey={`form_f_${enrollmentId || "new"}`} disabled={!isFieldEditable} />
 
           {message && (
             <div className={`cu-message${message.startsWith("Form F saved") ? " cu-message--success" : " cu-message--error"}`}>

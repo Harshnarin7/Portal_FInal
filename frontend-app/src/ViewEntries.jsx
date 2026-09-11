@@ -269,6 +269,21 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
             <Field label="Signature Obtained"  value={entry.consent_obtained_by_signature} />
             <Field label="Reconsent"           value={entry.reconsent_obtained ? "Yes" : "No"} />
             <Field label="Relationship"        value={entry.relationship_to_participant} />
+            {entry.consent_signature_image && (
+              <div className="exp-field">
+                <p className="exp-field-label">ICF Signature (signed on tablet)</p>
+                <img
+                  src={entry.consent_signature_image}
+                  alt="ICF signature"
+                  style={{ maxWidth: "260px", height: "90px", objectFit: "contain", background: "#fff", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px" }}
+                />
+                {entry.consent_signature_captured_at && (
+                  <p className="exp-field-value" style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
+                    Signed {new Date(entry.consent_signature_captured_at).toLocaleString("en-IN")}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
         {tab === "Audit History" && (

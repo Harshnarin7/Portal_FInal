@@ -1388,7 +1388,7 @@ export default function FormE() {
               </div>
             </div>
 
-            <NotesBox formKey={`form_e_${enrollmentId || "new"}`} />
+            <NotesBox formKey={`form_e_${enrollmentId || "new"}`} disabled={!isFieldEditable} />
 
             {message && (
               <div className={`form-message${message.startsWith("✅") ? " form-message--success" : " form-message--error"}`}>

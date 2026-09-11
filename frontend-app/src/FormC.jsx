@@ -2392,7 +2392,7 @@ export default function FormC() {
             </div>
 
             {/* Notes */}
-            <NotesBox formKey={`form_c_${enrollmentId||"new"}`}/>
+            <NotesBox formKey={`form_c_${enrollmentId||"new"}`} disabled={!isFieldEditable}/>
 
             {message && (
               <div className={`form-message${message.startsWith("✅")?" msg-success":" msg-error"}`}>{message}</div>

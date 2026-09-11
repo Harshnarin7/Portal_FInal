@@ -846,6 +846,8 @@ def create_screening(
                 consent_form_version=screening.consent_form_version,
                 consent_language=screening.consent_language,
                 consent_obtained_by_signature=screening.consent_obtained_by_signature,
+                consent_signature_image=screening.consent_signature_image,
+                consent_signature_captured_at=screening.consent_signature_captured_at,
                 reconsent_obtained=screening.reconsent_obtained or False,
                 reconsent_datetime=screening.reconsent_datetime,
                 reconsent_form_version=screening.reconsent_form_version,
