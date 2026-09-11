@@ -1801,7 +1801,7 @@ export default function ScreeningForm() {
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        Exclusion Criteria Absenst — Proceed for consent
+                        Exclusion Criteria Absent - Proceed for Consent.
                       </span>
                     </div>
                   )}
