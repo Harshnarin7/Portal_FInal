@@ -6,7 +6,7 @@ import "./Login.css";
 
 export default function ChangePassword() {
   const navigate = useNavigate();
-  const { token, user, setMustChangePassword, logout } = useAuth();
+  const { token, user, authReady, setMustChangePassword, logout } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -14,6 +14,14 @@ export default function ChangePassword() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showNew, setShowNew] = useState(false);
+
+  if (!authReady) {
+    return (
+      <div className="login-page auth-boot-screen" role="status" aria-live="polite">
+        <p className="auth-boot-text">Checking session…</p>
+      </div>
+    );
+  }
 
   if (!token) {
     return <Navigate to="/login" replace />;

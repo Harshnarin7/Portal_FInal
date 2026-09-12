@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import "./Login.css";
@@ -31,7 +31,7 @@ function loginErrorMessage(err) {
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, token, user, authReady } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -57,6 +57,21 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (token && !authReady) {
+    return (
+      <div className="login-page auth-boot-screen" role="status" aria-live="polite">
+        <p className="auth-boot-text">Checking session…</p>
+      </div>
+    );
+  }
+
+  if (token && authReady) {
+    const mustChange =
+      user?.must_change_password === true
+      || localStorage.getItem("must_change_password") === "true";
+    return <Navigate to={mustChange ? "/change-password" : "/dashboard"} replace />;
+  }
 
   return (
     <div className="login-page">

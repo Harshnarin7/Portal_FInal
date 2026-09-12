@@ -15,6 +15,17 @@ function processQueue(error, token = null) {
   refreshQueue = [];
 }
 
+/** Clear session and hard-redirect to login unless already on /login (avoids reload loop). */
+function clearAuthAndRedirect() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("user_full_name");
+  localStorage.removeItem("must_change_password");
+  if (window.location.pathname !== "/login") {
+    window.location.replace("/login");
+  }
+}
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
@@ -62,18 +73,14 @@ api.interceptors.response.use(
           return api(originalRequest);
         } catch (refreshError) {
           processQueue(refreshError, null);
-          localStorage.removeItem("token");
-          localStorage.removeItem("refresh_token");
-          window.location.href = "/login";
+          clearAuthAndRedirect();
           return Promise.reject(refreshError);
         } finally {
           isRefreshing = false;
         }
       }
 
-      localStorage.removeItem("token");
-      localStorage.removeItem("refresh_token");
-      window.location.href = "/login";
+      clearAuthAndRedirect();
     }
 
     // FIX: this used to swallow a 404 from ANY method (GET/PUT/POST/DELETE)

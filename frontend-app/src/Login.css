@@ -399,3 +399,18 @@
     animation: none !important;
   }
 }
+
+.auth-boot-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.auth-boot-text,
+.auth-boot-screen p {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--navy, #1e3a5f);
+}

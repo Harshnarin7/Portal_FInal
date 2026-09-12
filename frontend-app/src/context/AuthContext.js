@@ -54,6 +54,8 @@ function buildUser(token, profile) {
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [user, setUser] = useState(() => buildUser(localStorage.getItem("token")));
+  /** False until initial session check (/auth/me or no-token) finishes. */
+  const [authReady, setAuthReady] = useState(false);
 
   const login = useCallback((accessToken, refreshToken, profile) => {
     localStorage.setItem("token", accessToken);
@@ -65,6 +67,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem("must_change_password", mustChange ? "true" : "false");
     setToken(accessToken);
     setUser(buildUser(accessToken, profile));
+    setAuthReady(true);
   }, []);
 
   const setMustChangePassword = useCallback((value) => {
@@ -79,12 +82,17 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("must_change_password");
     setToken(null);
     setUser(null);
+    setAuthReady(true);
   }, []);
 
   /* Hydrate profile + must_change_password for existing sessions */
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
 
+    setAuthReady(false);
     let cancelled = false;
     api.get("/auth/me")
       .then((res) => {
@@ -103,15 +111,26 @@ export function AuthProvider({ children }) {
                 must_change_password: mustChange,
                 site: data.site_name || prev.site,
               }
-            : prev
+            : buildUser(token, data)
         );
       })
-      .catch(() => {});
+      .catch(() => {
+        if (cancelled) return;
+        localStorage.removeItem("token");
+        localStorage.removeItem("refresh_token");
+        localStorage.removeItem("user_full_name");
+        localStorage.removeItem("must_change_password");
+        setToken(null);
+        setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
     return () => { cancelled = true; };
   }, [token]);
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, setMustChangePassword }}>
+    <AuthContext.Provider value={{ token, user, authReady, login, logout, setMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );
