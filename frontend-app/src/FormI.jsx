@@ -479,6 +479,7 @@ export default function FormI() {
   const [postResusPrefill, setPostResusPrefill] = useState(null);
   // undefined = not fetched yet, null = fetched but has_data:false, object = has data
   const [pmaPrefill, setPmaPrefill] = useState({ 36: undefined, 40: undefined, 44: undefined });
+  const [forceRefillingAllPma, setForceRefillingAllPma] = useState(false);
   // Set once per fetchData() run, before the PMA checkpoint fetches
   // below need it — reused by their Force Refill buttons later too,
   // since a button click has no access to fetchData's own local scope.
@@ -1247,6 +1248,40 @@ export default function FormI() {
     }
   };
 
+  // Unlike Form H's day-log auto-fill (which recomputes every time that
+  // form is reopened), the PMA checkpoints above only recompute when
+  // *this* page is open — if nobody reopens Form I after a Form H edit
+  // (e.g. a severe IVH grade entered later), a checkpoint answered before
+  // that edit just sits stale with no signal anyone should revisit it.
+  // This button re-runs all 3 checkpoints' existing Force Refill at once,
+  // same discipline as Form H's own "force refill everything" — no new
+  // auto-fill logic, just triggered in bulk instead of one checkpoint at
+  // a time (added 2026-09 after a stale 36-week brain-injury flag was
+  // found in production, unrelated to any code bug in the fetch itself).
+  const forceRefillAllPmaCheckpoints = async () => {
+    if (
+      !window.confirm(
+        "Overwrite already-answered fields across all 3 PMA checkpoints " +
+        "(36/40/44 weeks) with the latest Form H / daily-log data?\n\n" +
+        "This replaces existing answers, not just blank ones — use this " +
+        "after any Form H update to make sure all three checkpoints " +
+        "reflect the fullest current picture."
+      )
+    ) {
+      return;
+    }
+    setForceRefillingAllPma(true);
+    try {
+      await Promise.all([
+        fetchPmaAssessmentPrefill(36, { force: true }),
+        fetchPmaAssessmentPrefill(40, { force: true }),
+        fetchPmaAssessmentPrefill(44, { force: true }),
+      ]);
+    } finally {
+      setForceRefillingAllPma(false);
+    }
+  };
+
   /* ── Age-at-death auto-calc from DOB, mirrors the pattern already used
          elsewhere in this form for each of the five death timepoints ── */
   const calcAge = (dob, when, unit) => {
@@ -1442,7 +1477,52 @@ export default function FormI() {
     completion_date: emptyToNull(formData.completion_date),
   });
 
+  // Real-time check at the exact moment of save: does a manually-entered
+  // brain-injury answer (IVH Grade≥III / cPVL Grade≥II) at any of the 3
+  // PMA checkpoints disagree with what Form H/Form F currently compute?
+  // Unlike fetchPmaAssessmentPrefill's on-load pass, this always fetches
+  // fresh (never trusts the possibly-stale pmaPrefill state already in
+  // memory) — added 2026-09 after a live record (01-A-003) was found with
+  // Form I's brain-injury answer manually set to "Yes" from a raw Helper-2
+  // flag, contradicting the actual (mild) Form F grade. Never blocks the
+  // save outright — surfaces a confirm() so the clinician can still save
+  // deliberately (e.g. a genuine clinical override), just not by accident.
+  const confirmBrainInjuryConflicts = async () => {
+    const { weeks, days } = gaRef.current;
+    if (weeks === null || weeks === undefined || weeks === "") return true;
+    const conflicts = [];
+    for (const checkpoint of [36, 40, 44]) {
+      let live;
+      try {
+        const res = await api.get(`/neonatal-morbidities/pma-assessment-prefill/${formData.enrollment_id}`, {
+          params: { checkpoint, gestation_weeks: weeks, gestation_days: days ?? 0 },
+        });
+        live = res.data;
+      } catch (_) {
+        continue; // don't block save on a network hiccup — this is advisory only
+      }
+      if (!live || !live.has_data) continue;
+      const fieldMap = PMA_FIELD_MAP[checkpoint];
+      for (const [genericKey, label] of [["ivh_grade3", "IVH Grade≥III"], ["cpvl_grade2", "cPVL Grade≥II"]]) {
+        const liveValue = live[genericKey];
+        if (liveValue === null || liveValue === undefined) continue;
+        const field = fieldMap[genericKey];
+        const savedValue = formData[field];
+        if (!isBlank(savedValue) && String(savedValue) !== String(liveValue)) {
+          conflicts.push(`${checkpoint}-week ${label}: saved "${savedValue}", but Form H/Form F now says "${liveValue}"`);
+        }
+      }
+    }
+    if (conflicts.length === 0) return true;
+    return window.confirm(
+      "The following brain-injury answers disagree with the current Form H/Form F data:\n\n" +
+      conflicts.join("\n") +
+      '\n\nSave anyway? (Use "Force refill" on the relevant checkpoint below instead if the source data is correct.)'
+    );
+  };
+
   const saveFormI = async () => {
+    if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
       markFormCompleted("form_i");
@@ -1458,6 +1538,7 @@ export default function FormI() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
       markFormCompleted("form_i");
@@ -1651,6 +1732,20 @@ export default function FormI() {
               showInfo={formData.mortality_28_days === "Yes"}
               info={<DeathInfo fieldPrefix="mortality_28d" ageLabel="days" nums={{ cause: 18, date: 19, time: 20, age: 21 }} />} />
           </CrfTable>
+        </div>
+
+        <div className="field-hint field-hint-auto" style={{ margin: "0 0 16px" }}>
+          A Form H edit after this record was last saved won't show up here on its
+          own — the checkpoints below only recompute when this page is reopened.
+          {" "}
+          <button
+            type="button"
+            className="link-button link-button-danger"
+            onClick={forceRefillAllPmaCheckpoints}
+            disabled={forceRefillingAllPma}
+          >
+            {forceRefillingAllPma ? "Refilling…" : "Force refill all PMA checkpoints (36/40/44 wk)"}
+          </button>
         </div>
 
         {/* ================= I.3 ASSESSMENT AT 36 WEEKS PMA ================= */}

@@ -3987,12 +3987,24 @@ def get_pma_assessment_prefill(
         nonlocal usg_record
         if form_h_grade_r in form_h_valid_grades or form_h_grade_l in form_h_valid_grades:
             hit_dates = []
-            if form_h_grade_r in form_h_valid_grades and form_h_date_r and form_h_date_r <= target_date:
-                hit_dates.append(form_h_date_r)
-            if form_h_grade_l in form_h_valid_grades and form_h_date_l and form_h_date_l <= target_date:
-                hit_dates.append(form_h_date_l)
+            undated_severe = False
+            if form_h_grade_r in form_h_valid_grades:
+                if form_h_date_r and form_h_date_r <= target_date:
+                    hit_dates.append(form_h_date_r)
+                elif not form_h_date_r:
+                    undated_severe = True
+            if form_h_grade_l in form_h_valid_grades:
+                if form_h_date_l and form_h_date_l <= target_date:
+                    hit_dates.append(form_h_date_l)
+                elif not form_h_date_l:
+                    undated_severe = True
             if hit_dates:
                 return "Yes", min(hit_dates).isoformat()
+            if undated_severe:
+                # Severe grade recorded on Form H but no date to confirm it
+                # happened by this checkpoint — left blank rather than
+                # guessed "No", matching this function's own docstring.
+                return None, None
             return "No", None
         if usg_record is None:
             usg_record = db.query(CranialUSGRecord).filter(CranialUSGRecord.enrollment_id == enrollment_id).first() or False
@@ -6617,7 +6629,43 @@ def upsert_minimal_monitoring_today(
 #   from schemas import CranialUSGCreate, CranialUSGSubmit
 # ============================================================================
 
-#  -  POST  -  create or upsert  - 
+@app.get("/form-h/{enrollment_id}/helper2-neuro-flags")
+def get_form_h_helper2_neuro_flags(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read-only: has Helper 2 (the Resp/CV/Neuro daily log) ever flagged
+    IVH or cPVL for this baby? Used by Form F (Cranial USG, routes below
+    are literally named "/form-h/" for historical reasons — this IS Form F,
+    not the real Form H/NeonatalMorbidities) to gate its own completion
+    status: once Helper 2 flags either finding, Form F should not count
+    as complete until at least one scan entry is on record — that's the
+    whole point of the daily-log flag existing (2026-09 workflow fix).
+
+    This is a display/gating signal only, never written anywhere. It is
+    NOT the same mechanism as get_neuro_prefill, which used to also feed
+    Form H's own ivh_present/pvl_present fields from this same day log —
+    that was retired 2026-09 in favour of Form F being the sole source
+    for those two Form H fields (see get_neuro_prefill's docstring)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    return {
+        "ivh_flagged": "Yes" if any_day("ivh") else "No",
+        "cpvl_flagged": "Yes" if any_day("cpvl_confirmed") else "No",
+    }
+
+
+#  -  POST  -  create or upsert  -
 @app.post("/form-h/")
 def create_form_h(
     data:         CranialUSGCreate,
