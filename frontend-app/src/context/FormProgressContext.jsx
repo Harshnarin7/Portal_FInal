@@ -71,7 +71,9 @@ export function FormProgressProvider({ children }) {
       setProgress({ form_a: true, form_b: false, form_c: false, form_d: false, form_e: false });
     }
     setIsProgressLoaded(true);
-    queueMicrotask(() => fetchProgressRef.current?.(enrollmentId));
+    if (localStorage.getItem("token")) {
+      queueMicrotask(() => fetchProgressRef.current?.(enrollmentId));
+    }
   }, []);
 
   useEffect(() => {
@@ -167,6 +169,7 @@ export function FormProgressProvider({ children }) {
 
   const fetchProgress = useCallback(async (enrollmentId) => {
     if (!isUsableEnrollmentId(enrollmentId)) return;
+    if (!localStorage.getItem("token")) return;
     const seq = ++fetchSeq.current;
     try {
       const res = await api.get(`/enrollment-status/${enrollmentId}`);
