@@ -3721,17 +3721,12 @@ def get_cranial_usg_prefill(
       surfaces via each domain's own staleness check on the next load.
     - vp_shunt: direct boolean from Form F's own `vp_shunt` flag.
 
-    Deliberately NOT filled: pvhi and phh — Form F's `phvd` (post-
-    hemorrhagic ventricular dilatation) is a related but not identical
-    concept to Form H's PHH (post-hemorrhagic hydrocephalus); mapping
-    one to the other would be a clinical judgment call, not a
-    derivation. ivh_description (free text) is not populated from Form
-    F's per-scan `findings` notes in this first pass — matching
-    unstructured text across scans/sides isn't a clean 1:1 mapping the
-    way the graded fields are. ventriculomegaly_present is intentionally
-    left to the Neuro domain alone and not duplicated here, even though
-    Form F also has a `ventriculomegaly` flag — no real benefit to a
-    second source for a single flat boolean already covered elsewhere.
+    pvhi/phh/ventriculomegaly_present (added 2026-09, see the inline
+    comment right before they're set below for the full reasoning and the
+    PI-confirmed PHVD≈PHH approximation) are also filled from this same
+    record. ivh_description (free text) is still not populated from Form
+    F's per-scan `findings` notes — matching unstructured text across
+    scans/sides isn't a clean 1:1 mapping the way the graded fields are.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -3802,6 +3797,35 @@ def get_cranial_usg_prefill(
         result["pvl_age_days_left"] = scan_age_days(pvl_l_scan)
 
     result["vp_shunt"] = "Yes" if record.vp_shunt is True else "No"
+
+    # PVHI, PHH, ventriculomegaly — three more Form H fields this same
+    # scan record can inform (added 2026-09 after PVHI/PHH/ventriculomegaly
+    # were flagged as unlinked naming duplicates between Form F and Form H):
+    #   - pvhi: Form F's own IVH grade scale defines Grade IV as
+    #     "Parenchymal involvement / PVHI" (see the grade-select label in
+    #     FormF.jsx) — a real match, not an approximation. Yes-only fill,
+    #     same discipline as ivh_present/pvl_present above (a scan with a
+    #     lower grade never asserts "No").
+    #   - phh: Form F's `phvd` (post-hemorrhagic ventricular dilatation)
+    #     is NOT strictly identical to Form H's PHH (post-hemorrhagic
+    #     hydrocephalus) in the literature — PHVD is the broader finding,
+    #     PHH is usually the progressed/symptomatic subset — but treating
+    #     PHVD as PHH's source was confirmed as an acceptable
+    #     approximation for this trial (2026-09 decision). Yes-only fill.
+    #   - ventriculomegaly_present: Form F has its own separate
+    #     "ventriculomegaly" Other-Findings checkbox, distinct from the
+    #     Neuro domain's day-log-sourced version of this same Form H
+    #     field (get_neuro_prefill). Unlike ivh_present/pvl_present, both
+    #     sources deliberately stay live here (2026-09 decision) — there's
+    #     no grade/precedence conflict, just two places a plain Yes/No can
+    #     come from, and either fill-if-blank source may win first with no
+    #     data-quality risk.
+    if ivh_r_grade == "IV" or ivh_l_grade == "IV":
+        result["pvhi"] = "Yes"
+    if record.phvd is True:
+        result["phh"] = "Yes"
+    if record.ventriculomegaly is True:
+        result["ventriculomegaly_present"] = "Yes"
 
     return result
 
