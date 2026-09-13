@@ -21,6 +21,7 @@ from ae_reference import (
     detect_form_h_morbidity_candidates,
     detect_infection_candidates,
     detect_form_h_heme_candidates,
+    detect_pending_cranial_usg_findings,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -2447,17 +2448,24 @@ def get_neuro_prefill(
 
     The day log only records "did cranial USG/EEG show X on this day" as a
     flat boolean, with no side and no grade — so only the top-level "was X
-    ever present" Yes/No for each of IVH / cPVL / Ventriculomegaly /
-    Seizures can be safely derived. Everything that requires reading an
-    actual scan or EEG trace (IVH/PVL side, grade, per-side date/age;
-    ventriculomegaly severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG
-    result, status epilepticus, AEDs, etiology) stays manual — the day log
-    has no equivalent field, and guessing a grade or laterality from a
-    single "yes/no" flag would be actively wrong, not just incomplete.
+    ever present" Yes/No for each of Ventriculomegaly / Seizures can be
+    safely derived. Everything that requires reading an actual scan or EEG
+    trace (IVH/PVL side, grade, per-side date/age; ventriculomegaly
+    severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG result, status
+    epilepticus, AEDs, etiology) stays manual — the day log has no
+    equivalent field, and guessing a grade or laterality from a single
+    "yes/no" flag would be actively wrong, not just incomplete.
 
-    - ivh_present / pvl_present / ventriculomegaly_present / seizures:
-      any-day booleans from ivh / cpvl_confirmed / ventriculomegaly /
-      clinical_seizures respectively.
+    ivh_present / pvl_present are deliberately NOT derived here even though
+    the day log's `ivh` / `cpvl_confirmed` flags exist — Form F's cranial-USG
+    prefill (get_cranial_usg_prefill) is the sole source for those two
+    fields now that IVH/PVL grading lives only in Form F. Having two
+    independent auto-fill sources for the same field with no precedence
+    rule let a clinician's Force Refill clicks flip the answer depending on
+    which was clicked last; retired 2026-09 in favour of a single source.
+
+    - ventriculomegaly_present / seizures: any-day booleans from
+      ventriculomegaly / clinical_seizures respectively.
     - seizure_date: the one Neuro onset date Form H stores as a single
       (non-side-specific) field, so — unlike IVH/PVL's per-side dates —
       it can use the same cross-table day1_date + earliest-true-day pattern
@@ -2499,8 +2507,6 @@ def get_neuro_prefill(
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "ivh_present": "Yes" if any_day("ivh") else "No",
-        "pvl_present": "Yes" if any_day("cpvl_confirmed") else "No",
         "ventriculomegaly_present": "Yes" if any_day("ventriculomegaly") else "No",
         "seizures": "Yes" if any_day("clinical_seizures") else "No",
         "seizure_date": seizure_date,
@@ -4961,7 +4967,15 @@ def get_adverse_event_candidates(
       - Domain 4: haematologic / bilirubin — hyperbilirubinemia, anemia,
         thrombocytopenia. Graded off the recorded treatment; Form H's
         Haematology section is primary, the Infect/GI/Hema day-log
-        treatment booleans are the fallback."""
+        treatment booleans are the fallback.
+
+    Also returns `pending_cranial_usg_findings` — advisory only, never a
+    candidate: a severe Form F (Cranial USG) finding (Grade III/IV IVH,
+    Grade II+ cPVL) that Form H hasn't caught up with yet (including when
+    Form H doesn't exist at all for this baby). See
+    detect_pending_cranial_usg_findings's own docstring — this does not
+    change Domain 2's Form-H-only policy, it just prompts the clinician to
+    go complete/update Form H."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -4980,8 +4994,13 @@ def get_adverse_event_candidates(
         .order_by(InfectGIHemaDayLog.nicu_day)
         .all()
     )
-    if not logs and nm is None and not inf_logs:
-        return {"has_data": False, "candidates": []}
+    cranial_usg_record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not logs and nm is None and not inf_logs and not cranial_usg_record:
+        return {"has_data": False, "candidates": [], "pending_cranial_usg_findings": []}
 
     nicu = (
         db.query(NICUAdmission)
@@ -4997,7 +5016,12 @@ def get_adverse_event_candidates(
     infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
     candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
     candidates += detect_form_h_heme_candidates(nm, inf_logs, day1_date=day1_date)
-    return {"has_data": True, "candidates": candidates}
+    pending_cranial_usg_findings = detect_pending_cranial_usg_findings(cranial_usg_record, nm)
+    return {
+        "has_data": True,
+        "candidates": candidates,
+        "pending_cranial_usg_findings": pending_cranial_usg_findings,
+    }
 
 
 @app.post("/sae-list/", response_model=SAEListOut)

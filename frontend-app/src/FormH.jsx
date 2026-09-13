@@ -239,12 +239,12 @@ const [respStale, setRespStale] = useState({});
 const [survivalAlert, setSurvivalAlert] = useState(null);
 const [forceRefillingAll, setForceRefillingAll] = useState(false);
 
-// IVH/PVL detail (grade/side/date) from Form F (Cranial USG) — see
-// fetchCranialUsgPrefill below. The Neuro domain above still owns
-// ivh_present/pvl_present/ventriculomegaly_present from the day log;
-// this domain additionally offers ivh_present/pvl_present too (see the
-// backend endpoint docstring for why that's safe) plus the grade/side/
-// date detail the day log never had.
+// IVH/PVL (present + grade/side/date) from Form F (Cranial USG) — see
+// fetchCranialUsgPrefill below. This is the sole auto-fill source for
+// ivh_present/pvl_present (retired from the Neuro/day-log domain 2026-09,
+// see NEURO_PREFILL_FIELDS above) plus the grade/side/date detail the day
+// log never had. The Neuro domain above still owns
+// ventriculomegaly_present/seizures/seizure_date.
 const [cranialUsgPrefill, setCranialUsgPrefill] = useState(null);
 const [cranialUsgAutoFilled, setCranialUsgAutoFilled] = useState({});
 const [cranialUsgStale, setCranialUsgStale] = useState({});
@@ -2379,22 +2379,27 @@ const handleHemeChange = (e) => {
 
 // Neurological (H1) auto-fill — same pattern as the other domains above.
 // The day log only records flat booleans with no side and no grade, so
-// only the top-level "was X ever present" Yes/No for IVH/cPVL/
-// Ventriculomegaly/Seizures can be safely derived — everything that
-// requires reading an actual scan or EEG trace (side, grade, per-side
-// date/age, ventriculomegaly measurements, seizure type/EEG result/AEDs/
-// etiology) stays manual, see the backend endpoint docstring.
+// only the top-level "was X ever present" Yes/No for Ventriculomegaly/
+// Seizures can be safely derived — everything that requires reading an
+// actual scan or EEG trace (side, grade, per-side date/age, ventriculomegaly
+// measurements, seizure type/EEG result/AEDs/etiology) stays manual, see
+// the backend endpoint docstring.
+//
+// ivh_present/pvl_present are deliberately NOT in this domain's field list
+// (retired 2026-09) — Form F's cranial-USG prefill (below) is the sole
+// source for those two now that grading only happens in Form F; having
+// both sources let a clinician's Force Refill clicks flip the answer.
 const NEURO_PREFILL_FIELDS = [
-  "ivh_present", "pvl_present", "ventriculomegaly_present",
+  "ventriculomegaly_present",
   "seizures", "seizure_date",
 ];
 
-// All 4 Yes/No fields get checked for staleness — seizure_date is
+// Both Yes/No fields get checked for staleness — seizure_date is
 // excluded on purpose, same reasoning as the other domains' onset dates:
 // it's a one-time fact once set, not something that keeps changing in a
 // way that would make "disagrees" a meaningful signal.
 const NEURO_STALE_CHECK_FIELDS = [
-  "ivh_present", "pvl_present", "ventriculomegaly_present", "seizures",
+  "ventriculomegaly_present", "seizures",
 ];
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
@@ -3036,9 +3041,10 @@ const forceRefillAllDomains = async () => {
 };
 
 // IVH/PVL detail from Form F (Cranial USG) — see the backend endpoint's
-// docstring for the full derivation and why offering ivh_present/
-// pvl_present here too (alongside the Neuro domain's day-log version)
-// is safe rather than a race.
+// docstring for the full derivation. This is the sole source for
+// ivh_present/pvl_present (the Neuro domain's day-log version was
+// retired 2026-09 to remove the dueling-Force-Refill race that existed
+// while both sources could set the same field).
 const CRANIAL_USG_IVH_FIELDS = [
   "ivh_present", "ivh_side",
   "ivh_grade_right", "ivh_date_right", "ivh_age_days_right",
@@ -3159,9 +3165,9 @@ const handleCranialUsgChange = (e) => {
   handleChange(e);
 };
 
-// ivh_present/pvl_present can be auto-filled by either the Neuro domain
-// (day log) or this Cranial USG domain (Form F) — clear both badges on
-// manual edit regardless of which source actually filled it.
+// ivh_present/pvl_present are auto-filled solely by the Cranial USG domain
+// (Form F) as of 2026-09 — clearNeuroAutoFilled is a harmless no-op here
+// (kept in case a future Neuro-domain field is ever added to this handler).
 const handleIvhPvlPresentChange = (e) => {
   clearNeuroAutoFilled(e.target.name);
   clearCranialUsgAutoFilled(e.target.name);
@@ -5748,29 +5754,9 @@ const peripheralStatus= getPeripheralStatus();
     onToggle={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
   >
 
-{neuroPrefill?.has_data && (
-  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
-    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
-    Empty fields below were filled from them automatically — verify before saving.
-    {" "}
-    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
-      Refill empty fields from daily logs
-    </button>
-    {" · "}
-    <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
-      Force refill (overwrite existing answers)
-    </button>
-  </div>
-)}
-{Object.keys(neuroStale).length > 0 && (
-  <div className="field-hint field-hint-warning">
-    ⚠ The daily logs now disagree with the saved answer for:{" "}
-    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
-    This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
-  </div>
-)}
+{/* Neuro-domain (daily-log) banner deliberately removed from this card
+    2026-09 — ivh_present/pvl_present are no longer part of NEURO_PREFILL_FIELDS,
+    Form F below is the sole source now. */}
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
@@ -5805,7 +5791,6 @@ const peripheralStatus= getPeripheralStatus();
 
         <div className="form-group">
           <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
-          {neuroAutoFilled.ivh_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {cranialUsgAutoFilled.ivh_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
@@ -5977,29 +5962,9 @@ const peripheralStatus= getPeripheralStatus();
     onToggle={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
   >
 
-{neuroPrefill?.has_data && (
-  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
-    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
-    Empty fields below were filled from them automatically — verify before saving.
-    {" "}
-    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
-      Refill empty fields from daily logs
-    </button>
-    {" · "}
-    <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
-      Force refill (overwrite existing answers)
-    </button>
-  </div>
-)}
-{Object.keys(neuroStale).length > 0 && (
-  <div className="field-hint field-hint-warning">
-    ⚠ The daily logs now disagree with the saved answer for:{" "}
-    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
-    This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
-  </div>
-)}
+{/* Neuro-domain (daily-log) banner deliberately removed from this card
+    2026-09 — ivh_present/pvl_present are no longer part of NEURO_PREFILL_FIELDS,
+    Form F below is the sole source now. */}
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
@@ -6034,7 +5999,6 @@ const peripheralStatus= getPeripheralStatus();
 
         <div className="form-group">
           <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
-          {neuroAutoFilled.pvl_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {cranialUsgAutoFilled.pvl_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
