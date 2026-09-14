@@ -676,7 +676,11 @@ class BirthResuscitationCreate(BaseModel):
     @field_validator("intrauterine_centile")
     @classmethod
     def validate_centile(cls, v):
-        if v not in (None, "") and not 0 <= float(v) <= 100:
+        if v in (None, ""):
+            return v
+        if v == "<3rd centile":
+            return v
+        if not 0 <= float(v) <= 100:
             raise ValueError("Intrauterine centile must be between 0 and 100")
         return v
 

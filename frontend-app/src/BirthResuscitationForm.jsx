@@ -822,8 +822,10 @@ export default function BirthResuscitationForm() {
       return;
     }
 
-    const autoValue = String(result.lowerPoint);
+    const autoValue =
+      result.lowerPoint === 0 ? result.label : String(result.lowerPoint);
     if (wasUntouchedOrAuto && current !== autoValue) {
+      // Writes via set(), not the input onChange (digits-only regex is for manual entry).
       set({ intrauterine_centile: autoValue });
     }
     lastAutoCentileRef.current = autoValue;
@@ -1121,7 +1123,11 @@ export default function BirthResuscitationForm() {
         add("B2. Date & Time of Birth cannot be before the Screening Date & Time (Form A)", "time_of_birth");
     }
     if(!formData.gender)             add("B2. Gender",                "gender");
-    if(formData.intrauterine_centile!=="" && (Number(formData.intrauterine_centile)<0 || Number(formData.intrauterine_centile)>100))
+    if (
+      formData.intrauterine_centile !== ""
+      && formData.intrauterine_centile !== "<3rd centile"
+      && (Number(formData.intrauterine_centile) < 0 || Number(formData.intrauterine_centile) > 100)
+    )
       add("B2. Intrauterine centile must be 0–100", "intrauterine_centile");
     if(!formData.delivery_mode)      add("B2. Delivery Mode",         "delivery_mode");
     if(formData.delivery_mode==="Vaginal" && !formData.vaginal_delivery_type)
