@@ -3573,7 +3573,7 @@ def get_post_resus_prefill(
       after discharge) and the day logs stop at discharge: "No" requires
       confirmation the baby was still alive and being tracked at or past
       that age — either the latest day logged across all 3 helper-log
-      tables, or NICUAdmission.discharge_date if later, reaches or
+      tables, or Form H's discharge_date if later, reaches or
       passes the cutoff. A baby discharged alive *before* completing 7
       or 28 days, with no later data, is left blank — the data genuinely
       can't confirm or rule out a post-discharge death within that
@@ -3605,6 +3605,19 @@ def get_post_resus_prefill(
     nicu = (
         db.query(NICUAdmission)
         .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    # discharge_date lives on NeonatalMorbidities (Form H), not
+    # NICUAdmission — this function previously read nicu.discharge_date,
+    # an attribute that has never existed on that model, crashing this
+    # whole endpoint with a 500 (AttributeError) any time a baby had
+    # metab_logs but no recorded death. Same bug as the near-identical
+    # branch in get_pma_assessment_prefill, fixed 2026-09-14 after a live
+    # report; fixed here too on the same pass.
+    form_h_discharge = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
 
@@ -3639,8 +3652,8 @@ def get_post_resus_prefill(
     if metab_logs:
         all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
         last_known_day = max(all_days) if all_days else None
-        if nicu and nicu.day1_date and nicu.discharge_date:
-            discharge_day = (nicu.discharge_date - nicu.day1_date).days + 1
+        if nicu and nicu.day1_date and form_h_discharge and form_h_discharge.discharge_date:
+            discharge_day = (form_h_discharge.discharge_date - nicu.day1_date).days + 1
             last_known_day = max(last_known_day or 0, discharge_day)
 
         death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
@@ -3976,8 +3989,17 @@ def get_pma_assessment_prefill(
     else:
         all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
         last_known_date = day_to_date(max(all_days)) if all_days else None
-        if nicu.discharge_date and (not last_known_date or nicu.discharge_date > last_known_date):
-            last_known_date = nicu.discharge_date
+        # discharge_date lives on NeonatalMorbidities (Form H), not
+        # NICUAdmission -- this previously read nicu.discharge_date, an
+        # attribute that has never existed on that model, crashing this
+        # entire endpoint with a 500 (AttributeError) any time this branch
+        # was reached (no day-log ever recorded a death). Found 2026-09-14
+        # via a live report that Form I's brain-injury checkpoint stayed
+        # permanently blank for a baby with a confirmed severe Form H IVH
+        # grade -- the fetch was failing silently, caught by the frontend's
+        # try/catch and only logged to console, never shown to the user.
+        if form_h and form_h.discharge_date and (not last_known_date or form_h.discharge_date > last_known_date):
+            last_known_date = form_h.discharge_date
         if last_known_date and last_known_date >= target_date:
             result["death"] = "No"
 
