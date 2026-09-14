@@ -3040,62 +3040,6 @@ const forceRefillAllDomains = async () => {
   }
 };
 
-// Every domain subject to the fill-if-blank / Force-Refill-only-overwrites
-// discipline — a manual edit that contradicts the source data can
-// otherwise be saved completely silently, with no signal until someone
-// happens to reopen this form later (the staleness banners only render
-// on load/force-refill, not at the moment of save). Added 2026-09 after
-// the user flagged this generally (prompted by PVHI specifically, but
-// the gap applies to every domain below) — generalizes the same
-// real-time check built for Form I's brain-injury fields
-// (confirmBrainInjuryConflicts). Never blocks the save — some of these
-// fields are exact restatements (e.g. PVHI) but others are approximations
-// (e.g. PHH≈PHVD) or day-log-only judgment calls, so a hard lock would be
-// wrong for at least some of them; a single clear warning at the moment
-// of save is the right level of friction for all of them at once.
-const FORM_H_CONFLICT_DOMAINS = [
-  { label: "Vascular Access", endpoint: "vascular-access-prefill", fields: VASCULAR_STALE_CHECK_FIELDS },
-  { label: "Metabolic", endpoint: "metabolic-prefill", fields: METABOLIC_STALE_CHECK_FIELDS },
-  { label: "Renal", endpoint: "renal-prefill", fields: RENAL_STALE_CHECK_FIELDS },
-  { label: "Hematology", endpoint: "heme-prefill", fields: HEME_STALE_CHECK_FIELDS },
-  { label: "Neurological", endpoint: "neuro-prefill", fields: NEURO_STALE_CHECK_FIELDS },
-  { label: "Gastrointestinal", endpoint: "gi-prefill", fields: GI_STALE_CHECK_FIELDS },
-  { label: "ROP / Thermoregulation", endpoint: "rop-thermoreg-prefill", fields: ROP_THERMO_STALE_CHECK_FIELDS },
-  { label: "Cardiovascular", endpoint: "cv-prefill", fields: CV_STALE_CHECK_FIELDS },
-  { label: "Respiratory", endpoint: "resp-prefill", fields: RESP_STALE_CHECK_FIELDS },
-  { label: "IVH / PVL / PVHI / PHH / Ventriculomegaly (Form F)", endpoint: "cranial-usg-prefill", fields: CRANIAL_USG_STALE_CHECK_FIELDS },
-];
-
-const confirmFormHConflicts = async () => {
-  const conflicts = [];
-  await Promise.all(
-    FORM_H_CONFLICT_DOMAINS.map(async ({ label, endpoint, fields }) => {
-      let live;
-      try {
-        const res = await api.get(`/neonatal-morbidities/${endpoint}/${enrollmentId}`);
-        live = res.data;
-      } catch (_) {
-        return; // advisory only — never block save on a network hiccup
-      }
-      if (!live || !live.has_data) return;
-      fields.forEach((field) => {
-        const liveValue = live[field];
-        if (isBlank(liveValue)) return;
-        const savedValue = formData[field];
-        if (!isBlank(savedValue) && String(savedValue) !== String(liveValue)) {
-          conflicts.push(`${label} — ${PREFILL_FIELD_LABELS[field] || field}: saved "${savedValue}", source data now says "${liveValue}"`);
-        }
-      });
-    })
-  );
-  if (conflicts.length === 0) return true;
-  return window.confirm(
-    "The following answers disagree with the current source data (daily logs / Form F):\n\n" +
-    conflicts.join("\n") +
-    '\n\nSave anyway? (Use the relevant section\'s "Force refill" below instead if the source data is correct.)'
-  );
-};
-
 // IVH/PVL detail from Form F (Cranial USG) — see the backend endpoint's
 // docstring for the full derivation. This is the sole source for
 // ivh_present/pvl_present (the Neuro domain's day-log version was
@@ -3144,6 +3088,71 @@ const CRANIAL_USG_STALE_CHECK_FIELDS = [
   ...CRANIAL_USG_PVL_STALE_CHECK_FIELDS,
   ...CRANIAL_USG_OTHER_STALE_CHECK_FIELDS,
 ];
+
+// Every domain subject to the fill-if-blank / Force-Refill-only-overwrites
+// discipline — a manual edit that contradicts the source data can
+// otherwise be saved completely silently, with no signal until someone
+// happens to reopen this form later (the staleness banners only render
+// on load/force-refill, not at the moment of save). Added 2026-09 after
+// the user flagged this generally (prompted by PVHI specifically, but
+// the gap applies to every domain below) — generalizes the same
+// real-time check built for Form I's brain-injury fields
+// (confirmBrainInjuryConflicts). Never blocks the save — some of these
+// fields are exact restatements (e.g. PVHI) but others are approximations
+// (e.g. PHH≈PHVD) or day-log-only judgment calls, so a hard lock would be
+// wrong for at least some of them; a single clear warning at the moment
+// of save is the right level of friction for all of them at once.
+//
+// Must be declared AFTER CRANIAL_USG_STALE_CHECK_FIELDS above (which it
+// references) — placing this earlier in the file caused a temporal-dead-
+// zone ReferenceError ("Cannot access 'CRANIAL_USG_STALE_CHECK_FIELDS'
+// before initialization") on every single render of this component,
+// crashing the whole page the instant Form H was opened. Found and fixed
+// same-day after a production report; esbuild's syntax check and the
+// actual CRA build both passed cleanly beforehand because this is a
+// runtime execution-order bug, not a syntax error — neither catches it.
+const FORM_H_CONFLICT_DOMAINS = [
+  { label: "Vascular Access", endpoint: "vascular-access-prefill", fields: VASCULAR_STALE_CHECK_FIELDS },
+  { label: "Metabolic", endpoint: "metabolic-prefill", fields: METABOLIC_STALE_CHECK_FIELDS },
+  { label: "Renal", endpoint: "renal-prefill", fields: RENAL_STALE_CHECK_FIELDS },
+  { label: "Hematology", endpoint: "heme-prefill", fields: HEME_STALE_CHECK_FIELDS },
+  { label: "Neurological", endpoint: "neuro-prefill", fields: NEURO_STALE_CHECK_FIELDS },
+  { label: "Gastrointestinal", endpoint: "gi-prefill", fields: GI_STALE_CHECK_FIELDS },
+  { label: "ROP / Thermoregulation", endpoint: "rop-thermoreg-prefill", fields: ROP_THERMO_STALE_CHECK_FIELDS },
+  { label: "Cardiovascular", endpoint: "cv-prefill", fields: CV_STALE_CHECK_FIELDS },
+  { label: "Respiratory", endpoint: "resp-prefill", fields: RESP_STALE_CHECK_FIELDS },
+  { label: "IVH / PVL / PVHI / PHH / Ventriculomegaly (Form F)", endpoint: "cranial-usg-prefill", fields: CRANIAL_USG_STALE_CHECK_FIELDS },
+];
+
+const confirmFormHConflicts = async () => {
+  const conflicts = [];
+  await Promise.all(
+    FORM_H_CONFLICT_DOMAINS.map(async ({ label, endpoint, fields }) => {
+      let live;
+      try {
+        const res = await api.get(`/neonatal-morbidities/${endpoint}/${enrollmentId}`);
+        live = res.data;
+      } catch (_) {
+        return; // advisory only — never block save on a network hiccup
+      }
+      if (!live || !live.has_data) return;
+      fields.forEach((field) => {
+        const liveValue = live[field];
+        if (isBlank(liveValue)) return;
+        const savedValue = formData[field];
+        if (!isBlank(savedValue) && String(savedValue) !== String(liveValue)) {
+          conflicts.push(`${label} — ${PREFILL_FIELD_LABELS[field] || field}: saved "${savedValue}", source data now says "${liveValue}"`);
+        }
+      });
+    })
+  );
+  if (conflicts.length === 0) return true;
+  return window.confirm(
+    "The following answers disagree with the current source data (daily logs / Form F):\n\n" +
+    conflicts.join("\n") +
+    '\n\nSave anyway? (Use the relevant section\'s "Force refill" below instead if the source data is correct.)'
+  );
+};
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
 // already-answered fields instead of only blank ones. force also fills
