@@ -46,6 +46,12 @@ import ManageStaff from "./ManageStaff";
 import ProtectedRoute from "./components/ProtectedRoute";
 import FloatingLogout from "./components/FloatingLogout";
 import FormLayout from "./layouts/FormLayout";
+import EnrollmentFormRedirect from "./components/EnrollmentFormRedirect";
+import ScreeningFormRedirect from "./components/ScreeningFormRedirect";
+import {
+  ENROLLMENT_ID_FORM_REDIRECTS,
+  SCREENING_ID_FORM_REDIRECTS,
+} from "./config/formRouteRedirects";
 
 import "./App.css";
 import "./styles/UnifiedForms.css";
@@ -66,6 +72,7 @@ function AppContent() {
     location.pathname === "/entries" ||
     location.pathname === "/manage-staff" ||
     location.pathname === "/trial-monitoring";
+  const usesDashboardLayout = isDashboardPage || isWorkspaceDest;
 
   const isFormPage =
     location.pathname.includes("/form-") ||
@@ -78,7 +85,7 @@ function AppContent() {
     location.pathname.includes("/sae-");
 
   return (
-    <div className={`app-container${isFormPage ? " form-page-layout" : ""}${isLandingPage ? " landing-page-layout" : ""}${isDashboardPage ? " dashboard-page-layout" : ""}`}>
+    <div className={`app-container${isFormPage ? " form-page-layout" : ""}${isLandingPage ? " landing-page-layout" : ""}${usesDashboardLayout ? " dashboard-page-layout" : ""}`}>
 
       {/* ===== HEADER — hidden on landing, login, password change, forms, dashboard, workspace pages ===== */}
       {!isFormPage && !isLandingPage && !isAuthChromePage && !isDashboardPage && !isWorkspaceDest && (
@@ -196,7 +203,7 @@ function AppContent() {
             <Route
               path="*"
               element={
-                <main className={`app-main${isDashboardPage ? " dashboard-fullbleed" : ""}`}>
+                <main className={`app-main${usesDashboardLayout ? " dashboard-fullbleed" : ""}`}>
                   <div className="content-wrapper">
                     <Routes>
                       <Route path="/" element={<LandingPage />} />
@@ -208,7 +215,33 @@ function AppContent() {
                       <Route path="/helper-form-records" element={<ProtectedRoute><HelperFormRecords /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
                       <Route path="/form-a/:screeningId?" element={<ProtectedRoute><FormLayout currentForm="form_a"><ScreeningForm /></FormLayout></ProtectedRoute>} />
+                      {SCREENING_ID_FORM_REDIRECTS.map(({ basePath, currentForm, label }) => (
+                        <Route
+                          key={basePath}
+                          path={basePath}
+                          element={
+                            <ProtectedRoute>
+                              <FormLayout currentForm={currentForm}>
+                                <ScreeningFormRedirect basePath={basePath} formLabel={label} />
+                              </FormLayout>
+                            </ProtectedRoute>
+                          }
+                        />
+                      ))}
                       <Route path="/form-b/:screeningId" element={<ProtectedRoute><FormLayout currentForm="form_b"><BirthResuscitation /></FormLayout></ProtectedRoute>} />
+                      {ENROLLMENT_ID_FORM_REDIRECTS.map(({ basePath, currentForm, label }) => (
+                        <Route
+                          key={basePath}
+                          path={basePath}
+                          element={
+                            <ProtectedRoute>
+                              <FormLayout currentForm={currentForm}>
+                                <EnrollmentFormRedirect basePath={basePath} formLabel={label} />
+                              </FormLayout>
+                            </ProtectedRoute>
+                          }
+                        />
+                      ))}
                       <Route path="/form-c/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_c"><FormC /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-d/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_d"><FormD /></FormLayout></ProtectedRoute>} />
                       <Route path="/form-e/:enrollmentId" element={<ProtectedRoute><FormLayout currentForm="form_e"><FormE /></FormLayout></ProtectedRoute>} />

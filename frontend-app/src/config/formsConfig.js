@@ -14,8 +14,8 @@ export const FORMS_CONFIG = [
   { key: "form_l", label: "Form L - Study Completion", route: "/form-l" },
 
   // Helper forms
-  { key: "fio2_auc", label: "Helper – FiO₂ AUC", route: "/fio2-auc" },
-  { key: "vs6_1", label: "Helper – Resp / CV / Neuro", route: "/vs6-1" },
+  { key: "vs6_1", label: "Helper 1 – Resp / CV / Neuro", route: "/vs6-1" },
+  { key: "fio2_auc", label: "Helper 2 – FiO₂ AUC", route: "/fio2-auc" },
   { key: "infect_gi_hema", label: "Helper – Infect / GI / Hema", route: "/infect-gi-hema-log" },
   { key: "metab_renal_vasc_eye", label: "Helper – Metab / Renal / Vasc / Eye", route: "/metab-renal-vasc-eye-log" },
 

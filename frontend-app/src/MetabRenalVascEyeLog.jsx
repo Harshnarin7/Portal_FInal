@@ -18,7 +18,7 @@ import {
 import "./styles/MinimalMonitoring.css";
 
 /* ══════════════════════════════════════════════════════
-   STATUS CONSTANTS — identical to Helper Forms 2 & 3
+   STATUS CONSTANTS — identical to Helper Forms 1 & 3
 ══════════════════════════════════════════════════════ */
 const STATUS = {
   EMPTY:"empty", DRAFT:"draft", PARTIAL:"partial",
@@ -43,7 +43,7 @@ const LEGEND_ITEMS = [
 
 /* Every field captured for a day, grouped by section, for the
    "All Days — Table View" modal (fields run down the rows, days
-   run across the columns). Same pattern as Helper Forms 2 & 3. */
+   run across the columns). Same pattern as Helper Forms 1 & 3. */
 const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "Metabolic",
@@ -132,7 +132,7 @@ function formatTableViewValue(d, row) {
    key/label map the "All Days" table view already relies on, so the two
    views can never disagree about what counts as "answered". The "Record"
    section is metadata (saved_by), not something a nurse fills in, so it's
-   excluded from the missing-fields count. Same pattern as Helper Form 2. */
+   excluded from the missing-fields count. Same pattern as Helper Form 1. */
 function computeMissingFields(d) {
   if (!d) return [];
   return TABLE_VIEW_FIELD_GROUPS
@@ -147,7 +147,7 @@ function computeMissingFields(d) {
 }
 
 /* ══════════════════════════════════════════════════════
-   SHARED SUB-COMPONENTS — identical to Helper Forms 2 & 3
+   SHARED SUB-COMPONENTS — identical to Helper Forms 1 & 3
 ══════════════════════════════════════════════════════ */
 function ProgressRing({ percent }) {
   const r = 24, circ = 2 * Math.PI * r;
@@ -1592,7 +1592,7 @@ export default function MetabRenalVascEyeLog() {
       return;
     }
     // force: re-save while viewing a saved draft (Submit path) without
-    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    // requiring Edit — same pattern as Helper Form 1 (RespCVNeuroLog).
     if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     try {
@@ -1712,7 +1712,7 @@ export default function MetabRenalVascEyeLog() {
   // Fetches full clinical data for every day that has something saved
   // (status != EMPTY), for the "Table View" overview. Reuses the same
   // per-day endpoint the form itself already uses to load a single day —
-  // no new backend endpoint needed. Same pattern as Helper Forms 2 & 3.
+  // no new backend endpoint needed. Same pattern as Helper Forms 1 & 3.
   const loadTableViewData = async () => {
     setShowTableView(true);
     setTableViewLoading(true);

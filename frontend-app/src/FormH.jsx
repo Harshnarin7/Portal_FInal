@@ -5,8 +5,8 @@ import { useFormProgress } from "./context/FormProgressContext";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/FormH.css";
-import FormLayout from "./components/FormLayout";
 import { usePatient } from "./context/PatientContext";
+import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -133,6 +133,7 @@ export default function FormH() {
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const { enrollmentId } = useParams();
+  const [formHBootstrapping, setFormHBootstrapping] = useState(() => !!enrollmentId);
 const [touched, setTouched] = useState({});
 const [roster, setRoster] = useState([]);
 const [rosterReady, setRosterReady] = useState(false);
@@ -670,11 +671,13 @@ const handleBlur = (e) => {
 };
 
 useEffect(() => {
-  if (!enrollmentId) return;
-
+  if (!isUsableEnrollmentId(enrollmentId)) return;
+  const eid = String(enrollmentId).trim();
+  localStorage.setItem("current_enrollment_id", eid);
+  window.dispatchEvent(new Event("storage"));
   setFormData(prev => ({
     ...prev,
-    enrollment_id: enrollmentId
+    enrollment_id: eid,
   }));
 }, [enrollmentId]);
 
@@ -713,12 +716,26 @@ useEffect(() => {
 
   // ================= LOAD EXISTING FORM H (prevents data loss on revisit) =================
   useEffect(() => {
-    if (!enrollmentId) return;
+    if (!isUsableEnrollmentId(enrollmentId)) {
+      setFormHBootstrapping(false);
+      return;
+    }
+    const eid = String(enrollmentId).trim();
+    let cancelled = false;
+    setFormHBootstrapping(true);
 
     const loadExistingFormH = async () => {
       try {
-        const res = await api.get(`/neonatal-morbidities/${enrollmentId}`);
-        const rows = Array.isArray(res.data) ? res.data : [res.data];
+        const res = await api.get(`/neonatal-morbidities/${eid}`);
+        if (cancelled) return;
+        const payload = res?.data;
+        if (payload == null) {
+          formHRecordExistedOnLoadRef.current = false;
+          return;
+        }
+        const rows = Array.isArray(payload)
+          ? payload.filter(Boolean)
+          : [payload].filter(Boolean);
         // Prefer newest row (matches POST upsert which updates the latest
         // duplicate when any exist from the old always-insert bug).
         const existing = rows.length ? rows[rows.length - 1] : null;
@@ -819,15 +836,36 @@ useEffect(() => {
             infection_flags_reviewed: Array.isArray(existing.infection_flags_reviewed)
               ? existing.infection_flags_reviewed
               : (prev.infection_flags_reviewed || []),
-            enrollment_id: enrollmentId,
+            enrollment_id: eid,
             _record_id: existing.id || null,
           };
         });
       } catch (err) {
         // No saved Form H yet for this enrollment — start blank, this is expected for a new form.
         formHRecordExistedOnLoadRef.current = false;
-        console.log("No existing Form H record yet for this enrollment.");
+        console.log("No existing Form H record yet for this enrollment.", err?.response?.status || err);
       }
+    };
+
+    const runPrefills = () => {
+      if (cancelled) return;
+      fetchVascularAccessPrefill();
+      fetchMetabolicPrefill();
+      fetchRenalPrefill();
+      fetchHemePrefill();
+      fetchNeuroPrefill();
+      fetchVmDopplerPrefill();
+      fetchBilirubinPrefill();
+      fetchGiPrefill();
+      fetchRopThermoPrefill();
+      fetchCvPrefill();
+      fetchInfectionWindows();
+      fetchRespPrefill();
+      fetchSurvivalCheck();
+      fetchCranialUsgPrefill({
+        force: !formHRecordExistedOnLoadRef.current,
+        autoFillBlanks: !formHRecordExistedOnLoadRef.current,
+      });
     };
 
     // Chained, not a separate effect: every prefill must only ever run
@@ -856,26 +894,14 @@ useEffect(() => {
     // A genuine disagreement shows as a stale-answer warning (Force refill);
     // a blank field that Form F now has data for shows as a newly-available
     // hint ("Refill empty fields from Form F") in the IVH/PVL cards below.
-    loadExistingFormH().then(() => {
-      fetchVascularAccessPrefill();
-      fetchMetabolicPrefill();
-      fetchRenalPrefill();
-      fetchHemePrefill();
-      fetchNeuroPrefill();
-      fetchVmDopplerPrefill();
-      fetchBilirubinPrefill();
-      fetchGiPrefill();
-      fetchRopThermoPrefill();
-      fetchCvPrefill();
-      fetchInfectionWindows();
-      fetchRespPrefill();
-      fetchSurvivalCheck();
-      fetchCranialUsgPrefill({
-        force: !formHRecordExistedOnLoadRef.current,
-        autoFillBlanks: !formHRecordExistedOnLoadRef.current,
+    loadExistingFormH()
+      .then(() => runPrefills())
+      .finally(() => {
+        if (!cancelled) setFormHBootstrapping(false);
       });
-    });
-  }, [enrollmentId]);
+
+    return () => { cancelled = true; };
+  }, [enrollmentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const yesNoToBool = (v) => {
     if (v === "Yes" || v === true) return true;
@@ -5641,6 +5667,14 @@ const peripheralStatus= getPeripheralStatus();
   return (
     <div className="formh-modern">
     <form className="screening-form" onSubmit={handleSubmit}>
+       {formHBootstrapping && (
+         <div className="rcn-loading" style={{ marginBottom: 16 }}>Loading Form H…</div>
+       )}
+       {!isUsableEnrollmentId(enrollmentId) && (
+         <div className="form-message form-message--error" style={{ marginBottom: 16 }}>
+           Missing enrollment ID in the URL. Open Form H from View Entries or the sidebar after Form B is saved.
+         </div>
+       )}
        <div className="form-header-action-row">
          <div className="form-header-title-area">
            <div className="form-breadcrumb"><Home size={12}/> FORM H</div>

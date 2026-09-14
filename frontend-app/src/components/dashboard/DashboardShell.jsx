@@ -13,6 +13,7 @@ const TAB_LABELS = {
 
 export default function DashboardShell({
   tab,
+  pageTitle,
   onTabChange,
   sidebarOpen,
   onSidebarOpen,
@@ -21,11 +22,12 @@ export default function DashboardShell({
   headerProps,
   children,
 }) {
+  const headerTitle = pageTitle || TAB_LABELS[tab] || "Overview";
   return (
     <div className="ds-root flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-portal-mist text-portal-ink [&_button]:appearance-none [&_button]:cursor-pointer [&_input]:appearance-none">
       <DashboardHeader
         {...headerProps}
-        tabLabel={TAB_LABELS[tab] || "Overview"}
+        tabLabel={headerTitle}
         onMenu={onSidebarOpen}
       />
       <div className="flex min-h-0 min-w-0 flex-1">

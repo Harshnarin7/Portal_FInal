@@ -1,7 +1,7 @@
-// src/HelperFormRecords.jsx — PORTAL Trial Helper Form Records (Forms 2, 3 & 4)
+// src/HelperFormRecords.jsx — PORTAL Trial Helper Form Records (Forms 1, 3 & 4)
 // Cross-patient daily-log work queue: today's work first, historical data
 // reachable without cluttering it. Mirrors ViewEntries.jsx's page shell.
-// A form switcher lets the same page/queue serve Helper Form 2 (Resp/CV/Neuro),
+// A form switcher lets the same page/queue serve Helper Form 1 (Resp/CV/Neuro),
 // Helper Form 3 (Infect/GI/Hema), and Helper Form 4 (Metab/Renal/Vasc/Eye) —
 // each backed by its own /records + /records/latest-update API pair.
 
@@ -21,8 +21,8 @@ const FORM_DEFS = {
     key: "vs6_1",
     apiPrefix: "/resp-cv-neuro",
     recordRoute: "/vs6-1",
-    tabLabel: "Helper 2",
-    breadcrumb: "Helper Form 2 · Resp / CV / Neuro",
+    tabLabel: "Helper 1",
+    breadcrumb: "Helper Form 1 · Resp / CV / Neuro",
     subtitle: "Daily NICU log entries across all patients and sites",
   },
   infect_gi_hema: {

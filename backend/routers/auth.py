@@ -144,4 +144,8 @@ def change_password(
     current_user.hashed_password = hash_password(body.new_password)
     current_user.must_change_password = False
     db.commit()
-    return {"message": "Password updated"}
+    db.refresh(current_user)
+    return {
+        "message": "Password updated",
+        "must_change_password": False,
+    }

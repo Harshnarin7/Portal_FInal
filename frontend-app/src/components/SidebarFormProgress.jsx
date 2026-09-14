@@ -17,8 +17,8 @@ const FORMS = [
   { key: "form_j", label: "Form J – External Hospital Outcomes" },
 
   /* Helper forms */
-  { key: "fio2_auc", label: "FiO₂ AUC" },
-  { key: "vs6_1", label: "Resp / CV / Neuro Log" },
+  { key: "vs6_1", label: "Helper 1 – Resp / CV / Neuro" },
+  { key: "fio2_auc", label: "Helper 2 – FiO₂ AUC" },
   { key: "infect_gi_hema", label: "Helper – Infect / GI / Hema" },
   { key: "metab_renal_vasc_eye", label: "Helper – Metab / Renal / Vasc / Eye" },
 

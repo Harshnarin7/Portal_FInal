@@ -1,10 +1,9 @@
 // src/ViewEntries.jsx — PORTAL Trial Participant Management
-// Clean page layout — works inside the existing App header + navbar shell
-// No duplicate sidebar or topnav
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
 import {
   Search, Plus, ChevronLeft, ChevronRight, ChevronDown,
   Eye, Edit, Trash2, ArrowRight, Filter, AlertTriangle,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import "./ViewEntries.css";
 import { formatBabyOfLabel } from "./utils/babyName";
+import { resolveConsentSignatureFromRecord } from "./utils/consentSignature";
 
 /* ─── Form definitions (from formsConfig.js) ────────────────── */
 const FORM_LABELS = [
@@ -166,6 +166,7 @@ function ActionBtn({ label, variant, onClick }) {
 /* ─── Expanded detail panel ──────────────────────────────────── */
 function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName }) {
   const [tab, setTab] = useState("Forms");
+  const consentSig = resolveConsentSignatureFromRecord(entry);
   const ga = entry.gestation_weeks != null
     ? `${entry.gestation_weeks}w ${entry.gestation_days ?? 0}d`
     : "—";
@@ -266,20 +267,20 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
             <Field label="Consent Date"        value={entry.consent_datetime ? new Date(entry.consent_datetime).toLocaleDateString("en-IN") : null} />
             <Field label="Form Version"        value={entry.consent_form_version} />
             <Field label="Language"            value={entry.consent_language} />
-            <Field label="Signature Obtained"  value={entry.consent_obtained_by_signature} />
+            <Field label="Signature on file"   value={consentSig.image ? "Yes" : "No"} />
             <Field label="Reconsent"           value={entry.reconsent_obtained ? "Yes" : "No"} />
             <Field label="Relationship"        value={entry.relationship_to_participant} />
-            {entry.consent_signature_image && (
+            {consentSig.image && (
               <div className="exp-field">
                 <p className="exp-field-label">ICF Signature (signed on tablet)</p>
                 <img
-                  src={entry.consent_signature_image}
+                  src={consentSig.image}
                   alt="ICF signature"
                   style={{ maxWidth: "260px", height: "90px", objectFit: "contain", background: "#fff", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px" }}
                 />
-                {entry.consent_signature_captured_at && (
+                {consentSig.capturedAt && (
                   <p className="exp-field-value" style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-                    Signed {new Date(entry.consent_signature_captured_at).toLocaleString("en-IN")}
+                    Signed {new Date(consentSig.capturedAt).toLocaleString("en-IN")}
                   </p>
                 )}
               </div>
@@ -432,14 +433,26 @@ export default function ViewEntries() {
     }
   };
 
-  if (loading) return (
-    <div className="ve-loading">
-      <RefreshCw size={22} className="ve-spin" />
-      <span>Loading participants…</span>
-    </div>
-  );
+  const layoutProps = {
+    pageTitle: "All Participants",
+    search,
+    onSearchChange: setSearch,
+    onRefresh: fetchEntries,
+  };
+
+  if (loading) {
+    return (
+      <DashboardWorkspaceLayout {...layoutProps}>
+        <div className="ve-loading">
+          <RefreshCw size={22} className="ve-spin" />
+          <span>Loading participants…</span>
+        </div>
+      </DashboardWorkspaceLayout>
+    );
+  }
 
   return (
+    <DashboardWorkspaceLayout {...layoutProps}>
     <div className="ve-wrap">
 
       {/* ── Page header ── */}
@@ -682,5 +695,6 @@ export default function ViewEntries() {
       </div>
 
     </div>
+    </DashboardWorkspaceLayout>
   );
 }

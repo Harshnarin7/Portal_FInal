@@ -20,7 +20,9 @@ import {
 import { useFormProgress } from "./context/FormProgressContext";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { useAuth } from "./context/AuthContext";
-import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd } from "./utils/datetime";
+import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd, normalizeDateTimeLocalString } from "./utils/datetime";
+import { resolveConsentSignatureFromRecord, resolvePiSignatureFromRecord } from "./utils/consentSignature";
+import ModernTimeInput from "./components/ModernTimeInput";
 
 /* ─── YesNoToggle — animated sliding segment ──────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false, eligibleWhen }) {
@@ -108,6 +110,7 @@ const BLANK_FORM = {
   /* A5 Consent */
   consent_given:"", video_pis_shown:"",
   consent_signature_image:"", consent_signature_captured_at:"",
+  pi_signature_image:"", pi_signature_captured_at:"",
   relationship_to_participant:"", relationship_other:"",
   consent_taken_by:"", consent_datetime:"",
   reason_for_consent_refusal_list:[],
@@ -238,6 +241,11 @@ export default function ScreeningForm() {
     try {
       const res = await api.get(`/screenings/by-screening-id/${id}`);
       const d = res.data;
+      if (!d) {
+        setMessage("⚠️ Screening record not found for this ID.");
+        setDataLoaded(true);
+        return;
+      }
       let pii = {};
       try { const r = await api.get(`/pii/screening/${id}`); pii = r.data || {}; }
       catch {
@@ -266,6 +274,7 @@ export default function ScreeningForm() {
 
       setFormData(() => ({
         ...BLANK_FORM, ...clinical,
+        screening_datetime: normalizeDateTimeLocalString(d.screening_datetime || clinical.screening_datetime || ""),
         /* Identity fields come ONLY from participant_pii. Strip autosave
            "DRAFT" placeholders so they never reappear as real names. */
         mother_first_name:         (pii.mother_first_name && pii.mother_first_name !== "DRAFT") ? pii.mother_first_name : "",
@@ -315,7 +324,7 @@ export default function ScreeningForm() {
         iufd:                  d.exclusion_reasons?.includes("IUFD")                 ? "Yes" : (d.exclusion_present != null) ? "No" : "",
         consent_given:            d.consent_given              || "",
         consent_taken_by:         d.consent_taken_by           || "",
-        consent_datetime:         d.consent_datetime ? String(d.consent_datetime).slice(0,16) : "",
+        consent_datetime:         d.consent_datetime ? normalizeDateTimeLocalString(d.consent_datetime) : "",
         consent_form_version:     d.consent_form_version       || "v1.0",
         consent_language:         d.consent_language           || "English",
         relationship_to_participant: d.relationship_to_participant || "",
@@ -325,8 +334,20 @@ export default function ScreeningForm() {
         reason_not_approached_list:       notApprList,
         reason_not_approached_other:      notApprList.includes("Other") ? (d.reason_not_approached_other||"") : "",
         video_pis_shown:          d.video_pis_shown            || "",
-        consent_signature_image:         d.consent_signature_image         || "",
-        consent_signature_captured_at:   d.consent_signature_captured_at   || "",
+        ...(() => {
+          const sig = resolveConsentSignatureFromRecord(d);
+          const piSig = resolvePiSignatureFromRecord(d);
+          return {
+            consent_signature_image: sig.image,
+            consent_signature_captured_at: sig.capturedAt
+              ? String(sig.capturedAt).slice(0, 16)
+              : "",
+            pi_signature_image: piSig.image,
+            pi_signature_captured_at: piSig.capturedAt
+              ? String(piSig.capturedAt).slice(0, 16)
+              : "",
+          };
+        })(),
       }));
 
       if (d.screening_id) localStorage.setItem("current_screening_id", d.screening_id);
@@ -687,9 +708,30 @@ export default function ScreeningForm() {
     if (name === "decision_forego_resus") { set({ decision_forego_resus:value, decision_forego_resus_reasons: value==="Yes" ? formData.decision_forego_resus_reasons : [] }); return; }
     if (name === "insufficient_time")  { set({ insufficient_time:value, insufficient_time_reason: value==="Yes" ? formData.insufficient_time_reason : "" }); return; }
     if (name === "consent_given") {
+      const needsAttest = value === "Yes" || value === "No" || value === "Trial run";
+      const dt = needsAttest ? new Date().toISOString().slice(0, 16) : "";
       if (!isInitialLoad && formData.consent_given !== value) {
-        set({ consent_given:value, consent_taken_by:"", consent_datetime:"", relationship_to_participant:"", relationship_other:"", reason_for_consent_refusal_list:[], reason_for_consent_refusal_other:"", reason_not_approached_list:[], reason_not_approached_other:"" });
-      } else { set({ consent_given:value }); }
+        set({
+          consent_given:value,
+          consent_taken_by:"",
+          consent_datetime: dt,
+          relationship_to_participant:"",
+          relationship_other:"",
+          reason_for_consent_refusal_list:[],
+          reason_for_consent_refusal_other:"",
+          reason_not_approached_list:[],
+          reason_not_approached_other:"",
+          consent_signature_image:"",
+          consent_signature_captured_at:"",
+          pi_signature_image:"",
+          pi_signature_captured_at:"",
+        });
+      } else {
+        set({
+          consent_given:value,
+          ...(needsAttest && !formData.consent_datetime ? { consent_datetime: dt } : {}),
+        });
+      }
       return;
     }
     if (name === "maternal_uid") {
@@ -889,6 +931,10 @@ export default function ScreeningForm() {
       /* Video PIS required whenever any consent value is selected */
       if (formData.consent_given && !formData.video_pis_shown)
         add("Video PIS shown? (A5)",                                               "video_pis_shown");
+      if (formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") {
+        if (!formData.consent_signature_image) add("Prepared by signature (A5)", "consent_signature_image");
+        if (!formData.pi_signature_image) add("Principal Investigator signature (A5)", "pi_signature_image");
+      }
     }
     return m;
   };
@@ -934,7 +980,8 @@ export default function ScreeningForm() {
 
     return {
       screening_id:              fd.screening_id    || undefined,
-      screening_datetime:        fd.screening_datetime || (useDraftFallbacks ? toDateTimeLocalValue(new Date()) : null),
+      screening_datetime:        normalizeDateTimeLocalString(fd.screening_datetime)
+        || (useDraftFallbacks ? toDateTimeLocalValue(new Date()) : null),
       site_name:                 fd.site_name        || (useDraftFallbacks ? "DRAFT" : null),
       site_id:                   fd.site_id          || (useDraftFallbacks ? "00"    : null),
       screened_by:               fd.screened_by      || (useDraftFallbacks ? "DRAFT" : null),
@@ -983,6 +1030,8 @@ export default function ScreeningForm() {
       video_pis_shown:           fd.video_pis_shown  || null,
       consent_signature_image:         fd.consent_signature_image || null,
       consent_signature_captured_at:   fd.consent_signature_captured_at || null,
+      pi_signature_image:              fd.pi_signature_image || null,
+      pi_signature_captured_at:          fd.pi_signature_captured_at || null,
       ...(explicitlySaved ? { explicitly_saved: true } : {}),
     };
   };
@@ -1546,15 +1595,52 @@ export default function ScreeningForm() {
                   {/* Row 2: Screening Date & Time | Screened By */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>11. Screening Date &amp; Time<span className="required">*</span></label>
-                      <DatePicker
-                        selected={formData.screening_datetime ? new Date(formData.screening_datetime) : null}
-                        onChange={d => set({ screening_datetime: d ? toDateTimeLocalValue(d) : "" })}
-                        showTimeSelect timeFormat="HH:mm" timeIntervals={1}
-                        dateFormat="dd-MM-yyyy · HH:mm"
-                        maxDate={today}
-                        placeholderText="DD/MM/YY ; HH:MM"
-                        readOnly={!isFieldEditable}/>
+                      <label>11. Screening Date &amp; Time<span className="required">*</span>
+                        <span className="field-note"> (24-hour clock)</span>
+                      </label>
+                      <div className="datetime-24h-split">
+                        <DatePicker
+                          selected={formData.screening_datetime
+                            ? parseDateOnly(String(formData.screening_datetime).split("T")[0])
+                            : null}
+                          onChange={d => {
+                            if (!d) {
+                              set({ screening_datetime: "" });
+                              return;
+                            }
+                            const prev = formData.screening_datetime
+                              ? new Date(formData.screening_datetime)
+                              : new Date();
+                            const merged = new Date(
+                              d.getFullYear(), d.getMonth(), d.getDate(),
+                              prev.getHours(), prev.getMinutes(),
+                            );
+                            set({ screening_datetime: toDateTimeLocalValue(merged) });
+                          }}
+                          dateFormat="dd-MM-yyyy"
+                          maxDate={today}
+                          placeholderText="dd-MM-yyyy"
+                          readOnly={!isFieldEditable}/>
+                        <ModernTimeInput
+                          withSeconds={false}
+                          placeholder="HH:MM"
+                          hour={formData.screening_datetime
+                            ? new Date(formData.screening_datetime).getHours()
+                            : ""}
+                          minute={formData.screening_datetime
+                            ? new Date(formData.screening_datetime).getMinutes()
+                            : ""}
+                          onChange={(h, m) => {
+                            const base = formData.screening_datetime
+                              ? new Date(formData.screening_datetime)
+                              : new Date();
+                            const merged = new Date(
+                              base.getFullYear(), base.getMonth(), base.getDate(), h, m,
+                            );
+                            set({ screening_datetime: toDateTimeLocalValue(merged) });
+                          }}
+                          disabled={!isFieldEditable}/>
+                      </div>
                     </div>
                     <div className="form-group">
                       <label>12. Screened by (First name)<span className="required">*</span></label>
@@ -1801,7 +1887,7 @@ export default function ScreeningForm() {
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        Exclusion Criteria Absent - Proceed for Consent.
+                        Exclusion Criteria Absent - Proceed to Consent
                       </span>
                     </div>
                   )}
@@ -1818,7 +1904,7 @@ export default function ScreeningForm() {
                   <div className="form-section-header">
                     <div className="section-title-left">
                       <CheckSquare size={15} className="section-header-icon"/>
-                      <h3>A5 · Consent Process</h3>
+                      <h3>Consent Process</h3>
                     </div>
                   </div>
                   <div className="form-section-body">
@@ -1930,12 +2016,33 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
-                    {/* ICF direct signing on tablet (pen/stylus/finger) */}
+                    {/* Form A attestation — prepared by + PI (matches print summary) */}
                     {(formData.consent_given === "Yes" || formData.consent_given === "No" ||
                       formData.consent_given === "Trial run") && (
                       <div className="followup-box icf-signature-box">
+                        <label className="followup-label">Form attestation</label>
+                        <div className="form-grid-2" style={{ marginBottom: 12 }}>
+                          <div className="form-group">
+                            <label>Prepared by</label>
+                            <input
+                              readOnly
+                              value={user?.full_name || formData.screened_by || ""}
+                              className="readonly-field"
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Date</label>
+                            <input
+                              readOnly
+                              value={formData.consent_datetime
+                                ? new Date(formData.consent_datetime).toLocaleDateString("en-IN")
+                                : new Date().toLocaleDateString("en-IN")}
+                              className="readonly-field"
+                            />
+                          </div>
+                        </div>
                         <label className="followup-label">
-                          ICF Signature — sign directly on tablet (optional)
+                          Prepared by — Signature<span className="required">*</span>
                         </label>
                         <SignaturePad
                           value={formData.consent_signature_image}
@@ -1945,11 +2052,20 @@ export default function ScreeningForm() {
                             consent_signature_captured_at: dataUrl ? new Date().toISOString() : "",
                           })}
                         />
-                        {formData.consent_signature_captured_at && (
-                          <div className="icf-signature-timestamp">
-                            Signed on {new Date(formData.consent_signature_captured_at).toLocaleString()}
-                          </div>
-                        )}
+                        <label className="followup-label" style={{ marginTop: 16 }}>
+                          Principal Investigator — {piName || "Site PI"}
+                        </label>
+                        <label className="followup-label">
+                          Principal Investigator — Signature<span className="required">*</span>
+                        </label>
+                        <SignaturePad
+                          value={formData.pi_signature_image}
+                          disabled={!isFieldEditable}
+                          onChange={(dataUrl) => set({
+                            pi_signature_image: dataUrl || "",
+                            pi_signature_captured_at: dataUrl ? new Date().toISOString() : "",
+                          })}
+                        />
                       </div>
                     )}
 

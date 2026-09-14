@@ -44,6 +44,12 @@ from routers import staff as staff_router
 from routers import audit as audit_router
 from routers import dashboard as dashboard_router
 from routers import auth as auth_router
+from baby_uid_duplicate import (
+    find_baby_uid_conflict,
+    baby_uid_conflict_message,
+    find_enrollment_id_conflict,
+    enrollment_id_conflict_message,
+)
 import secrets
 import string
 
@@ -350,6 +356,25 @@ def compute_screening_status(data):
     return "Pending"
 
 
+def mirror_consent_signature_fields(entry: Screening) -> None:
+    """Mobile writes consent_obtained_by_signature; web uses consent_signature_image (TEXT)."""
+    img = (entry.consent_signature_image or "").strip() if entry.consent_signature_image else ""
+    leg = (entry.consent_obtained_by_signature or "").strip() if entry.consent_obtained_by_signature else ""
+
+    if img and not leg:
+        if img.startswith("data:") and "," in img:
+            entry.consent_obtained_by_signature = img.split(",", 1)[1]
+        else:
+            entry.consent_obtained_by_signature = img
+    elif leg and not img:
+        entry.consent_signature_image = (
+            leg if leg.startswith("data:") else f"data:image/png;base64,{leg}"
+        )
+
+    if entry.consent_signature_image and not entry.consent_signature_captured_at and entry.consent_datetime:
+        entry.consent_signature_captured_at = entry.consent_datetime
+
+
 def heal_screening_status(entry, db: Session | None = None) -> bool:
     """Recompute and optionally persist screening_status. Returns True if changed."""
     new_status = compute_screening_status(entry)
@@ -613,7 +638,7 @@ def create_user(
         full_name=user.full_name or user.username,
         mobile=user.mobile,
         designation=user.designation,
-        must_change_password=True,
+        must_change_password=bool(user.must_change_password),
     )
 
     db.add(db_user)
@@ -769,6 +794,7 @@ def get_screening(
         raise HTTPException(status_code=404, detail="Screening not found")
 
     heal_screening_status(entry, db)
+    mirror_consent_signature_fields(entry)
     return entry
 
 @app.post("/screenings/", response_model=ScreeningOut)
@@ -848,6 +874,8 @@ def create_screening(
                 consent_obtained_by_signature=screening.consent_obtained_by_signature,
                 consent_signature_image=screening.consent_signature_image,
                 consent_signature_captured_at=screening.consent_signature_captured_at,
+                pi_signature_image=screening.pi_signature_image,
+                pi_signature_captured_at=screening.pi_signature_captured_at,
                 reconsent_obtained=screening.reconsent_obtained or False,
                 reconsent_datetime=screening.reconsent_datetime,
                 reconsent_form_version=screening.reconsent_form_version,
@@ -861,6 +889,7 @@ def create_screening(
                 explicitly_saved=bool(screening.explicitly_saved),
             )
             stamp_created(db_screening, current_user)
+            mirror_consent_signature_fields(db_screening)
 
             upsert_participant_pii(
                 db,
@@ -989,6 +1018,8 @@ def update_screening(
 
         for key, value in update_data.items():
             setattr(entry, key, value)
+
+        mirror_consent_signature_fields(entry)
 
         # FIX: screening_status was only ever computed once, at creation
         # (compute_screening_status() call in create_screening). Every
@@ -1134,6 +1165,7 @@ def get_screening_by_screening_id(
         raise HTTPException(status_code=404, detail="Screening not found")
 
     heal_screening_status(entry, db)
+    mirror_consent_signature_fields(entry)
     return entry
 
 @app.get("/screenings/by-enrollment/{enrollment_id}", response_model=ScreeningClinicalOut)
@@ -1150,11 +1182,93 @@ def get_screening_by_enrollment(
         raise HTTPException(status_code=404, detail="Screening not found")
 
     heal_screening_status(entry, db)
+    mirror_consent_signature_fields(entry)
     return entry
 
 # ============================================================================
 # FORM B  -  BIRTH RESUSCITATION ENDPOINTS
 # ============================================================================
+
+def _assert_baby_uid_unique(
+    db: Session,
+    baby_uid: str | None,
+    screening_id: str | None,
+    enrollment_id: str | None,
+) -> None:
+    conflict = find_baby_uid_conflict(db, baby_uid, screening_id, enrollment_id)
+    if conflict:
+        uid = (baby_uid or "").strip()
+        raise HTTPException(
+            status_code=409,
+            detail=baby_uid_conflict_message(uid, conflict),
+        )
+
+
+def _ensure_screening_id_site_access(
+    screening_id: str,
+    db: Session,
+    current_user: User,
+) -> None:
+    prefix = (screening_id or "").strip().split("-", 1)[0] if "-" in (screening_id or "") else None
+    if not prefix:
+        raise HTTPException(
+            status_code=422,
+            detail="screening_id must include a site prefix (e.g. 01-0001)",
+        )
+    screening = db.query(Screening).filter(Screening.screening_id == screening_id).first()
+    if screening:
+        ensure_same_site(screening.site_name, current_user)
+    elif not is_global(current_user):
+        expected = CANONICAL_SITE_ID_MAP.get((current_user.site_name or "").strip())
+        if expected and prefix != expected:
+            raise HTTPException(status_code=403, detail="Screening ID does not belong to your site")
+
+
+@app.get("/birth-resuscitation/check-enrollment-id")
+def check_enrollment_id_duplicate(
+    enrollment_id: str,
+    screening_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Live duplicate check when nurse types Enrollment ID on Form B."""
+    eid = (enrollment_id or "").strip().upper()
+    if not eid or eid.startswith("NR-"):
+        return {"duplicate": False}
+    _ensure_screening_id_site_access(screening_id, db, current_user)
+    conflict = find_enrollment_id_conflict(db, eid, screening_id)
+    if not conflict:
+        return {"duplicate": False}
+    return {
+        "duplicate": True,
+        "screening_id": conflict.screening_id,
+        "message": enrollment_id_conflict_message(eid, conflict),
+    }
+
+
+@app.get("/birth-resuscitation/check-baby-uid")
+def check_baby_uid_duplicate(
+    baby_uid: str,
+    screening_id: str,
+    enrollment_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Live duplicate check for Form B — same site prefix, different enrollment/screening."""
+    uid = (baby_uid or "").strip()
+    if not uid:
+        return {"duplicate": False}
+    _ensure_screening_id_site_access(screening_id, db, current_user)
+    conflict = find_baby_uid_conflict(db, uid, screening_id, enrollment_id)
+    if not conflict:
+        return {"duplicate": False}
+    return {
+        "duplicate": True,
+        "screening_id": conflict.screening_id,
+        "enrollment_id": conflict.enrollment_id,
+        "message": baby_uid_conflict_message(uid, conflict),
+    }
+
 
 @app.post("/birth-resuscitation/", response_model=BirthResuscitationOut)
 def create_birth_resuscitation(
@@ -1174,6 +1288,13 @@ def create_birth_resuscitation(
     require_enrollment_access(enrollment_id, db, current_user)
     # Re-bind so payload / DB row use the resolved id (incl. NR- placeholders).
     data = data.model_copy(update={"enrollment_id": enrollment_id})
+    eid_conflict = find_enrollment_id_conflict(db, enrollment_id, data.screening_id)
+    if eid_conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=enrollment_id_conflict_message(enrollment_id, eid_conflict),
+        )
+    _assert_baby_uid_unique(db, data.baby_uid, data.screening_id, enrollment_id)
     # FIX: this had no try/except at all. enrollment_id is typed in by hand
     # on Form B (there's no backend generator for it, unlike screening_id),
     # and birth_resuscitation.enrollment_id IS unique at the DB level ? so a
@@ -1400,6 +1521,11 @@ def update_birth_resuscitation(
             enrollment_id=enrollment_id,
             screening_id=updated_data.screening_id,
             site_name=site_for_enrollment(db, enrollment_id),
+        )
+
+        uid_check = update_data.get("baby_uid", entry.baby_uid)
+        _assert_baby_uid_unique(
+            db, uid_check, updated_data.screening_id or entry.screening_id, enrollment_id
         )
 
         for key, value in update_data.items():

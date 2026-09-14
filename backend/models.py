@@ -151,6 +151,8 @@ class Screening(Base):
     # (mother/guardian signs the ICF directly on a tablet with a stylus/finger).
     consent_signature_image = Column(Text, nullable=True)
     consent_signature_captured_at = Column(DateTime, nullable=True)
+    pi_signature_image = Column(Text, nullable=True)
+    pi_signature_captured_at = Column(DateTime, nullable=True)
     reconsent_obtained = Column(Boolean, default=False)
     reconsent_datetime = Column(DateTime, nullable=True)
     reconsent_form_version = Column(String, nullable=True)

@@ -197,6 +197,22 @@
 .form-section-body { padding: 20px 20px 4px; }
 
 /* ─── GRIDS — override global.css ────────────────────────── */
+/* Form A screening datetime: date picker + 24h time (no AM/PM). */
+.datetime-24h-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+.datetime-24h-split .react-datepicker-wrapper {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.datetime-24h-split .mt-wrap {
+  flex: 0 1 140px;
+  min-width: 120px;
+}
+
 .screening-form .form-grid-2,
 .form-grid-2 {
   display: grid;
@@ -517,7 +533,7 @@
 .yes-no-buttons.yn-pos-1 .yn-thumb { transform: translateX(0); background: #1e3a5f; }
 .yes-no-buttons.yn-pos-2 .yn-thumb { transform: translateX(52px); background: #2563eb; }
 
-/* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
+/* Yes/No colors — matches Helper Form 1 (RespCVNeuro.css .rcn-yn-active-yes/no):
    green for Yes, red for No. Scoped to .screening-form only, so other
    forms that reuse the same .yn-btn/.yn-thumb class names keep their own
    navy/blue style.

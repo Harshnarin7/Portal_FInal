@@ -134,6 +134,8 @@ class UserCreate(BaseModel):
     full_name: str | None = None
     mobile: str | None = None
     designation: str | None = None
+    # When False, staff may keep the password you set (no forced change on first login).
+    must_change_password: bool = True
 
 
 class UserUpdate(BaseModel):
@@ -145,6 +147,7 @@ class UserUpdate(BaseModel):
     mobile: str | None = None
     designation: str | None = None
     site_name: str | None = None
+    must_change_password: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -358,6 +361,8 @@ class ScreeningCreate(BaseModel):
     consent_obtained_by_signature: Optional[str] = None
     consent_signature_image: Optional[str] = None
     consent_signature_captured_at: Optional[datetime] = None
+    pi_signature_image: Optional[str] = None
+    pi_signature_captured_at: Optional[datetime] = None
     reconsent_obtained: Optional[bool] = False
     reconsent_datetime: Optional[datetime] = None
     reconsent_form_version: Optional[str] = None
@@ -411,6 +416,8 @@ class ScreeningClinicalOut(BaseModel):
     consent_obtained_by_signature: Optional[str] = None
     consent_signature_image: Optional[str] = None
     consent_signature_captured_at: Optional[datetime] = None
+    pi_signature_image: Optional[str] = None
+    pi_signature_captured_at: Optional[datetime] = None
     reconsent_obtained: Optional[bool] = False
     reconsent_datetime: Optional[datetime] = None
     reconsent_form_version: Optional[str] = None
@@ -650,6 +657,23 @@ class BirthResuscitationCreate(BaseModel):
         parts = eid.split("-")
         if len(parts) >= 2 and parts[1] in {"A", "B", "C", "D"}:
             self.blender_letter = parts[1]
+        return self
+
+    @model_validator(mode="after")
+    def validate_pgimer_baby_annual_no(self):
+        """PGIMER (site 01): baby annual number is exactly 4 digits when provided."""
+        ann = self.baby_annual_no
+        if not ann:
+            return self
+        site_code = None
+        for candidate in (self.screening_id, self.enrollment_id):
+            if candidate and "-" in str(candidate):
+                site_code = str(candidate).split("-", 1)[0].strip()
+                break
+        if site_code == "01":
+            s = str(ann).strip()
+            if not s.isdigit() or len(s) != 4:
+                raise ValueError("PGIMER baby annual number must be exactly 4 digits")
         return self
 
     @field_validator("gestation_weeks", "gestation_rand_weeks")

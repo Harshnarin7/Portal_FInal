@@ -67,7 +67,7 @@ function parseJsonArrayIg(raw) {
 }
 
 /* ══════════════════════════════════════════════════════
-   CONSTANTS — identical to Helper Form 2
+   CONSTANTS — identical to Helper Form 1
 ══════════════════════════════════════════════════════ */
 
 const STATUS = {
@@ -99,7 +99,7 @@ const LEGEND_ITEMS = [
 
 /* Every field captured for a day, grouped by section, for the
    "All Days — Table View" modal (fields run down the rows, days
-   run across the columns). Same pattern as Helper Form 2. */
+   run across the columns). Same pattern as Helper Form 1. */
 const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "Infection",
@@ -172,7 +172,7 @@ function formatTableViewValue(d, row) {
    key/label map the "All Days" table view already relies on, so the two
    views can never disagree about what counts as "answered". The "Record"
    section is metadata (saved_by), not something a nurse fills in, so it's
-   excluded from the missing-fields count. Same pattern as Helper Form 2. */
+   excluded from the missing-fields count. Same pattern as Helper Form 1. */
 function computeMissingFields(d) {
   if (!d) return [];
   return TABLE_VIEW_FIELD_GROUPS
@@ -230,7 +230,7 @@ function validatePeakTsb(value) {
 }
 
 /* ══════════════════════════════════════════════════════
-   SHARED SUB-COMPONENTS (identical to Helper Form 2)
+   SHARED SUB-COMPONENTS (identical to Helper Form 1)
 ══════════════════════════════════════════════════════ */
 
 function ProgressRing({ percent }) {
@@ -1202,7 +1202,7 @@ export default function InfectGIHemaLog() {
       return;
     }
     // force: re-save while viewing a saved draft (Submit path) without
-    // requiring Edit — same pattern as Helper Form 2 (RespCVNeuroLog).
+    // requiring Edit — same pattern as Helper Form 1 (RespCVNeuroLog).
     if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
@@ -1325,7 +1325,7 @@ export default function InfectGIHemaLog() {
   // (status != EMPTY), for the "Table View" overview. Reuses the same
   // per-day endpoint the form itself already uses to load a single day —
   // no new backend endpoint needed, just fetched in parallel for every
-  // filled day instead of one at a time. Same pattern as Helper Form 2.
+  // filled day instead of one at a time. Same pattern as Helper Form 1.
   const loadTableViewData = async () => {
     setShowTableView(true);
     setTableViewLoading(true);
