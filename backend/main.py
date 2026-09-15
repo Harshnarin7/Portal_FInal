@@ -21,6 +21,7 @@ from ae_reference import (
     detect_form_h_morbidity_candidates,
     detect_infection_candidates,
     detect_form_h_heme_candidates,
+    detect_pending_cranial_usg_findings,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -2573,17 +2574,24 @@ def get_neuro_prefill(
 
     The day log only records "did cranial USG/EEG show X on this day" as a
     flat boolean, with no side and no grade — so only the top-level "was X
-    ever present" Yes/No for each of IVH / cPVL / Ventriculomegaly /
-    Seizures can be safely derived. Everything that requires reading an
-    actual scan or EEG trace (IVH/PVL side, grade, per-side date/age;
-    ventriculomegaly severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG
-    result, status epilepticus, AEDs, etiology) stays manual — the day log
-    has no equivalent field, and guessing a grade or laterality from a
-    single "yes/no" flag would be actively wrong, not just incomplete.
+    ever present" Yes/No for each of Ventriculomegaly / Seizures can be
+    safely derived. Everything that requires reading an actual scan or EEG
+    trace (IVH/PVL side, grade, per-side date/age; ventriculomegaly
+    severity, VI/AHW/TOD/ACA-RI/MCA-RI; seizure type, EEG result, status
+    epilepticus, AEDs, etiology) stays manual — the day log has no
+    equivalent field, and guessing a grade or laterality from a single
+    "yes/no" flag would be actively wrong, not just incomplete.
 
-    - ivh_present / pvl_present / ventriculomegaly_present / seizures:
-      any-day booleans from ivh / cpvl_confirmed / ventriculomegaly /
-      clinical_seizures respectively.
+    ivh_present / pvl_present are deliberately NOT derived here even though
+    the day log's `ivh` / `cpvl_confirmed` flags exist — Form F's cranial-USG
+    prefill (get_cranial_usg_prefill) is the sole source for those two
+    fields now that IVH/PVL grading lives only in Form F. Having two
+    independent auto-fill sources for the same field with no precedence
+    rule let a clinician's Force Refill clicks flip the answer depending on
+    which was clicked last; retired 2026-09 in favour of a single source.
+
+    - ventriculomegaly_present / seizures: any-day booleans from
+      ventriculomegaly / clinical_seizures respectively.
     - seizure_date: the one Neuro onset date Form H stores as a single
       (non-side-specific) field, so — unlike IVH/PVL's per-side dates —
       it can use the same cross-table day1_date + earliest-true-day pattern
@@ -2625,8 +2633,6 @@ def get_neuro_prefill(
     return {
         "has_data": True,
         "log_days_count": len(logs),
-        "ivh_present": "Yes" if any_day("ivh") else "No",
-        "pvl_present": "Yes" if any_day("cpvl_confirmed") else "No",
         "ventriculomegaly_present": "Yes" if any_day("ventriculomegaly") else "No",
         "seizures": "Yes" if any_day("clinical_seizures") else "No",
         "seizure_date": seizure_date,
@@ -3693,7 +3699,7 @@ def get_post_resus_prefill(
       after discharge) and the day logs stop at discharge: "No" requires
       confirmation the baby was still alive and being tracked at or past
       that age — either the latest day logged across all 3 helper-log
-      tables, or NICUAdmission.discharge_date if later, reaches or
+      tables, or Form H's discharge_date if later, reaches or
       passes the cutoff. A baby discharged alive *before* completing 7
       or 28 days, with no later data, is left blank — the data genuinely
       can't confirm or rule out a post-discharge death within that
@@ -3725,6 +3731,19 @@ def get_post_resus_prefill(
     nicu = (
         db.query(NICUAdmission)
         .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    # discharge_date lives on NeonatalMorbidities (Form H), not
+    # NICUAdmission — this function previously read nicu.discharge_date,
+    # an attribute that has never existed on that model, crashing this
+    # whole endpoint with a 500 (AttributeError) any time a baby had
+    # metab_logs but no recorded death. Same bug as the near-identical
+    # branch in get_pma_assessment_prefill, fixed 2026-09-14 after a live
+    # report; fixed here too on the same pass.
+    form_h_discharge = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
         .first()
     )
 
@@ -3759,8 +3778,8 @@ def get_post_resus_prefill(
     if metab_logs:
         all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
         last_known_day = max(all_days) if all_days else None
-        if nicu and nicu.day1_date and nicu.discharge_date:
-            discharge_day = (nicu.discharge_date - nicu.day1_date).days + 1
+        if nicu and nicu.day1_date and form_h_discharge and form_h_discharge.discharge_date:
+            discharge_day = (form_h_discharge.discharge_date - nicu.day1_date).days + 1
             last_known_day = max(last_known_day or 0, discharge_day)
 
         death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
@@ -3841,17 +3860,12 @@ def get_cranial_usg_prefill(
       surfaces via each domain's own staleness check on the next load.
     - vp_shunt: direct boolean from Form F's own `vp_shunt` flag.
 
-    Deliberately NOT filled: pvhi and phh — Form F's `phvd` (post-
-    hemorrhagic ventricular dilatation) is a related but not identical
-    concept to Form H's PHH (post-hemorrhagic hydrocephalus); mapping
-    one to the other would be a clinical judgment call, not a
-    derivation. ivh_description (free text) is not populated from Form
-    F's per-scan `findings` notes in this first pass — matching
-    unstructured text across scans/sides isn't a clean 1:1 mapping the
-    way the graded fields are. ventriculomegaly_present is intentionally
-    left to the Neuro domain alone and not duplicated here, even though
-    Form F also has a `ventriculomegaly` flag — no real benefit to a
-    second source for a single flat boolean already covered elsewhere.
+    pvhi/phh/ventriculomegaly_present (added 2026-09, see the inline
+    comment right before they're set below for the full reasoning and the
+    PI-confirmed PHVD≈PHH approximation) are also filled from this same
+    record. ivh_description (free text) is still not populated from Form
+    F's per-scan `findings` notes — matching unstructured text across
+    scans/sides isn't a clean 1:1 mapping the way the graded fields are.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -3922,6 +3936,35 @@ def get_cranial_usg_prefill(
         result["pvl_age_days_left"] = scan_age_days(pvl_l_scan)
 
     result["vp_shunt"] = "Yes" if record.vp_shunt is True else "No"
+
+    # PVHI, PHH, ventriculomegaly — three more Form H fields this same
+    # scan record can inform (added 2026-09 after PVHI/PHH/ventriculomegaly
+    # were flagged as unlinked naming duplicates between Form F and Form H):
+    #   - pvhi: Form F's own IVH grade scale defines Grade IV as
+    #     "Parenchymal involvement / PVHI" (see the grade-select label in
+    #     FormF.jsx) — a real match, not an approximation. Yes-only fill,
+    #     same discipline as ivh_present/pvl_present above (a scan with a
+    #     lower grade never asserts "No").
+    #   - phh: Form F's `phvd` (post-hemorrhagic ventricular dilatation)
+    #     is NOT strictly identical to Form H's PHH (post-hemorrhagic
+    #     hydrocephalus) in the literature — PHVD is the broader finding,
+    #     PHH is usually the progressed/symptomatic subset — but treating
+    #     PHVD as PHH's source was confirmed as an acceptable
+    #     approximation for this trial (2026-09 decision). Yes-only fill.
+    #   - ventriculomegaly_present: Form F has its own separate
+    #     "ventriculomegaly" Other-Findings checkbox, distinct from the
+    #     Neuro domain's day-log-sourced version of this same Form H
+    #     field (get_neuro_prefill). Unlike ivh_present/pvl_present, both
+    #     sources deliberately stay live here (2026-09 decision) — there's
+    #     no grade/precedence conflict, just two places a plain Yes/No can
+    #     come from, and either fill-if-blank source may win first with no
+    #     data-quality risk.
+    if ivh_r_grade == "IV" or ivh_l_grade == "IV":
+        result["pvhi"] = "Yes"
+    if record.phvd is True:
+        result["phh"] = "Yes"
+    if record.ventriculomegaly is True:
+        result["ventriculomegaly_present"] = "Yes"
 
     return result
 
@@ -4072,8 +4115,17 @@ def get_pma_assessment_prefill(
     else:
         all_days = {l.nicu_day for l in resp_logs} | {l.nicu_day for l in inf_logs} | {l.nicu_day for l in metab_logs}
         last_known_date = day_to_date(max(all_days)) if all_days else None
-        if nicu.discharge_date and (not last_known_date or nicu.discharge_date > last_known_date):
-            last_known_date = nicu.discharge_date
+        # discharge_date lives on NeonatalMorbidities (Form H), not
+        # NICUAdmission -- this previously read nicu.discharge_date, an
+        # attribute that has never existed on that model, crashing this
+        # entire endpoint with a 500 (AttributeError) any time this branch
+        # was reached (no day-log ever recorded a death). Found 2026-09-14
+        # via a live report that Form I's brain-injury checkpoint stayed
+        # permanently blank for a baby with a confirmed severe Form H IVH
+        # grade -- the fetch was failing silently, caught by the frontend's
+        # try/catch and only logged to console, never shown to the user.
+        if form_h and form_h.discharge_date and (not last_known_date or form_h.discharge_date > last_known_date):
+            last_known_date = form_h.discharge_date
         if last_known_date and last_known_date >= target_date:
             result["death"] = "No"
 
@@ -4107,12 +4159,24 @@ def get_pma_assessment_prefill(
         nonlocal usg_record
         if form_h_grade_r in form_h_valid_grades or form_h_grade_l in form_h_valid_grades:
             hit_dates = []
-            if form_h_grade_r in form_h_valid_grades and form_h_date_r and form_h_date_r <= target_date:
-                hit_dates.append(form_h_date_r)
-            if form_h_grade_l in form_h_valid_grades and form_h_date_l and form_h_date_l <= target_date:
-                hit_dates.append(form_h_date_l)
+            undated_severe = False
+            if form_h_grade_r in form_h_valid_grades:
+                if form_h_date_r and form_h_date_r <= target_date:
+                    hit_dates.append(form_h_date_r)
+                elif not form_h_date_r:
+                    undated_severe = True
+            if form_h_grade_l in form_h_valid_grades:
+                if form_h_date_l and form_h_date_l <= target_date:
+                    hit_dates.append(form_h_date_l)
+                elif not form_h_date_l:
+                    undated_severe = True
             if hit_dates:
                 return "Yes", min(hit_dates).isoformat()
+            if undated_severe:
+                # Severe grade recorded on Form H but no date to confirm it
+                # happened by this checkpoint — left blank rather than
+                # guessed "No", matching this function's own docstring.
+                return None, None
             return "No", None
         if usg_record is None:
             usg_record = db.query(CranialUSGRecord).filter(CranialUSGRecord.enrollment_id == enrollment_id).first() or False
@@ -5087,7 +5151,15 @@ def get_adverse_event_candidates(
       - Domain 4: haematologic / bilirubin — hyperbilirubinemia, anemia,
         thrombocytopenia. Graded off the recorded treatment; Form H's
         Haematology section is primary, the Infect/GI/Hema day-log
-        treatment booleans are the fallback."""
+        treatment booleans are the fallback.
+
+    Also returns `pending_cranial_usg_findings` — advisory only, never a
+    candidate: a severe Form F (Cranial USG) finding (Grade III/IV IVH,
+    Grade II+ cPVL) that Form H hasn't caught up with yet (including when
+    Form H doesn't exist at all for this baby). See
+    detect_pending_cranial_usg_findings's own docstring — this does not
+    change Domain 2's Form-H-only policy, it just prompts the clinician to
+    go complete/update Form H."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -5106,8 +5178,13 @@ def get_adverse_event_candidates(
         .order_by(InfectGIHemaDayLog.nicu_day)
         .all()
     )
-    if not logs and nm is None and not inf_logs:
-        return {"has_data": False, "candidates": []}
+    cranial_usg_record = (
+        db.query(CranialUSGRecord)
+        .filter(CranialUSGRecord.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not logs and nm is None and not inf_logs and not cranial_usg_record:
+        return {"has_data": False, "candidates": [], "pending_cranial_usg_findings": []}
 
     nicu = (
         db.query(NICUAdmission)
@@ -5123,7 +5200,12 @@ def get_adverse_event_candidates(
     infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
     candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
     candidates += detect_form_h_heme_candidates(nm, inf_logs, day1_date=day1_date)
-    return {"has_data": True, "candidates": candidates}
+    pending_cranial_usg_findings = detect_pending_cranial_usg_findings(cranial_usg_record, nm)
+    return {
+        "has_data": True,
+        "candidates": candidates,
+        "pending_cranial_usg_findings": pending_cranial_usg_findings,
+    }
 
 
 @app.post("/sae-list/", response_model=SAEListOut)
@@ -6719,7 +6801,43 @@ def upsert_minimal_monitoring_today(
 #   from schemas import CranialUSGCreate, CranialUSGSubmit
 # ============================================================================
 
-#  -  POST  -  create or upsert  - 
+@app.get("/form-h/{enrollment_id}/helper2-neuro-flags")
+def get_form_h_helper2_neuro_flags(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read-only: has Helper 2 (the Resp/CV/Neuro daily log) ever flagged
+    IVH or cPVL for this baby? Used by Form F (Cranial USG, routes below
+    are literally named "/form-h/" for historical reasons — this IS Form F,
+    not the real Form H/NeonatalMorbidities) to gate its own completion
+    status: once Helper 2 flags either finding, Form F should not count
+    as complete until at least one scan entry is on record — that's the
+    whole point of the daily-log flag existing (2026-09 workflow fix).
+
+    This is a display/gating signal only, never written anywhere. It is
+    NOT the same mechanism as get_neuro_prefill, which used to also feed
+    Form H's own ivh_present/pvl_present fields from this same day log —
+    that was retired 2026-09 in favour of Form F being the sole source
+    for those two Form H fields (see get_neuro_prefill's docstring)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+
+    logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+
+    def any_day(attr):
+        return any(getattr(l, attr) is True for l in logs)
+
+    return {
+        "ivh_flagged": "Yes" if any_day("ivh") else "No",
+        "cpvl_flagged": "Yes" if any_day("cpvl_confirmed") else "No",
+    }
+
+
+#  -  POST  -  create or upsert  -
 @app.post("/form-h/")
 def create_form_h(
     data:         CranialUSGCreate,

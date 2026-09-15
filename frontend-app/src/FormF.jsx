@@ -293,7 +293,7 @@ function ScanFormModal({ scan, scanNumber, dob, gaWeeks, gaDays, scheduleKey, on
 export default function FormF() {
   const { enrollmentId } = useParams();
   const navigate   = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { user }   = useAuth();
 
   const [loading, setLoading]         = useState(false);
@@ -302,6 +302,11 @@ export default function FormF() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [message, setMessage]         = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  // Helper 2 (daily monitoring) flagged IVH/cPVL for this baby — once
+  // either is Yes, Form F should not count as "complete" until at least
+  // one scan entry is on record (2026-09 workflow fix). Display/gating
+  // only; never written from here.
+  const [helper2Flags, setHelper2Flags] = useState(null);
 
   const [patientInfo, setPatientInfo] = useState({
     enrollmentId: enrollmentId || "",
@@ -404,10 +409,22 @@ export default function FormF() {
         }
       } catch (err) {
         if (err?.response?.status !== 404) setMessage("Failed to load form data.");
-      } finally { setLoading(false); }
+      }
+      try {
+        const flagsRes = await api.get(`/form-h/${enrollmentId}/helper2-neuro-flags`);
+        setHelper2Flags(flagsRes?.data || null);
+      } catch (_) { /* non-critical — banner just won't show */ }
+      finally { setLoading(false); }
     };
     load();
   }, [enrollmentId]);
+
+  // Helper 2 flagged IVH and/or cPVL, but Form F has no scan entry at all
+  // yet — blocks the sidebar "complete" tick (not saving/navigation) until
+  // at least one scan is added. See get_form_h_helper2_neuro_flags docstring.
+  const helper2IvhGateBlocking = helper2Flags?.ivh_flagged === "Yes" && scanEntries.length === 0;
+  const helper2CpvlGateBlocking = helper2Flags?.cpvl_flagged === "Yes" && scanEntries.length === 0;
+  const helper2GateBlocking = helper2IvhGateBlocking || helper2CpvlGateBlocking;
 
   /* ── Auto-enriched scan entries (DOL + PMA from date) ── */
   const enrichedScans = useMemo(() =>
@@ -524,7 +541,11 @@ export default function FormF() {
       isSaved
         ? await api.put(`/form-h/${enrollmentId}`, payload)
         : await api.post("/form-h/", payload);
-      markFormCompleted("form_f");
+      if (helper2GateBlocking) {
+        unmarkFormCompleted("form_f");
+      } else {
+        markFormCompleted("form_f");
+      }
       setIsSaved(true); setIsEditing(false);
       setShowSaveSuccess(true);
       setMessage("Form F saved successfully.");
@@ -552,7 +573,11 @@ export default function FormF() {
         isSaved
           ? await api.put(`/form-h/${enrollmentId}`, payload)
           : await api.post("/form-h/", payload);
-        markFormCompleted("form_f");
+        if (helper2GateBlocking) {
+          unmarkFormCompleted("form_f");
+        } else {
+          markFormCompleted("form_f");
+        }
         setIsSaved(true);
       }
     } catch (_) {
@@ -616,6 +641,21 @@ export default function FormF() {
         </div>
 
         <div className="cu-body">
+
+          {helper2GateBlocking && (
+            <div className="cu-alert cu-alert--warn">
+              <AlertTriangle size={14} />
+              <span>
+                Helper 2 (daily monitoring) flagged{" "}
+                {helper2IvhGateBlocking && helper2CpvlGateBlocking
+                  ? "IVH and cPVL"
+                  : helper2IvhGateBlocking ? "IVH" : "cPVL"}
+                {" "}for this baby, but no scan has been recorded here yet.
+                Add the corresponding scan below — this form will not count
+                as complete until at least one scan entry is on record.
+              </span>
+            </div>
+          )}
 
           {/* ══ F1. SCREENING RECORD ══ */}
           <div className="cu-card">

@@ -240,12 +240,12 @@ const [respStale, setRespStale] = useState({});
 const [survivalAlert, setSurvivalAlert] = useState(null);
 const [forceRefillingAll, setForceRefillingAll] = useState(false);
 
-// IVH/PVL detail (grade/side/date) from Form F (Cranial USG) — see
-// fetchCranialUsgPrefill below. The Neuro domain above still owns
-// ivh_present/pvl_present/ventriculomegaly_present from the day log;
-// this domain additionally offers ivh_present/pvl_present too (see the
-// backend endpoint docstring for why that's safe) plus the grade/side/
-// date detail the day log never had.
+// IVH/PVL (present + grade/side/date) from Form F (Cranial USG) — see
+// fetchCranialUsgPrefill below. This is the sole auto-fill source for
+// ivh_present/pvl_present (retired from the Neuro/day-log domain 2026-09,
+// see NEURO_PREFILL_FIELDS above) plus the grade/side/date detail the day
+// log never had. The Neuro domain above still owns
+// ventriculomegaly_present/seizures/seizure_date.
 const [cranialUsgPrefill, setCranialUsgPrefill] = useState(null);
 const [cranialUsgAutoFilled, setCranialUsgAutoFilled] = useState({});
 const [cranialUsgStale, setCranialUsgStale] = useState({});
@@ -2039,7 +2039,7 @@ const PREFILL_FIELD_LABELS = {
   jaundice_intervention: "Jaundice", phototherapy: "Phototherapy",
   dvet: "Exchange Transfusion", prbc: "PRBC Transfusion",
   platelets: "Platelet Transfusion", ffp_cryo: "FFP/Cryo Transfusion",
-  ivh_present: "IVH", pvl_present: "cPVL",
+  ivh_present: "IVH", pvl_present: "cPVL", pvhi: "PVHI", phh: "PHH",
   ventriculomegaly_present: "Ventriculomegaly", seizures: "Seizures",
   feed_intolerance: "Feed Intolerance", nec: "NEC",
   pn: "PN", probiotic: "Probiotic", cholestasis: "Cholestasis",
@@ -2405,22 +2405,27 @@ const handleHemeChange = (e) => {
 
 // Neurological (H1) auto-fill — same pattern as the other domains above.
 // The day log only records flat booleans with no side and no grade, so
-// only the top-level "was X ever present" Yes/No for IVH/cPVL/
-// Ventriculomegaly/Seizures can be safely derived — everything that
-// requires reading an actual scan or EEG trace (side, grade, per-side
-// date/age, ventriculomegaly measurements, seizure type/EEG result/AEDs/
-// etiology) stays manual, see the backend endpoint docstring.
+// only the top-level "was X ever present" Yes/No for Ventriculomegaly/
+// Seizures can be safely derived — everything that requires reading an
+// actual scan or EEG trace (side, grade, per-side date/age, ventriculomegaly
+// measurements, seizure type/EEG result/AEDs/etiology) stays manual, see
+// the backend endpoint docstring.
+//
+// ivh_present/pvl_present are deliberately NOT in this domain's field list
+// (retired 2026-09) — Form F's cranial-USG prefill (below) is the sole
+// source for those two now that grading only happens in Form F; having
+// both sources let a clinician's Force Refill clicks flip the answer.
 const NEURO_PREFILL_FIELDS = [
-  "ivh_present", "pvl_present", "ventriculomegaly_present",
+  "ventriculomegaly_present",
   "seizures", "seizure_date",
 ];
 
-// All 4 Yes/No fields get checked for staleness — seizure_date is
+// Both Yes/No fields get checked for staleness — seizure_date is
 // excluded on purpose, same reasoning as the other domains' onset dates:
 // it's a one-time fact once set, not something that keeps changing in a
 // way that would make "disagrees" a meaningful signal.
 const NEURO_STALE_CHECK_FIELDS = [
-  "ivh_present", "pvl_present", "ventriculomegaly_present", "seizures",
+  "ventriculomegaly_present", "seizures",
 ];
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
@@ -3062,37 +3067,118 @@ const forceRefillAllDomains = async () => {
 };
 
 // IVH/PVL detail from Form F (Cranial USG) — see the backend endpoint's
-// docstring for the full derivation and why offering ivh_present/
-// pvl_present here too (alongside the Neuro domain's day-log version)
-// is safe rather than a race.
+// docstring for the full derivation. This is the sole source for
+// ivh_present/pvl_present (the Neuro domain's day-log version was
+// retired 2026-09 to remove the dueling-Force-Refill race that existed
+// while both sources could set the same field).
+//
+// pvhi/phh ride along with the IVH card's own Force Refill (they're both
+// rendered in that same card, right below the IVH description field) —
+// no separate button needed. See get_cranial_usg_prefill's docstring for
+// the PVHI=Grade-IV / PHH≈PHVD reasoning (added 2026-09).
 const CRANIAL_USG_IVH_FIELDS = [
   "ivh_present", "ivh_side",
   "ivh_grade_right", "ivh_date_right", "ivh_age_days_right",
   "ivh_grade_left", "ivh_date_left", "ivh_age_days_left",
-  "vp_shunt",
+  "vp_shunt", "pvhi", "phh",
 ];
 const CRANIAL_USG_PVL_FIELDS = [
   "pvl_present", "pvl_side",
   "pvl_grade_right", "pvl_date_right", "pvl_age_days_right",
   "pvl_grade_left", "pvl_date_left", "pvl_age_days_left",
 ];
+// ventriculomegaly_present has its own card (H1.3) with its own Force
+// Refill for this scope — unlike ivh_present/pvl_present, it deliberately
+// keeps BOTH the Neuro (day-log) and this Form F source live at once
+// (2026-09 decision — no grade/precedence conflict, just two places a
+// plain Yes/No can come from).
+const CRANIAL_USG_OTHER_FIELDS = ["ventriculomegaly_present"];
 const CRANIAL_USG_PREFILL_FIELDS = [
   ...CRANIAL_USG_IVH_FIELDS,
   ...CRANIAL_USG_PVL_FIELDS,
+  ...CRANIAL_USG_OTHER_FIELDS,
 ];
 
 // Only the categorical fields get checked for staleness — dates/ages are
 // excluded on purpose, same reasoning as every other domain.
 const CRANIAL_USG_IVH_STALE_CHECK_FIELDS = [
   "ivh_present", "ivh_side", "ivh_grade_right", "ivh_grade_left", "vp_shunt",
+  "pvhi", "phh",
 ];
 const CRANIAL_USG_PVL_STALE_CHECK_FIELDS = [
   "pvl_present", "pvl_side", "pvl_grade_right", "pvl_grade_left",
 ];
+const CRANIAL_USG_OTHER_STALE_CHECK_FIELDS = ["ventriculomegaly_present"];
 const CRANIAL_USG_STALE_CHECK_FIELDS = [
   ...CRANIAL_USG_IVH_STALE_CHECK_FIELDS,
   ...CRANIAL_USG_PVL_STALE_CHECK_FIELDS,
+  ...CRANIAL_USG_OTHER_STALE_CHECK_FIELDS,
 ];
+
+// Every domain subject to the fill-if-blank / Force-Refill-only-overwrites
+// discipline — a manual edit that contradicts the source data can
+// otherwise be saved completely silently, with no signal until someone
+// happens to reopen this form later (the staleness banners only render
+// on load/force-refill, not at the moment of save). Added 2026-09 after
+// the user flagged this generally (prompted by PVHI specifically, but
+// the gap applies to every domain below) — generalizes the same
+// real-time check built for Form I's brain-injury fields
+// (confirmBrainInjuryConflicts). Never blocks the save — some of these
+// fields are exact restatements (e.g. PVHI) but others are approximations
+// (e.g. PHH≈PHVD) or day-log-only judgment calls, so a hard lock would be
+// wrong for at least some of them; a single clear warning at the moment
+// of save is the right level of friction for all of them at once.
+//
+// Must be declared AFTER CRANIAL_USG_STALE_CHECK_FIELDS above (which it
+// references) — placing this earlier in the file caused a temporal-dead-
+// zone ReferenceError ("Cannot access 'CRANIAL_USG_STALE_CHECK_FIELDS'
+// before initialization") on every single render of this component,
+// crashing the whole page the instant Form H was opened. Found and fixed
+// same-day after a production report; esbuild's syntax check and the
+// actual CRA build both passed cleanly beforehand because this is a
+// runtime execution-order bug, not a syntax error — neither catches it.
+const FORM_H_CONFLICT_DOMAINS = [
+  { label: "Vascular Access", endpoint: "vascular-access-prefill", fields: VASCULAR_STALE_CHECK_FIELDS },
+  { label: "Metabolic", endpoint: "metabolic-prefill", fields: METABOLIC_STALE_CHECK_FIELDS },
+  { label: "Renal", endpoint: "renal-prefill", fields: RENAL_STALE_CHECK_FIELDS },
+  { label: "Hematology", endpoint: "heme-prefill", fields: HEME_STALE_CHECK_FIELDS },
+  { label: "Neurological", endpoint: "neuro-prefill", fields: NEURO_STALE_CHECK_FIELDS },
+  { label: "Gastrointestinal", endpoint: "gi-prefill", fields: GI_STALE_CHECK_FIELDS },
+  { label: "ROP / Thermoregulation", endpoint: "rop-thermoreg-prefill", fields: ROP_THERMO_STALE_CHECK_FIELDS },
+  { label: "Cardiovascular", endpoint: "cv-prefill", fields: CV_STALE_CHECK_FIELDS },
+  { label: "Respiratory", endpoint: "resp-prefill", fields: RESP_STALE_CHECK_FIELDS },
+  { label: "IVH / PVL / PVHI / PHH / Ventriculomegaly (Form F)", endpoint: "cranial-usg-prefill", fields: CRANIAL_USG_STALE_CHECK_FIELDS },
+];
+
+const confirmFormHConflicts = async () => {
+  const conflicts = [];
+  await Promise.all(
+    FORM_H_CONFLICT_DOMAINS.map(async ({ label, endpoint, fields }) => {
+      let live;
+      try {
+        const res = await api.get(`/neonatal-morbidities/${endpoint}/${enrollmentId}`);
+        live = res.data;
+      } catch (_) {
+        return; // advisory only — never block save on a network hiccup
+      }
+      if (!live || !live.has_data) return;
+      fields.forEach((field) => {
+        const liveValue = live[field];
+        if (isBlank(liveValue)) return;
+        const savedValue = formData[field];
+        if (!isBlank(savedValue) && String(savedValue) !== String(liveValue)) {
+          conflicts.push(`${label} — ${PREFILL_FIELD_LABELS[field] || field}: saved "${savedValue}", source data now says "${liveValue}"`);
+        }
+      });
+    })
+  );
+  if (conflicts.length === 0) return true;
+  return window.confirm(
+    "The following answers disagree with the current source data (daily logs / Form F):\n\n" +
+    conflicts.join("\n") +
+    '\n\nSave anyway? (Use the relevant section\'s "Force refill" below instead if the source data is correct.)'
+  );
+};
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
 // already-answered fields instead of only blank ones. force also fills
@@ -3118,9 +3204,11 @@ const fetchCranialUsgPrefill = async ({ force = false, scope = "all", autoFillBl
 
     const fields = scope === "ivh" ? CRANIAL_USG_IVH_FIELDS
       : scope === "pvl" ? CRANIAL_USG_PVL_FIELDS
+      : scope === "other" ? CRANIAL_USG_OTHER_FIELDS
       : CRANIAL_USG_PREFILL_FIELDS;
     const staleCheckFields = scope === "ivh" ? CRANIAL_USG_IVH_STALE_CHECK_FIELDS
       : scope === "pvl" ? CRANIAL_USG_PVL_STALE_CHECK_FIELDS
+      : scope === "other" ? CRANIAL_USG_OTHER_STALE_CHECK_FIELDS
       : CRANIAL_USG_STALE_CHECK_FIELDS;
 
     const filled = {};
@@ -3185,10 +3273,20 @@ const handleCranialUsgChange = (e) => {
   handleChange(e);
 };
 
-// ivh_present/pvl_present can be auto-filled by either the Neuro domain
-// (day log) or this Cranial USG domain (Form F) — clear both badges on
-// manual edit regardless of which source actually filled it.
+// ivh_present/pvl_present are auto-filled solely by the Cranial USG domain
+// (Form F) as of 2026-09 — clearNeuroAutoFilled is a harmless no-op here
+// (kept in case a future Neuro-domain field is ever added to this handler).
 const handleIvhPvlPresentChange = (e) => {
+  clearNeuroAutoFilled(e.target.name);
+  clearCranialUsgAutoFilled(e.target.name);
+  handleChange(e);
+};
+
+// ventriculomegaly_present is the one field that genuinely keeps BOTH the
+// Neuro (day-log) and Cranial USG (Form F Other Findings) auto-fill
+// sources live at once (2026-09 decision) — clear both badges on manual
+// edit regardless of which source actually filled it.
+const handleVentriculomegalyChange = (e) => {
   clearNeuroAutoFilled(e.target.name);
   clearCranialUsgAutoFilled(e.target.name);
   handleChange(e);
@@ -4669,6 +4767,7 @@ const num = (v) => {
 
   // "Save" on the bottom nav bar — saves without leaving the page.
   const saveFormH = async () => {
+    if (!(await confirmFormHConflicts())) return;
     try {
       const payload = buildPayload();
       if (formData._record_id) {
@@ -4733,6 +4832,8 @@ const num = (v) => {
       );
       return;
     }
+
+    if (!(await confirmFormHConflicts())) return;
 
     try {
       const payload = buildPayload();
@@ -5782,29 +5883,9 @@ const peripheralStatus= getPeripheralStatus();
     onToggle={() => setOpenSection(openSection === "ivh" ? null : "ivh")}
   >
 
-{neuroPrefill?.has_data && (
-  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
-    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
-    Empty fields below were filled from them automatically — verify before saving.
-    {" "}
-    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
-      Refill empty fields from daily logs
-    </button>
-    {" · "}
-    <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
-      Force refill (overwrite existing answers)
-    </button>
-  </div>
-)}
-{Object.keys(neuroStale).length > 0 && (
-  <div className="field-hint field-hint-warning">
-    ⚠ The daily logs now disagree with the saved answer for:{" "}
-    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
-    This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
-  </div>
-)}
+{/* Neuro-domain (daily-log) banner deliberately removed from this card
+    2026-09 — ivh_present/pvl_present are no longer part of NEURO_PREFILL_FIELDS,
+    Form F below is the sole source now. */}
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
@@ -5839,7 +5920,6 @@ const peripheralStatus= getPeripheralStatus();
 
         <div className="form-group">
           <YesNoToggle label="1. Any IVH Diagnosed" name="ivh_present" value={formData.ivh_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
-          {neuroAutoFilled.ivh_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {cranialUsgAutoFilled.ivh_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.ivh_present && errors.ivh_present && <div className="error-text">{errors.ivh_present}</div>}
         </div>
@@ -5979,11 +6059,13 @@ const peripheralStatus= getPeripheralStatus();
 
             <div className="fh-grid-row">
               <div className="form-group">
-                <YesNoToggle label="10. PVHI" name="pvhi" value={formData.pvhi} onChange={handleChange} />
+                <YesNoToggle label="10. PVHI" name="pvhi" value={formData.pvhi} onChange={handleCranialUsgChange} />
+                {cranialUsgAutoFilled.pvhi && <span className="field-hint-auto-inline">from Form F (Grade IV IVH)</span>}
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="11. PHH" name="phh" value={formData.phh} onChange={handleChange} />
+                <YesNoToggle label="11. PHH" name="phh" value={formData.phh} onChange={handleCranialUsgChange} />
+                {cranialUsgAutoFilled.phh && <span className="field-hint-auto-inline">from Form F (PHVD)</span>}
               </div>
 
               <div className="form-group">
@@ -6011,29 +6093,9 @@ const peripheralStatus= getPeripheralStatus();
     onToggle={() => setOpenSection(openSection === "pvl" ? null : "pvl")}
   >
 
-{neuroPrefill?.has_data && (
-  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
-    Daily logs available ({neuroPrefill.log_days_count} day{neuroPrefill.log_days_count === 1 ? "" : "s"} recorded).
-    Empty fields below were filled from them automatically — verify before saving.
-    {" "}
-    <button type="button" className="link-button" onClick={() => fetchNeuroPrefill()}>
-      Refill empty fields from daily logs
-    </button>
-    {" · "}
-    <button type="button" className="link-button link-button-danger"
-      onClick={() => confirmForceRefill("Neurological", fetchNeuroPrefill)}>
-      Force refill (overwrite existing answers)
-    </button>
-  </div>
-)}
-{Object.keys(neuroStale).length > 0 && (
-  <div className="field-hint field-hint-warning">
-    ⚠ The daily logs now disagree with the saved answer for:{" "}
-    {Object.keys(neuroStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
-    This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
-  </div>
-)}
+{/* Neuro-domain (daily-log) banner deliberately removed from this card
+    2026-09 — ivh_present/pvl_present are no longer part of NEURO_PREFILL_FIELDS,
+    Form F below is the sole source now. */}
 {cranialUsgPrefill?.has_data && (
   <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
     Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
@@ -6068,7 +6130,6 @@ const peripheralStatus= getPeripheralStatus();
 
         <div className="form-group">
           <YesNoToggle label="13. cPVL Diagnosed" name="pvl_present" value={formData.pvl_present} onChange={handleIvhPvlPresentChange} onBlur={handleBlur} required />
-          {neuroAutoFilled.pvl_present && <span className="field-hint-auto-inline">from daily logs</span>}
           {cranialUsgAutoFilled.pvl_present && <span className="field-hint-auto-inline">from Form F</span>}
           {touched.pvl_present && errors.pvl_present && <div className="error-text">{errors.pvl_present}</div>}
         </div>
@@ -6253,11 +6314,43 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+{cranialUsgPrefill?.has_data && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    Form F (Cranial USG) has {cranialUsgPrefill.scan_count} scan{cranialUsgPrefill.scan_count === 1 ? "" : "s"} recorded.
+    An empty field below is filled from its Other Findings section automatically — verify before saving.
+    {" "}
+    <button type="button" className="link-button"
+      onClick={() => fetchCranialUsgPrefill({ scope: "other", autoFillBlanks: true })}>
+      Refill empty fields from Form F
+    </button>
+    {" · "}
+    <button type="button" className="link-button link-button-danger"
+      onClick={() => confirmForceRefill("Ventriculomegaly (Form F)", (opts) => fetchCranialUsgPrefill({ ...opts, scope: "other" }), "Form F's Other Findings section")}>
+      Force refill (overwrite existing answers)
+    </button>
+  </div>
+)}
+{Object.keys(cranialUsgStale).some((f) => CRANIAL_USG_OTHER_STALE_CHECK_FIELDS.includes(f)) && (
+  <div className="field-hint field-hint-warning">
+    ⚠ Form F (Cranial USG) now disagrees with the saved answer for:{" "}
+    {Object.keys(cranialUsgStale).filter((f) => CRANIAL_USG_OTHER_STALE_CHECK_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    This can happen if Form H was answered before the scan data existed.
+    Use "Force refill" above if Form F is correct.
+  </div>
+)}
+{Object.keys(cranialUsgNewlyAvailable).some((f) => CRANIAL_USG_OTHER_FIELDS.includes(f)) && (
+  <div className="field-hint field-hint-warning">
+    Form F (Cranial USG) now has new data for:{" "}
+    {Object.keys(cranialUsgNewlyAvailable).filter((f) => CRANIAL_USG_OTHER_FIELDS.includes(f)).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
+    Use "Refill empty fields from Form F" above to pull it in.
+  </div>
+)}
 
       {/* Present */}
       <div className="form-group">
-        <YesNoToggle label="21. Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleNeuroChange} onBlur={handleBlur} required />
+        <YesNoToggle label="21. Ventriculomegaly" name="ventriculomegaly_present" value={formData.ventriculomegaly_present} onChange={handleVentriculomegalyChange} onBlur={handleBlur} required />
         {neuroAutoFilled.ventriculomegaly_present && <span className="field-hint-auto-inline">from daily logs</span>}
+        {cranialUsgAutoFilled.ventriculomegaly_present && <span className="field-hint-auto-inline">from Form F</span>}
 
         {touched.ventriculomegaly_present &&
           errors.ventriculomegaly_present && (

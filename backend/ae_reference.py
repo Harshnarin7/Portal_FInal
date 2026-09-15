@@ -736,6 +736,94 @@ def detect_form_h_morbidity_candidates(nm, day1_date=None):
     return [c for c in out if c]
 
 
+_CRANIAL_USG_GRADE_RANK = {
+    "none": 0, "i": 1, "ii": 2, "iii": 3, "iv": 4,
+    "1": 1, "2": 2, "3": 3, "4": 4,
+}
+
+
+def _cranial_usg_grade_rank(value):
+    return _CRANIAL_USG_GRADE_RANK.get(str(value or "").strip().lower(), 0)
+
+
+def detect_pending_cranial_usg_findings(cranial_usg_record, nm):
+    """Advisory-only, never used to create an AE candidate. Domain 2 above
+    is deliberately Form-H-only (PI decision 2026-08-27) — an unadjudicated
+    Form F (Cranial USG) finding must not silently become an AE candidate.
+    But that policy has a gap: a genuinely severe scan finding (Grade
+    III/IV IVH, Grade II+ cPVL) sitting in Form F produces zero signal on
+    the AE scan screen if Form H hasn't been created/updated yet — nothing
+    prompts a clinician to go adjudicate it. This flags exactly that
+    situation so the clinician knows to complete/update Form H, without
+    reopening the Form-H-only policy for Domain 2 itself.
+
+    cranial_usg_record: the single CranialUSGRecord row for this
+    enrollment, or None. nm: the NeonatalMorbidities (Form H) row, or None.
+    "Reflected in Form H" means Form H already has that side's grade at or
+    above the same severity threshold — an exact grade match isn't
+    required, just that Form H has already caught up to "this is severe"."""
+    if not cranial_usg_record or not cranial_usg_record.scan_entries:
+        return []
+
+    def best_side(grade_key):
+        best_grade, best_scan = "None", None
+        for scan in cranial_usg_record.scan_entries:
+            g = (scan or {}).get(grade_key) or "None"
+            if _cranial_usg_grade_rank(g) > _cranial_usg_grade_rank(best_grade):
+                best_grade, best_scan = g, scan
+        return best_grade, best_scan
+
+    pending = []
+
+    ivh_reflected = nm is not None and _fh_truthy(nm.ivh_present, nm.ivh)
+    for side, grade_key, fh_attr in (
+        ("Right", "ivhGradeRight", "ivh_grade_right"),
+        ("Left", "ivhGradeLeft", "ivh_grade_left"),
+    ):
+        grade, scan = best_side(grade_key)
+        if _cranial_usg_grade_rank(grade) < 3:  # below Grade III
+            continue
+        fh_grade = getattr(nm, fh_attr, None) if ivh_reflected else None
+        if _cranial_usg_grade_rank(fh_grade) >= 3:
+            continue
+        pending.append({
+            "finding": "IVH",
+            "side": side,
+            "grade": grade,
+            "scan_date": (scan or {}).get("scanDate"),
+            "message": (
+                f"Form F shows {side} Grade {grade} IVH, but Form H "
+                f"{'has not been created yet' if nm is None else 'does not yet reflect this'} "
+                f"for this baby."
+            ),
+        })
+
+    pvl_reflected = nm is not None and _fh_truthy(nm.pvl_present, nm.pvl)
+    for side, grade_key, fh_attr in (
+        ("Right", "cpvlGradeRight", "pvl_grade_right"),
+        ("Left", "cpvlGradeLeft", "pvl_grade_left"),
+    ):
+        grade, scan = best_side(grade_key)
+        if _cranial_usg_grade_rank(grade) < 2:  # below Grade II
+            continue
+        fh_grade = getattr(nm, fh_attr, None) if pvl_reflected else None
+        if _cranial_usg_grade_rank(fh_grade) >= 2:
+            continue
+        pending.append({
+            "finding": "cPVL",
+            "side": side,
+            "grade": grade,
+            "scan_date": (scan or {}).get("scanDate"),
+            "message": (
+                f"Form F shows {side} Grade {grade} cPVL, but Form H "
+                f"{'has not been created yet' if nm is None else 'does not yet reflect this'} "
+                f"for this baby."
+            ),
+        })
+
+    return pending
+
+
 # --------------------------------------------------------------------------
 # Domain 3 — infection episodes (sepsis culture+/−, meningitis)
 # --------------------------------------------------------------------------

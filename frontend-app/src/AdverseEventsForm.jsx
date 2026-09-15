@@ -262,6 +262,10 @@ export default function AdverseEventsForm() {
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState("");
   const [justAddedRows, setJustAddedRows] = useState(() => new Set());
+  // Advisory-only: a severe Form F (Cranial USG) finding Form H hasn't
+  // caught up with yet. Never auto-added as a candidate — see the backend's
+  // detect_pending_cranial_usg_findings docstring.
+  const [pendingCranialUsgFindings, setPendingCranialUsgFindings] = useState([]);
 
   const set = (field, value) => {
     setIsSaved(false);
@@ -323,6 +327,11 @@ export default function AdverseEventsForm() {
         `/adverse-events/candidates/${encodeURIComponent(formData.enrollment_id)}`,
       );
       const candidates = Array.isArray(res.data?.candidates) ? res.data.candidates : [];
+      setPendingCranialUsgFindings(
+        Array.isArray(res.data?.pending_cranial_usg_findings)
+          ? res.data.pending_cranial_usg_findings
+          : [],
+      );
       if (!candidates.length) {
         setScanMessage(
           res.data?.has_data === false
@@ -591,6 +600,18 @@ export default function AdverseEventsForm() {
           </span>
         </div>
         {scanMessage && <p className="ae-scan-msg">{scanMessage}</p>}
+        {pendingCranialUsgFindings.length > 0 && (
+          <div className="field-hint field-hint-warning" style={{ marginTop: 10 }}>
+            ⚠ Form F (Cranial USG) has a severe finding not yet reflected in Form H:
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {pendingCranialUsgFindings.map((f, i) => (
+                <li key={i}>{f.message}</li>
+              ))}
+            </ul>
+            This is not added as an AE candidate automatically — please complete/update
+            Form H for this baby first, then re-scan.
+          </div>
+        )}
       </SectionCard>
 
       {showEvents && (
