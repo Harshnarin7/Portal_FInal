@@ -377,6 +377,29 @@
   flex-shrink: 0;
 }
 
+/* ── DOB + auto Day 1 / active day (helper forms) ───────── */
+.rcn-dob-day-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  max-width: 100%;
+}
+.rcn-day1-picker--readonly {
+  cursor: default;
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+  pointer-events: none;
+}
+.rcn-day1-picker--readonly:hover,
+.rcn-day1-picker--readonly:focus,
+.rcn-day1-picker--readonly:focus-within {
+  border-color: #E2E8F0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
 /* ── Day 1 date picker ───────────────────────────────────── */
 .rcn-day1-picker {
   position: relative;

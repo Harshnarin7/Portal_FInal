@@ -335,6 +335,10 @@
   border-top: 1px solid #F1F5F9;
 }
 
+.mml-history-table tbody tr.mml-history-row--draft td {
+  background: color-mix(in srgb, var(--rcn-primary, #2563eb) 6%, transparent);
+}
+
 .mml-history-table tbody td {
   color: #0F172A;
   font-weight: 600;

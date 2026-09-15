@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, openNativeDatePicker, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1 } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1 } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
+import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock, Check,
@@ -402,7 +403,7 @@ function migrateAkiFromLegacy(d) {
 
 /** Helper-5-style multi-entry block (date/time + value field(s)). */
 function ReadingsBlock({
-  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children,
+  code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children, fixedDate,
 }) {
   const list = entries?.length ? entries : [blankFactory ? blankFactory() : blankReading()];
   return (
@@ -412,8 +413,17 @@ function ReadingsBlock({
           {list.length > 1 && <span className="rcn-reading-idx">#{idx + 1}</span>}
           <label className="mml-meta-field">
             <span>Date</span>
-            <input type="date" className="rcn-text-input mml-date-input" value={entry.date || ""}
-              disabled={disabled} onChange={e => onChangeEntry(idx, "date", e.target.value)} />
+            <input
+              type="date"
+              className="rcn-text-input mml-date-input"
+              value={fixedDate || entry.date || ""}
+              readOnly={!!fixedDate}
+              disabled={disabled || !!fixedDate}
+              onChange={e => {
+                if (fixedDate) return;
+                onChangeEntry(idx, "date", e.target.value);
+              }}
+            />
           </label>
           <label className="mml-meta-field">
             <span>Time</span>
@@ -654,11 +664,8 @@ export default function MetabRenalVascEyeLog() {
   const [activeDay, setActiveDay]         = useState(1);
   // Paper CRF shows NICU days 1–31
   const [totalDays, setTotalDays]         = useState(31);
-  // Day 1 date — manually entered, drives all day date labels.
-  // NOT auto-filled from birth date. User manually sets in helper form.
-  const [day1Date, setDay1Date] = useState(() =>
-    enrollmentId ? (localStorage.getItem(`mrve_day1_${enrollmentId}`) || "") : ""
-  );
+  // Day 1 date — Form B date_of_birth only (read-only in UI).
+  const [day1Date, setDay1Date] = useState("");
   const [completedDays, setCompletedDays] = useState([]);
   const [dayStatuses, setDayStatuses]     = useState({});
   const [dayMeta, setDayMeta]             = useState({});
@@ -697,11 +704,6 @@ export default function MetabRenalVascEyeLog() {
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [auditEntries, setAuditEntries]     = useState([]);
   const [auditLoading, setAuditLoading]     = useState(false);
-
-  /* ── Day 1 Date — backend-synced lock state ── */
-  const [day1DateLockedRemote, setDay1DateLockedRemote] = useState(false);
-  const [day1DateSetBy, setDay1DateSetBy]     = useState("");
-  const [day1EditArmed, setDay1EditArmed]     = useState(false); // superadmin explicit unlock
 
   /* ── Site-monitor override ── */
   const [showOverrideModal, setShowOverrideModal] = useState(false);
@@ -838,8 +840,6 @@ export default function MetabRenalVascEyeLog() {
   // Informational only now — locking is manual (see the Lock button below),
   // so a past calendar date no longer forces a day read-only by itself.
   const isPastActiveDay   = todayNicuDay != null && activeDay < todayNicuDay;
-  // Complete by 11:00 AM — still used for the Day 1 Date entry window.
-  const MRVE_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
@@ -867,31 +867,6 @@ export default function MetabRenalVascEyeLog() {
     // confirmation modal below), so a past day's calendar date passing no
     // longer forces the record read-only on its own — only isSubmitted
     // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
-
-  // Day 1 Date drives every day's calendar label and the future/past
-  // lock above, so once any daily data exists it must stop moving.
-  // IMPORTANT: only apply that lock once a date has actually been set.
-  // Older records where daily data was saved before a date existed (the
-  // exact bug this guards against) must stay editable so the nurse can
-  // go back and fill it in, instead of being permanently stuck.
-  const day1DateLockedLocal = completedDays.length > 0 ||
-    Object.values(dayStatuses).some(st => st && st !== STATUS.EMPTY);
-  const day1DateLocked = !!day1Date && (day1DateLockedRemote || day1DateLockedLocal) && !day1EditArmed;
-
-  // Day 1 Date entry window: today, or yesterday until 11:00 AM — matches
-  // the backend's DAY1_DATE_ENTRY_GRACE_HOUR so a nurse can't pick some
-  // unrelated day, and mirrors the same late-shift grace period used for
-  // day locking above.
-  const day1DateBounds = useMemo(() => {
-    const now = new Date();
-    const todayStr = toDateOnlyValue(now);
-    if (now.getHours() < MRVE_LATE_GRACE_HOUR) {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return { min: toDateOnlyValue(yesterday), max: todayStr };
-    }
-    return { min: todayStr, max: todayStr };
-  }, []);
 
   /* ═══════════════════════════════════════
      PROGRESS — hidden fields excluded
@@ -1216,25 +1191,13 @@ export default function MetabRenalVascEyeLog() {
   useEffect(() => {
     if (!enrollmentId) return;
     const load = async () => {
-      // Day 1 Date — backend is source of truth (shared across
-      // devices/nurses); localStorage is kept only as an instant-paint cache.
-      try {
-        const d1Res = await api.get(`/nicu-admission/${enrollmentId}/day1-date`);
-        const d1 = d1Res?.data || {};
-        setDay1DateLockedRemote(!!d1.locked);
-        setDay1DateSetBy(d1.day1_date_set_by || "");
-        if (d1.day1_date) {
-          setDay1Date(d1.day1_date);
-          localStorage.setItem(`mrve_day1_${enrollmentId}`, d1.day1_date);
-        }
-      } catch (_) {
-        // Endpoint optional / older backend — fall back to localStorage
-      }
-
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
-        
+        if (b.date_of_birth) {
+          setDay1Date(normalizeHelperDob(b.date_of_birth));
+        }
+
         // Load gestation with NBS correction check (same logic as FiO2 form)
         let gestWeeks = b?.gestation_weeks;
         let gestDays = b?.gestation_days ?? 0;
@@ -1274,18 +1237,17 @@ export default function MetabRenalVascEyeLog() {
         // Don't calculate based on birth date - use Day 1 Date instead
         const maxDay = dischDay || 14;
 
+        const dob = normalizeHelperDob(b.date_of_birth);
+
         setPatientInfo(prev => ({
           ...prev, enrollmentId,
           babyUid: b.baby_uid || "", 
           gestationalAge: ga,
           gestationSource: gestSource,
-          admissionDate: b.date_of_birth || "",
+          admissionDate: dob,
           dischargeDate: b.discharge_date || "",
           status: b.discharge_date ? "Discharged" : "In NICU",
         }));
-        // Don't auto-fill Day 1 date from birth date
-        // User must manually set it in the helper form
-        // Keep active day at 1 (user manually selects which day to fill)
         setTotalDays(maxDay);
       } catch (_) {}
 
@@ -1588,7 +1550,7 @@ export default function MetabRenalVascEyeLog() {
   const handleSave = async ({ force = false } = {}) => {
     if (!enrollmentId) return;
     if (!day1Date) {
-      setMessage("⚠️ Please set Day 1 Date above before saving");
+      setMessage("⚠️ Day 1 Date is missing — record Date of Birth in Form B first");
       return;
     }
     // force: re-save while viewing a saved draft (Submit path) without
@@ -1880,95 +1842,16 @@ export default function MetabRenalVascEyeLog() {
             >
               <History size={13} /> Table View
             </button>
-            <div
-              className={`rcn-day1-picker${day1DateLocked ? " rcn-day1-picker--locked" : ""}${!day1Date ? " rcn-day1-picker--required" : ""}`}
-              role={day1DateLocked ? undefined : "button"}
-              tabIndex={day1DateLocked ? -1 : 0}
-              aria-label={day1Date ? `Day 1 Date ${formatIsoDateMedium(day1Date)}` : "Day 1 Date, select date"}
-              title={day1DateLocked
-                ? `Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`
-                : `Required — today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`}
-              onClick={(e) => {
-                if (day1DateLocked || e.target.closest(".rcn-day1-admin-unlock")) return;
-                openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
-              }}
-              onKeyDown={(e) => {
-                if (day1DateLocked) return;
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  openNativeDatePicker(e.currentTarget.querySelector("input[type='date']"));
-                }
-              }}
-            >
+            <div className="rcn-day1-picker rcn-day1-picker--readonly">
               <span className="rcn-day1-picker-icon" aria-hidden="true">
                 <Calendar size={16} strokeWidth={1.75} />
               </span>
               <div className="rcn-day1-picker-body">
-                <span className="rcn-day1-picker-label">
-                  Day 1 Date {!day1Date && <span className="rcn-day1-picker-required-mark" title="Required — data cannot be entered until this is set">*</span>}
-                </span>
+                <span className="rcn-day1-picker-label">Day 1 Date</span>
                 <span className="rcn-day1-picker-value">
-                  {day1Date ? formatIsoDateMedium(day1Date) : "Select date"}
+                  {day1Date ? formatIsoDateMedium(day1Date) : "Awaiting Form B (Date of Birth not yet recorded)"}
                 </span>
               </div>
-              <input
-                type="date"
-                className="rcn-day1-picker-input"
-                tabIndex={-1}
-                aria-hidden="true"
-                value={day1Date}
-                readOnly={day1DateLocked}
-                disabled={day1DateLocked}
-                min={day1EditArmed ? undefined : day1DateBounds.min}
-                max={day1EditArmed ? undefined : day1DateBounds.max}
-                required
-                onChange={async e => {
-                  if (day1DateLocked) return;
-                  const v = e.target.value;
-                  if (!day1EditArmed && v && (v < day1DateBounds.min || v > day1DateBounds.max)) {
-                    setMessage(
-                      `⚠️ Day 1 Date must be today's date, or yesterday's before ${MRVE_LATE_GRACE_HOUR}:00 AM`
-                    );
-                    setTimeout(() => setMessage(""), 4000);
-                    return;
-                  }
-                  setDay1Date(v);
-                  if (enrollmentId) localStorage.setItem(`mrve_day1_${enrollmentId}`, v);
-                  try {
-                    await api.put(`/nicu-admission/${enrollmentId}/day1-date`, { day1_date: v });
-                    setDay1EditArmed(false);
-                    setDay1DateSetBy(user?.username || "");
-                  } catch (err) {
-                    setMessage("⚠️ Could not save Day 1 Date — " +
-                      (err?.response?.data?.detail || "it may already be locked"));
-                  }
-                }}
-              />
-              {day1DateLocked && (
-                <span
-                  className="rcn-day1-picker-lock-chip"
-                  title={`Locked — daily data already exists for this baby${day1DateSetBy ? ` (set by ${day1DateSetBy})` : ""}`}
-                >
-                  <Lock size={11} strokeWidth={2.25} />
-                  Locked
-                </span>
-              )}
-              {day1DateLockedRemote && isSuperadmin && !day1EditArmed && (
-                <button
-                  type="button"
-                  className="rcn-day1-admin-unlock"
-                  title="Superadmin: unlock Day 1 Date for correction"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (window.confirm(
-                      "Changing Day 1 Date after daily data exists can reshuffle which days are " +
-                      "counted as past/future for every nurse. Continue only for a genuine correction."
-                    )) setDay1EditArmed(true);
-                  }}
-                >
-                  <Unlock size={12} />
-                </button>
-              )}
             </div>
           </div>
 
@@ -2140,8 +2023,8 @@ export default function MetabRenalVascEyeLog() {
             <div className="rcn-missed-banner">
               <AlertOctagon size={13} />
               <span>
-                Set <strong>Day 1 Date</strong> above before entering data — it's required and
-                can't be added later once a day has been saved without it.
+                Record <strong>Date of Birth</strong> in Form B first — Day 1 Date is taken from
+                that field and is required before you can enter daily helper data.
               </span>
             </div>
           )}
@@ -2320,6 +2203,7 @@ export default function MetabRenalVascEyeLog() {
                   ) : (
                   <ReadingsBlock
                     code="pH"
+                    fixedDate={activeDayDate || ""}
                     entries={metabData.ph_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ ph: "" })}
@@ -2365,6 +2249,7 @@ export default function MetabRenalVascEyeLog() {
                   ) : (
                   <ReadingsBlock
                     code="Na"
+                    fixedDate={activeDayDate || ""}
                     entries={metabData.sodium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
@@ -2400,6 +2285,7 @@ export default function MetabRenalVascEyeLog() {
                   ) : (
                   <ReadingsBlock
                     code="K"
+                    fixedDate={activeDayDate || ""}
                     entries={metabData.potassium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
@@ -2435,6 +2321,7 @@ export default function MetabRenalVascEyeLog() {
                   ) : (
                   <ReadingsBlock
                     code="iCa"
+                    fixedDate={activeDayDate || ""}
                     entries={metabData.calcium_readings}
                     disabled={!isFieldEditable}
                     blankFactory={() => blankReading({ value: "" })}
