@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom";
 import "./PrintSummary.css";
+import { formatDateTimeDisplay24, normalizeClockTimeHms } from "../utils/datetime";
 
 const v = (x) => (x != null && String(x).trim() !== "" ? String(x).trim() : "—");
 
@@ -15,14 +16,14 @@ const fmtDate = (x) => {
   } catch { return String(x); }
 };
 
-const fmtDT = (x) => {
-  if (!x) return "—";
-  try {
-    return new Date(x).toLocaleString("en-IN", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: true,
-    });
-  } catch { return String(x); }
+const fmtDT = (x) => formatDateTimeDisplay24(x);
+
+const fmtClock = (x) => {
+  if (x == null || String(x).trim() === "") return "—";
+  const n = normalizeClockTimeHms(x);
+  if (!n) return String(x);
+  const parts = n.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+  return parts ? `${parts[1]}:${parts[2]}:${parts[3]}` : n;
 };
 
 const yn = (x) => (x === "Yes" || x === "No" ? x : v(x));
@@ -145,7 +146,7 @@ function PrintReportB({ formData = {} }) {
             <div className="pr-section-hd">B2 · Birth Details</div>
             <table className="pr-table"><tbody>
               <R label="Date of Birth" value={fmtDate(formData.date_of_birth)} />
-              <R label="Time of Birth" value={formData.time_of_birth} />
+              <R label="Time of Birth" value={fmtClock(formData.time_of_birth)} />
               <R label="GA at Screening" value={gaScreen} />
               <R label="GA at Randomisation" value={gaRand} />
               <R label="Birth Weight (g)" value={formData.birth_weight} />
@@ -232,7 +233,7 @@ function PrintReportB({ formData = {} }) {
               )}
               <R label="Placental Transfusion" value={yn(formData.placental_transfusion)} />
               <R label="Transfusion Method" value={formData.transfusion_method} />
-              <R label="Cord Clamp Time" value={formData.cord_clamp_timestamp || formData.cord_clamp_time} />
+              <R label="Cord Clamp Time" value={fmtClock(formData.cord_clamp_timestamp || formData.cord_clamp_time)} />
               <R label="Time to Respiration" value={formData.time_to_respiration} />
               <R label="SpO₂ at 5 min" value={formData.spo2_5min} />
               <R label="Time to SpO₂ 80%" value={formData.time_to_spo2_80} />

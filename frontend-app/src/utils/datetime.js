@@ -147,6 +147,96 @@ export function openNativeDatePicker(input) {
 }
 
 /**
+ * Parse clock time to HH:MM:SS (24-hour). Accepts 24h, ISO fragments, and 12h with AM/PM
+ * (e.g. "01:00 PM" → "13:00:00", "1:00 PM" → "13:00:00").
+ * @param {string|null|undefined} value
+ */
+export function normalizeClockTimeHms(value) {
+  if (value === "" || value == null) return "";
+  const s = String(value).trim();
+
+  const ampmOnly = s.match(
+    /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\s*(A\.?M\.?|P\.?M\.?)$/i,
+  );
+  if (ampmOnly) {
+    let h = Number(ampmOnly[1]);
+    const mm = ampmOnly[2];
+    const ss = pad2(ampmOnly[3] ?? "00");
+    const ap = ampmOnly[4].replace(/\./g, "").toUpperCase();
+    if (ap === "PM" && h !== 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    if (!Number.isFinite(h) || h > 23) return s;
+    return `${pad2(h)}:${mm}:${ss}`;
+  }
+
+  const m = s.match(/(?:T|\s|^)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?/);
+  if (!m) return s;
+  const hh = Number(m[1]);
+  const mm = m[2];
+  const ss = pad2(m[3] ?? "00");
+  if (!Number.isFinite(hh) || hh > 23) return s;
+  return `${pad2(hh)}:${mm}:${ss}`;
+}
+
+/**
+ * Normalize form/API datetime to `YYYY-MM-DDTHH:mm` (local), converting 12h times when present.
+ * @param {string|Date|null|undefined} value
+ */
+export function normalizeDateTimeLocalString(value) {
+  if (value === "" || value == null) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toDateTimeLocalValue(value);
+  }
+  const s = String(value).trim();
+
+  let m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(A\.?M\.?|P\.?M\.?)$/i,
+  );
+  if (m) {
+    let h = Number(m[4]);
+    const mi = Number(m[5]);
+    const ap = m[7].replace(/\./g, "").toUpperCase();
+    if (ap === "PM" && h !== 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, mi);
+    return toDateTimeLocalValue(d);
+  }
+
+  m = s.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(A\.?M\.?|P\.?M\.?)?$/i,
+  );
+  if (m) {
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    let h = Number(m[4]);
+    const mi = Number(m[5]);
+    if (m[7]) {
+      const ap = m[7].replace(/\./g, "").toUpperCase();
+      if (ap === "PM" && h !== 12) h += 12;
+      if (ap === "AM" && h === 12) h = 0;
+    }
+    const d = new Date(y, Number(m[2]) - 1, Number(m[1]), h, mi);
+    return toDateTimeLocalValue(d);
+  }
+
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return toDateTimeLocalValue(d);
+  return s;
+}
+
+/**
+ * Display datetime as `DD-MM-YYYY HH:mm` (24-hour, no AM/PM).
+ * @param {string|Date|null|undefined} value
+ */
+export function formatDateTimeDisplay24(value) {
+  if (!value) return "—";
+  const local = normalizeDateTimeLocalString(value);
+  const d = local.includes("T") ? new Date(local) : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return `${formatDateToDDMMYYYY(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
  * Format an "HH:MM" (24h) value as "hh:mm AM/PM".
  * @param {string|null|undefined} hhmm
  */

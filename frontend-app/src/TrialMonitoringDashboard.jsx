@@ -5,6 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
 import { siteShortCode } from "./utils/siteNames";
 import "./TrialMonitoringDashboard.css";
 import DataQuality from "./DataQuality";
@@ -93,6 +94,7 @@ export default function TrialMonitoringDashboard() {
   };
 
   return (
+    <DashboardWorkspaceLayout pageTitle="Trial Monitoring" onRefresh={loadConsort}>
     <div className="tmd-root">
       <div className="tmd-topbar">
         <div>
@@ -180,5 +182,6 @@ export default function TrialMonitoringDashboard() {
         </div>
       )}
     </div>
+    </DashboardWorkspaceLayout>
   );
 }

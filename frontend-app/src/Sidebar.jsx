@@ -56,8 +56,8 @@ const SECTIONS = [
     key: 'helpers',
     title: 'Monitoring Logs',
     items: [
-      { id: 'fio2_auc',             label: 'Helper 1', sub: 'FiO₂ AUC Logging',   path: '/fio2-auc',                Icon: FileHeart  },
-      { id: 'vs6_1',                label: 'Helper 2', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
+      { id: 'vs6_1',                label: 'Helper 1', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
+      { id: 'fio2_auc',             label: 'Helper 2', sub: 'FiO₂ AUC Logging',   path: '/fio2-auc',                Icon: FileHeart  },
       { id: 'infect_gi_hema',       label: 'Helper 3', sub: 'Infect / GI / Hema',  path: '/infect-gi-hema-log',      Icon: Microscope },
       { id: 'metab_renal_vasc_eye', label: 'Helper 4', sub: 'Metab / Renal / Eye', path: '/metab-renal-vasc-eye-log',Icon: TestTube2  },
       { id: 'minimal_monitoring',   label: 'Helper 5', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
@@ -271,10 +271,13 @@ export default function Sidebar({ currentForm }) {
 
   const getPath = (form) => {
     const sid = ids.screeningId  && ids.screeningId  !== 'undefined' ? ids.screeningId  : null;
-    const eid = ids.enrollmentId && ids.enrollmentId !== 'undefined' ? ids.enrollmentId : null;
+    const rawEid = ids.enrollmentId && ids.enrollmentId !== 'undefined' ? ids.enrollmentId : null;
+    const eid = isUsableEnrollmentId(rawEid) ? String(rawEid).trim() : null;
     if (form.id === 'form_a') return sid ? `/form-a/${sid}` : '/form-a';
-    if (form.id === 'form_b') return sid ? `/form-b/${sid}` : '/form-b';
-    return eid ? `${form.path}/${eid}` : form.path;
+    // /form-b/:screeningId only — bare /form-b is handled by ScreeningFormRedirect.
+    if (form.id === 'form_b') return sid ? `/form-b/${sid}` : null;
+    // Routes are /form-c/:enrollmentId etc. — bare /form-c does not match any route (blank page).
+    return eid ? `${form.path}/${eid}` : null;
   };
 
   const FORMS_ALLOWED_WHEN_NO_PPV = new Set(["form_a", "form_b", "form_c"]);
@@ -455,11 +458,33 @@ export default function Sidebar({ currentForm }) {
                   const isCurrent = currentForm === form.id;
                   const { Icon }  = form;
                   const path      = getPath(form);
+                  const needsScreening = form.id === 'form_b';
+                  const needsEnrollment = form.id !== 'form_a' && form.id !== 'form_b';
+                  const missingScreening = needsScreening && !path;
+                  const missingEnrollment = needsEnrollment && !path;
+                  const missingPatientId = missingScreening || missingEnrollment;
                   const stateClass = locked ? 'state-locked' : completed ? 'state-done' : isCurrent ? 'state-active' : 'state-open';
 
                   return (
-                    <NavLink key={form.id} to={locked ? '#' : path}
+                    <NavLink key={form.id} to={locked || missingPatientId ? '#' : path}
                       onClick={e => {
+                        if (missingScreening) {
+                          e.preventDefault();
+                          alert(
+                            'Screening ID is not set. Complete Form A or open the participant ' +
+                            'from View Entries, then open Form B.',
+                          );
+                          return;
+                        }
+                        if (missingEnrollment) {
+                          e.preventDefault();
+                          alert(
+                            'Enrollment ID is not set for this patient yet. Complete Form B ' +
+                            '(save with a valid enrollment ID or NR- placeholder) or open the ' +
+                            'patient from View Entries.',
+                          );
+                          return;
+                        }
                         if (locked) {
                           e.preventDefault();
                           const msg = lockMessage();

@@ -41,6 +41,8 @@ SCREENING_COLUMN_PATCHES = [
     # signature pad, plus when it was captured.
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS consent_signature_image TEXT",
     "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS consent_signature_captured_at TIMESTAMP",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS pi_signature_image TEXT",
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS pi_signature_captured_at TIMESTAMP",
 ]
 
 COMPOSITE_OUTCOME_COLUMN_PATCHES = [

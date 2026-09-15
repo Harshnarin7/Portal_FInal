@@ -3,7 +3,7 @@
 // Data, APIs, tab state, search, Open, notifications, and AI are unchanged.
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, CartesianGrid,
@@ -87,8 +87,36 @@ function babyInitials(label) {
   return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
+function setPatientSessionIds(screeningId, enrollmentId) {
+  if (screeningId) localStorage.setItem("current_screening_id", screeningId);
+  else localStorage.removeItem("current_screening_id");
+  if (enrollmentId) localStorage.setItem("current_enrollment_id", enrollmentId);
+  else localStorage.removeItem("current_enrollment_id");
+  window.dispatchEvent(new Event("storage"));
+}
+
+function pathForNextForm(nextForm, screeningId, enrollmentId) {
+  const sid = screeningId || "";
+  const eid = enrollmentId || "";
+  switch (nextForm) {
+    case "form-b":
+      return sid ? `/form-b/${sid}` : null;
+    case "form-c":
+      return eid ? `/form-c/${eid}` : null;
+    case "form-d":
+      return eid ? `/form-d/${eid}` : null;
+    case "form-e":
+      return eid ? `/form-e/${eid}` : null;
+    case "completed":
+      return eid ? `/form-e/${eid}` : (sid ? `/form-a/${sid}` : null);
+    default:
+      return sid ? `/form-a/${sid}` : null;
+  }
+}
+
 export default function Dashboard() {
   const nav = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
 
   const [screenings, setScreenings] = useState([]);
@@ -102,6 +130,11 @@ export default function Dashboard() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [now, setNow] = useState(new Date());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const next = location.state?.dashboardTab;
+    if (next) setTab(next);
+  }, [location.state?.dashboardTab]);
 
   const [aiMessages, setAiMessages] = useState([]);
   const [aiInput, setAiInput] = useState("");
@@ -196,11 +229,33 @@ export default function Dashboard() {
     );
   });
 
-  const openEnroll = useCallback(async id => {
+  const openPatient = useCallback(async (row) => {
+    const screeningId = row?.screening_id;
+    const enrollmentId = row?.enrollment_id;
+
+    if (!screeningId && !enrollmentId) {
+      alert("Missing patient identifiers");
+      return;
+    }
+
+    if (!enrollmentId) {
+      setPatientSessionIds(screeningId, null);
+      nav(`/form-a/${screeningId}`);
+      return;
+    }
+
     try {
-      const r = await api.get(`/enrollment-status/${id}`);
-      nav(`/${r.data.next_form}`);
-    } catch { alert("Failed to load enrollment"); }
+      const r = await api.get(`/enrollment-status/${enrollmentId}`);
+      const path = pathForNextForm(r.data.next_form, screeningId, enrollmentId);
+      if (!path) {
+        alert("Unable to determine next form for this patient");
+        return;
+      }
+      setPatientSessionIds(screeningId, enrollmentId);
+      nav(path);
+    } catch {
+      alert("Failed to load enrollment");
+    }
   }, [nav]);
 
   useEffect(() => {
@@ -555,7 +610,7 @@ export default function Dashboard() {
                         <button
                           type="button"
                           className="ds-focus min-h-[36px] rounded-lg px-2 text-[12px] font-semibold text-portal-secondary hover:underline"
-                          onClick={() => r.enrollment_id && openEnroll(r.enrollment_id)}
+                          onClick={() => openPatient(r)}
                         >
                           Open
                         </button>

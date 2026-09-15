@@ -2,6 +2,37 @@
    FormC.css — Toggle fix scoped to .screening-form only
    ================================================================ */
 
+/* GPAL nurse reference (Form C C2 — matches Form A .form-note look) */
+.screening-form .gpal-info-box {
+  background: #f9fafb;
+  border-left: 4px solid #2f7d6d;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #374151;
+  margin-bottom: 14px;
+}
+.screening-form .gpal-info-box strong {
+  color: #1f2937;
+  font-size: 13px;
+}
+.screening-form .gpal-info-box ul {
+  margin: 8px 0 0;
+  padding-left: 1.25rem;
+}
+.screening-form .gpal-info-box li {
+  margin-bottom: 4px;
+}
+.screening-form .gpal-info-box li:last-child {
+  margin-bottom: 0;
+}
+.screening-form .gpal-info-box .gpal-info-example {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #4b5563;
+}
+
 /* Container */
 .screening-form .fc-toggle-group {
   display: inline-flex !important;

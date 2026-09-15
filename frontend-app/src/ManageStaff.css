@@ -211,6 +211,23 @@
   color: #94a3b8;
   cursor: not-allowed;
 }
+.ms-field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding-top: 4px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+.ms-field--checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #0284c7;
+  cursor: pointer;
+}
 
 .ms-password-row {
   display: flex;
@@ -314,6 +331,44 @@
   font-size: 13.5px;
 }
 
+/* ── Site-grouped directory sections ── */
+.ms-dir-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.ms-site-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ms-site-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px 12px;
+  border-bottom: 2px solid #0ea5e9;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.08) 0%, rgba(14, 165, 233, 0) 72%);
+  border-radius: 8px 8px 0 0;
+}
+.ms-site-group-name {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #0c4a6e;
+}
+.ms-site-group-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
 /* ── Directory (div grid — not <table>, so unscoped form td rules cannot clip/overlap rows) ── */
 .ms-dir {
   isolation: isolate;
@@ -357,6 +412,10 @@
   background: #fff;
 }
 .ms-dir-row:last-child { border-bottom: none; }
+.ms-dir--grouped .ms-dir-head,
+.ms-dir--grouped .ms-dir-row {
+  grid-template-columns: minmax(220px, 1.6fr) 150px minmax(140px, 1fr) 240px;
+}
 .ms-dir--pi .ms-dir-head--pi,
 .ms-dir--pi .ms-dir-row--pi {
   grid-template-columns: 120px minmax(220px, 1.4fr) minmax(220px, 1.6fr);
@@ -599,6 +658,8 @@
   .ms-dir { overflow-x: auto; }
   .ms-dir-head,
   .ms-dir-row { min-width: 980px; }
+  .ms-dir--grouped .ms-dir-head,
+  .ms-dir--grouped .ms-dir-row { min-width: 860px; }
 }
 @media (max-width: 640px) {
   .ms-title { font-size: 24px; }

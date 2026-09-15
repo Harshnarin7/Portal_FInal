@@ -12,14 +12,14 @@ import NotesBox from "./components/NotesBox";
 import PrintSummaryB from "./components/PrintSummaryB";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
-import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { relativeTime, toDateOnlyValue, parseDateOnly, normalizeClockTimeHms } from "./utils/datetime";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home, User, Baby, Pencil,
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
-  Clock,
 } from "lucide-react";
+import ModernTimeInput from "./components/ModernTimeInput";
 
 /* ── Safe localStorage helpers ──
    localStorage.setItem coerces its value with String(), so
@@ -57,75 +57,6 @@ const Ic = ({ d, s = 15 }) => (
     <path d={d}/>
   </svg>
 );
-
-/* ── Modern HH:MM time stepper ──
-   Two boxed segments (hour, minute) you can type into or nudge with the
-   up/down chevrons — no dropdown list (unlike react-datepicker's time
-   select) and no native <input type="time"> (whose picker UI/AM-PM
-   display depends on the browser/OS locale). Always 24-hour by
-   construction: hour just wraps 0–23, there's no AM/PM concept at all.
-   Seconds are intentionally NOT part of this — kept as their own
-   separate field next to it. */
-function ModernTimeInput({ hour, minute, second, onChange, disabled = false }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  const h = hour === "" || hour === undefined || hour === null ? "" : String(hour).padStart(2, "0");
-  const m = minute === "" || minute === undefined || minute === null ? "" : String(minute).padStart(2, "0");
-  const s = second === "" || second === undefined || second === null ? "" : String(second).padStart(2, "0");
-  const display = (h || m || s) ? `${h || "00"}:${m || "00"}:${s || "00"}` : "";
-
-  useEffect(() => {
-    if (!open) return;
-    const onClickOutside = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [open]);
-
-  const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-  const minSecOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
-
-  const pick = (part, val) => {
-    const curH = hour === "" || hour == null ? 0 : Number(hour);
-    const curM = minute === "" || minute == null ? 0 : Number(minute);
-    const curS = second === "" || second == null ? 0 : Number(second);
-    if (part === "h") onChange(Number(val), curM, curS);
-    else if (part === "m") onChange(curH, Number(val), curS);
-    else onChange(curH, curM, Number(val));
-  };
-
-  const Column = ({ part, label, options, current }) => (
-    <div className="mt-popover-col">
-      <div className="mt-popover-label">{label}</div>
-      <div className="mt-popover-list">
-        {options.map(v => (
-          <div key={v}
-            className={`mt-popover-item${current === v ? " mt-popover-item-active" : ""}`}
-            onClick={() => pick(part, v)}>{v}</div>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="mt-wrap" ref={wrapRef}>
-      <div className={`mt-display${disabled ? " mt-disabled" : ""}`}
-        onClick={() => !disabled && setOpen(o => !o)}>
-        <span className={`mt-display-value${display ? "" : " mt-display-placeholder"}`}>
-          {display || "HH:MM:SS"}
-        </span>
-        <Clock size={16} className="mt-clock-btn"/>
-      </div>
-      {open && !disabled && (
-        <div className="mt-popover">
-          <Column part="h" label="HH" options={hourOptions} current={h}/>
-          <Column part="m" label="MM" options={minSecOptions} current={m}/>
-          <Column part="s" label="SS" options={minSecOptions} current={s}/>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ── Yes/No toggle identical to Form A ── */
 // FIX: this was a stripped-down copy that rendered different class names
@@ -189,10 +120,32 @@ function YesNoToggle({
   );
 }
 
-/* CRF v1.25+ delivery indications (select all that apply) */
+/* CRF v1.25+ delivery indications (select all that apply) — full labels on form */
+const CRF_INDICATION_LEGACY = {
+  pPROM: "Preterm Premature Rupture of Membranes (pPROM)",
+  PPROM: "Preterm Premature Rupture of Membranes (pPROM)",
+  PTL: "Preterm Labor (PTL)",
+  APH: "Antepartum Hemorrhage (APH)",
+  PIH: "Pregnancy-Induced Hypertension (PIH)",
+  "PE/Imminent Eclampsia": "Preeclampsia / Imminent Eclampsia (PE)",
+};
 const CRF_INDICATIONS = [
-  "pPROM", "PTL", "APH", "Placenta Previa", "PIH", "PE/Imminent Eclampsia", "Other",
+  "Preterm Premature Rupture of Membranes (pPROM)",
+  "Preterm Labor (PTL)",
+  "Antepartum Hemorrhage (APH)",
+  "Placenta Previa",
+  "Pregnancy-Induced Hypertension (PIH)",
+  "Preeclampsia / Imminent Eclampsia (PE)",
+  "Other",
 ];
+const normalizeIndicationForDelivery = (raw) => {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(",").map(v => v.trim()).filter(Boolean)
+      : [];
+  return list.map(v => CRF_INDICATION_LEGACY[v] || v);
+};
 
 /* CRF Q60 — reasons the PORTAL blender was interrupted before 30 minutes. */
 const BLENDER_INTERRUPT_REASONS = [
@@ -265,17 +218,7 @@ const calendarDateFromDatetime = (raw) => {
   if (isNaN(dt)) return null;
   return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
 };
-const normalizeTimeForInput = value => {
-  if (value === "" || value == null) return "";
-  const s = String(value).trim();
-  // Accept HH:MM[:SS][.fraction], or ISO-ish "...T12:30:45"
-  const m = s.match(/(?:T|\s|^)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?/);
-  if (!m) return s;
-  const hh = m[1].padStart(2, "0");
-  const mm = m[2];
-  const ss = (m[3] ?? "00").padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-};
+const normalizeTimeForInput = value => normalizeClockTimeHms(value);
 
 /** Clock time HH:MM[:SS] → seconds since midnight (null if unusable). */
 const clockTimeToSeconds = value => {
@@ -515,6 +458,8 @@ export default function BirthResuscitationForm() {
   const [showDraftModal,  setShowDraftModal]   = useState(false);
   const [showSaveSuccess, setShowSaveSuccess]  = useState(false);
   const [siteName,        setSiteName]          = useState("");
+  const [babyUidDuplicateWarn, setBabyUidDuplicateWarn] = useState("");
+  const [enrollmentDuplicateWarn, setEnrollmentDuplicateWarn] = useState("");
   const SITE_ID_MAP = {
     PGIMER: "01", GMCH: "02", IOG: "03", AFMC: "04", "GMCH-A": "05", AMC: "06",
   };
@@ -576,6 +521,18 @@ export default function BirthResuscitationForm() {
   };
   const babyAnnualRule = BABY_ANNUAL_RULES[siteName] || null;
 
+  const normalizeBabyAnnualInput = (raw) => {
+    if (!babyAnnualRule) return raw;
+    let v = String(raw ?? "");
+    if (babyAnnualRule.numeric) {
+      v = v.replace(/\D/g, "");
+      if (babyAnnualRule.max) v = v.slice(0, babyAnnualRule.max);
+    } else if (babyAnnualRule.max) {
+      v = v.slice(0, babyAnnualRule.max);
+    }
+    return v;
+  };
+
   const BLANK = {
     /* B1 */
     screening_id:"", enrollment_id:"", screening_datetime:"",
@@ -634,7 +591,29 @@ export default function BirthResuscitationForm() {
     if (isNaN(birthMoment) || isNaN(screeningMoment)) return false;
     return birthMoment < screeningMoment;
   })();
+  /* Q22 only when any of Q19–21 indicates abnormality (not all Normal / No). */
+  const birthConditionAllNormal =
+    formData.poor_resp_efforts === "No" &&
+    formData.poor_muscle_tone === "No" &&
+    formData.hr_below_100 === "No";
   const set = patch => setFormData(p => ({ ...p, ...patch }));
+  const lockEnrollmentNoPpv = () => {
+    localStorage.setItem("enrollment_locked", "true");
+    localStorage.setItem("enrollment_lock_reason", "no_ppv");
+    window.dispatchEvent(new Event("storage"));
+  };
+  const applyInitialStepsNotRequired = () => {
+    set({
+      initial_steps: "No",
+      required_resuscitation: "No",
+      randomised: "",
+      randomisation_date: "",
+      strata: "",
+      enrollment_reason_not_randomized: "",
+      enrollment_reason_not_randomized_other: "",
+    });
+    lockEnrollmentNoPpv();
+  };
   const handleChange = e => set({ [e.target.name]: e.target.value });
 
   // Native <input type="time"> defers to the OS/browser locale for its
@@ -822,8 +801,10 @@ export default function BirthResuscitationForm() {
       return;
     }
 
-    const autoValue = String(result.lowerPoint);
+    const autoValue =
+      result.lowerPoint === 0 ? result.label : String(result.lowerPoint);
     if (wasUntouchedOrAuto && current !== autoValue) {
+      // Writes via set(), not the input onChange (digits-only regex is for manual entry).
       set({ intrauterine_centile: autoValue });
     }
     lastAutoCentileRef.current = autoValue;
@@ -860,6 +841,31 @@ export default function BirthResuscitationForm() {
     const fromEid = blenderLetterFromEnrollmentId(formData.enrollment_id);
     if (formData.blender_letter !== fromEid) set({ blender_letter: fromEid });
   }, [formData.enrollment_id]); // eslint-disable-line
+
+  /* When Q19–Q21 are all Normal / No, Q22 is N/A — auto “Not required”. */
+  useEffect(() => {
+    if (!birthConditionAllNormal) return;
+    const alreadySet =
+      formData.initial_steps === "No" &&
+      formData.required_resuscitation === "No" &&
+      !formData.randomised &&
+      !formData.randomisation_date &&
+      !formData.strata &&
+      !formData.enrollment_reason_not_randomized &&
+      !formData.enrollment_reason_not_randomized_other;
+    if (alreadySet) {
+      if (localStorage.getItem("enrollment_lock_reason") !== "no_ppv") {
+        lockEnrollmentNoPpv();
+      }
+      return;
+    }
+    applyInitialStepsNotRequired();
+  }, [
+    birthConditionAllNormal,
+    formData.poor_resp_efforts,
+    formData.poor_muscle_tone,
+    formData.hr_below_100,
+  ]); // eslint-disable-line
 
   /* ── Cord-clamping time in seconds from birth (field 44) ── */
   useEffect(() => {
@@ -1103,10 +1109,21 @@ export default function BirthResuscitationForm() {
     // checked if a value has been typed.
     if(formData.baby_uid && !/^\d{1,12}$/.test(formData.baby_uid))
       add("B1. Baby UID must contain 1–12 digits", "baby_uid");
+    if (babyUidDuplicateWarn)
+      add(`B1. ${babyUidDuplicateWarn.replace(/^⚠️\s*/, "")}`, "baby_uid");
+    if (enrollmentDuplicateWarn)
+      add(`B3. ${enrollmentDuplicateWarn.replace(/^⚠️\s*/, "")}`, "enrollment_id");
     if(formData.baby_admission_no && !new RegExp(`^\\d{${babyAdmissionRule.min},${babyAdmissionRule.max}}$`).test(formData.baby_admission_no))
       add(`B1. ${babyAdmissionRule.label.replace(/^6\\.\\s*/, "")} must be ${babyAdmissionRule.min === babyAdmissionRule.max ? `${babyAdmissionRule.max}` : `${babyAdmissionRule.min}-${babyAdmissionRule.max}`} digits`, "baby_admission_no");
-    if(babyAnnualRule && babyAnnualRule.numeric && formData.baby_annual_no && !new RegExp(`^\\d{${babyAnnualRule.min},${babyAnnualRule.max}}$`).test(formData.baby_annual_no))
-      add(`B1. ${babyAnnualRule.label.replace(/^7\.\s*/, "")} must be ${babyAnnualRule.max} digits`, "baby_annual_no");
+    if (babyAnnualRule && babyAnnualRule.numeric && formData.baby_annual_no) {
+      const ok = new RegExp(`^\\d{${babyAnnualRule.min},${babyAnnualRule.max}}$`).test(formData.baby_annual_no);
+      if (!ok) {
+        add(
+          `B1. ${babyAnnualRule.label.replace(/^7\.\s*/, "")} must be exactly ${babyAnnualRule.max} digits`,
+          "baby_annual_no"
+        );
+      }
+    }
     if(!formData.date_of_birth)      add("B2. Date of Birth",         "date_of_birth");
     if(!formData.time_of_birth)      add("B2. Time of Birth",         "time_of_birth");
     if(!formData.birth_weight)       add("B2. Birth Weight",          "birth_weight");
@@ -1121,7 +1138,11 @@ export default function BirthResuscitationForm() {
         add("B2. Date & Time of Birth cannot be before the Screening Date & Time (Form A)", "time_of_birth");
     }
     if(!formData.gender)             add("B2. Gender",                "gender");
-    if(formData.intrauterine_centile!=="" && (Number(formData.intrauterine_centile)<0 || Number(formData.intrauterine_centile)>100))
+    if (
+      formData.intrauterine_centile !== ""
+      && formData.intrauterine_centile !== "<3rd centile"
+      && (Number(formData.intrauterine_centile) < 0 || Number(formData.intrauterine_centile) > 100)
+    )
       add("B2. Intrauterine centile must be 0–100", "intrauterine_centile");
     if(!formData.delivery_mode)      add("B2. Delivery Mode",         "delivery_mode");
     if(formData.delivery_mode==="Vaginal" && !formData.vaginal_delivery_type)
@@ -1135,9 +1156,10 @@ export default function BirthResuscitationForm() {
     if(!formData.poor_resp_efforts)  add("B3. Respiratory Effort",    "poor_resp_efforts");
     if(!formData.poor_muscle_tone)   add("B3. Muscle Tone",           "poor_muscle_tone");
     if(!formData.hr_below_100)       add("B3. HR < 100",              "hr_below_100");
-    if(!formData.initial_steps)      add("B3. Initial Steps",         "initial_steps");
+    if(!birthConditionAllNormal && !formData.initial_steps)
+      add("B3. Initial Steps",         "initial_steps");
     // Q23 only when initial steps = Required
-    if(formData.initial_steps==="Yes" && !formData.required_resuscitation)
+    if(!birthConditionAllNormal && formData.initial_steps==="Yes" && !formData.required_resuscitation)
       add("B3. Does baby require ventilation (PPV)?", "required_resuscitation");
     if(formData.required_resuscitation==="Yes"){
       if(!formData.randomised)       add("B3. Randomised?",           "randomised");
@@ -1503,12 +1525,24 @@ export default function BirthResuscitationForm() {
   const handleNext = async () => {
     const ok = await saveForm();
     if(!ok) return;
-    const eid = (
+    const sid = getStoredId("current_screening_id")
+      || String(formDataRef.current?.screening_id || "").trim();
+    let eid = (
       getStoredId("current_enrollment_id")
       || String(formDataRef.current?.enrollment_id || "").trim()
     );
+    const fdNext = formDataRef.current || {};
+    const allNormalNext =
+      fdNext.poor_resp_efforts === "No"
+      && fdNext.poor_muscle_tone === "No"
+      && fdNext.hr_below_100 === "No";
+    if (!isUsableEnrollmentId(eid) && sid
+        && (fdNext.required_resuscitation === "No" || allNormalNext)) {
+      eid = `NR-${sid}`;
+      setStoredId("current_enrollment_id", eid);
+    }
     if(!isUsableEnrollmentId(eid)) {
-      setMessage("❌ Enrollment ID not saved — please enter a full ID (e.g. 01-A-001) and save before proceeding");
+      setMessage("❌ Enrollment ID not saved — save Form B again, or enter a full ID (e.g. 01-A-001) before Maternal Details");
       return;
     }
     const key = `completedForms_${eid}`;
@@ -1584,9 +1618,11 @@ export default function BirthResuscitationForm() {
             cpap: d.interventions?.cpap || {},
             apgar: d.interventions?.apgar || {},
           },
-          indication_for_delivery: typeof d.indication_for_delivery==="string"
-            ? d.indication_for_delivery.split(",").map(v=>v.trim()).filter(Boolean)
-            : (d.indication_for_delivery || []),
+          indication_for_delivery: normalizeIndicationForDelivery(
+            typeof d.indication_for_delivery === "string"
+              ? d.indication_for_delivery
+              : (d.indication_for_delivery || []),
+          ),
           adrenaline_route: typeof d.adrenaline_route==="string"
             ? d.adrenaline_route.split(",").map(v=>v.trim()).filter(Boolean)
             : (d.adrenaline_route || []),
@@ -1698,7 +1734,8 @@ export default function BirthResuscitationForm() {
             ? { enrollment_id: formatEnrollmentId(d.enrollment_id, SITE_ID_MAP[d.site_name] || "00") }
             : {}),
         });
-        setSiteName(d.site_name || "");
+        const sn = (d.site_name || "").trim();
+        setSiteName(sn.toUpperCase().startsWith("PGIMER") ? "PGIMER" : sn);
 
         // Reconcile the cached enrollment id with THIS screening — don't
         // let a stale id from a different, previously-viewed patient carry
@@ -1748,6 +1785,75 @@ export default function BirthResuscitationForm() {
     fetch();
     return () => { cancelled = true; };
   },[screeningId]); // eslint-disable-line
+
+  /* ── Baby UID duplicate check (same site / screening prefix) ── */
+  useEffect(() => {
+    const uid = String(formData.baby_uid || "").trim();
+    const sid = String(formData.screening_id || screeningId || "").trim();
+    if (!uid || !/^\d{1,12}$/.test(uid) || !sid || !isFormBLoaded) {
+      setBabyUidDuplicateWarn("");
+      return;
+    }
+    let eid = String(formData.enrollment_id || confirmedEnrollmentId || getStoredId("current_enrollment_id") || "").trim();
+    if (!isUsableEnrollmentId(eid)) {
+      if (formData.required_resuscitation === "No" || formData.randomised === "No") {
+        eid = `NR-${sid}`;
+      } else {
+        eid = "";
+      }
+    }
+    const tid = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ baby_uid: uid, screening_id: sid });
+        if (eid) params.set("enrollment_id", eid);
+        const r = await api.get(`/birth-resuscitation/check-baby-uid?${params}`);
+        if (r.data?.duplicate) {
+          setBabyUidDuplicateWarn(
+            r.data.message
+              || `⚠️ Baby UID ${uid} is already used for screening ${r.data.screening_id}. Please verify this is not a duplicate.`,
+          );
+        } else {
+          setBabyUidDuplicateWarn("");
+        }
+      } catch {
+        setBabyUidDuplicateWarn("");
+      }
+    }, 50);
+    return () => clearTimeout(tid);
+  }, [
+    formData.baby_uid, formData.screening_id, formData.enrollment_id,
+    formData.required_resuscitation, formData.randomised,
+    screeningId, confirmedEnrollmentId, isFormBLoaded,
+  ]); // eslint-disable-line
+
+  /* ── Enrollment ID duplicate (as soon as format is complete) ── */
+  useEffect(() => {
+    const eid = String(formData.enrollment_id || "").trim();
+    const sid = String(formData.screening_id || screeningId || "").trim();
+    if (!isCompleteEnrollmentId(eid) || !sid || !isFormBLoaded) {
+      setEnrollmentDuplicateWarn("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ enrollment_id: eid, screening_id: sid });
+        const r = await api.get(`/birth-resuscitation/check-enrollment-id?${params}`);
+        if (cancelled) return;
+        if (r.data?.duplicate) {
+          setEnrollmentDuplicateWarn(
+            r.data.message
+              || `Enrollment ID ${eid} is already used for screening ${r.data.screening_id}.`,
+          );
+        } else {
+          setEnrollmentDuplicateWarn("");
+        }
+      } catch {
+        if (!cancelled) setEnrollmentDuplicateWarn("");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formData.enrollment_id, formData.screening_id, screeningId, isFormBLoaded]); // eslint-disable-line
 
   /* ═══════════════════════════════ RENDER ═══════════════════════════════ */
   return (
@@ -1845,6 +1951,9 @@ export default function BirthResuscitationForm() {
                           setErrors(p=>({...p,baby_uid:""}));
                         }
                       }}/>
+                    {babyUidDuplicateWarn && !errors.baby_uid && (
+                      <div className="duplicate-warn">{babyUidDuplicateWarn}</div>
+                    )}
                     {errors.baby_uid&&<div className="field-error">{errors.baby_uid}</div>}
                   </div>
                   <div className="form-group">
@@ -1873,10 +1982,7 @@ export default function BirthResuscitationForm() {
                       <input name="baby_annual_no" value={formData.baby_annual_no||""}
                         maxLength={babyAnnualRule.max || undefined}
                         inputMode={babyAnnualRule.numeric ? "numeric" : "text"}
-                        onChange={e=>{
-                          const v = e.target.value;
-                          if (!babyAnnualRule.numeric || /^\d*$/.test(v)) set({ baby_annual_no: v });
-                        }}
+                        onChange={e => set({ baby_annual_no: normalizeBabyAnnualInput(e.target.value) })}
                         placeholder={babyAnnualRule.placeholder} readOnly={!isFieldEditable}/>
                     </div>
                   )}
@@ -2095,6 +2201,7 @@ export default function BirthResuscitationForm() {
                 <YesNoToggle label={<>21. HR &lt; 100{requiredMark}</>}
                   name="hr_below_100" value={formData.hr_below_100||""}
                   onChange={handleChange} disabled={!isFieldEditable}/>
+                {!birthConditionAllNormal && (
                 <YesNoToggle label={<>22. Initial steps{requiredMark}</>}
                   name="initial_steps" value={formData.initial_steps}
                   yesLabel="Required" noLabel="Not required"
@@ -2109,21 +2216,12 @@ export default function BirthResuscitationForm() {
                         window.dispatchEvent(new Event("storage"));
                       }
                     } else if (e.target.value === "No") {
-                      set({
-                        required_resuscitation: "No",
-                        randomised: "",
-                        randomisation_date: "",
-                        strata: "",
-                        enrollment_reason_not_randomized: "",
-                        enrollment_reason_not_randomized_other: "",
-                      });
-                      localStorage.setItem("enrollment_locked", "true");
-                      localStorage.setItem("enrollment_lock_reason", "no_ppv");
-                      window.dispatchEvent(new Event("storage"));
+                      applyInitialStepsNotRequired();
                     }
                   }}
                   disabled={!isFieldEditable}/>
-                {formData.initial_steps === "Yes" && (
+                )}
+                {!birthConditionAllNormal && formData.initial_steps === "Yes" && (
                 <YesNoToggle label={<>23. Does baby require ventilation (PPV)?{requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
                   yesLabel="Required" noLabel="Not required"
@@ -2151,7 +2249,7 @@ export default function BirthResuscitationForm() {
                   disabled={!isFieldEditable}/>
                 )}
 
-                {formData.required_resuscitation==="No" && (
+                {(birthConditionAllNormal || formData.required_resuscitation==="No") && (
                   <div className="alert-danger">
                     <AlertTriangle size={16}/>
                     Resuscitation (PPV) not required — Forms D and later stay locked.
@@ -2202,7 +2300,9 @@ export default function BirthResuscitationForm() {
                                 enrollment_id,
                                 blender_letter: blenderLetterFromEnrollmentId(enrollment_id),
                               });
+                              setErrors(p => ({ ...p, enrollment_id: "" }));
                             }}
+                            className={errors.enrollment_id || enrollmentDuplicateWarn ? "input-error" : ""}
                             onFocus={()=>{
                               const cur = formData.enrollment_id || "";
                               if (!cur || cur.startsWith("NR-")) set({ enrollment_id: `${siteCode}-` });
@@ -2213,6 +2313,12 @@ export default function BirthResuscitationForm() {
                             spellCheck={false}
                             style={{ letterSpacing: "0.06em", fontWeight: 600 }}
                             readOnly={!isFieldEditable}/>
+                          {enrollmentDuplicateWarn && !errors.enrollment_id && (
+                            <div className="duplicate-warn">{enrollmentDuplicateWarn}</div>
+                          )}
+                          {errors.enrollment_id && (
+                            <div className="field-error">{errors.enrollment_id}</div>
+                          )}
                           <span className="field-note">Site {siteCode} · letter A–D · 3-digit serial</span>
                         </div>
                       </>)}

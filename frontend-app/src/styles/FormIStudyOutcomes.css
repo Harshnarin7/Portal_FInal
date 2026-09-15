@@ -332,7 +332,7 @@
 .crf-yn .yn-thumb { width: 46px; height: 28px; }
 .yes-no-buttons.yn-pos-2.crf-yn .yn-thumb { transform: translateX(46px); }
 
-/* Yes/No colors — matches Helper Form 2 (RespCVNeuro.css .rcn-yn-active-yes/no):
+/* Yes/No colors — matches Helper Form 1 (RespCVNeuro.css .rcn-yn-active-yes/no):
    green for Yes, red for No.
 
    The previous attempt here only recolored .yn-thumb (the sliding

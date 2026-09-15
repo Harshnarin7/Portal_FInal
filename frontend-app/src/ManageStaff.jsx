@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Navigate } from "react-router-dom";
+import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
 import {
   Users, UserPlus, Search, RefreshCw, Shield, MapPin,
   UserMinus, KeyRound, CheckCircle2, AlertCircle, Loader2,
@@ -25,6 +26,7 @@ const SITES = ["PGIMER", "GMCH", "GMCH-A", "AMC", "IOG", "AFMC"];
 
 const BLANK_NEW_USER = {
   username: "", full_name: "", email: "", password: "", role: "nurse", site_name: "PGIMER", mobile: "",
+  must_change_password: true,
 };
 
 function initials(fullName, username) {
@@ -113,6 +115,22 @@ export default function ManageStaff() {
     });
   }, [users, query, roleFilter, siteFilter, statusFilter]);
 
+  const groupedBySite = useMemo(() => {
+    const groups = {};
+    filtered.forEach((u) => {
+      const key = u.site_name || "Global";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(u);
+    });
+    const ordered = SITES.filter((s) => groups[s]).map((s) => [s, groups[s]]);
+    const extraSites = Object.keys(groups)
+      .filter((k) => k !== "Global" && !SITES.includes(k))
+      .sort();
+    extraSites.forEach((k) => ordered.push([k, groups[k]]));
+    if (groups.Global) ordered.push(["Global", groups.Global]);
+    return ordered;
+  }, [filtered]);
+
   if (user && user.role !== "superadmin") {
     return <Navigate to="/dashboard" replace />;
   }
@@ -153,8 +171,13 @@ export default function ManageStaff() {
         role: newUser.role,
         site_name: GLOBAL_ROLES.includes(newUser.role) ? null : newUser.site_name,
         mobile: newUser.mobile.trim() || undefined,
+        must_change_password: !!newUser.must_change_password,
       });
-      setFormNotice(`Account “${newUser.username.trim()}” created. Share the temporary password — they must change it on first login.`);
+      setFormNotice(
+        newUser.must_change_password
+          ? `Account “${newUser.username.trim()}” created. Share the temporary password — they must change it on first login.`
+          : `Account “${newUser.username.trim()}” created. They can use the password you set without a forced change.`
+      );
       setNewUser(BLANK_NEW_USER);
       loadUsers();
     } catch (err) {
@@ -215,6 +238,23 @@ export default function ManageStaff() {
     setEditModal((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleClearPasswordPending = async (targetUser) => {
+    const ok = window.confirm(
+      `Clear “password change pending” for “${targetUser.username}”? `
+      + "Only do this if they already use their own password (completed change-password on login)."
+    );
+    if (!ok) return;
+    setBusyId(targetUser.id);
+    try {
+      await api.put(`/users/${targetUser.id}`, { must_change_password: false });
+      loadUsers();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Could not update this account.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleEditSave = async (e) => {
     e.preventDefault();
     if (!editModal) return;
@@ -249,6 +289,12 @@ export default function ManageStaff() {
   const isGlobalRole = GLOBAL_ROLES.includes(newUser.role);
 
   return (
+    <DashboardWorkspaceLayout
+      pageTitle="Manage Staff"
+      search={query}
+      onSearchChange={setQuery}
+      onRefresh={loadUsers}
+    >
     <div className="ms-page">
       <header className="ms-header">
         <div>
@@ -387,6 +433,16 @@ export default function ManageStaff() {
               <input name="mobile" value={newUser.mobile} onChange={handleNewUserChange}
                      placeholder="Optional" inputMode="tel" />
             </label>
+            <label className="ms-field ms-field--checkbox">
+              <input
+                type="checkbox"
+                checked={!!newUser.must_change_password}
+                onChange={(e) =>
+                  setNewUser((p) => ({ ...p, must_change_password: e.target.checked }))
+                }
+              />
+              <span>Require password change on first login</span>
+            </label>
           </div>
 
           {formError && (
@@ -461,87 +517,109 @@ export default function ManageStaff() {
         )}
 
         {!loading && !loadError && filtered.length > 0 && (
-          <div className="ms-dir">
-            <div className="ms-dir-head" aria-hidden="true">
-              <span>Staff member</span>
-              <span>Role</span>
-              <span>Site</span>
-              <span>Status</span>
-              <span>Actions</span>
-            </div>
-            {filtered.map((u) => {
-              const meta = ROLE_MAP[u.role];
-              const isSelf = u.username === user?.username;
-              return (
-                <div key={u.id} className={`ms-dir-row${!u.is_active ? " ms-dir-row--inactive" : ""}`}>
-                  <div className="ms-person">
-                    <span className={`ms-avatar ms-avatar--${meta?.tone || "blue"}`} aria-hidden="true">
-                      {initials(u.full_name, u.username)}
-                    </span>
-                    <div className="ms-person-copy">
-                      <div className="ms-person-name">
-                        {u.full_name || u.username}
-                        {isSelf && <span className="ms-you">You</span>}
-                      </div>
-                      <div className="ms-person-user">{u.username}</div>
-                      {u.email
-                        ? <div className="ms-person-email">{u.email}</div>
-                        : <div className="ms-person-email ms-muted">No email</div>}
-                    </div>
-                  </div>
-                  <span className={`ms-role ms-role--${meta?.tone || "blue"}`}>
-                    {meta?.short || u.role}
+          <div className="ms-dir-groups">
+            {groupedBySite.map(([siteName, siteUsers]) => (
+              <div key={siteName} className="ms-site-group">
+                <div className="ms-site-group-header">
+                  <span className="ms-site-group-name">{siteName}</span>
+                  <span className="ms-site-group-count">
+                    {siteUsers.length} staff
                   </span>
-                  <span className="ms-site">{u.site_name || <span className="ms-muted">Global</span>}</span>
-                  <div className="ms-status-stack">
-                    <span className={`ms-status ${u.is_active ? "ms-status--on" : "ms-status--off"}`}>
-                      {u.is_active ? "Active" : "Deactivated"}
-                    </span>
-                    {u.is_active && u.must_change_password && (
-                      <span className="ms-status ms-status--pending">Password change pending</span>
-                    )}
-                  </div>
-                  <div className="ms-actions">
-                    <button
-                      type="button"
-                      className="ms-btn-ghost"
-                      disabled={busyId === u.id || editSaving}
-                      onClick={() => openEdit(u)}
-                      title="Edit email and contact details"
-                    >
-                      <Pencil size={14} />
-                      Edit
-                    </button>
-                    {isSelf ? (
-                      <span className="ms-muted">This is you</span>
-                    ) : u.is_active ? (
-                      <>
-                        <button
-                          type="button"
-                          className="ms-btn-ghost"
-                          disabled={busyId === u.id}
-                          onClick={() => handleResetPassword(u)}
-                          title="Issue a new temporary password"
-                        >
-                          {busyId === u.id ? <Loader2 size={14} className="ms-spin" /> : <KeyRound size={14} />}
-                          Reset
-                        </button>
-                        <button
-                          type="button"
-                          className="ms-btn-danger"
-                          disabled={busyId === u.id}
-                          onClick={() => handleRemove(u)}
-                        >
-                          {busyId === u.id ? "…" : "Deactivate"}
-                        </button>
-                      </>
-                    ) : (
-                      <span className="ms-muted">—</span>
-                    )}
-                  </div>
                 </div>
-              );
-            })}
+                <div className="ms-dir ms-dir--grouped">
+                  <div className="ms-dir-head" aria-hidden="true">
+                    <span>Staff member</span>
+                    <span>Role</span>
+                    <span>Status</span>
+                    <span>Actions</span>
+                  </div>
+                  {siteUsers.map((u) => {
+                    const meta = ROLE_MAP[u.role];
+                    const isSelf = u.username === user?.username;
+                    return (
+                      <div key={u.id} className={`ms-dir-row${!u.is_active ? " ms-dir-row--inactive" : ""}`}>
+                        <div className="ms-person">
+                          <span className={`ms-avatar ms-avatar--${meta?.tone || "blue"}`} aria-hidden="true">
+                            {initials(u.full_name, u.username)}
+                          </span>
+                          <div className="ms-person-copy">
+                            <div className="ms-person-name">
+                              {u.full_name || u.username}
+                              {isSelf && <span className="ms-you">You</span>}
+                            </div>
+                            <div className="ms-person-user">{u.username}</div>
+                            {u.email
+                              ? <div className="ms-person-email">{u.email}</div>
+                              : <div className="ms-person-email ms-muted">No email</div>}
+                          </div>
+                        </div>
+                        <span className={`ms-role ms-role--${meta?.tone || "blue"}`}>
+                          {meta?.short || u.role}
+                        </span>
+                        <div className="ms-status-stack">
+                          <span className={`ms-status ${u.is_active ? "ms-status--on" : "ms-status--off"}`}>
+                            {u.is_active ? "Active" : "Deactivated"}
+                          </span>
+                          {u.is_active && u.must_change_password === true && (
+                            <span className="ms-status ms-status--pending">Password change pending</span>
+                          )}
+                        </div>
+                        <div className="ms-actions">
+                          <button
+                            type="button"
+                            className="ms-btn-ghost"
+                            disabled={busyId === u.id || editSaving}
+                            onClick={() => openEdit(u)}
+                            title="Edit email and contact details"
+                          >
+                            <Pencil size={14} />
+                            Edit
+                          </button>
+                          {isSelf ? (
+                            <span className="ms-muted">This is you</span>
+                          ) : u.is_active ? (
+                            <>
+                              {u.must_change_password === true && (
+                                <button
+                                  type="button"
+                                  className="ms-btn-ghost"
+                                  disabled={busyId === u.id}
+                                  onClick={() => handleClearPasswordPending(u)}
+                                  title="They already changed their password — clear the pending flag"
+                                >
+                                  <CheckCircle2 size={14} />
+                                  Password set
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="ms-btn-ghost"
+                                disabled={busyId === u.id}
+                                onClick={() => handleResetPassword(u)}
+                                title="Issue a new temporary password"
+                              >
+                                {busyId === u.id ? <Loader2 size={14} className="ms-spin" /> : <KeyRound size={14} />}
+                                Reset
+                              </button>
+                              <button
+                                type="button"
+                                className="ms-btn-danger"
+                                disabled={busyId === u.id}
+                                onClick={() => handleRemove(u)}
+                              >
+                                {busyId === u.id ? "…" : "Deactivate"}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="ms-muted">—</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -614,5 +692,6 @@ export default function ManageStaff() {
         </div>
       )}
     </div>
+    </DashboardWorkspaceLayout>
   );
 }

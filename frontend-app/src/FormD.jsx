@@ -254,6 +254,7 @@ const UnitInput = ({ name, value, onChange, onBlur, readOnly, unit, error, warn,
 
 const deriveGrowthStatus = (centile) => {
   if (centile === "" || centile === null || centile === undefined) return { growth_status: "", sga_centile: "" };
+  if (centile === "<3rd centile") return { growth_status: "SGA", sga_centile: "<3rd" };
   const n = Number(centile);
   if (Number.isNaN(n)) return { growth_status: "", sga_centile: "" };
   if (n < 3) return { growth_status: "SGA", sga_centile: "<3rd" };

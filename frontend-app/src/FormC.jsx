@@ -106,6 +106,84 @@ const computeGpalErrors = (data) => {
   return errs;
 };
 
+/** On-screen labels for validate() fields — used by the missing-fields modal only. */
+const FIELD_LABELS = {
+  mother_age: "Mother's Age (years)",
+  house: "House No / Street",
+  city: "Village / VPO",
+  state: "State",
+  landmark: "Nearest Landmark",
+  pincode: "PIN code",
+  email_address: "Email Address",
+  gravida: "Gravida",
+  parity: "Parity",
+  abortions: "Abortions",
+  live: "Live",
+  still: "Still",
+  anc_visits: "ANC Visits",
+  conception: "Conception",
+  artificial_type: "Assisted conception method",
+  artificial_other: "Assisted conception — specify",
+  multiple_other: "Multiple pregnancy — specify",
+  antenatal_steroids: "Antenatal Steroids",
+  steroid_drug: "Antenatal steroid drug",
+  steroid_beta_doses: "Betamethasone — No. of Doses Given",
+  steroid_dexa_doses: "Dexamethasone — No. of Doses Given",
+  steroid_beta_lddi_known: "LDDI — Betamethasone",
+  steroid_beta_lddi_hours: "LDDI — Betamethasone (hours)",
+  steroid_dexa_lddi_known: "LDDI — Dexamethasone",
+  steroid_dexa_lddi_hours: "LDDI — Dexamethasone (hours)",
+  lddi_known: "LDDI",
+  lddi_hours: "LDDI (hours)",
+  antenatal_mgso4: "Antenatal MgSO₄",
+  mgso4_date: "MgSO₄ date of administration",
+  medical_disorders: "Any known medical disorder (29)",
+  other_medical_disorder: "Other medical disorder — specify",
+  hdp: "HDP",
+  hdp_type: "HDP type",
+  gdm: "GDM",
+  gdm_rx: "GDM treatment (Rx)",
+  liquor: "Liquor",
+  fgr: "FGR",
+  fgr_centile: "FGR centile",
+  doppler: "Doppler",
+  doppler_other: "Doppler — specify",
+  placental_abnormality: "Placental abnormality",
+  placental_type: "Placental abnormality type",
+  placental_other: "Placental abnormality — specify",
+  retroplacental_collection: "Retroplacental collection",
+  isoimmunization: "Isoimmunization",
+  aph: "APH",
+  aph_type: "APH type",
+  aph_other: "APH — specify",
+  pprom: "pPROM",
+  pprom_duration: "pPROM duration (hrs)",
+  preterm_labor: "Preterm Labor",
+  maternal_fever: "Maternal Fever",
+  fetal_tachycardia: "Baseline Fetal Tachycardia",
+  maternal_tlc_high: "Maternal TLC >15000/mm³",
+  maternal_tachycardia: "Maternal Tachycardia",
+  maternal_abdominal_tenderness: "Maternal Abdominal Tenderness",
+  foul_smelling_liquor: "Foul-Smelling Liquor",
+  maternal_uti: "Maternal UTI",
+  maternal_diarrhea: "Maternal Diarrhea",
+  msl: "MSL",
+  non_reactive_nst: "Non-reactive NST",
+  reduced_fm: "Reduced FM",
+  fetal_bradycardia: "Fetal Bradycardia",
+  fetal_tachycardia_intrapartum: "Fetal Tachycardia (intrapartum)",
+  prolonged_labor: "Prolonged Labor",
+  cord_accident: "Cord Accident",
+  cord_accident_type: "Cord accident type",
+  uterotonic: "Uterotonic",
+  uterotonic_timing: "Uterotonic timing",
+};
+
+const missingFieldModalLabel = (fieldName, msg) => ({
+  label: (msg && msg !== "Required") ? msg : `${FIELD_LABELS[fieldName] || fieldName} is required`,
+  fieldName,
+});
+
 /**
  * Per-drug course computation from dose count.
  * Rules (floor division):
@@ -1058,6 +1136,7 @@ export default function FormC() {
     // C2 — Obstetric history (GPAL) — same cross-checked rules as the
     // live field-level validation, so Save can't slip past a stale error.
     Object.assign(e, computeGpalErrors(data));
+    ["gravida", "parity", "abortions", "live", "still"].forEach(f => { if (!e[f]) delete e[f]; });
 
     if (data.anc_visits===""||data.anc_visits===null) e.anc_visits = "Required";
     if (!data.conception) e.conception = "Required";
@@ -1273,7 +1352,7 @@ export default function FormC() {
       setErrors(errs);
       const allFields = Object.keys(errs);
       setTouched(allFields.reduce((a, f) => ({ ...a, [f]: true }), {}));
-      const list = Object.entries(errs).map(([f, msg]) => ({ label: msg || f, fieldName: f }));
+      const list = Object.entries(errs).map(([f, msg]) => missingFieldModalLabel(f, msg));
       session.showMissing(list);
       return false;
     }
@@ -1506,6 +1585,27 @@ export default function FormC() {
               <SectionHeader label="C2 · Obstetric History" num="C2" icon={Heart} errCount={ce.c3}/>
               <div className="form-section-body">
                 {/* 6–10: GPAL */}
+                <div className="gpal-info-box" role="note">
+                  <strong>How to fill Gravida, Parity, Abortions, Live, Still:</strong>
+                  <ul>
+                    <li>Gravida = total number of pregnancies, including this current one.</li>
+                    <li>
+                      Of all pregnancies <em>before</em> this one (Gravida − 1), each one is counted as
+                      either a Parity (delivered at viable gestation) or an Abortion (pregnancy loss
+                      before viability) — never both.
+                    </li>
+                    <li>So Parity + Abortions must always equal Gravida − 1.</li>
+                    <li>
+                      Live + Still = how many of those previous Parity deliveries were live births vs
+                      stillbirths — this can&apos;t be more than Parity itself.
+                    </li>
+                  </ul>
+                  <p className="gpal-info-example">
+                    <strong>Example:</strong> Gravida = 3 means this is the 3rd pregnancy. If Parity = 1
+                    and Abortions = 1, that accounts for the 2 pregnancies before this one (1 + 1 = 3 − 1).
+                    If that 1 prior delivery was a live birth, Live = 1, Still = 0.
+                  </p>
+                </div>
                 <div className="form-grid-5">
                   {[
                     {name:"gravida",  label:"6. Gravida",      min:1, max:15},

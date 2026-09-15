@@ -34,6 +34,14 @@ const RL_MAP = {
   monitor: "Trial Monitor",
 };
 
+function workspaceNavClass({ isActive }) {
+  return `ds-focus flex h-9 items-center gap-2 rounded-lg border-0 px-3 text-[12px] shadow-none transition-colors ${
+    isActive
+      ? "bg-portal-primary-mid font-semibold text-white"
+      : "bg-transparent text-portal-muted hover:bg-portal-ice hover:text-portal-ink"
+  }`;
+}
+
 export default function DashboardSidebar({
   tab,
   onTabChange,
@@ -88,14 +96,14 @@ export default function DashboardSidebar({
             onClose?.();
             window.location.href = "/form-a";
           }}
-          className="ds-focus flex h-9 items-center gap-2 rounded-lg border-0 bg-transparent px-3 text-[12px] text-portal-muted shadow-none hover:bg-portal-ice hover:text-portal-ink"
+          className={workspaceNavClass}
         >
           <Plus size={14} aria-hidden="true" /> New Entry
         </NavLink>
         <NavLink
           to="/entries"
           onClick={onClose}
-          className="ds-focus flex h-9 items-center gap-2 rounded-lg border-0 bg-transparent px-3 text-[12px] text-portal-muted shadow-none hover:bg-portal-ice hover:text-portal-ink"
+          className={workspaceNavClass}
         >
           <List size={14} aria-hidden="true" /> View Entries
         </NavLink>
@@ -104,14 +112,14 @@ export default function DashboardSidebar({
             <NavLink
               to="/manage-staff"
               onClick={onClose}
-              className="ds-focus flex h-9 items-center gap-2 rounded-lg border-0 bg-transparent px-3 text-[12px] text-portal-muted shadow-none hover:bg-portal-ice hover:text-portal-ink"
+              className={workspaceNavClass}
             >
               <Users size={14} aria-hidden="true" /> Manage Staff
             </NavLink>
             <NavLink
               to="/trial-monitoring"
               onClick={onClose}
-              className="ds-focus flex h-9 items-center gap-2 rounded-lg border-0 bg-transparent px-3 text-[12px] text-portal-muted shadow-none hover:bg-portal-ice hover:text-portal-ink"
+              className={workspaceNavClass}
             >
               <Activity size={14} aria-hidden="true" /> Trial Monitoring
             </NavLink>

@@ -4,6 +4,7 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom";
 import "./PrintSummary.css";
+import { formatDateTimeDisplay24 } from "../utils/datetime";
 
 /* ── helpers ── */
 const v = (x) => (x != null && String(x).trim() !== "" ? String(x).trim() : "—");
@@ -17,15 +18,7 @@ const fmtDate = (x) => {
   } catch { return String(x); }
 };
 
-const fmtDT = (x) => {
-  if (!x) return "—";
-  try {
-    return new Date(x).toLocaleString("en-IN", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: true,
-    });
-  } catch { return String(x); }
-};
+const fmtDT = (x) => formatDateTimeDisplay24(x);
 
 const R = ({ label, value }) => (
   <tr>

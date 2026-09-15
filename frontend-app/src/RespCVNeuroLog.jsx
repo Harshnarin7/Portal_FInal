@@ -836,7 +836,10 @@ export default function RespCVNeuroLog() {
 
   /* ── Load saved day data ── */
   useEffect(() => {
-    if (!enrollmentId) return;
+    if (!enrollmentId) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     const loadDay = async () => {
       setLoading(true);
@@ -1431,7 +1434,7 @@ export default function RespCVNeuroLog() {
         {/* ══ PATIENT INFO HEADER ══ */}
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
-            <div className="rcn-patient-header-badge">HELPER FORM 2</div>
+            <div className="rcn-patient-header-badge">HELPER FORM 1</div>
             <h2 className="rcn-patient-header-form-name">Resp / CV / Neuro Daily Log</h2>
             <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
           </div>
@@ -2763,7 +2766,7 @@ export default function RespCVNeuroLog() {
 
         {/* Step indicator — centre */}
         <div className="footer-step-indicator">
-          <span className="step-text">HELPER 2 OF 4</span>
+          <span className="step-text">HELPER 1 OF 4</span>
           <div className="step-progress-line">
             <div className="progress-segment active" />
             <div className="progress-segment active" />
