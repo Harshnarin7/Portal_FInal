@@ -31,6 +31,13 @@
   border-bottom: 1px dashed #E2E8F0;
 }
 
+.mml-subblock-subtitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0e4a6e;
+  letter-spacing: 0.02em;
+}
+
 .mml-subblock-code {
   display: inline-flex;
   align-items: center;
@@ -337,6 +344,11 @@
 
 .mml-history-table tbody tr.mml-history-row--draft td {
   background: color-mix(in srgb, var(--rcn-primary, #2563eb) 6%, transparent);
+}
+
+.mml-history-table tbody tr.mml-history-row--error td {
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  box-shadow: inset 3px 0 0 #ef4444;
 }
 
 .mml-history-table tbody td {

@@ -589,6 +589,38 @@ ACTION_LIST_QUERY = text("""
       AND (CURRENT_DATE - br.date_of_birth) >= 7
       AND s.is_deleted = FALSE AND s.site_name IS NOT NULL AND s.site_name != ''
       AND (SELECT COUNT(*) FROM resp_cv_neuro_day_logs dl WHERE dl.enrollment_id = br.enrollment_id) < 7
+    UNION ALL
+    SELECT 'rop_detected_no_form_g' AS issue, sub.site_name, sub.enrollment_id AS ref_id
+    FROM (
+        SELECT DISTINCT s.site_name, dl.enrollment_id
+        FROM metab_renal_vasc_eye_day_logs dl
+        JOIN birth_resuscitation br ON br.enrollment_id = dl.enrollment_id
+        JOIN screenings s ON s.screening_id = br.screening_id
+        LEFT JOIN LATERAL (
+            SELECT rs.screenings
+            FROM rop_screening rs
+            WHERE rs.enrollment_id = dl.enrollment_id
+            ORDER BY rs.id DESC
+            LIMIT 1
+        ) rop ON TRUE
+        WHERE dl.rop_detected IS TRUE
+          AND br.randomised = TRUE
+          AND br.date_of_birth IS NOT NULL
+          AND s.is_deleted = FALSE
+          AND s.site_name IS NOT NULL AND s.site_name != ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM json_array_elements(
+                CASE
+                    WHEN rop.screenings IS NULL THEN '[]'::json
+                    WHEN json_typeof(rop.screenings::json) = 'array' THEN rop.screenings::json
+                    ELSE '[]'::json
+                END
+            ) elem
+            WHERE NULLIF(elem->>'date', '') IS NOT NULL
+              AND (elem->>'date')::date >= (br.date_of_birth + (dl.nicu_day - 1))
+          )
+    ) sub
 """)
 
 SITE_ACTIVITY_QUERY = text("""
@@ -754,6 +786,8 @@ def get_data_quality(
         "randomised_no_form_c": "Randomised but Form C (Maternal Details) missing",
         "randomised_no_form_i": "Randomised but Form I (Study Outcomes) missing",
         "few_day_logs": "Randomised ≥7 days old with <7 Resp/CV/Neuro daily log entries",
+        "rop_detected_no_form_g": "ROP detected on Helper Form 4 log but Form G not updated for that date",
+        "rop_form_mismatch": "Form H vs Form G ROP fields differ (unreviewed)",
     }
     action_counts = {key: {s: 0 for s in ALL_SITES} for key in ACTION_LABELS}
     for row in db.execute(ACTION_LIST_QUERY).mappings():
@@ -761,6 +795,14 @@ def get_data_quality(
         issue = row["issue"]
         if site in site_set and issue in action_counts:
             action_counts[issue][site] = action_counts[issue].get(site, 0) + 1
+
+    from rop_consistency import iter_rop_mismatch_enrollments
+
+    for site, _eid in iter_rop_mismatch_enrollments(db, site_set):
+        if site in action_counts.get("rop_form_mismatch", {}):
+            action_counts["rop_form_mismatch"][site] = (
+                action_counts["rop_form_mismatch"].get(site, 0) + 1
+            )
 
     action_list = []
     for key, label in ACTION_LABELS.items():
@@ -810,6 +852,52 @@ def get_data_quality(
             "week_labels": week_starts,
             "weekly_counts": weekly_counts,
         },
+    }
+
+
+def _completeness_rows_for_sites(db: Session, site_set: set) -> list:
+    """One row per randomised enrollment from COMPLETION_QUERY (not site-aggregated)."""
+    total_count = len(FORM_KEYS)
+    rows_out = []
+    for row in db.execute(COMPLETION_QUERY).mappings():
+        site = row["site_name"]
+        if site not in site_set:
+            continue
+        completed_count = sum(int(row.get(k) or 0) for k, _ in FORM_KEYS)
+        completeness_pct = (
+            round(100 * completed_count / total_count, 1) if total_count else 0.0
+        )
+        entry = {
+            "enrollment_id": row["enrollment_id"],
+            "site_name": site,
+            "completed_count": completed_count,
+            "total_count": total_count,
+            "completeness_pct": completeness_pct,
+        }
+        for key, _ in FORM_KEYS:
+            entry[key] = int(row.get(key) or 0)
+        rows_out.append(entry)
+    rows_out.sort(
+        key=lambda r: (r["completeness_pct"], r["enrollment_id"] or ""),
+    )
+    return rows_out
+
+
+@router.get("/completeness-by-enrollment")
+def get_completeness_by_enrollment(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Per-enrollment form presence flags (same joins as completion matrix)."""
+    global_view = is_global(current_user)
+    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    site_set = set(sites)
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return {
+        "generated_at": generated_at,
+        "sites": sites,
+        "forms": [{"key": k, "label": lbl} for k, lbl in FORM_KEYS],
+        "rows": _completeness_rows_for_sites(db, site_set),
     }
 
 
@@ -1566,6 +1654,8 @@ def get_ops_summary(
         "randomised_no_form_c": "Randomised but Form C missing",
         "randomised_no_form_i": "Randomised but Form I missing",
         "few_day_logs": "Randomised >=7 days with <7 Resp/CV/Neuro logs",
+        "rop_detected_no_form_g": "ROP detected on Helper Form 4 — Form G screening missing for date",
+        "rop_form_mismatch": "Form H vs Form G ROP mismatch (unreviewed)",
     }
     action_items = {k: [] for k in ACTION_LABELS}
     action_counts = {k: 0 for k in ACTION_LABELS}
@@ -1579,6 +1669,15 @@ def get_ops_summary(
         action_counts[issue] += 1
         if len(action_items[issue]) < 8:
             action_items[issue].append({"site": site, "ref": row["ref_id"]})
+
+    from rop_consistency import iter_rop_mismatch_enrollments
+
+    for site, eid in iter_rop_mismatch_enrollments(db, site_set if site_set else None):
+        if site_set and site not in site_set:
+            continue
+        action_counts["rop_form_mismatch"] += 1
+        if len(action_items["rop_form_mismatch"]) < 8:
+            action_items["rop_form_mismatch"].append({"site": site, "ref": eid})
 
     tasks = [
         {

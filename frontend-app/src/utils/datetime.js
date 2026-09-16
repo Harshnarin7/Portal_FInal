@@ -44,6 +44,23 @@ export function calendarDateForNicuDay(day1Date, nicuDay) {
 }
 
 /**
+ * How many NICU day tabs to show on daily helper forms (Resp/CV/Neuro, etc.).
+ * Includes every elapsed working day through today (or discharge), any day
+ * with saved data, and at least `floor` (default 14). "+ DAY" only adds beyond this.
+ */
+export function helperDayStripLength({
+  dischargeDay = null,
+  todayNicuDay = null,
+  savedMaxDay = 0,
+  floor = 14,
+} = {}) {
+  let max = Math.max(floor, savedMaxDay);
+  if (dischargeDay != null) max = Math.max(max, dischargeDay);
+  else if (todayNicuDay != null) max = Math.max(max, todayNicuDay);
+  return max;
+}
+
+/**
  * Human-friendly "time since" string for auto-save timestamps.
  * @param {Date|null|undefined} date
  * @returns {string|null} e.g. "just now", "12s ago", "3m ago", "2h ago"
@@ -322,4 +339,48 @@ export function gestAgeFromEdd(eddDateStr, asOf = new Date()) {
   if (Number.isNaN(gestDays)) return null;
   if (gestDays < 0) return { weeks: 0, days: 0 };
   return { weeks: Math.floor(gestDays / 7), days: gestDays % 7 };
+}
+
+/**
+ * Latest calendar date allowed for Minimal Monitoring (NICU sheet day).
+ * Before [graceHour] local, "today" is still yesterday's date.
+ */
+export function mmlMaxCalendarDate(now = new Date(), graceHour = NICU_DAY_GRACE_HOUR) {
+  const ref = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (now.getHours() < graceHour) {
+    ref.setDate(ref.getDate() - 1);
+  }
+  return toDateOnlyValue(ref);
+}
+
+/** Combine local YYYY-MM-DD + HH:mm into a Date (local). */
+export function combineDateAndTime(dateYmd, timeHm) {
+  const d = parseDateOnly(dateYmd);
+  if (!d || !timeHm) return null;
+  const m = String(timeHm).trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  return d;
+}
+
+export function isDateTimeInFuture(dateYmd, timeHm, now = new Date()) {
+  const dt = combineDateAndTime(dateYmd, timeHm);
+  if (!dt) return false;
+  return dt.getTime() > now.getTime();
+}
+
+/** Max HH:mm allowed on [dateYmd] for MML (not in the future). */
+export function maxAllowedTimeForDate(dateYmd, now = new Date(), graceHour = NICU_DAY_GRACE_HOUR) {
+  if (!dateYmd) return "23:59";
+  const maxDate = mmlMaxCalendarDate(now, graceHour);
+  if (dateYmd > maxDate) return "00:00";
+  if (dateYmd < maxDate) return "23:59";
+  return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+}
+
+export function clampTimeToMaxAllowed(dateYmd, timeHm, now = new Date(), graceHour = NICU_DAY_GRACE_HOUR) {
+  if (!timeHm) return timeHm;
+  const max = maxAllowedTimeForDate(dateYmd, now, graceHour);
+  const hm = String(timeHm).slice(0, 5);
+  return hm <= max ? hm : max;
 }

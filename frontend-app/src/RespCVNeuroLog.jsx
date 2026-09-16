@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay, helperDayStripLength, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -64,6 +64,107 @@ function mmlHasFluidBolus(data) {
     return true;
   }
   return hasLeadingNumber(data.fluid_bolus_given);
+}
+
+/** Helper 5 block 5.2.B (resp_b) → Helper 2 #8–#10 blood gas fields. */
+function parseRespBBloodGasReadings(payload, recordDate = null) {
+  const pushNum = (arr, raw) => {
+    if (raw === null || raw === undefined || raw === "") return;
+    const n = Number(raw);
+    if (Number.isFinite(n)) arr.push(n);
+  };
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    const ds = String(d).slice(0, 10);
+    return ds === recordDate;
+  };
+  const out = { ph: [], pao2: [], paco2: [] };
+  let entries = payload?.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const list = entries?.resp_b;
+  if (Array.isArray(list) && list.length) {
+    for (const row of list) {
+      if (!rowOnHelperDay(row)) continue;
+      pushNum(out.ph, row?.ph);
+      pushNum(out.pao2, row?.pao2);
+      pushNum(out.paco2, row?.paco2);
+    }
+    return out;
+  }
+  if (entries == null) {
+    pushNum(out.ph, payload?.ph);
+    pushNum(out.pao2, payload?.pao2);
+    pushNum(out.paco2, payload?.paco2);
+  }
+  return out;
+}
+
+function mmlFmtBloodGasNum(n) {
+  if (!Number.isFinite(n)) return "";
+  const r = Math.round(n * 100) / 100;
+  return Number.isInteger(r) ? String(r) : String(r);
+}
+
+function computeBloodGasAutofillFromMml(readings) {
+  const out = {};
+  if (readings.ph.length) {
+    out.lowest_ph = mmlFmtBloodGasNum(Math.min(...readings.ph));
+  }
+  if (readings.pao2.length) {
+    const lo = Math.min(...readings.pao2);
+    const hi = Math.max(...readings.pao2);
+    out.pao2_low = mmlFmtBloodGasNum(lo);
+    out.pao2_high = mmlFmtBloodGasNum(hi);
+  }
+  if (readings.paco2.length) {
+    const lo = Math.min(...readings.paco2);
+    const hi = Math.max(...readings.paco2);
+    out.paco2_low = mmlFmtBloodGasNum(lo);
+    out.paco2_high = mmlFmtBloodGasNum(hi);
+  }
+  return out;
+}
+
+function isEmptyBloodGasField(v) {
+  return v === null || v === undefined || v === "";
+}
+
+function mergeBloodGasReadingLists(a, b) {
+  return {
+    ph: [...a.ph, ...b.ph],
+    pao2: [...a.pao2, ...b.pao2],
+    paco2: [...a.paco2, ...b.paco2],
+  };
+}
+
+/** 5.2.B readings for a Helper NICU calendar day — sheet row for that date
+ *  plus any matching entry dates on today's scratchpad (readings logged late). */
+async function loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate) {
+  let merged = { ph: [], pao2: [], paco2: [] };
+  const ingest = (payload) => {
+    if (!payload) return;
+    merged = mergeBloodGasReadingLists(
+      merged,
+      parseRespBBloodGasReadings(payload, recordDate),
+    );
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+  } catch (_) { /* optional */ }
+  return merged;
 }
 
 /* Every field captured for a day, grouped by section, for the
@@ -610,6 +711,17 @@ export default function RespCVNeuroLog() {
   });
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
   const [bolusAutofilled, setBolusAutofilled] = useState(false);
+  const [bloodGasAutofilled, setBloodGasAutofilled] = useState({
+    ph: false, pao2: false, paco2: false,
+  });
+  const lastMmlAutoComputedRef = useRef({});
+  const bloodGasStateRef = useRef({});
+  bloodGasStateRef.current = {
+    lowestPh, lowestPhNotDone, pao2Low, pao2High, pao2NotDone,
+    paco2Low, paco2High, paco2NotDone,
+  };
+  const bloodGasAutofilledRef = useRef(bloodGasAutofilled);
+  bloodGasAutofilledRef.current = bloodGasAutofilled;
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
@@ -672,7 +784,7 @@ export default function RespCVNeuroLog() {
     // longer forces the record read-only on its own — only isSubmitted
     // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
 
-  const applyFluidBolusFromMml = async (recordDate = activeDayDate) => {
+  const applyAutofillFromMml = async (recordDate = activeDayDate) => {
     if (!enrollmentId || !recordDate) return;
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
@@ -680,14 +792,75 @@ export default function RespCVNeuroLog() {
       const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
       if (activeDayDateRef.current !== recordDate) return;
       const data = res?.data || {};
-      if (data.record_date && data.record_date !== recordDate) return;
-      if (!mmlHasFluidBolus(data)) return;
-      setCvData((p) => {
-        if (p.fluid_bolus_given === true) return p;
+      const sheetOk = data.id != null
+        && data.record_date
+        && data.record_date === recordDate;
+
+      if (sheetOk && mmlHasFluidBolus(data)) {
+        setCvData((p) => {
+          if (p.fluid_bolus_given === true) return p;
+          setIsEditing(true);
+          return { ...p, fluid_bolus_given: true };
+        });
+        setBolusAutofilled(true);
+      }
+
+      const bg = bloodGasStateRef.current;
+      const af = bloodGasAutofilledRef.current;
+      const readings = await loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate);
+      if (activeDayDateRef.current !== recordDate) return;
+      const computed = computeBloodGasAutofillFromMml(readings);
+      if (!computed.lowest_ph && !computed.pao2_low && !computed.paco2_low && !sheetOk) return;
+      const bgFlags = { ph: false, pao2: false, paco2: false };
+
+      if (computed.lowest_ph && !bg.lowestPhNotDone) {
+        const last = lastMmlAutoComputedRef.current.lowest_ph;
+        const stillAuto = last !== undefined && bg.lowestPh === String(last);
+        if (isEmptyBloodGasField(bg.lowestPh) || stillAuto || af.ph) {
+          setLowestPh(computed.lowest_ph);
+          lastMmlAutoComputedRef.current.lowest_ph = computed.lowest_ph;
+          bgFlags.ph = true;
+        }
+      }
+
+      if (computed.pao2_low && computed.pao2_high && !bg.pao2NotDone) {
+        const lastLo = lastMmlAutoComputedRef.current.pao2_low;
+        const lastHi = lastMmlAutoComputedRef.current.pao2_high;
+        const stillAuto = lastLo !== undefined && lastHi !== undefined
+          && bg.pao2Low === String(lastLo) && bg.pao2High === String(lastHi);
+        const empty = isEmptyBloodGasField(bg.pao2Low) && isEmptyBloodGasField(bg.pao2High);
+        if (empty || stillAuto || af.pao2) {
+          setPao2Low(computed.pao2_low);
+          setPao2High(computed.pao2_high);
+          lastMmlAutoComputedRef.current.pao2_low = computed.pao2_low;
+          lastMmlAutoComputedRef.current.pao2_high = computed.pao2_high;
+          bgFlags.pao2 = true;
+        }
+      }
+
+      if (computed.paco2_low && computed.paco2_high && !bg.paco2NotDone) {
+        const lastLo = lastMmlAutoComputedRef.current.paco2_low;
+        const lastHi = lastMmlAutoComputedRef.current.paco2_high;
+        const stillAuto = lastLo !== undefined && lastHi !== undefined
+          && bg.paco2Low === String(lastLo) && bg.paco2High === String(lastHi);
+        const empty = isEmptyBloodGasField(bg.paco2Low) && isEmptyBloodGasField(bg.paco2High);
+        if (empty || stillAuto || af.paco2) {
+          setPaco2Low(computed.paco2_low);
+          setPaco2High(computed.paco2_high);
+          lastMmlAutoComputedRef.current.paco2_low = computed.paco2_low;
+          lastMmlAutoComputedRef.current.paco2_high = computed.paco2_high;
+          bgFlags.paco2 = true;
+        }
+      }
+
+      if (bgFlags.ph || bgFlags.pao2 || bgFlags.paco2) {
+        setBloodGasAutofilled(prev => ({
+          ph: bgFlags.ph || prev.ph,
+          pao2: bgFlags.pao2 || prev.pao2,
+          paco2: bgFlags.paco2 || prev.paco2,
+        }));
         setIsEditing(true);
-        return { ...p, fluid_bolus_given: true };
-      });
-      setBolusAutofilled(true);
+      }
     } catch (_) { /* Helper 5 optional */ }
   };
 
@@ -695,6 +868,8 @@ export default function RespCVNeuroLog() {
   useEffect(() => {
     if (!enrollmentId) return;
     const load = async () => {
+      let timelineDisch = null;
+      let timelineDob = null;
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
@@ -734,11 +909,9 @@ export default function RespCVNeuroLog() {
           setDischargeDay(dischDay);
         }
 
-        // Start with 14 days shown by default
-        // Don't calculate based on birth date - use Day 1 Date instead
-        const maxDay = dischDay || 14;
-
         const dob = normalizeHelperDob(b.date_of_birth);
+        timelineDisch = dischDay;
+        timelineDob = dob;
 
         setPatientInfo(prev => ({
           ...prev,
@@ -749,7 +922,10 @@ export default function RespCVNeuroLog() {
           dischargeDate:  b.discharge_date || "",
           status:         b.discharge_date ? "Discharged" : "In NICU",
         }));
-        setTotalDays(maxDay);
+        setTotalDays(helperDayStripLength({
+          dischargeDay: dischDay,
+          todayNicuDay: nicuDayNumberFromDay1(dob),
+        }));
       } catch (_) {}
 
       // Load PII — mother_first_name, mother_surname, baby_name
@@ -778,12 +954,33 @@ export default function RespCVNeuroLog() {
         });
         setDayStatuses(newStatuses);
         setDayMeta(newMeta);
+        const savedMax = summaries.reduce(
+          (m, s) => Math.max(m, s.nicu_day || 0),
+          0,
+        );
+        setTotalDays(prev => Math.max(
+          prev,
+          helperDayStripLength({
+            dischargeDay: timelineDisch,
+            todayNicuDay: nicuDayNumberFromDay1(timelineDob),
+            savedMaxDay: savedMax,
+          }),
+        ));
       } catch (_) {
         // Summary endpoint optional — fail silently
       }
     };
     load();
   }, [enrollmentId]);
+
+  // Keep the day strip long enough for elapsed NICU days (not only the default 14).
+  useEffect(() => {
+    if (!day1Date) return;
+    setTotalDays(prev => Math.max(
+      prev,
+      helperDayStripLength({ dischargeDay, todayNicuDay }),
+    ));
+  }, [day1Date, dischargeDay, todayNicuDay]);
 
   /* ── Load saved day data ── */
   useEffect(() => {
@@ -795,6 +992,8 @@ export default function RespCVNeuroLog() {
     const loadDay = async () => {
       setLoading(true);
       setBolusAutofilled(false);
+      lastMmlAutoComputedRef.current = {};
+      setBloodGasAutofilled({ ph: false, pao2: false, paco2: false });
       try {
         const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay}`);
         if (cancelled) return;
@@ -894,7 +1093,7 @@ export default function RespCVNeuroLog() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-      if (!cancelled) await applyFluidBolusFromMml(calendarDateForNicuDay(day1Date, activeDay));
+      if (!cancelled) await applyAutofillFromMml(calendarDateForNicuDay(day1Date, activeDay));
     };
     loadDay();
     return () => { cancelled = true; };
@@ -904,7 +1103,7 @@ export default function RespCVNeuroLog() {
     if (!enrollmentId || !activeDayDate || loading) return;
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
-    const tick = () => applyFluidBolusFromMml(activeDayDate);
+    const tick = () => applyAutofillFromMml(activeDayDate);
     const interval = setInterval(tick, 60000);
     const onFocus = () => tick();
     const onVisibility = () => {
@@ -940,6 +1139,8 @@ export default function RespCVNeuroLog() {
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
       pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus_given: null });
     setBolusAutofilled(false);
+    setBloodGasAutofilled({ ph: false, pao2: false, paco2: false });
+    lastMmlAutoComputedRef.current = {};
     setVasoactiveDrugs([]);
     setNeuroData({ cranial_usg: null, ivh: null,
       pvl_suspected: null, cpvl_confirmed: null, ventriculomegaly: null,
@@ -1997,7 +2198,12 @@ export default function RespCVNeuroLog() {
               {/* #8 pH */}
               <div className="rcn-field-group rcn-field-group--narrow">
                 <div className="rcn-field-label-row">
-                  <label className="rcn-field-label">8. <span className="rcn-field-label--exact-case">pH</span><span className="rcn-field-sub">(lowest of the day)</span></label>
+                  <label className="rcn-field-label">
+                    8. <span className="rcn-field-label--exact-case">pH</span><span className="rcn-field-sub">(lowest of the day)</span>
+                    {bloodGasAutofilled.ph && (
+                      <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                    )}
+                  </label>
                   <button type="button"
                     className={`rcn-notdone-toggle${lowestPhNotDone ? " rcn-notdone-toggle--on" : ""}`}
                     onClick={() => { if (!isFieldEditable) return; setLowestPhNotDone(v => !v); setLowestPh(""); }}
@@ -2010,11 +2216,15 @@ export default function RespCVNeuroLog() {
                   </div>
                 ) : (
                   <>
-                    <div className={`rcn-num-input${phError ? " rcn-num-input--error" : ""}`}>
+                    <div className={`rcn-num-input${phError ? " rcn-num-input--error" : ""}${bloodGasAutofilled.ph ? " rcn-num-input--autofill" : ""}`}>
                       <input
                         type="number" placeholder="7.25" step="0.01"
                         value={lowestPh}
-                        onChange={e => isFieldEditable && setLowestPh(e.target.value)}
+                        onChange={e => {
+                          if (!isFieldEditable) return;
+                          setBloodGasAutofilled(p => ({ ...p, ph: false }));
+                          setLowestPh(e.target.value);
+                        }}
                         readOnly={!isFieldEditable}
                       />
                     </div>
@@ -2026,7 +2236,12 @@ export default function RespCVNeuroLog() {
               {/* #9 PaO2 */}
               <div className="rcn-field-group">
                 <div className="rcn-field-label-row">
-                  <label className="rcn-field-label">9. <span className="rcn-field-label--exact-case">PaO₂</span> <span className="rcn-field-sub">(mmHg)</span></label>
+                  <label className="rcn-field-label">
+                    9. <span className="rcn-field-label--exact-case">PaO₂</span> <span className="rcn-field-sub">(mmHg)</span>
+                    {bloodGasAutofilled.pao2 && (
+                      <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                    )}
+                  </label>
                   <button
                     type="button"
                     className={`rcn-notdone-toggle${pao2NotDone ? " rcn-notdone-toggle--on" : ""}`}
@@ -2052,7 +2267,11 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Lowest"
                           value={pao2Low}
-                          onChange={e => isFieldEditable && setPao2Low(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, pao2: false }));
+                            setPao2Low(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2061,7 +2280,11 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Highest"
                           value={pao2High}
-                          onChange={e => isFieldEditable && setPao2High(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, pao2: false }));
+                            setPao2High(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2077,7 +2300,12 @@ export default function RespCVNeuroLog() {
               {/* #10 PaCO2 */}
               <div className="rcn-field-group">
                 <div className="rcn-field-label-row">
-                  <label className="rcn-field-label">10. <span className="rcn-field-label--exact-case">PaCO₂</span> <span className="rcn-field-sub">(mmHg)</span></label>
+                  <label className="rcn-field-label">
+                    10. <span className="rcn-field-label--exact-case">PaCO₂</span> <span className="rcn-field-sub">(mmHg)</span>
+                    {bloodGasAutofilled.paco2 && (
+                      <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                    )}
+                  </label>
                   <button
                     type="button"
                     className={`rcn-notdone-toggle${paco2NotDone ? " rcn-notdone-toggle--on" : ""}`}
@@ -2103,7 +2331,11 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Lowest"
                           value={paco2Low}
-                          onChange={e => isFieldEditable && setPaco2Low(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, paco2: false }));
+                            setPaco2Low(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2112,7 +2344,11 @@ export default function RespCVNeuroLog() {
                         <input
                           type="number" placeholder="Highest"
                           value={paco2High}
-                          onChange={e => isFieldEditable && setPaco2High(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, paco2: false }));
+                            setPaco2High(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>

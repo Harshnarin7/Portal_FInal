@@ -226,6 +226,7 @@ const [cvStale, setCvStale] = useState({});
 // fetchInfectionWindows below for why this domain is architecturally
 // different from every other one above.
 const [infectionWindows, setInfectionWindows] = useState([]);
+const [ropConsistency, setRopConsistency] = useState({ discrepancies: [], unreviewed_discrepancies: [] });
 
 // Respiratory (H2) auto-fill — same pattern as the other domains above,
 // from /neonatal-morbidities/resp-prefill. BPD (H2.1) is deliberately
@@ -836,6 +837,9 @@ useEffect(() => {
             infection_flags_reviewed: Array.isArray(existing.infection_flags_reviewed)
               ? existing.infection_flags_reviewed
               : (prev.infection_flags_reviewed || []),
+            rop_flags_reviewed: Array.isArray(existing.rop_flags_reviewed)
+              ? existing.rop_flags_reviewed
+              : (prev.rop_flags_reviewed || []),
             enrollment_id: eid,
             _record_id: existing.id || null,
           };
@@ -860,6 +864,7 @@ useEffect(() => {
       fetchRopThermoPrefill();
       fetchCvPrefill();
       fetchInfectionWindows();
+      fetchRopConsistency();
       fetchRespPrefill();
       fetchSurvivalCheck();
       fetchCranialUsgPrefill({
@@ -2849,6 +2854,17 @@ const fetchInfectionWindows = async () => {
   }
 };
 
+const fetchRopConsistency = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/rop-consistency/${enrollmentId}`);
+    setRopConsistency(res.data || { discrepancies: [], unreviewed_discrepancies: [] });
+  } catch (err) {
+    console.log("Error fetching ROP consistency", err);
+    setRopConsistency({ discrepancies: [], unreviewed_discrepancies: [] });
+  }
+};
+
 const isInfectionFlagReviewed = (signature) =>
   (formData.infection_flags_reviewed || []).includes(signature);
 
@@ -2859,6 +2875,19 @@ const toggleInfectionFlagReviewed = (signature) => {
       ? current.filter((s) => s !== signature)
       : [...current, signature];
     return { ...prev, infection_flags_reviewed: next };
+  });
+};
+
+const isRopFlagReviewed = (fieldKey) =>
+  (formData.rop_flags_reviewed || []).includes(fieldKey);
+
+const toggleRopFlagReviewed = (fieldKey) => {
+  setFormData((prev) => {
+    const current = prev.rop_flags_reviewed || [];
+    const next = current.includes(fieldKey)
+      ? current.filter((k) => k !== fieldKey)
+      : [...current, fieldKey];
+    return { ...prev, rop_flags_reviewed: next };
   });
 };
 
@@ -4762,6 +4791,7 @@ const num = (v) => {
 
       infections: infectionsList,
       infection_flags_reviewed: formData.infection_flags_reviewed || [],
+      rop_flags_reviewed: formData.rop_flags_reviewed || [],
     };
   };
 
@@ -9684,6 +9714,33 @@ const peripheralStatus= getPeripheralStatus();
     data. Use "Force refill" above if the daily logs are correct.
   </div>
 )}
+
+      {(ropConsistency.unreviewed_discrepancies || []).length > 0 && (
+        <div className="field-hint field-hint-warning" style={{ marginBottom: "12px" }}>
+          Form H and Form G (ROP) disagree on the latest screening visit. Mark each as reviewed if intentional.
+          <ul style={{ margin: "8px 0 0", paddingLeft: "20px" }}>
+            {(ropConsistency.all_discrepancies || ropConsistency.discrepancies || []).map((d) => {
+              const reviewed = isRopFlagReviewed(d.field);
+              return (
+                <li key={d.field} style={{ marginBottom: "6px", opacity: reviewed ? 0.6 : 1 }}>
+                  <label style={{ cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={reviewed}
+                      onChange={() => toggleRopFlagReviewed(d.field)}
+                      style={{ marginRight: "6px" }}
+                    />
+                    <strong>{d.label}</strong>
+                    {d.form_g_date ? ` (Form G ${d.form_g_date})` : ""}
+                    — Form H: <em>{d.form_h_value}</em>; Form G: <em>{d.form_g_value}</em>
+                    {reviewed ? " — reviewed" : ""}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* ---------------- SCREENING (179-181) ---------------- */}
       <div className="form-group">

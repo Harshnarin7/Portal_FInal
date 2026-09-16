@@ -8,7 +8,17 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
-import { toDateOnlyValue, formatDateToDDMMYYYY, formatTimeAmPm, openNativeDatePicker, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
+import {
+  toDateOnlyValue,
+  formatDateToDDMMYYYY,
+  formatTimeAmPm,
+  openNativeDatePicker,
+  NICU_DAY_GRACE_HOUR,
+  mmlMaxCalendarDate,
+  maxAllowedTimeForDate,
+  clampTimeToMaxAllowed,
+  isDateTimeInFuture,
+} from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
@@ -32,6 +42,7 @@ const BLOCK_TO_SECTION = {
   met_a: "metabolic", met_b: "metabolic", met_c: "metabolic",
   gi_a: "gastrointestinal", gi_b: "gastrointestinal",
   neuro_a: "neurological", neuro_b: "neurological",
+  neuro_combined: "neurological",
   heme_a: "hematology",
 };
 
@@ -43,36 +54,49 @@ const BLOCKS_BY_SECTION = {
   respiratory: ["resp_a", "resp_b", "resp_c", "resp_d"],
   metabolic: ["met_a", "met_b", "met_c"],
   gastrointestinal: ["gi_a", "gi_b"],
-  neurological: ["neuro_a", "neuro_b"],
+  neurological: ["neuro_combined"],
   hematology: ["heme_a"],
 };
 
 /** Friendly label + one-line description shown in the field-picker list. */
 const BLOCK_META = {
   cv_a: { code: "5.1.A", label: "Vitals", desc: "Skin/Axillary temp, SBP, DBP, MAP" },
-  cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus given, or should not have been done" },
+  cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus volume given" },
   cv_c: { code: "5.1.C", label: "Vasoactive Drugs", desc: "Agent, dose & unit" },
   cv_d: { code: "5.1.D", label: "PDA Medical Rx", desc: "Agent for medical Rx of PDA & dose" },
   resp_a: { code: "5.2.A", label: "Respiratory Support", desc: "Time, mode, max MAP/CPAP, max FiO₂" },
   resp_b: { code: "5.2.B", label: "Blood Gas", desc: "pH, PaO₂, PaCO₂" },
-  resp_c: { code: "5.2.C", label: "Apnea / Desaturation", desc: "Episode counts per shift" },
+  resp_c: { code: "5.2.C", label: "Apnea / Desaturation", desc: "Apnea and desaturation episodes" },
   resp_d: { code: "5.2.D", label: "Postnatal Steroids", desc: "Agent & dose" },
   met_a: { code: "5.3.A", label: "Glucose", desc: "Spot glucose reading" },
   met_b: { code: "5.3.B", label: "Lab Reports — ALP, Total Ca, P", desc: "ALP, total calcium & phosphorus" },
   met_c: { code: "5.3.C", label: "Electrolyte Abnormality", desc: "Yes/No, Hypo/Hyper, symptomatic status" },
   gi_a: { code: "5.4.A", label: "Feed Volume", desc: "Shift & cumulative feed volume" },
   gi_b: { code: "5.4.B", label: "Direct Bilirubin", desc: "Direct bilirubin value" },
-  neuro_a: { code: "5.5.A", label: "Ventriculomegaly", desc: "Severity, VI, AHW" },
-  neuro_b: { code: "5.5.B", label: "Doppler", desc: "TOD, ACA RI, MCA RI" },
+  neuro_combined: {
+    code: "5.5",
+    label: "Neurological",
+    desc: "Ventriculomegaly (severity, VI, AHW) and Doppler (TOD, ACA RI, MCA RI)",
+  },
   heme_a: { code: "5.6.A", label: "Transfusion", desc: "Products, count, PRBC volume" },
 };
 
-/** Sentinel text stored in `fluid_bolus_given` (5.1.B) when the nurse marks
- *  the bolus as one that shouldn't have been given, instead of a numeric
- *  volume/count. Kept as plain text (not a boolean) because the column is a
- *  free-text VARCHAR and the backend's `_parse_leading_number` already
- *  ignores non-numeric text when summing fluid bolus totals for Form H. */
-const FLUID_BOLUS_NOT_INDICATED = "Should not have been done";
+const LEGACY_FLUID_BOLUS_NOT_INDICATED = /^should\s+not\s+have\s+been\s+done$/i;
+
+function normalizeFluidBolusValue(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string" && LEGACY_FLUID_BOLUS_NOT_INDICATED.test(value.trim())) return "";
+  return value;
+}
+
+function sanitizeFluidBolusInEntries(entries) {
+  (entries.cv_b || []).forEach((entry) => {
+    if (entry && "fluid_bolus_given" in entry) {
+      entry.fluid_bolus_given = normalizeFluidBolusValue(entry.fluid_bolus_given);
+    }
+  });
+  return entries;
+}
 
 const pad2 = n => String(n).padStart(2, "0");
 const nowTime = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -118,6 +142,21 @@ const stringToList = v => Array.isArray(v) ? v : String(v || "").split(",").map(
 const asNumber = v => v === "" || v === null || v === undefined ? null : Number(v);
 const asInteger = v => v === "" || v === null || v === undefined ? null : parseInt(v, 10);
 
+const SEVERE_DESAT_EXCEEDS_MSG = "Severe desaturations can't exceed total desaturation episodes";
+
+/** Keep severe_desaturation_episodes ≤ desaturation_episodes when both are set. */
+function applyRespCEpisodeConstraints(entry) {
+  const next = { ...entry };
+  const desatRaw = next.desaturation_episodes;
+  const severeRaw = next.severe_desaturation_episodes;
+  if (desatRaw === "" || desatRaw == null || severeRaw === "" || severeRaw == null) return next;
+  const desat = Number(desatRaw);
+  const severe = Number(severeRaw);
+  if (!Number.isFinite(desat) || !Number.isFinite(severe) || severe <= desat) return next;
+  next.severe_desaturation_episodes = String(desat);
+  return next;
+}
+
 /** New entries always get today's date + the current clock time — this is
  *  what makes the date/time on a freshly-opened field "autofill". */
 function freshEntry(fields = {}) {
@@ -127,18 +166,18 @@ function freshEntry(fields = {}) {
 
 function emptyEntries() {
   return {
-    cv_a: [freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })],
+    cv_a: [freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })],
     cv_b: [freshEntry({ fluid_bolus_given: "" })],
     cv_c: [freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })],
     cv_d: [freshEntry({ pda_agent: [], pda_dose: "" })],
     resp_a: [freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })],
     resp_b: [freshEntry({ ph: "", pao2: "", paco2: "" })],
-    resp_c: [freshEntry({ shift: "", apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })],
+    resp_c: [freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })],
     resp_d: [freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })],
     met_a: [freshEntry({ glucose: "" })],
     met_b: [freshEntry({ alp: "", total_calcium: "", phosphorus: "" })],
     met_c: [freshEntry({ electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "", symptomatic_status: "", symptomatic_detail: "" })],
-    gi_a: [freshEntry({ shift: "", cumulative_feed_volume: "" })],
+    gi_a: [freshEntry({ cumulative_feed_volume: "" })],
     gi_b: [freshEntry({ direct_bilirubin: "" })],
     neuro_a: [freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })],
     neuro_b: [freshEntry({ tod: "", aca_ri: "", mca_ri: "" })],
@@ -160,29 +199,32 @@ function hydrateEntries(d) {
         Object.keys(base).forEach(k => {
           if (Array.isArray(parsed[k]) && parsed[k].length) base[k] = parsed[k];
         });
-        return base;
+        return sanitizeFluidBolusInEntries(base);
       }
     } catch (_) { /* fall through */ }
   }
   // Legacy flat-row → single entry per block
   const e = emptyEntries();
-  e.cv_a[0] = { ...e.cv_a[0], date: d.record_date || e.cv_a[0].date, shift: d.shift || "", axillary_temp: d.axillary_temp ?? "", sbp: d.sbp ?? "", dbp: d.dbp ?? "", map_value: d.map_value ?? "" };
-  e.cv_b[0] = { ...e.cv_b[0], fluid_bolus_given: d.fluid_bolus_given || "" };
+  e.cv_a[0] = { ...e.cv_a[0], date: d.record_date || e.cv_a[0].date, axillary_temp: d.axillary_temp ?? "", sbp: d.sbp ?? "", dbp: d.dbp ?? "", map_value: d.map_value ?? "" };
+  e.cv_b[0] = {
+    ...e.cv_b[0],
+    fluid_bolus_given: normalizeFluidBolusValue(d.fluid_bolus_given),
+  };
   e.cv_c[0] = { ...e.cv_c[0], vasoactive_drugs: stringToList(d.vasoactive_drugs), vasoactive_dose: d.vasoactive_dose || "", vasoactive_unit: d.vasoactive_unit || "" };
   e.cv_d[0] = { ...e.cv_d[0], pda_agent: stringToList(d.pda_agent), pda_dose: d.pda_dose ?? "" };
   e.resp_a[0] = { ...e.resp_a[0], time_range: d.respiratory_time || "", respiratory_modes: stringToList(d.respiratory_modes), max_map_cpap: d.max_map_cpap ?? "", max_fio2: d.max_fio2 ?? "" };
   e.resp_b[0] = { ...e.resp_b[0], ph: d.ph ?? "", pao2: d.pao2 ?? "", paco2: d.paco2 ?? "" };
-  e.resp_c[0] = { ...e.resp_c[0], shift: d.apnea_shift || "", apnea_episodes: d.apnea_episodes ?? "", desaturation_episodes: d.desaturation_episodes ?? "", severe_desaturation_episodes: d.severe_desaturation_episodes ?? "" };
+  e.resp_c[0] = { ...e.resp_c[0], apnea_episodes: d.apnea_episodes ?? "", desaturation_episodes: d.desaturation_episodes ?? "", severe_desaturation_episodes: d.severe_desaturation_episodes ?? "" };
   e.resp_d[0] = { ...e.resp_d[0], postnatal_steroids: stringToList(d.postnatal_steroids), steroid_dose: d.steroid_dose ?? "", steroid_other: d.steroid_other || "" };
   e.met_a[0] = { ...e.met_a[0], glucose: d.glucose ?? "" };
   e.met_b[0] = { ...e.met_b[0], alp: d.alp ?? "", total_calcium: d.total_calcium ?? "", phosphorus: d.phosphorus ?? "" };
   e.met_c[0] = { ...e.met_c[0], electrolyte_abnormality: d.electrolyte_abnormality ?? null, electrolytes: stringToList(d.electrolytes), hypo_hyper: d.hypo_hyper || "", symptomatic_status: d.symptomatic_status || "", symptomatic_detail: d.symptomatic_detail || "" };
-  e.gi_a[0] = { ...e.gi_a[0], shift: d.feed_shift || "", cumulative_feed_volume: d.cumulative_feed_volume ?? "" };
+  e.gi_a[0] = { ...e.gi_a[0], cumulative_feed_volume: d.cumulative_feed_volume ?? "" };
   e.gi_b[0] = { ...e.gi_b[0], direct_bilirubin: d.direct_bilirubin ?? "" };
   e.neuro_a[0] = { ...e.neuro_a[0], date: d.imaging_date || e.neuro_a[0].date, ventriculomegaly_severity: d.ventriculomegaly_severity || "", vi: d.vi ?? "", ahw: d.ahw ?? "" };
   e.neuro_b[0] = { ...e.neuro_b[0], tod: d.tod ?? "", aca_ri: d.aca_ri ?? "", mca_ri: d.mca_ri ?? "" };
   e.heme_a[0] = { ...e.heme_a[0], transfusion_products: stringToList(d.transfusion_products), transfusion_count: d.transfusion_count ?? "", prbc_volume: d.prbc_volume ?? "" };
-  return e;
+  return sanitizeFluidBolusInEntries(e);
 }
 
 function flattenEntries(entries) {
@@ -194,7 +236,7 @@ function flattenEntries(entries) {
   const nA = g("neuro_a"); const nB = g("neuro_b"); const hA = g("heme_a");
   return {
     record_date: cvA.date || "",
-    shift: cvA.shift || "",
+    shift: "",
     axillary_temp: asNumber(cvA.axillary_temp),
     sbp: asNumber(cvA.sbp),
     dbp: asNumber(cvA.dbp),
@@ -212,7 +254,7 @@ function flattenEntries(entries) {
     ph: asNumber(rB.ph),
     pao2: asNumber(rB.pao2),
     paco2: asNumber(rB.paco2),
-    apnea_shift: rC.shift || "",
+    apnea_shift: "",
     apnea_episodes: asInteger(rC.apnea_episodes),
     desaturation_episodes: asInteger(rC.desaturation_episodes),
     severe_desaturation_episodes: asInteger(rC.severe_desaturation_episodes),
@@ -228,7 +270,7 @@ function flattenEntries(entries) {
     hypo_hyper: mC.hypo_hyper || "",
     symptomatic_status: mC.symptomatic_status || "",
     symptomatic_detail: mC.symptomatic_detail || "",
-    feed_shift: giA.shift || "",
+    feed_shift: "",
     cumulative_feed_volume: asNumber(giA.cumulative_feed_volume),
     direct_bilirubin: asNumber(giB.direct_bilirubin),
     imaging_date: nA.date || "",
@@ -361,7 +403,7 @@ function Txt({ value, onChange, disabled, placeholder, type = "text", error }) {
   );
 }
 
-function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "— : —" }) {
+function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "— : —", max }) {
   const ref = useRef(null);
   const label = value ? formatTimeAmPm(value) : "";
   const open = () => { if (!disabled) openNativeDatePicker(ref.current); };
@@ -386,6 +428,7 @@ function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "�
         ref={ref}
         type="time"
         value={value || ""}
+        max={max || undefined}
         disabled={disabled}
         tabIndex={-1}
         aria-hidden="true"
@@ -396,10 +439,12 @@ function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "�
   );
 }
 
-function TimeRangePicker({ value, onChange, disabled }) {
+function TimeRangePicker({ value, onChange, disabled, dateYmd }) {
   const { from, to } = parseTimeRange(value);
+  const timeMax = maxAllowedTimeForDate(dateYmd, new Date(), MML_BOUNDARY_HOUR);
   const setPart = (which, next) => {
-    onChange(which === "from" ? joinTimeRange(next, to) : joinTimeRange(from, next));
+    const clamped = clampTimeToMaxAllowed(dateYmd, next, new Date(), MML_BOUNDARY_HOUR);
+    onChange(which === "from" ? joinTimeRange(clamped, to) : joinTimeRange(from, clamped));
   };
   return (
     <div className="mml-time-range">
@@ -411,6 +456,7 @@ function TimeRangePicker({ value, onChange, disabled }) {
           disabled={disabled}
           ariaLabel="From time"
           placeholder="From"
+          max={timeMax}
         />
       </div>
       <span className="mml-time-range-sep" aria-hidden="true">to</span>
@@ -422,6 +468,7 @@ function TimeRangePicker({ value, onChange, disabled }) {
           disabled={disabled}
           ariaLabel="To time"
           placeholder="To"
+          max={timeMax}
         />
       </div>
     </div>
@@ -499,7 +546,6 @@ const BLOCK_FIELDS = {
     { key: "paco2", label: "PaCO₂", unit: "mm Hg" },
   ],
   resp_c: [
-    { key: "shift", label: "Shift" },
     { key: "apnea_episodes", label: "Apnea eps." },
     { key: "desaturation_episodes", label: "Desat eps." },
     { key: "severe_desaturation_episodes", label: "Sev. desat eps." },
@@ -525,7 +571,6 @@ const BLOCK_FIELDS = {
     { key: "symptomatic_detail", label: "Details" },
   ],
   gi_a: [
-    { key: "shift", label: "Shift" },
     { key: "cumulative_feed_volume", label: "Cum. Feed Vol.", unit: "ml" },
   ],
   gi_b: [
@@ -582,9 +627,25 @@ function formatCell(field, entry) {
  *  auto-filled to now) on top, and a read-only summary table of every reading
  *  already added for this field underneath. Used inside the single-field
  *  detail screen (e.g. Metabolic → Glucose). */
+function blockProgressForPicker(blockKey, counts) {
+  if (blockKey === "neuro_combined") {
+    const a = counts.byBlock.neuro_a || { done: 0, total: 0 };
+    const b = counts.byBlock.neuro_b || { done: 0, total: 0 };
+    return { done: a.done + b.done, total: a.total + b.total };
+  }
+  return counts.byBlock[blockKey] || { done: 0, total: 0 };
+}
+
 function EntryBlock({
-  blockKey, code, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children, fixedDate,
+  blockKey, code, subsectionTitle, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children, fixedDate,
+  errors = {},
 }) {
+  const fieldErr = (idx, key) => errors[`${blockKey}.${idx}.${key}`];
+  const rowHasErr = (idx) =>
+    fieldErr(idx, "date")
+    || fieldErr(idx, "time")
+    || fieldErr(idx, "time_range")
+    || tableFieldsForBlock(blockKey).some(f => fieldErr(idx, f.key));
   const draftIdx = entries.length - 1;
   const draft = entries[draftIdx] || {};
   /** Include the in-progress draft row so the table updates as the user types. */
@@ -592,14 +653,23 @@ function EntryBlock({
     .map((entry, idx) => ({ entry, idx, isDraft: idx === draftIdx }))
     .filter(({ entry }) => hasEntryData(entry));
   const fieldsMeta = tableFieldsForBlock(blockKey);
-  /** Only respiratory support uses a time control (5.2.A time range). */
-  const hideStampTime = true;
+  /** 5.2.A uses time range in the form; other blocks use stamp time here + in the table. */
+  const hideStampTime = blockKey === "resp_a";
+  const entryDate = fixedDate || draft.date || "";
+  const maxSheetDate = mmlMaxCalendarDate(new Date(), MML_BOUNDARY_HOUR);
+  const stampTimeMax = maxAllowedTimeForDate(entryDate, new Date(), MML_BOUNDARY_HOUR);
 
   return (
     <div className="rcn-subsection mml-subblock">
-      <div className="mml-subblock-head">
-        <span className="mml-subblock-code">{code}</span>
-      </div>
+      {(subsectionTitle || code) && (
+        <div className="mml-subblock-head">
+          {subsectionTitle ? (
+            <span className="mml-subblock-subtitle">{subsectionTitle}</span>
+          ) : (
+            <span className="mml-subblock-code">{code}</span>
+          )}
+        </div>
+      )}
 
       <div className="mml-entry mml-entry--draft">
         <div className="mml-entry-head">
@@ -609,21 +679,46 @@ function EntryBlock({
               <span>Date</span>
               <input
                 type="date"
-                className="rcn-text-input mml-date-input"
+                className={`rcn-text-input mml-date-input${fieldErr(draftIdx, "date") ? " rcn-text-input--error" : ""}`}
                 value={fixedDate || draft.date || ""}
+                max={maxSheetDate}
                 readOnly={!!fixedDate}
                 disabled={disabled || !!fixedDate}
+                aria-invalid={fieldErr(draftIdx, "date") ? "true" : undefined}
                 onChange={e => {
                   if (fixedDate) return;
-                  onChangeEntry(draftIdx, "date", e.target.value);
+                  const v = e.target.value;
+                  if (v && v > maxSheetDate) return;
+                  onChangeEntry(draftIdx, "date", v);
                 }}
-              />
+                />
+              {fieldErr(draftIdx, "date") && (
+                <span className="rcn-field-error">{fieldErr(draftIdx, "date")}</span>
+              )}
             </label>
             {!hideStampTime && (
               <label className="mml-meta-field">
                 <span>Time</span>
-                <input type="time" className="rcn-text-input mml-time-input" value={draft.time || ""}
-                  disabled={disabled} onChange={e => onChangeEntry(draftIdx, "time", e.target.value)} />
+                <input
+                  type="time"
+                  className={`rcn-text-input mml-time-input${fieldErr(draftIdx, "time") ? " rcn-text-input--error" : ""}`}
+                  value={draft.time || ""}
+                  max={stampTimeMax}
+                  disabled={disabled}
+                  aria-invalid={fieldErr(draftIdx, "time") ? "true" : undefined}
+                  onChange={e => {
+                    const v = clampTimeToMaxAllowed(
+                      entryDate,
+                      e.target.value,
+                      new Date(),
+                      MML_BOUNDARY_HOUR,
+                    );
+                    onChangeEntry(draftIdx, "time", v);
+                  }}
+                />
+                {fieldErr(draftIdx, "time") && (
+                  <span className="rcn-field-error">{fieldErr(draftIdx, "time")}</span>
+                )}
               </label>
             )}
           </div>
@@ -647,14 +742,22 @@ function EntryBlock({
               <thead>
                 <tr>
                   <th>Date</th>
+                  {!hideStampTime && <th>Time</th>}
                   {fieldsMeta.map(f => <th key={f.key}>{f.label}</th>)}
                   {!disabled && <th className="mml-history-th-action" aria-hidden="true" />}
                 </tr>
               </thead>
               <tbody>
                 {tableRows.slice().reverse().map(({ entry, idx, isDraft }) => (
-                  <tr key={entry.id || idx} className={isDraft ? "mml-history-row--draft" : undefined}>
+                  <tr
+                    key={entry.id || idx}
+                    className={[
+                      isDraft ? "mml-history-row--draft" : "",
+                      rowHasErr(idx) ? "mml-history-row--error" : "",
+                    ].filter(Boolean).join(" ") || undefined}
+                  >
                     <td>{entry.date ? formatDateToDDMMYYYY(entry.date) : "—"}</td>
+                    {!hideStampTime && <td>{entry.time || "—"}</td>}
                     {fieldsMeta.map(f => <td key={f.key}>{formatCell(f, entry)}</td>)}
                     {!disabled && !isDraft && (
                       <td className="mml-history-td-action">
@@ -726,7 +829,7 @@ function FieldsList({ sectionKey, counts, onOpen, onBack }) {
       <div className="mml-field-rows">
         {BLOCKS_BY_SECTION[sectionKey].map(blockKey => {
           const bMeta = BLOCK_META[blockKey];
-          const prog = counts.byBlock[blockKey] || { done: 0, total: 0 };
+          const prog = blockProgressForPicker(blockKey, counts);
           const complete = prog.total > 0 && prog.done >= prog.total;
           return (
             <button type="button" key={blockKey}
@@ -807,7 +910,9 @@ export default function MinimalMonitoringLog() {
   const setEntryField = (block, idx, key, value) => {
     setEntries(prev => {
       const list = [...(prev[block] || [])];
-      list[idx] = { ...list[idx], [key]: value };
+      let row = { ...list[idx], [key]: value };
+      if (block === "resp_c") row = applyRespCEpisodeConstraints(row);
+      list[idx] = row;
       return { ...prev, [block]: list };
     });
     setErrors(prev => ({ ...prev, [`${block}.${idx}.${key}`]: null }));
@@ -889,14 +994,17 @@ export default function MinimalMonitoringLog() {
     return () => { cancelled = true; };
   }, [enrollmentId]);
 
-  const validate = () => {
+  const buildValidationErrors = () => {
     const next = {};
+    const maxEntryDate = toDateOnlyValue(new Date());
     (entries.resp_a || []).forEach((e, i) => {
       if (e.max_fio2 !== "" && e.max_fio2 != null && (Number(e.max_fio2) < 21 || Number(e.max_fio2) > 100)) {
         next[`resp_a.${i}.max_fio2`] = "Enter 21 to 100";
       }
     });
     (entries.resp_b || []).forEach((e, i) => {
+      const isOpenDraft = i === entries.resp_b.length - 1 && !hasEntryData(e);
+      if (isOpenDraft) return;
       if (e.ph !== "" && e.ph != null && (Number(e.ph) < 6.6 || Number(e.ph) > 7.8)) {
         next[`resp_b.${i}.ph`] = "Check pH range";
       }
@@ -907,6 +1015,15 @@ export default function MinimalMonitoringLog() {
           next[`resp_c.${i}.${k}`] = "Enter a non-negative whole number";
         }
       });
+      const desat = e.desaturation_episodes;
+      const severe = e.severe_desaturation_episodes;
+      if (
+        desat !== "" && desat != null && severe !== "" && severe != null
+        && Number.isInteger(Number(desat)) && Number.isInteger(Number(severe))
+        && Number(severe) > Number(desat)
+      ) {
+        next[`resp_c.${i}.severe_desaturation_episodes`] = SEVERE_DESAT_EXCEEDS_MSG;
+      }
     });
     (entries.resp_d || []).forEach((e, i) => {
       if ((e.postnatal_steroids || []).includes("Other") && !e.steroid_other) {
@@ -925,6 +1042,33 @@ export default function MinimalMonitoringLog() {
       }
     });
 
+    Object.keys(entries).forEach(blockKey => {
+      const list = entries[blockKey] || [];
+      list.forEach((e, i) => {
+        const isOpenDraft = i === list.length - 1 && !hasEntryData(e);
+        if (isOpenDraft) return;
+        if (e.date && e.date > maxEntryDate) {
+          next[`${blockKey}.${i}.date`] = "Date cannot be in the future";
+        }
+        if (blockKey === "resp_a") {
+          const { from, to } = parseTimeRange(e.time_range || "");
+          const d = e.date || sheetDate || maxEntryDate;
+          if (from && isDateTimeInFuture(d, from)) {
+            next[`${blockKey}.${i}.time_range`] = "Time cannot be in the future";
+          } else if (to && isDateTimeInFuture(d, to)) {
+            next[`${blockKey}.${i}.time_range`] = "Time cannot be in the future";
+          }
+        } else if (e.time && isDateTimeInFuture(e.date || sheetDate, e.time)) {
+          next[`${blockKey}.${i}.time`] = "Time cannot be in the future";
+        }
+      });
+    });
+
+    return next;
+  };
+
+  const validate = () => {
+    const next = buildValidationErrors();
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -966,7 +1110,19 @@ export default function MinimalMonitoringLog() {
     }
   };
 
-  const handleSave = () => persist({ silent: false, runValidate: true });
+  const handleSave = async () => {
+    const next = buildValidationErrors();
+    setErrors(next);
+    if (Object.keys(next).length > 0) {
+      const detail = Object.values(next)[0];
+      setMessage(detail
+        ? `${detail} — check highlighted fields in this block or the readings table`
+        : "Fix the highlighted fields before saving");
+      setTimeout(() => setMessage(""), 5000);
+      return;
+    }
+    await persist({ silent: false, runValidate: false });
+  };
 
   const handlePrevious = async () => {
     try { await persist({ silent: true, runValidate: false }); } catch (err) {
@@ -981,8 +1137,12 @@ export default function MinimalMonitoringLog() {
   useEffect(() => {
     if (!hydratedRef.current || !enrollmentId || saveTick === 0) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => {
-      persist({ silent: true, runValidate: false });
+    autosaveTimer.current = setTimeout(async () => {
+      const ok = await persist({ silent: true, runValidate: false });
+      if (ok) {
+        setMessage("Today's sheet saved");
+        setTimeout(() => setMessage(""), 2500);
+      }
     }, 1500);
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
@@ -1000,29 +1160,26 @@ export default function MinimalMonitoringLog() {
       case "cv_a":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="cv_a" code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ shift: "", axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Select Shift">
-                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                    onChange={v => setEntryField("cv_a", i, "shift", v)} disabled={!isEditable} />
-                </Item>
-                <Item n={2} label="Skin/Axillary Temp">
+                <Item n={1} label="Skin/Axillary Temp">
                   <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
                     disabled={!isEditable} unit="°C" />
                 </Item>
-                <Item n={3} label="SBP">
+                <Item n={2} label="SBP">
                   <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={4} label="DBP">
+                <Item n={3} label="DBP">
                   <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
-                <Item n={5} label="MAP">
+                <Item n={4} label="MAP">
                   <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
                     disabled={!isEditable} unit="mm Hg" />
                 </Item>
@@ -1033,48 +1190,26 @@ export default function MinimalMonitoringLog() {
       case "cv_b":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="cv_b" code="5.1.B" entries={entries.cv_b} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
             onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
             blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
-            {(e, i) => {
-              const notIndicated = e.fluid_bolus_given === FLUID_BOLUS_NOT_INDICATED;
-              return (
-                <div className="rcn-field-group">
-                  <div className="rcn-field-label-row">
-                    <label className="rcn-field-label rcn-field-label--exact-case">
-                      <span className="mml-item-num">1.</span> Fluid Bolus given
-                    </label>
-                    <button
-                      type="button"
-                      className={`rcn-notdone-toggle${notIndicated ? " rcn-notdone-toggle--on" : ""}`}
-                      onClick={() => isEditable && setEntryField("cv_b", i, "fluid_bolus_given",
-                        notIndicated ? "" : FLUID_BOLUS_NOT_INDICATED)}
-                      disabled={!isEditable}
-                    >{notIndicated ? "Undo" : "Should Not Have Been Done"}</button>
-                  </div>
-                  {notIndicated ? (
-                    <button
-                      type="button"
-                      className="rcn-num-input rcn-num-input--na rcn-num-input--na-clickable"
-                      onClick={() => isEditable && setEntryField("cv_b", i, "fluid_bolus_given", "")}
-                      disabled={!isEditable}
-                      title="Click to enter a value instead"
-                    >
-                      <span className="rcn-na-value">Should Not Have Been Done</span>
-                      <span className="rcn-num-unit">tap to change</span>
-                    </button>
-                  ) : (
-                    <Num value={e.fluid_bolus_given} onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
-                      disabled={!isEditable} placeholder="e.g. 2" />
-                  )}
-                </div>
-              );
-            }}
+            {(e, i) => (
+              <Item n={1} label="Fluid Bolus given">
+                <Num
+                  value={e.fluid_bolus_given}
+                  onChange={v => setEntryField("cv_b", i, "fluid_bolus_given", v)}
+                  disabled={!isEditable}
+                  placeholder="e.g. 10"
+                />
+              </Item>
+            )}
           </EntryBlock>
         );
       case "cv_c":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="cv_c" code="5.1.C" entries={entries.cv_c} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_c", i, k, v)}
             onAdd={blank => addEntry("cv_c", blank)} onRemove={i => removeEntry("cv_c", i)}
             blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })}>
@@ -1100,6 +1235,7 @@ export default function MinimalMonitoringLog() {
       case "cv_d":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="cv_d" code="5.1.D" entries={entries.cv_d} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_d", i, k, v)}
             onAdd={blank => addEntry("cv_d", blank)} onRemove={i => removeEntry("cv_d", i)}
             blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" })}>
@@ -1120,6 +1256,7 @@ export default function MinimalMonitoringLog() {
       case "resp_a":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="resp_a" code="5.2.A" entries={entries.resp_a} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
             onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
             blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
@@ -1128,6 +1265,7 @@ export default function MinimalMonitoringLog() {
                 <Item n={1} label="Time: Btw" sub="AM/PM range" wide>
                   <TimeRangePicker
                     value={e.time_range}
+                    dateYmd={e.date || sheetDate || ""}
                     onChange={v => setEntryField("resp_a", i, "time_range", v)}
                     disabled={!isEditable} />
                 </Item>
@@ -1151,6 +1289,7 @@ export default function MinimalMonitoringLog() {
       case "resp_b":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="resp_b" code="5.2.B" entries={entries.resp_b} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_b", i, k, v)}
             onAdd={blank => addEntry("resp_b", blank)} onRemove={i => removeEntry("resp_b", i)}
             blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" })}>
@@ -1175,26 +1314,23 @@ export default function MinimalMonitoringLog() {
       case "resp_c":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="resp_c" code="5.2.C" entries={entries.resp_c} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_c", i, k, v)}
             onAdd={blank => addEntry("resp_c", blank)} onRemove={i => removeEntry("resp_c", i)}
-            blankFactory={() => freshEntry({ shift: "", apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
+            blankFactory={() => freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Select Shift">
-                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                    onChange={v => setEntryField("resp_c", i, "shift", v)} disabled={!isEditable} />
-                </Item>
-                <Item n={2} label="Apnea episodes" error={err("resp_c", i, "apnea_episodes")}>
+                <Item n={1} label="Apnea episodes" error={err("resp_c", i, "apnea_episodes")}>
                   <Num value={e.apnea_episodes}
                     onChange={v => setEntryField("resp_c", i, "apnea_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "apnea_episodes")} />
                 </Item>
-                <Item n={3} label="Desaturation episodes" error={err("resp_c", i, "desaturation_episodes")}>
+                <Item n={2} label="Desaturation episodes" error={err("resp_c", i, "desaturation_episodes")}>
                   <Num value={e.desaturation_episodes}
                     onChange={v => setEntryField("resp_c", i, "desaturation_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "desaturation_episodes")} />
                 </Item>
-                <Item n={4} label="Sev. desaturation episodes" error={err("resp_c", i, "severe_desaturation_episodes")}>
+                <Item n={3} label="Sev. desaturation episodes" error={err("resp_c", i, "severe_desaturation_episodes")}>
                   <Num value={e.severe_desaturation_episodes}
                     onChange={v => setEntryField("resp_c", i, "severe_desaturation_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "severe_desaturation_episodes")} />
@@ -1206,6 +1342,7 @@ export default function MinimalMonitoringLog() {
       case "resp_d":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="resp_d" code="5.2.D" entries={entries.resp_d} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_d", i, k, v)}
             onAdd={blank => addEntry("resp_d", blank)} onRemove={i => removeEntry("resp_d", i)}
             blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })}>
@@ -1236,6 +1373,7 @@ export default function MinimalMonitoringLog() {
       case "met_a":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="met_a" code="5.3.A" entries={entries.met_a} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
             onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
             blankFactory={() => freshEntry({ glucose: "" })}>
@@ -1250,6 +1388,7 @@ export default function MinimalMonitoringLog() {
       case "met_b":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="met_b" code="5.3.B" entries={entries.met_b} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("met_b", i, k, v)}
             onAdd={blank => addEntry("met_b", blank)} onRemove={i => removeEntry("met_b", i)}
             blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" })}>
@@ -1274,6 +1413,7 @@ export default function MinimalMonitoringLog() {
       case "met_c":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="met_c" code="5.3.C" entries={entries.met_c} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("met_c", i, k, v)}
             onAdd={blank => addEntry("met_c", blank)} onRemove={i => removeEntry("met_c", i)}
             blankFactory={() => freshEntry({
@@ -1316,16 +1456,13 @@ export default function MinimalMonitoringLog() {
       case "gi_a":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="gi_a" code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
             onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
-            blankFactory={() => freshEntry({ shift: "", cumulative_feed_volume: "" })}>
+            blankFactory={() => freshEntry({ cumulative_feed_volume: "" })}>
             {(e, i) => (
               <>
-                <Item n={1} label="Select Shift">
-                  <PillSingle options={["Morning", "Evening", "Night"]} value={e.shift}
-                    onChange={v => setEntryField("gi_a", i, "shift", v)} disabled={!isEditable} />
-                </Item>
-                <Item n={2} label="Cumulative feed volume">
+                <Item n={1} label="Cumulative feed volume">
                   <Num value={e.cumulative_feed_volume}
                     onChange={v => setEntryField("gi_a", i, "cumulative_feed_volume", v)}
                     disabled={!isEditable} unit="ml" />
@@ -1337,6 +1474,7 @@ export default function MinimalMonitoringLog() {
       case "gi_b":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="gi_b" code="5.4.B" entries={entries.gi_b} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("gi_b", i, k, v)}
             onAdd={blank => addEntry("gi_b", blank)} onRemove={i => removeEntry("gi_b", i)}
             blankFactory={() => freshEntry({ direct_bilirubin: "" })}>
@@ -1349,58 +1487,74 @@ export default function MinimalMonitoringLog() {
             )}
           </EntryBlock>
         );
-      case "neuro_a":
+      case "neuro_combined":
         return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="neuro_a" code="5.5.A" entries={entries.neuro_a} disabled={!isEditable}
-            onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
-            onAdd={blank => addEntry("neuro_a", blank)} onRemove={i => removeEntry("neuro_a", i)}
-            blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}>
-            {(e, i) => (
-              <>
-                <Item n={1} label="Severity of Ventriculomegaly">
-                  <PillSingle options={["Mild", "Moderate", "Severe"]} value={e.ventriculomegaly_severity}
-                    onChange={v => setEntryField("neuro_a", i, "ventriculomegaly_severity", v)}
-                    disabled={!isEditable} />
-                </Item>
-                <Item n={2} label="VI">
-                  <Num value={e.vi} onChange={v => setEntryField("neuro_a", i, "vi", v)}
-                    disabled={!isEditable} unit="mm" />
-                </Item>
-                <Item n={3} label="AHW">
-                  <Num value={e.ahw} onChange={v => setEntryField("neuro_a", i, "ahw", v)}
-                    disabled={!isEditable} unit="mm" />
-                </Item>
-              </>
-            )}
-          </EntryBlock>
-        );
-      case "neuro_b":
-        return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="neuro_b" code="5.5.B" entries={entries.neuro_b} disabled={!isEditable}
-            onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
-            onAdd={blank => addEntry("neuro_b", blank)} onRemove={i => removeEntry("neuro_b", i)}
-            blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}>
-            {(e, i) => (
-              <>
-                <Item n={1} label="TOD">
-                  <Num value={e.tod} onChange={v => setEntryField("neuro_b", i, "tod", v)}
-                    disabled={!isEditable} unit="mm" />
-                </Item>
-                <Item n={2} label="ACA RI">
-                  <Num value={e.aca_ri} onChange={v => setEntryField("neuro_b", i, "aca_ri", v)}
-                    disabled={!isEditable} step="0.01" />
-                </Item>
-                <Item n={3} label="MCA RI">
-                  <Num value={e.mca_ri} onChange={v => setEntryField("neuro_b", i, "mca_ri", v)}
-                    disabled={!isEditable} step="0.01" />
-                </Item>
-              </>
-            )}
-          </EntryBlock>
+          <>
+            <EntryBlock
+              fixedDate={sheetDate || ""}
+              blockKey="neuro_a"
+              subsectionTitle="Ventriculomegaly"
+              entries={entries.neuro_a}
+              disabled={!isEditable}
+              errors={errors}
+              onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
+              onAdd={blank => addEntry("neuro_a", blank)}
+              onRemove={i => removeEntry("neuro_a", i)}
+              blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}
+            >
+              {(e, i) => (
+                <>
+                  <Item n={1} label="Severity of Ventriculomegaly">
+                    <PillSingle options={["Mild", "Moderate", "Severe"]} value={e.ventriculomegaly_severity}
+                      onChange={v => setEntryField("neuro_a", i, "ventriculomegaly_severity", v)}
+                      disabled={!isEditable} />
+                  </Item>
+                  <Item n={2} label="VI">
+                    <Num value={e.vi} onChange={v => setEntryField("neuro_a", i, "vi", v)}
+                      disabled={!isEditable} unit="mm" />
+                  </Item>
+                  <Item n={3} label="AHW">
+                    <Num value={e.ahw} onChange={v => setEntryField("neuro_a", i, "ahw", v)}
+                      disabled={!isEditable} unit="mm" />
+                  </Item>
+                </>
+              )}
+            </EntryBlock>
+            <EntryBlock
+              fixedDate={sheetDate || ""}
+              blockKey="neuro_b"
+              subsectionTitle="Doppler"
+              entries={entries.neuro_b}
+              disabled={!isEditable}
+              errors={errors}
+              onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
+              onAdd={blank => addEntry("neuro_b", blank)}
+              onRemove={i => removeEntry("neuro_b", i)}
+              blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}
+            >
+              {(e, i) => (
+                <>
+                  <Item n={1} label="TOD">
+                    <Num value={e.tod} onChange={v => setEntryField("neuro_b", i, "tod", v)}
+                      disabled={!isEditable} unit="mm" />
+                  </Item>
+                  <Item n={2} label="ACA RI">
+                    <Num value={e.aca_ri} onChange={v => setEntryField("neuro_b", i, "aca_ri", v)}
+                      disabled={!isEditable} step="0.01" />
+                  </Item>
+                  <Item n={3} label="MCA RI">
+                    <Num value={e.mca_ri} onChange={v => setEntryField("neuro_b", i, "mca_ri", v)}
+                      disabled={!isEditable} step="0.01" />
+                  </Item>
+                </>
+              )}
+            </EntryBlock>
+          </>
         );
       case "heme_a":
         return (
           <EntryBlock fixedDate={sheetDate || ""} blockKey="heme_a" code="5.6.A" entries={entries.heme_a} disabled={!isEditable}
+            errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
             onAdd={blank => addEntry("heme_a", blank)} onRemove={i => removeEntry("heme_a", i)}
             blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })}>
@@ -1484,7 +1638,7 @@ export default function MinimalMonitoringLog() {
                 <p className="mml-fields-list-hint">
                   {activeBlock === "resp_a"
                     ? "Date is fixed to today's sheet. Use the time range for respiratory support — readings appear in the table as you fill them."
-                    : "Date is fixed to today's sheet. Values appear in the table below as you fill them."}
+                    : "Date and time are auto-filled to now (adjust if needed). Values appear in the table below as you fill them."}
                 </p>
                 {renderBlockBody(activeBlock)}
               </div>

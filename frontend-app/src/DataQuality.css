@@ -230,3 +230,80 @@
   margin-top: 10px;
   font-style: italic;
 }
+
+.dq-enr-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dq-enr-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.dq-enr-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dq-enr-input {
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid #d5e4f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.dq-enr-count {
+  font-size: 12px;
+  color: #64748b;
+  margin-left: auto;
+}
+
+.dq-enr-table .dq-enr-th-form {
+  font-size: 10px;
+  max-width: 72px;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.dq-enr-row {
+  cursor: pointer;
+}
+
+.dq-enr-row:hover {
+  background: #f0f9ff;
+}
+
+.dq-enr-row:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: -2px;
+}
+
+.dq-enr-id {
+  font-weight: 600;
+  color: #0369a1;
+}
+
+.dq-enr-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dq-enr-flag--yes {
+  color: #15803d;
+}
+
+.dq-enr-flag--no {
+  color: #94a3b8;
+}

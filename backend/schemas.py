@@ -1613,6 +1613,9 @@ class NeonatalMorbiditiesCreate(BaseModel):
     # ---------------- INFECTION (H10) — dynamic, repeatable episodes ----------------
     infections: Optional[List[InfectionEpisode]] = []
 
+    infection_flags_reviewed: Optional[List[str]] = None
+    rop_flags_reviewed: Optional[List[str]] = None
+
 
 class NeonatalMorbiditiesOut(NeonatalMorbiditiesCreate):
     id: int
@@ -1892,9 +1895,19 @@ class ROPScreeningCreate(BaseModel):
     completion_date: Optional[date] = None
 
 
+class ROPReviewAlert(BaseModel):
+    nicu_day: Optional[int] = None
+    detected_date: Optional[str] = None
+    screening_no: Optional[int] = None
+    message: str
+
+
 class ROPScreeningOut(ROPScreeningCreate):
     id: int
     created_at: datetime
+    rop_needs_review: Optional[bool] = False
+    rop_review_alerts: Optional[List[ROPReviewAlert]] = None
+    rop_consistency: Optional[Dict] = None
 
     class Config:
         from_attributes = True  

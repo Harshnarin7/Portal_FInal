@@ -838,6 +838,7 @@ NEONATAL_MORBIDITIES_COLUMN_PATCHES = [
     # Infection-flag review acknowledgment — added 2026-08-23 alongside the
     # Infection auto-fill's detection-only advisory system.
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS infection_flags_reviewed JSON",
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS rop_flags_reviewed JSON",
 ]
 # Form I (Study Outcome Assessment) full CRF — sections I.1-I.6, added 2026-07-28
 STUDY_OUTCOMES_COLUMN_PATCHES = [

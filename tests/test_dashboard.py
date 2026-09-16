@@ -553,6 +553,44 @@ class TestDashboardIntegration:
 
 
 # ============================================================================
+# COMPLETENESS BY ENROLLMENT
+# ============================================================================
+
+class TestCompletenessByEnrollment:
+    """GET /dashboard/completeness-by-enrollment — per-patient form flags."""
+
+    def test_completeness_counts_partial_forms(
+        self, client, superadmin_token, db_session
+    ):
+        eid = "ENR-COMP-001"
+        create_screening(db_session, "SCR-COMP-001", "PGIMER", "Eligible")
+        create_birth_resuscitation(
+            db_session, "SCR-COMP-001", eid, randomised=True
+        )
+        db_session.add(MaternalDetails(enrollment_id=eid))
+        db_session.add(PostnatalDay1(enrollment_id=eid))
+        db_session.commit()
+
+        response = client.get(
+            "/dashboard/completeness-by-enrollment",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        row = next(r for r in payload["rows"] if r["enrollment_id"] == eid)
+        assert row["total_count"] == 10
+        assert row["completed_count"] == 2
+        assert row["completeness_pct"] == 20.0
+        assert row["form_c"] == 1
+        assert row["form_d"] == 1
+        assert row["form_e"] == 0
+
+    def test_completeness_requires_auth(self, client):
+        response = client.get("/dashboard/completeness-by-enrollment")
+        assert response.status_code == 401
+
+
+# ============================================================================
 # PERFORMANCE TESTS
 # ============================================================================
 

@@ -5,6 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
 import { siteShortCode } from "./utils/siteNames";
+import EnrollmentCompletenessTable from "./EnrollmentCompletenessTable";
 import "./DataQuality.css";
 
 const PCT_CLASS = (pct) => {
@@ -267,6 +268,10 @@ export default function DataQuality() {
     <div className="dq-root">
       <Section title="Panel 1 — Form Completion Matrix">
         <CompletionMatrix data={completion_matrix} sites={sites} />
+      </Section>
+
+      <Section title="Panel 1b — Completeness by Enrollment">
+        <EnrollmentCompletenessTable />
       </Section>
 
       <Section title="Panel 2 — Daily Log Submission Status">

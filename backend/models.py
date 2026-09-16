@@ -1042,6 +1042,9 @@ class NeonatalMorbidities(Base):
     # the software ever guessing which specific episode (if any) covers it.
     infection_flags_reviewed = Column(JSON, nullable=True, default=list)
 
+    # Field keys from rop_consistency (e.g. "stage_right") marked reviewed/explained
+    rop_flags_reviewed = Column(JSON, nullable=True, default=list)
+
     created_at = Column(DateTime, default=utcnow)
 
 # ==========================================================

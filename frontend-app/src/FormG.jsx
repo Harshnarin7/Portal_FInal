@@ -48,7 +48,18 @@ const emptyScreening = (i) => ({
   plus_status: "",
   next_review: "",
   signature: "",
+  from_metab_day_log: false,
+  source_nicu_day: null,
 });
+
+const screeningHasClinicalFields = (s) =>
+  !!(s.method || s.re_stage || s.re_zone || s.le_stage || s.le_zone || s.plus_status || s.next_review || s.signature);
+
+const isAutoLinkedScreeningRow = (s) => {
+  if (s.from_metab_day_log) return !screeningHasClinicalFields(s);
+  if (!s.date) return false;
+  return !screeningHasClinicalFields(s);
+};
 
 /* ══════════════════════════════════════════════════════
    UTILITY FUNCTIONS
@@ -224,6 +235,8 @@ export default function FormG() {
 
   const [message, setMessage] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [ropReviewAlerts, setRopReviewAlerts] = useState([]);
+  const [ropConsistency, setRopConsistency] = useState({ unreviewed_discrepancies: [] });
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -320,8 +333,13 @@ export default function FormG() {
           plus_status: src.plus_status || "",
           next_review: src.next_review || "",
           signature: src.signature || "",
+          from_metab_day_log: !!src.from_metab_day_log,
+          source_nicu_day: src.source_nicu_day ?? null,
         };
       });
+
+      setRopReviewAlerts(Array.isArray(d.rop_review_alerts) ? d.rop_review_alerts : []);
+      setRopConsistency(d.rop_consistency || { unreviewed_discrepancies: [], discrepancies: [] });
 
       setFormData((p) => ({
         ...p,
@@ -437,7 +455,17 @@ export default function FormG() {
     risk_factors: [],
 
     screenings: (formData.screenings || [])
-      .filter((s) => s.date || s.re_stage || s.le_stage || s.re_zone || s.le_zone || s.plus_status || s.method)
+      .filter(
+        (s) =>
+          s.date ||
+          s.re_stage ||
+          s.le_stage ||
+          s.re_zone ||
+          s.le_zone ||
+          s.plus_status ||
+          s.method ||
+          s.from_metab_day_log
+      )
       .map((s) => ({
         screening_no: s.screening_no,
         date: clean(s.date),
@@ -451,6 +479,9 @@ export default function FormG() {
         plus_status: clean(s.plus_status),
         next_review: clean(s.next_review),
         signature: clean(s.signature),
+        ...(s.from_metab_day_log
+          ? { from_metab_day_log: true, source_nicu_day: s.source_nicu_day ?? null }
+          : {}),
       })),
 
     // RIGHT EYE
@@ -537,6 +568,29 @@ export default function FormG() {
           ))}
         </div>
       </div>
+
+      {ropReviewAlerts.length > 0 && (
+        <div className="rop-review-banner" role="status">
+          {ropReviewAlerts.map((a, idx) => (
+            <p key={`${a.nicu_day}-${a.detected_date}-${idx}`}>{a.message}</p>
+          ))}
+        </div>
+      )}
+
+      {(ropConsistency.unreviewed_discrepancies || []).length > 0 && (
+        <div className="rop-review-banner rop-consistency-banner" role="status">
+          <p><strong>Form H vs Form G mismatch</strong> — latest visit compared to Form H (neonatal morbidities):</p>
+          <ul>
+            {ropConsistency.unreviewed_discrepancies.map((d) => (
+              <li key={d.field}>
+                {d.label}: Form G <em>{d.form_g_value}</em> ({d.form_g_date || "no date"})
+                vs Form H <em>{d.form_h_value}</em>
+              </li>
+            ))}
+          </ul>
+          <p className="rop-consistency-hint">Review on Form H to mark explained differences.</p>
+        </div>
+      )}
 
       <div className="rop-body">
         <form onSubmit={handleSubmit}>
@@ -625,7 +679,10 @@ export default function FormG() {
                 </thead>
                 <tbody>
                   {formData.screenings.map((s, i) => (
-                    <tr key={i}>
+                    <tr
+                      key={i}
+                      className={isAutoLinkedScreeningRow(s) ? "rop-screening-row--auto" : undefined}
+                    >
                       <td className="rop-table-num">{s.screening_no}</td>
                       <td>
                         <input

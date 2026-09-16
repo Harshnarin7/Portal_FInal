@@ -23,6 +23,11 @@ from ae_reference import (
     detect_form_h_heme_candidates,
     detect_pending_cranial_usg_findings,
 )
+from rop_form_g_linkage import (
+    enrich_rop_screening_payload,
+    maybe_append_rop_screening_from_metab_log,
+)
+from rop_consistency import build_rop_consistency_report
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -4385,13 +4390,13 @@ def create_rop_screening(
                 setattr(existing, key, value)
         db.commit()
         db.refresh(existing)
-        return existing
+        return enrich_rop_screening_payload(existing, db)
 
     record = ROPScreening(**data.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
-    return record
+    return enrich_rop_screening_payload(record, db)
 
 
 @app.get("/rop-screening/{enrollment_id}", response_model=ROPScreeningOut)
@@ -4409,7 +4414,18 @@ def get_rop_screening(
     )
     if not record:
         raise HTTPException(status_code=404, detail="ROP screening record not found")
-    return record
+    return enrich_rop_screening_payload(record, db)
+
+
+@app.get("/neonatal-morbidities/rop-consistency/{enrollment_id}")
+def get_rop_consistency(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Form H vs Form G ROP field cross-check (review-only; never auto-corrects)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    return build_rop_consistency_report(enrollment_id, db)
 
 # ============================================================================
 # FORM J  -  COMPOSITE OUTCOME ENDPOINTS
@@ -6569,9 +6585,17 @@ def create_metab_renal_vasc_eye_day(
     if existing:
         for key, value in data.model_dump(exclude_unset=True).items():
             if hasattr(existing, key): setattr(existing, key, value)
+        maybe_append_rop_screening_from_metab_log(
+            db, existing.enrollment_id, existing.nicu_day, existing.rop_detected
+        )
         db.commit(); db.refresh(existing); return existing
     record = MetabRenalVascEyeDayLog(**data.model_dump())
-    db.add(record); db.commit(); db.refresh(record); return record
+    db.add(record)
+    db.flush()
+    maybe_append_rop_screening_from_metab_log(
+        db, record.enrollment_id, record.nicu_day, record.rop_detected
+    )
+    db.commit(); db.refresh(record); return record
  
  
 @app.put("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}")
@@ -6596,6 +6620,9 @@ def update_metab_renal_vasc_eye_day(
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
             setattr(record, key, value)
+    maybe_append_rop_screening_from_metab_log(
+        db, record.enrollment_id, record.nicu_day, record.rop_detected
+    )
     db.commit(); db.refresh(record); return record
 
 
