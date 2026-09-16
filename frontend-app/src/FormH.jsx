@@ -2169,6 +2169,12 @@ const METABOLIC_PREFILL_FIELDS = [
   "hypokalemia", "hyperkalemia",
   "hypocalcemia", "hypercalcemia",
   "osteopenia",
+  // Osteopenia lab values (#113-115) — Minimal Monitoring is the sole
+  // source (Helper 4 has never had one); see the backend endpoint's
+  // docstring. Excluded from the staleness-check list below like every
+  // other running max/min field in this codebase (expected to keep
+  // moving as more MM readings arrive).
+  "alp_peak", "lowest_calcium", "lowest_phosphorus",
 ];
 
 // Only the Yes/No + Type-checkbox fields get checked for staleness — the
@@ -8034,7 +8040,7 @@ const peripheralStatus= getPeripheralStatus();
         {/* ---------------- HYPOGLYCEMIA (95-99) ---------------- */}
         <div className="form-group">
           <YesNoToggle label="95. Hypoglycemia" name="hypoglycemia" value={formData.hypoglycemia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
-          {metabolicAutoFilled.hypoglycemia && <span className="field-hint-auto-inline">from daily logs</span>}
+          {metabolicAutoFilled.hypoglycemia && <span className="field-hint-auto-inline">from daily logs / Minimal Monitoring</span>}
           {touched.hypoglycemia && errors.hypoglycemia && <div className="error-text">{errors.hypoglycemia}</div>}
         </div>
 
@@ -8053,7 +8059,7 @@ const peripheralStatus= getPeripheralStatus();
                 <label><span className="field-num">97.</span> Lowest value (mg/dL)<span className="required">*</span></label>
                 <input type="number" name="hypoglycemia_lowest" value={formData.hypoglycemia_lowest || ""}
                   onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="200" placeholder="0–200" />
-                {metabolicAutoFilled.hypoglycemia_lowest && <span className="field-hint-auto-inline">from daily logs</span>}
+                {metabolicAutoFilled.hypoglycemia_lowest && <span className="field-hint-auto-inline">lowest from daily logs / Minimal Monitoring</span>}
                 {touched.hypoglycemia_lowest && errors.hypoglycemia_lowest && <div className="error-text">{errors.hypoglycemia_lowest}</div>}
               </div>
 
@@ -8081,7 +8087,7 @@ const peripheralStatus= getPeripheralStatus();
         {/* ---------------- HYPERGLYCEMIA (100-102) ---------------- */}
         <div className="form-group">
           <YesNoToggle label="100. Hyperglycemia" name="hyperglycemia" value={formData.hyperglycemia} onChange={handleMetabolicChange} onBlur={handleBlur} required />
-          {metabolicAutoFilled.hyperglycemia && <span className="field-hint-auto-inline">from daily logs</span>}
+          {metabolicAutoFilled.hyperglycemia && <span className="field-hint-auto-inline">from daily logs / Minimal Monitoring</span>}
           {touched.hyperglycemia && errors.hyperglycemia && <div className="error-text">{errors.hyperglycemia}</div>}
         </div>
 
@@ -8091,7 +8097,7 @@ const peripheralStatus= getPeripheralStatus();
               <label><span className="field-num">101.</span> Highest value (mg/dL)<span className="required">*</span></label>
               <input type="number" name="hyperglycemia_highest" value={formData.hyperglycemia_highest || ""}
                 onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="500" placeholder="0–500" />
-              {metabolicAutoFilled.hyperglycemia_highest && <span className="field-hint-auto-inline">from daily logs</span>}
+              {metabolicAutoFilled.hyperglycemia_highest && <span className="field-hint-auto-inline">highest from daily logs / Minimal Monitoring</span>}
               {touched.hyperglycemia_highest && errors.hyperglycemia_highest && <div className="error-text">{errors.hyperglycemia_highest}</div>}
             </div>
 
@@ -8346,21 +8352,24 @@ const peripheralStatus= getPeripheralStatus();
             <div className="form-group">
               <label><span className="field-num">113.</span> ALP peak (IU/L)<span className="required">*</span></label>
               <input type="number" name="alp_peak" value={formData.alp_peak || ""}
-                onChange={handleChange} onBlur={handleBlur} min="0" max="6000" placeholder="0–6000" />
+                onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="6000" placeholder="0–6000" />
+              {metabolicAutoFilled.alp_peak && <span className="field-hint-auto-inline">peak from Minimal Monitoring</span>}
               {touched.alp_peak && errors.alp_peak && <div className="error-text">{errors.alp_peak}</div>}
             </div>
 
             <div className="form-group">
               <label><span className="field-num">114.</span> Lowest Total Ca<span className="required">*</span></label>
               <input type="number" step="0.1" name="lowest_calcium" value={formData.lowest_calcium || ""}
-                onChange={handleChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+                onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+              {metabolicAutoFilled.lowest_calcium && <span className="field-hint-auto-inline">lowest from Minimal Monitoring</span>}
               {touched.lowest_calcium && errors.lowest_calcium && <div className="error-text">{errors.lowest_calcium}</div>}
             </div>
 
             <div className="form-group">
               <label><span className="field-num">115.</span> Lowest P<span className="required">*</span></label>
               <input type="number" step="0.1" name="lowest_phosphorus" value={formData.lowest_phosphorus || ""}
-                onChange={handleChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+                onChange={handleMetabolicChange} onBlur={handleBlur} min="0" max="15" placeholder="0–15" />
+              {metabolicAutoFilled.lowest_phosphorus && <span className="field-hint-auto-inline">lowest from Minimal Monitoring</span>}
               {touched.lowest_phosphorus && errors.lowest_phosphorus && <div className="error-text">{errors.lowest_phosphorus}</div>}
             </div>
           </div>
