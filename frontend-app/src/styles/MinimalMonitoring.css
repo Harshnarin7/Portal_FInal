@@ -74,6 +74,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: visible;
 }
 
 .mml-entry + .mml-entry {
@@ -86,6 +87,7 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  overflow: visible;
 }
 
 .mml-entry-meta {
@@ -117,6 +119,107 @@
   color: #94A3B8;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  overflow: visible;
+}
+
+.mml-meta-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.mml-field-label-row {
+  align-items: flex-start;
+}
+
+.mml-field-label-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Validation info icon + popover (shared by Item + EntryBlock date/time) */
+.mml-field-info {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.mml-field-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mml-field-info-btn:hover,
+.mml-field-info-btn:focus-visible {
+  color: #0F4C81;
+  background: #E0F2FE;
+  outline: none;
+}
+
+.mml-field-info-btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(15, 76, 129, 0.25);
+}
+
+.mml-field-info-popover {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: #334155;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  pointer-events: none;
+}
+
+.mml-field-info-popover::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-left: 1px solid #E2E8F0;
+  border-top: 1px solid #E2E8F0;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+@media (max-width: 520px) {
+  .mml-field-info-popover {
+    left: auto;
+    right: 0;
+    transform: none;
+  }
+
+  .mml-field-info-popover::before {
+    left: auto;
+    right: 8px;
+    transform: rotate(45deg);
+  }
 }
 
 .mml-date-input,
@@ -454,7 +557,7 @@
 }
 
 .mml-sheet-note {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 12.5px;
   font-weight: 600;
   color: #0F4C81;
@@ -462,7 +565,36 @@
   border: 1px solid #BFDBFE;
   border-radius: 8px;
   padding: 7px 12px;
-  display: inline-block;
+  line-height: 1.45;
+  flex: 1 1 280px;
+}
+
+.mml-sheet-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+  margin-top: 8px;
+}
+
+.mml-sheet-date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.mml-sheet-date-select {
+  min-width: 148px;
+  font-weight: 600;
+}
+
+.mml-sheet-date-fixed {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .mml-section-card {

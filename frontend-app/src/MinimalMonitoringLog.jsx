@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, ChevronDown, ChevronRight, Plus, Save, Trash2, CheckCircle2,
-  Heart, Wind, Beaker, Utensils, Brain, Droplet, Clock,
+  Heart, Wind, Beaker, Utensils, Brain, Droplet, Clock, Info,
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
@@ -13,17 +13,18 @@ import {
   formatDateToDDMMYYYY,
   formatTimeAmPm,
   openNativeDatePicker,
-  NICU_DAY_GRACE_HOUR,
-  mmlMaxCalendarDate,
-  maxAllowedTimeForDate,
-  clampTimeToMaxAllowed,
+  realCalendarDateYmd,
+  MML_DROPDOWN_CUTOFF_HOUR,
+  mmlDropdownDateOptions,
+  mmlDefaultSheetDate,
+  mmlMaxAllowedTimeForSheetDate,
+  mmlClampTimeForSheetDate,
   isDateTimeInFuture,
 } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
-/** Before this local hour, "today" still means the previous calendar date (server + client). */
-const MML_BOUNDARY_HOUR = NICU_DAY_GRACE_HOUR;
+/** Server still uses NICU_DAY_GRACE_HOUR for legacy GET/PUT .../today only. */
 
 const SECTION_META = {
   cardiovascular: { code: "5.1", title: "Cardiovascular", icon: Heart },
@@ -159,9 +160,10 @@ function applyRespCEpisodeConstraints(entry) {
 
 /** New entries always get today's date + the current clock time — this is
  *  what makes the date/time on a freshly-opened field "autofill". */
-function freshEntry(fields = {}) {
+function freshEntry(fields = {}, sheetDateYmd = null) {
   const d = new Date();
-  return { id: uid(), date: toDateOnlyValue(d), time: nowTime(d), ...fields };
+  const dateStr = sheetDateYmd || toDateOnlyValue(d);
+  return { id: uid(), date: dateStr, time: nowTime(d), ...fields };
 }
 
 function emptyEntries() {
@@ -372,13 +374,95 @@ function MetricCard({ label, value, tone = "blue" }) {
   );
 }
 
-function Item({ n, label, sub, error, children, wide }) {
+const MML_DATE_STAMP_HINT =
+  "Must be on or before the active sheet date — cannot be in the future";
+const MML_TIME_STAMP_HINT =
+  "Cannot be later than the current time on the selected date";
+
+/** Info icon + popover for field validation rules (hover, tap, keyboard). */
+function FieldValidationInfo({ hint }) {
+  const [open, setOpen] = useState(false);
+  const pinnedRef = useRef(false);
+  const rootRef = useRef(null);
+  const tooltipId = useId();
+
+  const close = useCallback(() => {
+    pinnedRef.current = false;
+    setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        close();
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, close]);
+
+  if (!hint) return null;
+
+  return (
+    <span className="mml-field-info" ref={rootRef}>
+      <button
+        type="button"
+        className="mml-field-info-btn"
+        aria-label="Field validation info"
+        aria-expanded={open}
+        aria-describedby={open ? tooltipId : undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (open) {
+            close();
+          } else {
+            pinnedRef.current = true;
+            setOpen(true);
+          }
+        }}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => {
+          if (!pinnedRef.current) setOpen(false);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={(e) => {
+          if (!rootRef.current?.contains(e.relatedTarget)) {
+            close();
+          }
+        }}
+      >
+        <Info size={13} strokeWidth={2.25} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="mml-field-info-popover" role="tooltip" id={tooltipId}>
+          {hint}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function Item({ n, label, sub, error, children, wide, hint }) {
   return (
     <div className={`rcn-field-group${wide ? " mml-item-wide" : ""}`}>
-      <label className="rcn-field-label rcn-field-label--exact-case">
-        {n != null && <span className="mml-item-num">{n}.</span>} {label}
-        {sub && <span className="rcn-field-sub">{sub}</span>}
-      </label>
+      <div className="rcn-field-label-row mml-field-label-row">
+        <span className="rcn-field-label rcn-field-label--exact-case mml-field-label-text">
+          {n != null && <span className="mml-item-num">{n}.</span>} {label}
+          {sub && <span className="rcn-field-sub">{sub}</span>}
+        </span>
+        <FieldValidationInfo hint={hint} />
+      </div>
       {children}
       {error && <span className="rcn-field-error">{error}</span>}
     </div>
@@ -441,9 +525,9 @@ function AmPmTimeInput({ value, onChange, disabled, ariaLabel, placeholder = "�
 
 function TimeRangePicker({ value, onChange, disabled, dateYmd }) {
   const { from, to } = parseTimeRange(value);
-  const timeMax = maxAllowedTimeForDate(dateYmd, new Date(), MML_BOUNDARY_HOUR);
+  const timeMax = mmlMaxAllowedTimeForSheetDate(dateYmd);
   const setPart = (which, next) => {
-    const clamped = clampTimeToMaxAllowed(dateYmd, next, new Date(), MML_BOUNDARY_HOUR);
+    const clamped = mmlClampTimeForSheetDate(dateYmd, next);
     onChange(which === "from" ? joinTimeRange(clamped, to) : joinTimeRange(from, clamped));
   };
   return (
@@ -656,8 +740,8 @@ function EntryBlock({
   /** 5.2.A uses time range in the form; other blocks use stamp time here + in the table. */
   const hideStampTime = blockKey === "resp_a";
   const entryDate = fixedDate || draft.date || "";
-  const maxSheetDate = mmlMaxCalendarDate(new Date(), MML_BOUNDARY_HOUR);
-  const stampTimeMax = maxAllowedTimeForDate(entryDate, new Date(), MML_BOUNDARY_HOUR);
+  const maxSheetDate = realCalendarDateYmd();
+  const stampTimeMax = mmlMaxAllowedTimeForSheetDate(entryDate);
 
   return (
     <div className="rcn-subsection mml-subblock">
@@ -676,7 +760,10 @@ function EntryBlock({
           <div className="mml-entry-meta">
             <span className="mml-draft-badge">New reading</span>
             <label className="mml-meta-field">
-              <span>Date</span>
+              <span className="mml-meta-label">
+                <span>Date</span>
+                <FieldValidationInfo hint={MML_DATE_STAMP_HINT} />
+              </span>
               <input
                 type="date"
                 className={`rcn-text-input mml-date-input${fieldErr(draftIdx, "date") ? " rcn-text-input--error" : ""}`}
@@ -698,7 +785,10 @@ function EntryBlock({
             </label>
             {!hideStampTime && (
               <label className="mml-meta-field">
-                <span>Time</span>
+                <span className="mml-meta-label">
+                  <span>Time</span>
+                  <FieldValidationInfo hint={MML_TIME_STAMP_HINT} />
+                </span>
                 <input
                   type="time"
                   className={`rcn-text-input mml-time-input${fieldErr(draftIdx, "time") ? " rcn-text-input--error" : ""}`}
@@ -707,11 +797,9 @@ function EntryBlock({
                   disabled={disabled}
                   aria-invalid={fieldErr(draftIdx, "time") ? "true" : undefined}
                   onChange={e => {
-                    const v = clampTimeToMaxAllowed(
+                    const v = mmlClampTimeForSheetDate(
                       entryDate,
                       e.target.value,
-                      new Date(),
-                      MML_BOUNDARY_HOUR,
                     );
                     onChangeEntry(draftIdx, "time", v);
                   }}
@@ -724,7 +812,7 @@ function EntryBlock({
           </div>
           {!disabled && hasEntryData(draft) && (
             <button type="button" className="mml-add-btn"
-              onClick={() => onAdd(blankFactory ? blankFactory() : freshEntry())}>
+              onClick={() => onAdd(blankFactory ? blankFactory() : freshEntry({}, fixedDate))}>
               <Plus size={14} /> Log another reading
             </button>
           )}
@@ -893,8 +981,11 @@ export default function MinimalMonitoringLog() {
       const list = prev[key] || [];
       const last = list[list.length - 1];
       if (last && hasEntryData(last)) {
-        const blank = emptyEntries()[key][0];
-        return { ...prev, [key]: [...list, blank] };
+        const base = emptyEntries()[key][0];
+        return {
+          ...prev,
+          [key]: [...list, { ...base, id: uid(), date: sheetDate, time: nowTime(new Date()) }],
+        };
       }
       return prev;
     });
@@ -961,37 +1052,46 @@ export default function MinimalMonitoringLog() {
     loadPatient();
   }, [enrollmentId]);
 
+  const sheetDateOptions = useMemo(() => mmlDropdownDateOptions(), []);
+
+  const loadSheetForDate = async (ymd) => {
+    if (!enrollmentId || !ymd) return;
+    setLoading(true);
+    setErrors({});
+    hydratedRef.current = false;
+    setSaveTick(0);
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`);
+      const data = res?.data || {};
+      setSheetDate(data.record_date || ymd);
+      setEntries(hydrateEntries(data));
+      dirtyRef.current = false;
+    } catch (_) {
+      setSheetDate(ymd);
+      setEntries(emptyEntries());
+      setMessage("Could not load sheet for this date. Please try again.");
+    } finally {
+      setLoading(false);
+      requestAnimationFrame(() => { hydratedRef.current = true; });
+    }
+  };
+
+  const requestSheetDateChange = async (nextYmd) => {
+    if (!nextYmd || nextYmd === sheetDate) return;
+    if (dirtyRef.current) {
+      const ok = window.confirm(
+        "You have unsaved changes on this date. Switch anyway? Unsaved edits will be lost.",
+      );
+      if (!ok) return;
+    }
+    setMessage("");
+    await loadSheetForDate(nextYmd);
+  };
+
   useEffect(() => {
     if (!enrollmentId) return;
-    let cancelled = false;
-    const loadToday = async () => {
-      setLoading(true);
-      setErrors({});
-      hydratedRef.current = false;
-      try {
-        const res = await api.get(
-          `/minimal-monitoring/${enrollmentId}/today`,
-          { params: { boundary_hour: MML_BOUNDARY_HOUR } }
-        );
-        if (cancelled) return;
-        const data = res?.data || {};
-        setSheetDate(data.record_date || "");
-        setEntries(hydrateEntries(data));
-      } catch (_) {
-        if (!cancelled) {
-          setEntries(emptyEntries());
-          setMessage("Could not load today's sheet. Please try again.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          // Defer so the hydrate setEntries doesn't trigger autosave
-          requestAnimationFrame(() => { hydratedRef.current = true; });
-        }
-      }
-    };
-    loadToday();
-    return () => { cancelled = true; };
+    loadSheetForDate(mmlDefaultSheetDate());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentId]);
 
   const buildValidationErrors = () => {
@@ -1076,19 +1176,19 @@ export default function MinimalMonitoringLog() {
   const buildPayload = () => ({
     enrollment_id: enrollmentId,
     ...flattenEntries(entries),
+    record_date: sheetDate,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
 
   const persist = async ({ silent = false, runValidate = false } = {}) => {
-    if (!enrollmentId) return false;
+    if (!enrollmentId || !sheetDate) return false;
     if (runValidate && !validate()) return false;
     setSaving(true);
     try {
       const res = await api.put(
-        `/minimal-monitoring/${enrollmentId}/today`,
+        `/minimal-monitoring/${enrollmentId}/on/${sheetDate}`,
         buildPayload(),
-        { params: { boundary_hour: MML_BOUNDARY_HOUR } }
       );
       if (res?.data?.record_date) setSheetDate(res.data.record_date);
       dirtyRef.current = false;
@@ -1098,7 +1198,7 @@ export default function MinimalMonitoringLog() {
       if (counts.done > 0) markFormCompleted("minimal_monitoring");
       else unmarkFormCompleted("minimal_monitoring");
       if (!silent) {
-        setMessage("Today's sheet saved");
+        setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
         setTimeout(() => setMessage(""), 3000);
       }
       return true;
@@ -1140,7 +1240,7 @@ export default function MinimalMonitoringLog() {
     autosaveTimer.current = setTimeout(async () => {
       const ok = await persist({ silent: true, runValidate: false });
       if (ok) {
-        setMessage("Today's sheet saved");
+        setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
         setTimeout(() => setMessage(""), 2500);
       }
     }, 1500);
@@ -1164,7 +1264,7 @@ export default function MinimalMonitoringLog() {
             onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
             onAdd={blank => addEntry("cv_a", blank)}
             onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })}>
+            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Skin/Axillary Temp">
@@ -1193,7 +1293,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_b", i, k, v)}
             onAdd={blank => addEntry("cv_b", blank)} onRemove={i => removeEntry("cv_b", i)}
-            blankFactory={() => freshEntry({ fluid_bolus_given: "" })}>
+            blankFactory={() => freshEntry({ fluid_bolus_given: "" }, sheetDate)}>
             {(e, i) => (
               <Item n={1} label="Fluid Bolus given">
                 <Num
@@ -1212,7 +1312,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_c", i, k, v)}
             onAdd={blank => addEntry("cv_c", blank)} onRemove={i => removeEntry("cv_c", i)}
-            blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })}>
+            blankFactory={() => freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Vasoactive given">
@@ -1238,7 +1338,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("cv_d", i, k, v)}
             onAdd={blank => addEntry("cv_d", blank)} onRemove={i => removeEntry("cv_d", i)}
-            blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" })}>
+            blankFactory={() => freshEntry({ pda_agent: [], pda_dose: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Agent for Medical Rx of PDA">
@@ -1259,7 +1359,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
             onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
-            blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })}>
+            blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Time: Btw" sub="AM/PM range" wide>
@@ -1278,7 +1378,7 @@ export default function MinimalMonitoringLog() {
                   <Num value={e.max_map_cpap} onChange={v => setEntryField("resp_a", i, "max_map_cpap", v)}
                     disabled={!isEditable} unit="cm H₂O" />
                 </Item>
-                <Item n={4} label="Max FiO₂ of the hour" error={err("resp_a", i, "max_fio2")}>
+                <Item n={4} label="Max FiO₂ of the hour" hint="Must be between 21 and 100 (%)" error={err("resp_a", i, "max_fio2")}>
                   <Num value={e.max_fio2} onChange={v => setEntryField("resp_a", i, "max_fio2", v)}
                     disabled={!isEditable} unit="%" error={err("resp_a", i, "max_fio2")} />
                 </Item>
@@ -1292,10 +1392,10 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_b", i, k, v)}
             onAdd={blank => addEntry("resp_b", blank)} onRemove={i => removeEntry("resp_b", i)}
-            blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" })}>
+            blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" }, sheetDate)}>
             {(e, i) => (
               <>
-                <Item n={1} label="pH" error={err("resp_b", i, "ph")}>
+                <Item n={1} label="pH" hint="Expected range 6.6–7.8" error={err("resp_b", i, "ph")}>
                   <Num value={e.ph} onChange={v => setEntryField("resp_b", i, "ph", v)}
                     disabled={!isEditable} step="0.01" error={err("resp_b", i, "ph")} />
                 </Item>
@@ -1317,20 +1417,20 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_c", i, k, v)}
             onAdd={blank => addEntry("resp_c", blank)} onRemove={i => removeEntry("resp_c", i)}
-            blankFactory={() => freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })}>
+            blankFactory={() => freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" }, sheetDate)}>
             {(e, i) => (
               <>
-                <Item n={1} label="Apnea episodes" error={err("resp_c", i, "apnea_episodes")}>
+                <Item n={1} label="Apnea episodes" hint="Whole number, 0 or more" error={err("resp_c", i, "apnea_episodes")}>
                   <Num value={e.apnea_episodes}
                     onChange={v => setEntryField("resp_c", i, "apnea_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "apnea_episodes")} />
                 </Item>
-                <Item n={2} label="Desaturation episodes" error={err("resp_c", i, "desaturation_episodes")}>
+                <Item n={2} label="Desaturation episodes" hint="Whole number, 0 or more" error={err("resp_c", i, "desaturation_episodes")}>
                   <Num value={e.desaturation_episodes}
                     onChange={v => setEntryField("resp_c", i, "desaturation_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "desaturation_episodes")} />
                 </Item>
-                <Item n={3} label="Sev. desaturation episodes" error={err("resp_c", i, "severe_desaturation_episodes")}>
+                <Item n={3} label="Sev. desaturation episodes" hint="Whole number, 0 or more — cannot exceed the desaturation episodes count above" error={err("resp_c", i, "severe_desaturation_episodes")}>
                   <Num value={e.severe_desaturation_episodes}
                     onChange={v => setEntryField("resp_c", i, "severe_desaturation_episodes", v)}
                     disabled={!isEditable} error={err("resp_c", i, "severe_desaturation_episodes")} />
@@ -1345,7 +1445,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_d", i, k, v)}
             onAdd={blank => addEntry("resp_d", blank)} onRemove={i => removeEntry("resp_d", i)}
-            blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })}>
+            blankFactory={() => freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Postnatal steroids">
@@ -1359,7 +1459,7 @@ export default function MinimalMonitoringLog() {
                     disabled={!isEditable} unit="mg/kg" />
                 </Item>
                 {(e.postnatal_steroids || []).includes("Other") && (
-                  <Item n={3} label="If Other, specify" error={err("resp_d", i, "steroid_other")}>
+                  <Item n={3} label="If Other, specify" hint="Required when 'Other' is selected above" error={err("resp_d", i, "steroid_other")}>
                     <Txt value={e.steroid_other}
                       onChange={v => setEntryField("resp_d", i, "steroid_other", v)}
                       disabled={!isEditable} error={err("resp_d", i, "steroid_other")}
@@ -1376,7 +1476,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
             onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
-            blankFactory={() => freshEntry({ glucose: "" })}>
+            blankFactory={() => freshEntry({ glucose: "" }, sheetDate)}>
             {(e, i) => (
               <Item n={1} label="Glucose">
                 <Num value={e.glucose} onChange={v => setEntryField("met_a", i, "glucose", v)}
@@ -1391,7 +1491,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("met_b", i, k, v)}
             onAdd={blank => addEntry("met_b", blank)} onRemove={i => removeEntry("met_b", i)}
-            blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" })}>
+            blankFactory={() => freshEntry({ alp: "", total_calcium: "", phosphorus: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="ALP">
@@ -1419,7 +1519,7 @@ export default function MinimalMonitoringLog() {
             blankFactory={() => freshEntry({
               electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "",
               symptomatic_status: "", symptomatic_detail: "",
-            })}>
+            }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Electrolyte abnormality">
@@ -1443,7 +1543,7 @@ export default function MinimalMonitoringLog() {
                     onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
                 </Item>
                 {e.symptomatic_status === "symptomatic" && (
-                  <Item n={4} label="If symptomatic" error={err("met_c", i, "symptomatic_detail")}>
+                  <Item n={4} label="If symptomatic" hint="Required when Symptomatic is selected above" error={err("met_c", i, "symptomatic_detail")}>
                     <Txt value={e.symptomatic_detail}
                       onChange={v => setEntryField("met_c", i, "symptomatic_detail", v)}
                       disabled={!isEditable} error={err("met_c", i, "symptomatic_detail")} />
@@ -1459,7 +1559,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
             onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
-            blankFactory={() => freshEntry({ cumulative_feed_volume: "" })}>
+            blankFactory={() => freshEntry({ cumulative_feed_volume: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Cumulative feed volume">
@@ -1477,7 +1577,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("gi_b", i, k, v)}
             onAdd={blank => addEntry("gi_b", blank)} onRemove={i => removeEntry("gi_b", i)}
-            blankFactory={() => freshEntry({ direct_bilirubin: "" })}>
+            blankFactory={() => freshEntry({ direct_bilirubin: "" }, sheetDate)}>
             {(e, i) => (
               <Item n={1} label="Direct Bilirubin">
                 <Num value={e.direct_bilirubin}
@@ -1500,7 +1600,7 @@ export default function MinimalMonitoringLog() {
               onChangeEntry={(i, k, v) => setEntryField("neuro_a", i, k, v)}
               onAdd={blank => addEntry("neuro_a", blank)}
               onRemove={i => removeEntry("neuro_a", i)}
-              blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })}
+              blankFactory={() => freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" }, sheetDate)}
             >
               {(e, i) => (
                 <>
@@ -1530,7 +1630,7 @@ export default function MinimalMonitoringLog() {
               onChangeEntry={(i, k, v) => setEntryField("neuro_b", i, k, v)}
               onAdd={blank => addEntry("neuro_b", blank)}
               onRemove={i => removeEntry("neuro_b", i)}
-              blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" })}
+              blankFactory={() => freshEntry({ tod: "", aca_ri: "", mca_ri: "" }, sheetDate)}
             >
               {(e, i) => (
                 <>
@@ -1557,7 +1657,7 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("heme_a", i, k, v)}
             onAdd={blank => addEntry("heme_a", blank)} onRemove={i => removeEntry("heme_a", i)}
-            blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })}>
+            blankFactory={() => freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Transfusion">
@@ -1565,7 +1665,7 @@ export default function MinimalMonitoringLog() {
                     onChange={v => setEntryField("heme_a", i, "transfusion_products", v)}
                     disabled={!isEditable} />
                 </Item>
-                <Item n={2} label="No. of transfusions" error={err("heme_a", i, "transfusion_count")}>
+                <Item n={2} label="No. of transfusions" hint="Whole number, 0 or more" error={err("heme_a", i, "transfusion_count")}>
                   <Num value={e.transfusion_count}
                     onChange={v => setEntryField("heme_a", i, "transfusion_count", v)}
                     disabled={!isEditable} error={err("heme_a", i, "transfusion_count")} />
@@ -1595,9 +1695,31 @@ export default function MinimalMonitoringLog() {
             <p className="rcn-patient-header-subtitle">
               Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers
             </p>
-            <p className="mml-sheet-note">
-              Today's sheet{sheetDate ? ` (${formatDateToDDMMYYYY(sheetDate)})` : ""} — clears automatically after {MML_BOUNDARY_HOUR}:00 AM
-            </p>
+            <div className="mml-sheet-header-row">
+              <p className="mml-sheet-note">
+                Sheet date — before {MML_DROPDOWN_CUTOFF_HOUR}:00 you can choose yesterday or today;
+                from {MML_DROPDOWN_CUTOFF_HOUR}:00 onward only today. Every section uses this date.
+              </p>
+              {sheetDateOptions.length > 1 ? (
+                <label className="mml-sheet-date-label">
+                  <span className="mml-sheet-date-label-text">Date</span>
+                  <select
+                    className="rcn-text-input mml-sheet-date-select"
+                    value={sheetDate}
+                    disabled={loading || !sheetDate}
+                    onChange={e => requestSheetDateChange(e.target.value)}
+                  >
+                    {sheetDateOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <p className="mml-sheet-date-fixed">
+                  {sheetDate ? formatDateToDDMMYYYY(sheetDate) : "—"}
+                </p>
+              )}
+            </div>
           </div>
           <div className="rcn-patient-cards">
             <MetricCard label="Enrolment ID" value={patientInfo.enrollmentId} tone="blue" />
@@ -1607,7 +1729,7 @@ export default function MinimalMonitoringLog() {
           </div>
         </div>
 
-        {loading ? <div className="rcn-loading">Loading today's sheet...</div> : (
+        {loading ? <div className="rcn-loading">Loading sheet…</div> : (
           <div className="rcn-sections">
 
             {view === "sections" && (
@@ -1637,8 +1759,8 @@ export default function MinimalMonitoringLog() {
                 </div>
                 <p className="mml-fields-list-hint">
                   {activeBlock === "resp_a"
-                    ? "Date is fixed to today's sheet. Use the time range for respiratory support — readings appear in the table as you fill them."
-                    : "Date and time are auto-filled to now (adjust if needed). Values appear in the table below as you fill them."}
+                    ? "Date is fixed to the sheet date above. Use the time range for respiratory support — readings appear in the table as you fill them."
+                    : "Date is fixed to the sheet date above; time follows the sheet rules. Values appear in the table below as you fill them."}
                 </p>
                 {renderBlockBody(activeBlock)}
               </div>

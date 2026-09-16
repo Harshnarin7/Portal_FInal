@@ -17,6 +17,19 @@ const pad2 = (n) => String(n).padStart(2, "0");
 export const NICU_DAY_GRACE_HOUR = 11;
 
 /**
+ * Minimal Monitoring (Helper Form 5) manual sheet-date dropdown only.
+ * Before this local hour, nurses may pick yesterday or today; from this hour
+ * onward only today is allowed. Unrelated to NICU_DAY_GRACE_HOUR used by other
+ * helper forms and GET .../minimal-monitoring/.../today.
+ */
+export const MML_DROPDOWN_CUTOFF_HOUR = 8;
+
+/** Real local calendar date (YYYY-MM-DD), not grace-shifted NICU "working day". */
+export function realCalendarDateYmd(now = new Date()) {
+  return toDateOnlyValue(now);
+}
+
+/**
  * NICU day number for `day1Date` as of `asOf`, applying the grace hour
  * so badges, future-locking, and the default tab all share one "today".
  * Clamped to ≥ 1 when Day 1 Date is calendar-today but the clock is
@@ -351,6 +364,47 @@ export function mmlMaxCalendarDate(now = new Date(), graceHour = NICU_DAY_GRACE_
     ref.setDate(ref.getDate() - 1);
   }
   return toDateOnlyValue(ref);
+}
+
+/**
+ * Options for the Helper Form 5 header date dropdown (1 or 2 entries).
+ * @returns {{ value: string, label: string }[]}
+ */
+export function mmlDropdownDateOptions(now = new Date(), cutoffHour = MML_DROPDOWN_CUTOFF_HOUR) {
+  const today = realCalendarDateYmd(now);
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  y.setDate(y.getDate() - 1);
+  const yesterday = toDateOnlyValue(y);
+  const opt = (value) => ({ value, label: formatDateToDDMMYYYY(value) });
+  if (now.getHours() < cutoffHour) {
+    return [opt(yesterday), opt(today)];
+  }
+  return [opt(today)];
+}
+
+/** Default selected sheet date when opening Helper Form 5. */
+export function mmlDefaultSheetDate(now = new Date(), cutoffHour = MML_DROPDOWN_CUTOFF_HOUR) {
+  const opts = mmlDropdownDateOptions(now, cutoffHour);
+  return opts[opts.length - 1].value;
+}
+
+/**
+ * Max HH:mm for a reading on the selected MML sheet date.
+ * Past calendar dates: full day; today: cap at current clock time.
+ */
+export function mmlMaxAllowedTimeForSheetDate(sheetDateYmd, now = new Date()) {
+  if (!sheetDateYmd) return "23:59";
+  const todayReal = realCalendarDateYmd(now);
+  if (sheetDateYmd > todayReal) return "00:00";
+  if (sheetDateYmd < todayReal) return "23:59";
+  return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+}
+
+export function mmlClampTimeForSheetDate(sheetDateYmd, timeHm, now = new Date()) {
+  if (!timeHm) return timeHm;
+  const max = mmlMaxAllowedTimeForSheetDate(sheetDateYmd, now);
+  const hm = String(timeHm).slice(0, 5);
+  return hm <= max ? hm : max;
 }
 
 /** Combine local YYYY-MM-DD + HH:mm into a Date (local). */

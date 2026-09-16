@@ -6698,6 +6698,30 @@ MINIMAL_MONITORING_FIELDS = [
 # helper-form RCN/IGH/MRVE constants — do not drift this back to 8.
 MML_LATE_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
+# Manual Minimal Monitoring sheet date dropdown only (PUT .../on/{date}).
+# Unrelated to NICU_DAY_GRACE_HOUR / MML_LATE_GRACE_HOUR used by /today.
+MML_DROPDOWN_CUTOFF_HOUR = 8
+
+
+def _validate_mml_manual_on_date(on_date: str) -> None:
+    """Server-side guard for nurse-selected MML sheet dates."""
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", on_date or ""):
+        raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
+    try:
+        on = datetime.strptime(on_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    if on == today:
+        return
+    if on == yesterday and datetime.now().hour < MML_DROPDOWN_CUTOFF_HOUR:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid minimal monitoring sheet date for current time",
+    )
+
 
 def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
     now = datetime.now()
@@ -6767,21 +6791,16 @@ def get_minimal_monitoring_on_date(
     return record
 
 
-@app.put("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
-def upsert_minimal_monitoring_today(
+def _upsert_minimal_monitoring_for_date(
     enrollment_id: str,
+    record_date: str,
     data: MinimalMonitoringDayCreate,
-    boundary_hour: int = MML_LATE_GRACE_HOUR,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Upsert today's scratchpad. Always editable ? no submit/lock gating."""
-    require_enrollment_access(enrollment_id, db, current_user)
-    record_date = _mml_sheet_date(boundary_hour)
+    db: Session,
+) -> MinimalMonitoringDayLog:
+    """Upsert one calendar-date scratchpad row (shared by /today and /on/{date})."""
     payload = data.model_dump(exclude_unset=True)
     payload["enrollment_id"] = enrollment_id
     payload["record_date"] = record_date
-    # Scratchpad is never locked; keep a soft draft marker for older clients.
     if not payload.get("submission_status") or payload.get("submission_status") == "empty":
         payload["submission_status"] = "draft"
     if "saved_at" not in payload or payload.get("saved_at") is None:
@@ -6808,7 +6827,6 @@ def upsert_minimal_monitoring_today(
         db.refresh(record)
         return record
 
-    # Only pass columns that exist on the model
     col_keys = {c.name for c in MinimalMonitoringDayLog.__table__.columns}
     create_data = {k: v for k, v in payload.items() if k in col_keys}
     record = MinimalMonitoringDayLog(**create_data)
@@ -6819,6 +6837,34 @@ def upsert_minimal_monitoring_today(
     db.commit()
     db.refresh(record)
     return record
+
+
+@app.put("/minimal-monitoring/{enrollment_id}/today", response_model=MinimalMonitoringDayOut)
+def upsert_minimal_monitoring_today(
+    enrollment_id: str,
+    data: MinimalMonitoringDayCreate,
+    boundary_hour: int = MML_LATE_GRACE_HOUR,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert today's scratchpad (legacy /today clients). Always editable."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    record_date = _mml_sheet_date(boundary_hour)
+    return _upsert_minimal_monitoring_for_date(enrollment_id, record_date, data, db)
+
+
+@app.put("/minimal-monitoring/{enrollment_id}/on/{on_date}", response_model=MinimalMonitoringDayOut)
+def upsert_minimal_monitoring_on_date(
+    enrollment_id: str,
+    on_date: str,
+    data: MinimalMonitoringDayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert the nurse-selected calendar sheet (Helper Form 5 date dropdown)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    _validate_mml_manual_on_date(on_date)
+    return _upsert_minimal_monitoring_for_date(enrollment_id, on_date, data, db)
 # ============================================================================
 # FORM H  -  CRANIAL USG ENDPOINTS
 # Add these to main.py
