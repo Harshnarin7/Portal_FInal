@@ -2145,11 +2145,40 @@ def get_metabolic_prefill(
     happened at least once" — sodium/potassium/ionized-calcium values are
     also numerically thresholded here (same cutoffs as the day-log
     comments) to split into the hypo-/hyper- checkboxes Form H uses.
-    Symptom/status detail (#106-111) and the osteopenia lab values
-    (#113-115 — ALP/total Ca/phosphorus) have no matching day-log source
-    and are never touched here; only fields with a genuine source are
-    returned. Same never-overwrite discipline as vascular-access-prefill:
-    the frontend only fills fields the clinician hasn't touched yet."""
+
+    Glucose (#1/#4) additionally pulls from Minimal Monitoring's 5.3.A
+    block (`met_a` in `entries_json`, added 2026-09) — unlike Helper 4's
+    own lowest_glucose/highest_glucose columns, which only ever get
+    populated when a reading is already abnormal, Minimal Monitoring logs
+    every spot glucose reading regardless of value, so each reading is
+    numerically thresholded here before being folded into the same
+    hypoglycemia_lowest/hyperglycemia_highest pool Helper 4 feeds — same
+    "which of these repeated readings is the worst" problem already
+    solved for CV's SBP/DBP/MAP, VM/Doppler, and max-direct-bilirubin
+    (see get_cv_prefill/get_vm_doppler_prefill/get_bilirubin_prefill).
+    Thresholds are the CRF's own hypoglycemia cutoff (<45 mg/dL, matching
+    Helper 4's storage convention exactly) and a corrected hyperglycemia
+    cutoff of >125 mg/dL — NOT the CRF document's currently-written >180,
+    which the PI has confirmed is a documentation error being corrected
+    separately; Helper 4's own existing >180-filtered data is untouched
+    by this change and still folds into the same combined pool.
+
+    ALP peak / lowest total Ca / lowest phosphorus (#113-115, osteopenia
+    lab values) are new here — Helper 4 has never had a source for these
+    (its old docstring here said so explicitly), but Minimal Monitoring's
+    5.3.B block (`met_b`) records exactly this, multiple times per day.
+    Simple running max (ALP) / running min (Ca, phosphorus) across every
+    entry from every day, same max/min-ratchet pattern as the other
+    Minimal-Monitoring-sourced Form H fields. Osteopenia itself (#112)
+    stays sourced from Helper 4's own osteopenia_suspected flag, unchanged
+    — a lab value crossing some range doesn't itself diagnose osteopenia,
+    that's still a clinical judgment call the day log already captures
+    directly.
+
+    Symptom/status detail (#106-111) still has no matching source and is
+    never touched here; only fields with a genuine source are returned.
+    Same never-overwrite discipline as vascular-access-prefill: the
+    frontend only fills fields the clinician hasn't touched yet."""
     require_enrollment_access(enrollment_id, db, current_user)
 
     logs = (
@@ -2157,7 +2186,12 @@ def get_metabolic_prefill(
         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
         .all()
     )
-    if not logs:
+    mml_logs = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    if not logs and not mml_logs:
         return {"has_data": False}
 
     def to_float(v):
@@ -2184,15 +2218,50 @@ def get_metabolic_prefill(
                 pass
         return total
 
+    def mml_numeric_values(block_key, entry_key, legacy_attr):
+        """All numeric values ever logged in a Minimal Monitoring
+        multi-entry block/field across every day row for this enrollment.
+        Rows saved before the multi-entry redesign have no entries_json
+        (or an empty block) — those fall back to the row's own legacy
+        flat column, the same row_had_entries pattern used everywhere
+        else Minimal Monitoring is aggregated."""
+        values = []
+        for row in mml_logs:
+            entries = _mml_load_entries(row.entries_json).get(block_key)
+            row_had_entries = False
+            if isinstance(entries, list) and entries:
+                for entry in entries:
+                    raw = (entry or {}).get(entry_key)
+                    if raw is None or raw == "":
+                        continue
+                    val = to_float(raw)
+                    if val is not None:
+                        values.append(val)
+                        row_had_entries = True
+            if not row_had_entries:
+                legacy_val = to_float(getattr(row, legacy_attr, None))
+                if legacy_val is not None:
+                    values.append(legacy_val)
+        return values
+
     glucose_low = numeric_values("lowest_glucose")
     glucose_high = numeric_values("highest_glucose")
     sodium_vals = numeric_values("sodium_value")
     potassium_vals = numeric_values("potassium_value")
     calcium_vals = numeric_values("ionized_calcium_value")
 
+    mm_glucose_all = mml_numeric_values("met_a", "glucose", "glucose")
+    glucose_low = glucose_low + [v for v in mm_glucose_all if v < 45]
+    glucose_high = glucose_high + [v for v in mm_glucose_all if v > 125]
+
+    alp_values = mml_numeric_values("met_b", "alp", "alp")
+    calcium_lab_values = mml_numeric_values("met_b", "total_calcium", "total_calcium")
+    phosphorus_values = mml_numeric_values("met_b", "phosphorus", "phosphorus")
+
     return {
         "has_data": True,
         "log_days_count": len(logs),
+        "mml_days_count": len(mml_logs),
         "hypoglycemia": "Yes" if glucose_low else "No",
         "hypoglycemia_episodes": sum_int("hypoglycemia_episodes"),
         "hypoglycemia_lowest": min(glucose_low) if glucose_low else None,
@@ -2217,6 +2286,9 @@ def get_metabolic_prefill(
         "hypocalcemia": any(v < 0.9 for v in calcium_vals),
         "hypercalcemia": any(v > 1.2 for v in calcium_vals),
         "osteopenia": "Yes" if any_day("osteopenia_suspected") else "No",
+        "alp_peak": max(alp_values) if alp_values else None,
+        "lowest_calcium": min(calcium_lab_values) if calcium_lab_values else None,
+        "lowest_phosphorus": min(phosphorus_values) if phosphorus_values else None,
     }
 
 
