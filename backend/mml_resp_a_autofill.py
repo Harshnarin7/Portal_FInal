@@ -432,3 +432,130 @@ def overlay_resp_cv_episodes_from_mml(record, episode_autofill: Dict[str, Any]) 
         if blocked(field):
             continue
         setattr(record, field, str(val))
+
+
+def _push_gas(arr: List[float], raw: Any) -> None:
+    if raw is None or raw == "":
+        return
+    try:
+        n = float(raw)
+    except (TypeError, ValueError):
+        return
+    if n > 0:
+        arr.append(n)
+
+
+def parse_resp_b_entries(payload: Any, record_date: Optional[str]) -> Dict[str, List[float]]:
+    out: Dict[str, List[float]] = {"ph": [], "pao2": [], "paco2": []}
+    if payload is None:
+        return out
+    if hasattr(payload, "__dict__"):
+        data = {
+            k: getattr(payload, k)
+            for k in ("record_date", "entries_json", "ph", "pao2", "paco2")
+            if hasattr(payload, k)
+        }
+    else:
+        data = dict(payload)
+
+    sheet_date = _normalize_ymd(data.get("record_date")) or _normalize_ymd(record_date)
+    effective = _normalize_ymd(record_date) or sheet_date
+    sheet_is_helper = bool(
+        effective and data.get("record_date")
+        and _normalize_ymd(data.get("record_date")) == effective
+    )
+
+    entries = data.get("entries_json")
+    if isinstance(entries, str):
+        try:
+            entries = json.loads(entries)
+        except (TypeError, ValueError):
+            entries = None
+
+    resp_b = (entries or {}).get("resp_b") if isinstance(entries, dict) else None
+    if isinstance(resp_b, list):
+        for row in resp_b:
+            if not isinstance(row, dict):
+                continue
+            if not sheet_is_helper:
+                raw_d = row.get("date")
+                ds = _normalize_ymd(raw_d) if raw_d not in (None, "") else sheet_date
+                if effective and ds and ds != effective:
+                    continue
+            if not _mml_json_entry_has_data(row):
+                continue
+            _push_gas(out["ph"], row.get("ph"))
+            _push_gas(out["pao2"], row.get("pao2"))
+            _push_gas(out["paco2"], row.get("paco2"))
+
+    if entries is None:
+        _push_gas(out["ph"], data.get("ph"))
+        _push_gas(out["pao2"], data.get("pao2"))
+        _push_gas(out["paco2"], data.get("paco2"))
+
+    return out
+
+
+def compute_resp_b_autofill(readings: Dict[str, List[float]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"has_rows": False}
+    ph = readings.get("ph") or []
+    pao2 = readings.get("pao2") or []
+    paco2 = readings.get("paco2") or []
+    if ph:
+        result["has_rows"] = True
+        result["lowest_ph"] = _fmt_num(min(ph))
+    if pao2:
+        result["has_rows"] = True
+        lo, hi = min(pao2), max(pao2)
+        result["pao2_low"] = _fmt_num(lo)
+        result["pao2_high"] = _fmt_num(hi)
+    if paco2:
+        result["has_rows"] = True
+        lo, hi = min(paco2), max(paco2)
+        result["paco2_low"] = _fmt_num(lo)
+        result["paco2_high"] = _fmt_num(hi)
+    return result
+
+
+def autofill_resp_b_from_mml_rows(
+    *mml_rows: Any, helper_calendar_date: str
+) -> Dict[str, Any]:
+    merged: Dict[str, List[float]] = {"ph": [], "pao2": [], "paco2": []}
+    seen_ids = set()
+    for mml in mml_rows:
+        if mml is None:
+            continue
+        mid = getattr(mml, "id", None)
+        if mid is not None and mid in seen_ids:
+            continue
+        if mid is not None:
+            seen_ids.add(mid)
+        parsed = parse_resp_b_entries(mml, helper_calendar_date)
+        for k in merged:
+            merged[k].extend(parsed.get(k) or [])
+    return compute_resp_b_autofill(merged)
+
+
+def _range_not_recorded(val: Any) -> bool:
+    if val is None:
+        return False
+    s = str(val).strip()
+    return s == NOT_RECORDED_LABEL or s.lower() == "not done"
+
+
+def overlay_resp_cv_blood_gas_from_mml(record, blood_gas: Dict[str, Any]) -> None:
+    """In-memory overlay on GET — MML 5.2.B for Helper 1 #8–#10."""
+    if not blood_gas.get("has_rows"):
+        return
+    if not _range_not_recorded(getattr(record, "lowest_ph", None)):
+        lp = blood_gas.get("lowest_ph")
+        if lp is not None:
+            record.lowest_ph = str(lp)
+    if not _range_not_recorded(getattr(record, "pao2_range", None)):
+        lo, hi = blood_gas.get("pao2_low"), blood_gas.get("pao2_high")
+        if lo is not None and hi is not None:
+            record.pao2_range = f"{lo}-{hi}"
+    if not _range_not_recorded(getattr(record, "paco2_range", None)):
+        lo, hi = blood_gas.get("paco2_low"), blood_gas.get("paco2_high")
+        if lo is not None and hi is not None:
+            record.paco2_range = f"{lo}-{hi}"

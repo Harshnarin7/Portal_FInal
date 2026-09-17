@@ -129,7 +129,7 @@ async function loadMmlFluidBolusForHelperDay(enrollmentId, recordDate) {
   return has;
 }
 
-/** Helper 5 block 5.2.B (resp_b) → Helper 2 #8–#10 blood gas fields. */
+/** Helper 5 block 5.2.B (resp_b) → Helper 1 #8–#10 blood gas fields. */
 function parseRespBBloodGasReadings(payload, recordDate = null) {
   const pushNum = (arr, raw) => {
     if (raw === null || raw === undefined || raw === "") return;
@@ -137,12 +137,27 @@ function parseRespBBloodGasReadings(payload, recordDate = null) {
     // Ignore placeholder 0 from empty MML draft rows — not a real gas value.
     if (Number.isFinite(n) && n > 0) arr.push(n);
   };
+  const sheetDate = normalizeYmd(payload?.record_date) || normalizeYmd(recordDate);
+  const effectiveDate = normalizeYmd(recordDate) || sheetDate;
+  const sheetIsHelperDay = Boolean(
+    effectiveDate && payload?.record_date
+    && normalizeYmd(payload.record_date) === effectiveDate,
+  );
   const rowOnHelperDay = (row) => {
-    if (!recordDate) return true;
-    const d = row?.date;
-    if (d == null || d === "") return true;
-    const ds = String(d).slice(0, 10);
-    return ds === recordDate;
+    if (sheetIsHelperDay) return true;
+    if (!effectiveDate) return true;
+    const raw = row?.date;
+    const ds = raw == null || raw === ""
+      ? sheetDate
+      : normalizeYmd(raw);
+    if (!ds) return true;
+    return ds === effectiveDate;
+  };
+  const appendFlatRespB = () => {
+    if (effectiveDate && sheetDate && sheetDate !== effectiveDate) return;
+    pushNum(out.ph, payload?.ph);
+    pushNum(out.pao2, payload?.pao2);
+    pushNum(out.paco2, payload?.paco2);
   };
   const out = { ph: [], pao2: [], paco2: [] };
   let entries = payload?.entries_json;
@@ -158,14 +173,19 @@ function parseRespBBloodGasReadings(payload, recordDate = null) {
       pushNum(out.pao2, row?.pao2);
       pushNum(out.paco2, row?.paco2);
     }
-    return out;
   }
   if (entries == null) {
-    pushNum(out.ph, payload?.ph);
-    pushNum(out.pao2, payload?.pao2);
-    pushNum(out.paco2, payload?.paco2);
+    appendFlatRespB();
   }
   return out;
+}
+
+function mmlRespBHasBloodGasRows(readings) {
+  return Boolean(
+    readings?.ph?.length
+    || readings?.pao2?.length
+    || readings?.paco2?.length,
+  );
 }
 
 function mmlFmtAutofillNum(n) {
@@ -1202,106 +1222,65 @@ export default function RespCVNeuroLog() {
         }
       };
 
-      const phAggOk = bloodGasPhLooksMmlSourced(bg.lowestPh, readings);
-      const forcePh =
-        readings.ph.length > 0 && computed.lowest_ph != null && !phAggOk;
-
-      runAggregateSync({
-        current: bg.lowestPh,
-        blockedByNotDone: bg.lowestPhNotDone,
-        wasAutofilled: af.ph,
-        stillMatchesLastAuto:
-          lastMmlAutoComputedRef.current.lowest_ph !== undefined
-          && bg.lowestPh === String(lastMmlAutoComputedRef.current.lowest_ph),
-        looksSourced: (c) => bloodGasPhLooksMmlSourced(c, readings.ph),
-        entryValuesForSourced: readings.ph,
-        mmlValue: computed.lowest_ph ?? null,
-        onApply: setLowestPh,
-        lastKey: "lowest_ph",
-        flagKey: "ph",
-        force: forcePh,
-      });
-
-      if (!bg.pao2NotDone) {
-        const pao2StillAuto =
-          lastMmlAutoComputedRef.current.pao2_low !== undefined
-          && lastMmlAutoComputedRef.current.pao2_high !== undefined
-          && bg.pao2Low === String(lastMmlAutoComputedRef.current.pao2_low)
-          && bg.pao2High === String(lastMmlAutoComputedRef.current.pao2_high);
-        const pao2LooksSourced = () => bloodGasRangeLooksMmlSourced(
-          bg.pao2Low, bg.pao2High, readings, "pao2",
-        );
-        const forcePao2 =
-          readings.pao2.length > 0
-          && computed.pao2_low != null
-          && !pao2LooksSourced();
-        runAggregateSync({
-          current: bg.pao2Low,
-          blockedByNotDone: false,
-          wasAutofilled: af.pao2,
-          stillMatchesLastAuto: pao2StillAuto,
-          looksSourced: pao2LooksSourced,
-          entryValuesForSourced: readings.pao2,
-          mmlValue: computed.pao2_low ?? null,
-          onApply: setPao2Low,
-          lastKey: "pao2_low",
-          flagKey: "pao2",
-          force: forcePao2,
-        });
-        runAggregateSync({
-          current: bg.pao2High,
-          blockedByNotDone: false,
-          wasAutofilled: af.pao2,
-          stillMatchesLastAuto: pao2StillAuto,
-          looksSourced: pao2LooksSourced,
-          entryValuesForSourced: readings.pao2,
-          mmlValue: computed.pao2_high ?? null,
-          onApply: setPao2High,
-          lastKey: "pao2_high",
-          flagKey: "pao2",
-          force: forcePao2,
-        });
-      }
-
-      if (!bg.paco2NotDone) {
-        const paco2StillAuto =
-          lastMmlAutoComputedRef.current.paco2_low !== undefined
-          && lastMmlAutoComputedRef.current.paco2_high !== undefined
-          && bg.paco2Low === String(lastMmlAutoComputedRef.current.paco2_low)
-          && bg.paco2High === String(lastMmlAutoComputedRef.current.paco2_high);
-        const paco2LooksSourced = () => bloodGasRangeLooksMmlSourced(
-          bg.paco2Low, bg.paco2High, readings, "paco2",
-        );
-        const forcePaco2 =
-          readings.paco2.length > 0
-          && computed.paco2_low != null
-          && !paco2LooksSourced();
-        runAggregateSync({
-          current: bg.paco2Low,
-          blockedByNotDone: false,
-          wasAutofilled: af.paco2,
-          stillMatchesLastAuto: paco2StillAuto,
-          looksSourced: paco2LooksSourced,
-          entryValuesForSourced: readings.paco2,
-          mmlValue: computed.paco2_low ?? null,
-          onApply: setPaco2Low,
-          lastKey: "paco2_low",
-          flagKey: "paco2",
-          force: forcePaco2,
-        });
-        runAggregateSync({
-          current: bg.paco2High,
-          blockedByNotDone: false,
-          wasAutofilled: af.paco2,
-          stillMatchesLastAuto: paco2StillAuto,
-          looksSourced: paco2LooksSourced,
-          entryValuesForSourced: readings.paco2,
-          mmlValue: computed.paco2_high ?? null,
-          onApply: setPaco2High,
-          lastKey: "paco2_high",
-          flagKey: "paco2",
-          force: forcePaco2,
-        });
+      // Helper 1 #8–#10: MML 5.2.B daily min/ranges always win (unless Not Done).
+      if (mmlRespBHasBloodGasRows(readings)) {
+        const normBg = (v) => (v == null ? "" : String(v).trim());
+        if (
+          !bg.lowestPhNotDone
+          && computed.lowest_ph != null
+          && normBg(bg.lowestPh) !== normBg(computed.lowest_ph)
+        ) {
+          setLowestPh(String(computed.lowest_ph));
+          afNext.ph = true;
+          lastMmlAutoComputedRef.current.lowest_ph = computed.lowest_ph;
+          anyBgChanged = true;
+        } else if (computed.lowest_ph != null) {
+          afNext.ph = true;
+        }
+        if (!bg.pao2NotDone) {
+          if (
+            computed.pao2_low != null
+            && normBg(bg.pao2Low) !== normBg(computed.pao2_low)
+          ) {
+            setPao2Low(String(computed.pao2_low));
+            afNext.pao2 = true;
+            lastMmlAutoComputedRef.current.pao2_low = computed.pao2_low;
+            anyBgChanged = true;
+          }
+          if (
+            computed.pao2_high != null
+            && normBg(bg.pao2High) !== normBg(computed.pao2_high)
+          ) {
+            setPao2High(String(computed.pao2_high));
+            afNext.pao2 = true;
+            lastMmlAutoComputedRef.current.pao2_high = computed.pao2_high;
+            anyBgChanged = true;
+          } else if (computed.pao2_low != null || computed.pao2_high != null) {
+            afNext.pao2 = true;
+          }
+        }
+        if (!bg.paco2NotDone) {
+          if (
+            computed.paco2_low != null
+            && normBg(bg.paco2Low) !== normBg(computed.paco2_low)
+          ) {
+            setPaco2Low(String(computed.paco2_low));
+            afNext.paco2 = true;
+            lastMmlAutoComputedRef.current.paco2_low = computed.paco2_low;
+            anyBgChanged = true;
+          }
+          if (
+            computed.paco2_high != null
+            && normBg(bg.paco2High) !== normBg(computed.paco2_high)
+          ) {
+            setPaco2High(String(computed.paco2_high));
+            afNext.paco2 = true;
+            lastMmlAutoComputedRef.current.paco2_high = computed.paco2_high;
+            anyBgChanged = true;
+          } else if (computed.paco2_low != null || computed.paco2_high != null) {
+            afNext.paco2 = true;
+          }
+        }
       }
 
       const hasEpisodeRows =

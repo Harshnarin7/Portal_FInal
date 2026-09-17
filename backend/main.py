@@ -30,8 +30,10 @@ from rop_form_g_linkage import (
 from rop_consistency import build_rop_consistency_report
 from mml_resp_a_autofill import (
     autofill_from_mml_rows,
+    autofill_resp_b_from_mml_rows,
     autofill_resp_c_from_mml_rows,
     calendar_date_for_nicu_day_from_birth,
+    overlay_resp_cv_blood_gas_from_mml,
     overlay_resp_cv_day_from_autofill,
     overlay_resp_cv_episodes_from_mml,
 )
@@ -5984,7 +5986,39 @@ def get_resp_cv_neuro_day(
             record,
             _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
         )
+        overlay_resp_cv_blood_gas_from_mml(
+            record,
+            _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
+        )
     return record
+
+
+def _mml_helper1_resp_b_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
+    """5.2.B blood gas aggregates for Helper 1 #8–#10 on a calendar date."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == calendar_ymd,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != calendar_ymd:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    return autofill_resp_b_from_mml_rows(
+        on_row,
+        today_row,
+        helper_calendar_date=calendar_ymd,
+    )
 
 
 def _mml_helper1_resp_c_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
