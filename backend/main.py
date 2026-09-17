@@ -37,6 +37,10 @@ from mml_resp_a_autofill import (
     overlay_resp_cv_day_from_autofill,
     overlay_resp_cv_episodes_from_mml,
 )
+from mml_helper4_autofill import (
+    compute_helper4_day_autofill,
+    overlay_helper4_day_from_mml,
+)
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -6755,6 +6759,41 @@ def get_metab_renal_vasc_eye_day(
     # sheet without treating "not started yet" as an error.
     if not record:
         return None
+    # Minimal Monitoring linkage step 2 -- see mml_helper4_autofill.py.
+    # Fills lowest_glucose/highest_glucose/axillary_temperature only when
+    # Helper 4's own field is still blank; never touches an already-
+    # answered field. In-memory only, not committed.
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    cal = calendar_date_for_nicu_day_from_birth(
+        birth.date_of_birth if birth else None,
+        nicu_day,
+    )
+    if cal:
+        on_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == cal,
+            )
+            .first()
+        )
+        today_ymd = _mml_sheet_date()
+        today_row = on_row
+        if today_ymd != cal:
+            today_row = (
+                db.query(MinimalMonitoringDayLog)
+                .filter(
+                    MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                    MinimalMonitoringDayLog.record_date == today_ymd,
+                )
+                .first()
+            )
+        autofill = compute_helper4_day_autofill(on_row, today_row, helper_calendar_date=cal)
+        overlay_helper4_day_from_mml(record, autofill)
     return record
  
  
