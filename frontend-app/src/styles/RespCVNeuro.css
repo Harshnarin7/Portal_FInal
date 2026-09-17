@@ -1417,16 +1417,25 @@
   box-shadow: 0 0 0 3px rgba(15,76,129,0.1);
 }
 .rcn-num-input input {
-  flex: 1;
-  border: none;
+  flex: 1 1 auto;
+  width: 100%;
+  border: none !important;
   outline: none;
-  background: transparent;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
   font-family: 'Inter', sans-serif;
   font-size: 20px;
   font-weight: 700;
   color: #0F172A;
   padding: 12px 14px;
   min-width: 0;
+}
+.rcn-num-input input:focus,
+.rcn-num-input input:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 .rcn-num-input input::placeholder { color: #CBD5E1; font-weight: 500; font-size: 16px; }
 .rcn-num-input input:disabled { cursor: not-allowed; color: #94A3B8; }
@@ -1542,12 +1551,25 @@
 }
 
 .rcn-num-unit {
-  font-size: 12px;
-  font-weight: 600;
-  color: #94A3B8;
-  padding: 0 14px 0 0;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748B;
+  padding: 0 12px;
+  margin: 0;
   white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  border-left: 1px solid #E2E8F0;
+  background: #F8FAFC;
 }
+
+/* Reading-row value fields: see MinimalMonitoring.css (match mml-date/time size) */
 
 /* ── Yes/No Rows ───────────────────────────────────────────── */
 .rcn-yn-list {
@@ -2452,26 +2474,6 @@
   color: #1D4ED8;
 }
 
-/* ── History / audit trail button ──────────────────────────── */
-.rcn-history-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-  margin-left: 8px;
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: 1.5px solid #E2E8F0;
-  background: #F8FAFC;
-  color: #475569;
-  font-family: 'Inter', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.rcn-history-btn:hover { background: #F1F5F9; border-color: #CBD5E1; }
-
 /* ── Edit button (enable editing) ───────────────────────────── */
 .btn-edit {
   display: inline-flex;
@@ -2522,24 +2524,17 @@
 }
 .rcn-override-btn:hover { background: #FEF3C7; }
 
-/* ── History (audit trail) button — superadmin + site PI ──────── */
-.rcn-history-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 9px;
-  border: 1.5px solid #C7D2FE;
+/* ── History (audit trail) — same footprint as .btn in form-navigation ─ */
+.btn.rcn-history-btn {
   background: #EEF2FF;
   color: #3730A3;
-  font-family: 'Inter', sans-serif;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
+  border: 1.5px solid #C7D2FE;
 }
-.rcn-history-btn:hover { background: #E0E7FF; border-color: #A5B4FC; }
+.btn.rcn-history-btn:hover {
+  background: #E0E7FF;
+  border-color: #A5B4FC;
+  color: #312E81;
+}
 
 
 /* ── Audit trail modal list ─────────────────────────────────── */

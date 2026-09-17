@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X } from "lucide-react";
 import api from "./api/axios";
+import { siteQueryParams } from "./components/dashboard/GlobalSiteFilter";
 import { siteShortCode } from "./utils/siteNames";
 
 const pctColor = (pct) => {
@@ -25,7 +26,7 @@ function FormFlag({ done }) {
   );
 }
 
-export default function EnrollmentCompletenessTable() {
+export default function EnrollmentCompletenessTable({ apiSite = "" }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,14 +38,16 @@ export default function EnrollmentCompletenessTable() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get("/dashboard/completeness-by-enrollment");
+      const res = await api.get("/dashboard/completeness-by-enrollment", {
+        params: siteQueryParams(apiSite),
+      });
       setData(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load enrollment completeness");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiSite]);
 
   useEffect(() => {
     load();

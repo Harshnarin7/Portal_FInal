@@ -41,6 +41,18 @@ logger = logging.getLogger(__name__)
 # Canonical order — must match CANONICAL_SITE_ID_MAP in main.py (01-06,
 # used for screening/enrollment IDs), not alphabetical or insertion order.
 ALL_SITES = ["PGIMER", "GMCH", "IOG", "AFMC", "GMCH-A", "AMC"]
+
+
+def _dashboard_sites(user: User, site: str | None = None) -> list[str]:
+    """Site scope for dashboard endpoints. Global users may narrow with `site`;
+    non-global users always get their own site (client `site` is ignored)."""
+    if is_global(user):
+        if site and site in ALL_SITES:
+            return [site]
+        return list(ALL_SITES)
+    if user.site_name:
+        return [user.site_name]
+    return []
 GRACE_DAYS = 28
 
 # Pre-screening barriers (Box 2). A record with any of these exclusion_reasons
@@ -401,6 +413,7 @@ def _flatten_for_csv(rows, sites, depth=0):
 @router.get("/consort")
 def get_consort_flow(
     format: str = Query("json", pattern="^(json|csv)$"),
+    site: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -409,7 +422,7 @@ def get_consort_flow(
     if format == "csv" and not is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="CSV export is superadmin-only")
 
-    sites = ALL_SITES if global_view else [current_user.site_name] if current_user.site_name else []
+    sites = _dashboard_sites(current_user, site)
 
     counts_by_site, refusal_reasons_by_site = _compute_screening_boxes(db)
     followup_boxes, followup_ltfu_reasons = _compute_followup_boxes(db)
@@ -681,11 +694,11 @@ def _median_q1_q3(values):
 
 @router.get("/data-quality")
 def get_data_quality(
+    site: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    global_view = is_global(current_user)
-    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    sites = _dashboard_sites(current_user, site)
     site_set = set(sites)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -885,12 +898,12 @@ def _completeness_rows_for_sites(db: Session, site_set: set) -> list:
 
 @router.get("/completeness-by-enrollment")
 def get_completeness_by_enrollment(
+    site: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Per-enrollment form presence flags (same joins as completion matrix)."""
-    global_view = is_global(current_user)
-    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    sites = _dashboard_sites(current_user, site)
     site_set = set(sites)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return {
@@ -1483,12 +1496,13 @@ def get_enrollment_trend(
 
 @router.get("/ops-summary")
 def get_ops_summary(
+    site: str | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    global_view = is_global(current_user)
-    sites = ALL_SITES if global_view else ([current_user.site_name] if current_user.site_name else [])
+    sites = _dashboard_sites(current_user, site)
     site_set = set(s for s in sites if s)
+    global_view = is_global(current_user)
 
     KPI_Q = text("""
         SELECT

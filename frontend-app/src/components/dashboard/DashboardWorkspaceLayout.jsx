@@ -13,7 +13,7 @@ const RL_MAP = {
   monitor: "Trial Monitor",
 };
 
-/** Shared layout for /entries, /manage-staff, /trial-monitoring */
+/** Shared layout for /entries, /manage-staff, /trial-monitoring, /audit-trail */
 export default function DashboardWorkspaceLayout({
   pageTitle,
   search = "",

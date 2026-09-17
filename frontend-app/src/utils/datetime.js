@@ -14,7 +14,7 @@ const pad2 = (n) => String(n).padStart(2, "0");
  * Must stay in lockstep with backend `NICU_DAY_GRACE_HOUR` /
  * `MML_LATE_GRACE_HOUR` / `DAY1_DATE_ENTRY_GRACE_HOUR`.
  */
-export const NICU_DAY_GRACE_HOUR = 11;
+export const NICU_DAY_GRACE_HOUR = 8;
 
 /**
  * Minimal Monitoring (Helper Form 5) manual sheet-date dropdown only.
@@ -54,6 +54,17 @@ export function calendarDateForNicuDay(day1Date, nicuDay) {
   if (Number.isNaN(base.getTime())) return null;
   base.setDate(base.getDate() + Number(nicuDay) - 1);
   return toDateOnlyValue(base);
+}
+
+/** NICU day number (1-based) for a calendar YYYY-MM-DD given Day 1 Date. */
+export function nicuDayForCalendarYmd(day1Date, ymd) {
+  if (!day1Date || !ymd) return null;
+  const ds = String(ymd).slice(0, 10);
+  const base = new Date(`${day1Date}T00:00:00`);
+  const target = new Date(`${ds}T00:00:00`);
+  if (Number.isNaN(base.getTime()) || Number.isNaN(target.getTime())) return null;
+  const n = Math.floor((target - base) / 86400000) + 1;
+  return n < 1 ? 1 : n;
 }
 
 /**

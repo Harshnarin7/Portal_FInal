@@ -20,18 +20,17 @@ ROLE_SITE_PI = "site_pi"
 ROLE_SITE_SCIENTIST = "site_scientist"
 ROLE_NURSE = "nurse"
 ROLE_PII_OFFICER = "pii_officer"               # existing, unrelated to site hierarchy
+ROLE_GLOBAL_SCIENTIST = "global_scientist"       # cross-site read (trial monitoring, etc.)
 
 ALL_ROLES = frozenset({
-    ROLE_SUPERADMIN, ROLE_PROJECT_SCIENTIST, ROLE_SITE_PI,
-    ROLE_SITE_SCIENTIST, ROLE_NURSE, ROLE_PII_OFFICER,
+    ROLE_SUPERADMIN, ROLE_PROJECT_SCIENTIST, ROLE_GLOBAL_SCIENTIST,
+    ROLE_SITE_PI, ROLE_SITE_SCIENTIST, ROLE_NURSE, ROLE_PII_OFFICER,
 })
 
 # Roles that can see/act across every site, not just their own site_name.
-# As of Aug 2026 (Harsh's decision): ONLY superadmin gets cross-site visibility.
-# project_scientist was previously global ("head of all sites, global read") —
-# that was intentionally removed. Every other role, including project_scientist,
-# is now scoped to their own site_name in dashboards, View Entries, etc.
-GLOBAL_ROLES = frozenset({ROLE_SUPERADMIN})
+# Cross-site visibility: superadmin + global_scientist (named global read accounts).
+# project_scientist stays site-scoped — do NOT add it here (Aug 2026 decision).
+GLOBAL_ROLES = frozenset({ROLE_SUPERADMIN, ROLE_GLOBAL_SCIENTIST})
 
 # Mobile app (Flutter UserRole enum) only knows ADMIN/PI/SCIENTIST/NURSE/DEO/MONITOR.
 # Both project_scientist (global) and site_scientist map to SCIENTIST; the mobile
@@ -39,6 +38,7 @@ GLOBAL_ROLES = frozenset({ROLE_SUPERADMIN})
 MOBILE_ROLE_MAP = {
     ROLE_SUPERADMIN: "ADMIN",
     ROLE_PROJECT_SCIENTIST: "SCIENTIST",
+    ROLE_GLOBAL_SCIENTIST: "SCIENTIST",
     ROLE_SITE_PI: "PI",
     ROLE_SITE_SCIENTIST: "SCIENTIST",
     ROLE_NURSE: "NURSE",
@@ -55,8 +55,7 @@ def is_superadmin(user: User) -> bool:
 
 
 def is_global(user: User) -> bool:
-    """True for roles that should see data across all sites (superadmin + the
-    head project scientist), regardless of their own site_name."""
+    """True for roles with cross-site read access (see GLOBAL_ROLES)."""
     return _role(user) in GLOBAL_ROLES
 
 

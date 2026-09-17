@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
+import { siteQueryParams } from "./components/dashboard/GlobalSiteFilter";
 import { siteShortCode } from "./utils/siteNames";
 import EnrollmentCompletenessTable from "./EnrollmentCompletenessTable";
 import "./DataQuality.css";
@@ -238,7 +239,7 @@ function SiteActivity({ data, sites }) {
   );
 }
 
-export default function DataQuality() {
+export default function DataQuality({ apiSite = "" }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -247,14 +248,16 @@ export default function DataQuality() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get("/dashboard/data-quality");
+      const res = await api.get("/dashboard/data-quality", {
+        params: siteQueryParams(apiSite),
+      });
       setData(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load data quality indicators");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiSite]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -271,7 +274,7 @@ export default function DataQuality() {
       </Section>
 
       <Section title="Panel 1b — Completeness by Enrollment">
-        <EnrollmentCompletenessTable />
+        <EnrollmentCompletenessTable apiSite={apiSite} />
       </Section>
 
       <Section title="Panel 2 — Daily Log Submission Status">

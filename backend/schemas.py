@@ -253,6 +253,7 @@ class AuditLogOut(BaseModel):
     old_values: Optional[dict] = None
     new_values: Optional[dict] = None
     created_at: Optional[datetime] = None
+    site: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -2678,6 +2679,7 @@ class MinimalMonitoringDayCreate(BaseModel):
     respiratory_time: Optional[str] = None
     respiratory_modes: Optional[str] = None
     max_map_cpap: Optional[float] = None
+    max_map_cpap_secondary: Optional[float] = None
     max_fio2: Optional[float] = None
     ph: Optional[float] = None
     pao2: Optional[float] = None

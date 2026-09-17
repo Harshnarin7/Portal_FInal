@@ -35,6 +35,8 @@ export function useRegisterActiveFormSession(isDirty, doSave) {
         return typeof v === "function" ? !!v() : !!v;
       },
       doSave: async () => {
+        // Let React commit pending field updates before serializing the form.
+        await new Promise((r) => setTimeout(r, 0));
         if (doSaveRef.current) await doSaveRef.current();
       },
     });

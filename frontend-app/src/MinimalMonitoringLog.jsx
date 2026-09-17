@@ -21,6 +21,11 @@ import {
   mmlClampTimeForSheetDate,
   isDateTimeInFuture,
 } from "./utils/datetime";
+import {
+  readRememberedMmlSheetDate,
+  rememberMmlSheetDate,
+} from "./utils/helperSession";
+import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
 
@@ -145,6 +150,46 @@ const asInteger = v => v === "" || v === null || v === undefined ? null : parseI
 
 const SEVERE_DESAT_EXCEEDS_MSG = "Severe desaturations can't exceed total desaturation episodes";
 
+/** Same soft ranges as Helper 1 (RespCVNeuroLog) blood gas fields #8–#10. */
+function mmlValidatePh(value) {
+  if (value === "" || value == null) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < 6.6 || num > 7.8) return "pH is usually 6.6–7.8 — please double-check this value";
+  return null;
+}
+
+function mmlValidateBloodGasMmHg(value, { min, max, label }) {
+  if (value === "" || value == null) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Enter a valid number";
+  if (num < min || num > max) {
+    return `${label} is usually ${min}–${max} mmHg — please double-check`;
+  }
+  return null;
+}
+
+/** Live soft warnings for 5.2.B (draft row + saved readings table). */
+function buildRespBBloodGasWarnings(entries) {
+  const next = {};
+  const list = entries.resp_b || [];
+  list.forEach((e, i) => {
+    const isOpenDraft = i === list.length - 1 && !hasEntryData(e);
+    if (isOpenDraft) return;
+    const phErr = mmlValidatePh(e.ph);
+    if (phErr) next[`resp_b.${i}.ph`] = phErr;
+    const pao2Err = mmlValidateBloodGasMmHg(e.pao2, {
+      min: 20, max: 600, label: "PaO₂",
+    });
+    if (pao2Err) next[`resp_b.${i}.pao2`] = pao2Err;
+    const paco2Err = mmlValidateBloodGasMmHg(e.paco2, {
+      min: 15, max: 150, label: "PaCO₂",
+    });
+    if (paco2Err) next[`resp_b.${i}.paco2`] = paco2Err;
+  });
+  return next;
+}
+
 /** Keep severe_desaturation_episodes ≤ desaturation_episodes when both are set. */
 function applyRespCEpisodeConstraints(entry) {
   const next = { ...entry };
@@ -172,7 +217,7 @@ function emptyEntries() {
     cv_b: [freshEntry({ fluid_bolus_given: "" })],
     cv_c: [freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })],
     cv_d: [freshEntry({ pda_agent: [], pda_dose: "" })],
-    resp_a: [freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" })],
+    resp_a: [freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_map_cpap_secondary: "", max_fio2: "" })],
     resp_b: [freshEntry({ ph: "", pao2: "", paco2: "" })],
     resp_c: [freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })],
     resp_d: [freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })],
@@ -214,7 +259,14 @@ function hydrateEntries(d) {
   };
   e.cv_c[0] = { ...e.cv_c[0], vasoactive_drugs: stringToList(d.vasoactive_drugs), vasoactive_dose: d.vasoactive_dose || "", vasoactive_unit: d.vasoactive_unit || "" };
   e.cv_d[0] = { ...e.cv_d[0], pda_agent: stringToList(d.pda_agent), pda_dose: d.pda_dose ?? "" };
-  e.resp_a[0] = { ...e.resp_a[0], time_range: d.respiratory_time || "", respiratory_modes: stringToList(d.respiratory_modes), max_map_cpap: d.max_map_cpap ?? "", max_fio2: d.max_fio2 ?? "" };
+  e.resp_a[0] = {
+    ...e.resp_a[0],
+    time_range: d.respiratory_time || "",
+    respiratory_modes: stringToList(d.respiratory_modes),
+    max_map_cpap: d.max_map_cpap ?? "",
+    max_map_cpap_secondary: d.max_map_cpap_secondary ?? "",
+    max_fio2: d.max_fio2 ?? "",
+  };
   e.resp_b[0] = { ...e.resp_b[0], ph: d.ph ?? "", pao2: d.pao2 ?? "", paco2: d.paco2 ?? "" };
   e.resp_c[0] = { ...e.resp_c[0], apnea_episodes: d.apnea_episodes ?? "", desaturation_episodes: d.desaturation_episodes ?? "", severe_desaturation_episodes: d.severe_desaturation_episodes ?? "" };
   e.resp_d[0] = { ...e.resp_d[0], postnatal_steroids: stringToList(d.postnatal_steroids), steroid_dose: d.steroid_dose ?? "", steroid_other: d.steroid_other || "" };
@@ -252,6 +304,7 @@ function flattenEntries(entries) {
     respiratory_time: rA.time_range || (rA.time ? rA.time : ""),
     respiratory_modes: listToString(rA.respiratory_modes),
     max_map_cpap: asNumber(rA.max_map_cpap),
+    max_map_cpap_secondary: asNumber(rA.max_map_cpap_secondary),
     max_fio2: asNumber(rA.max_fio2),
     ph: asNumber(rB.ph),
     pao2: asNumber(rB.pao2),
@@ -285,7 +338,7 @@ function flattenEntries(entries) {
     transfusion_products: listToString(hA.transfusion_products),
     transfusion_count: asInteger(hA.transfusion_count),
     prbc_volume: asNumber(hA.prbc_volume),
-    entries_json: JSON.stringify(entries),
+    entries_json: JSON.stringify(entriesForPersist(entries)),
   };
 }
 
@@ -299,6 +352,62 @@ function hasEntryData(entry) {
     if (k === "id" || k === "date" || k === "time") return false;
     return ans(v);
   });
+}
+
+function entriesForPersist(entries) {
+  const out = {};
+  Object.keys(entries || {}).forEach((blockKey) => {
+    out[blockKey] = (entries[blockKey] || []).filter(hasEntryData);
+  });
+  return out;
+}
+
+/** On explicit Save: turn filled draft rows into saved readings (new blank draft appended). */
+function commitFilledDraftRows(entries, sheetDateYmd) {
+  const next = { ...entries };
+  let changed = false;
+  Object.keys(next).forEach(blockKey => {
+    const list = [...(next[blockKey] || [])];
+    if (list.length === 0) return;
+    const draftIdx = list.length - 1;
+    if (!hasEntryData(list[draftIdx])) return;
+    const template = emptyEntries()[blockKey]?.[0];
+    if (!template) return;
+    const fieldDefaults = { ...template };
+    delete fieldDefaults.id;
+    delete fieldDefaults.date;
+    delete fieldDefaults.time;
+    list.push(freshEntry(fieldDefaults, sheetDateYmd));
+    next[blockKey] = list;
+    changed = true;
+  });
+  return changed ? next : entries;
+}
+
+/** After load: every block ends with an empty draft row for new readings. */
+function ensureTrailingDraftRows(entries, sheetDateYmd) {
+  const next = { ...entries };
+  let changed = false;
+  Object.keys(emptyEntries()).forEach(blockKey => {
+    let list = [...(next[blockKey] || [])];
+    if (list.length === 0) {
+      next[blockKey] = [...emptyEntries()[blockKey]];
+      changed = true;
+      return;
+    }
+    const last = list[list.length - 1];
+    if (!hasEntryData(last)) return;
+    const template = emptyEntries()[blockKey]?.[0];
+    if (!template) return;
+    const fieldDefaults = { ...template };
+    delete fieldDefaults.id;
+    delete fieldDefaults.date;
+    delete fieldDefaults.time;
+    list.push(freshEntry(fieldDefaults, sheetDateYmd));
+    next[blockKey] = list;
+    changed = true;
+  });
+  return changed ? next : entries;
 }
 
 function countProgress(entries) {
@@ -585,9 +694,88 @@ function PillSingle({ options, value, onChange, disabled }) {
   );
 }
 
+function respAMapCpapCellValue(entry, which) {
+  const modes = Array.isArray(entry?.respiratory_modes)
+    ? entry.respiratory_modes
+    : stringToList(entry?.respiratory_modes);
+  const mode = getMapCpapMode(modes);
+  if (which === "cpap") {
+    if (mode === "BOTH") return entry?.max_map_cpap_secondary;
+    if (mode === "CPAP") return entry?.max_map_cpap;
+    return null;
+  }
+  if (mode === "BOTH" || mode === "MAP") return entry?.max_map_cpap;
+  return null;
+}
+
+function RespAMapCpapFields({ entry, disabled, fieldErr, onChangeField }) {
+  const modes = entry.respiratory_modes || [];
+  const mapCpapMode = getMapCpapMode(modes);
+  const isNA = mapCpapMode === "NA";
+  const isBoth = mapCpapMode === "BOTH";
+  const singleLabel = mapCpapMode === "CPAP"
+    ? "Max CPAP of the hour"
+    : mapCpapMode === "MAP"
+      ? "Max MAP of the hour"
+      : "Max MAP/CPAP of the hour";
+  const primaryValidateMode = isBoth ? "MAP" : (mapCpapMode || "MAP");
+  const mapErr = fieldErr("max_map_cpap") || validateMapCpap(entry.max_map_cpap, primaryValidateMode);
+  const cpapErr = isBoth
+    ? (fieldErr("max_map_cpap_secondary") || validateMapCpap(entry.max_map_cpap_secondary, "CPAP"))
+    : null;
+
+  if (isNA) {
+    return (
+      <Item n={3} label="Max MAP/CPAP of the hour">
+        <div className="rcn-num-input rcn-num-input--na">
+          <span className="rcn-na-value">NA</span>
+          <span className="rcn-num-unit">mode doesn&apos;t generate pressure</span>
+        </div>
+      </Item>
+    );
+  }
+
+  if (isBoth) {
+    return (
+      <>
+        <Item n={3} label="Max CPAP of the hour" error={cpapErr}>
+          <Num
+            value={entry.max_map_cpap_secondary}
+            onChange={v => onChangeField("max_map_cpap_secondary", v)}
+            disabled={disabled}
+            unit="cm H₂O"
+            error={cpapErr}
+          />
+        </Item>
+        <Item n="3b" label="Max MAP of the hour" error={mapErr}>
+          <Num
+            value={entry.max_map_cpap}
+            onChange={v => onChangeField("max_map_cpap", v)}
+            disabled={disabled}
+            unit="cm H₂O"
+            error={mapErr}
+          />
+        </Item>
+      </>
+    );
+  }
+
+  return (
+    <Item n={3} label={singleLabel} error={mapErr}>
+      <Num
+        value={entry.max_map_cpap}
+        onChange={v => onChangeField("max_map_cpap", v)}
+        disabled={disabled}
+        unit="cm H₂O"
+        error={mapErr}
+      />
+    </Item>
+  );
+}
+
 function YNToggle({ value, onChange, disabled }) {
   return (
-    <div className="rcn-yn">
+    <div className="rcn-yn mml-yn">
       <button type="button" className={`rcn-yn-btn${value === true ? " rcn-yn-active-yes" : ""}`}
         disabled={disabled} onClick={() => onChange(value === true ? null : true)}>Yes</button>
       <button type="button" className={`rcn-yn-btn${value === false ? " rcn-yn-active-no" : ""}`}
@@ -683,6 +871,9 @@ function tableFieldsForBlock(blockKey) {
     return [
       { key: "time_range", label: "Time" },
       { key: "respiratory_modes", label: "Respiratory support", list: true },
+      { key: "max_cpap_display", label: "Max CPAP", unit: "cm H₂O", respPressure: "cpap" },
+      { key: "max_map_display", label: "Max MAP", unit: "cm H₂O", respPressure: "map" },
+      { key: "max_fio2", label: "Max FiO₂", unit: "%" },
     ];
   }
   return BLOCK_FIELDS[blockKey] || [];
@@ -690,6 +881,11 @@ function tableFieldsForBlock(blockKey) {
 
 /** Renders one summary-table cell for a field, using its column metadata. */
 function formatCell(field, entry) {
+  if (field.respPressure) {
+    const v = respAMapCpapCellValue(entry, field.respPressure);
+    if (!ans(v)) return "—";
+    return field.unit ? `${v} ${field.unit}` : String(v);
+  }
   const v = entry ? entry[field.key] : undefined;
   if (field.key === "time_range") {
     return formatTimeRangeAmPm(v) || "—";
@@ -732,10 +928,10 @@ function EntryBlock({
     || tableFieldsForBlock(blockKey).some(f => fieldErr(idx, f.key));
   const draftIdx = entries.length - 1;
   const draft = entries[draftIdx] || {};
-  /** Include the in-progress draft row so the table updates as the user types. */
+  /** Saved readings only — the open draft appears after Save or "Log another reading". */
   const tableRows = entries
-    .map((entry, idx) => ({ entry, idx, isDraft: idx === draftIdx }))
-    .filter(({ entry }) => hasEntryData(entry));
+    .map((entry, idx) => ({ entry, idx, isDraft: false }))
+    .filter(({ entry, idx }) => hasEntryData(entry) && idx !== draftIdx);
   const fieldsMeta = tableFieldsForBlock(blockKey);
   /** 5.2.A uses time range in the form; other blocks use stamp time here + in the table. */
   const hideStampTime = blockKey === "resp_a";
@@ -846,7 +1042,18 @@ function EntryBlock({
                   >
                     <td>{entry.date ? formatDateToDDMMYYYY(entry.date) : "—"}</td>
                     {!hideStampTime && <td>{entry.time || "—"}</td>}
-                    {fieldsMeta.map(f => <td key={f.key}>{formatCell(f, entry)}</td>)}
+                    {fieldsMeta.map(f => {
+                      const cellErr = fieldErr(idx, f.key);
+                      return (
+                        <td
+                          key={f.key}
+                          className={cellErr ? "mml-history-cell--warn" : undefined}
+                          title={cellErr || undefined}
+                        >
+                          {formatCell(f, entry)}
+                        </td>
+                      );
+                    })}
                     {!disabled && !isDraft && (
                       <td className="mml-history-td-action">
                         <button type="button" className="mml-history-remove-btn" title="Remove this reading"
@@ -965,6 +1172,10 @@ export default function MinimalMonitoringLog() {
   // save — used so navigating away or an incidental background save does not
   // get treated as "the user changed something".
   const dirtyRef = useRef(false);
+  const entriesRef = useRef(entries);
+  const sheetDateRef = useRef(sheetDate);
+  entriesRef.current = entries;
+  sheetDateRef.current = sheetDate;
 
   /* Drill-down navigation: sections → fields (within a section) → detail (a single field) */
   const [view, setView] = useState("sections"); // "sections" | "fields" | "detail"
@@ -997,11 +1208,27 @@ export default function MinimalMonitoringLog() {
 
   const isEditable = true;
   const counts = useMemo(() => countProgress(entries), [entries]);
+  const liveFieldWarnings = useMemo(
+    () => buildRespBBloodGasWarnings(entries),
+    [entries],
+  );
 
   const setEntryField = (block, idx, key, value) => {
     setEntries(prev => {
       const list = [...(prev[block] || [])];
       let row = { ...list[idx], [key]: value };
+      if (block === "met_c" && key === "electrolyte_abnormality" && value !== true) {
+        row = {
+          ...row,
+          electrolytes: [],
+          hypo_hyper: "",
+          symptomatic_status: "",
+          symptomatic_detail: "",
+        };
+      }
+      if (block === "met_c" && key === "symptomatic_status" && value !== "symptomatic") {
+        row = { ...row, symptomatic_detail: "" };
+      }
       if (block === "resp_c") row = applyRespCEpisodeConstraints(row);
       list[idx] = row;
       return { ...prev, [block]: list };
@@ -1063,8 +1290,10 @@ export default function MinimalMonitoringLog() {
     try {
       const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`);
       const data = res?.data || {};
-      setSheetDate(data.record_date || ymd);
-      setEntries(hydrateEntries(data));
+      const recordDate = data.record_date || ymd;
+      setSheetDate(recordDate);
+      setEntries(ensureTrailingDraftRows(hydrateEntries(data), recordDate));
+      rememberMmlSheetDate(enrollmentId, recordDate);
       dirtyRef.current = false;
     } catch (_) {
       setSheetDate(ymd);
@@ -1085,12 +1314,18 @@ export default function MinimalMonitoringLog() {
       if (!ok) return;
     }
     setMessage("");
+    rememberMmlSheetDate(enrollmentId, nextYmd);
     await loadSheetForDate(nextYmd);
   };
 
   useEffect(() => {
     if (!enrollmentId) return;
-    loadSheetForDate(mmlDefaultSheetDate());
+    const opts = mmlDropdownDateOptions();
+    let ymd = readRememberedMmlSheetDate(enrollmentId);
+    if (!ymd || !opts.some(o => o.value === ymd)) {
+      ymd = mmlDefaultSheetDate();
+    }
+    loadSheetForDate(ymd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentId]);
 
@@ -1098,6 +1333,19 @@ export default function MinimalMonitoringLog() {
     const next = {};
     const maxEntryDate = toDateOnlyValue(new Date());
     (entries.resp_a || []).forEach((e, i) => {
+      const isOpenDraft = i === entries.resp_a.length - 1 && !hasEntryData(e);
+      if (isOpenDraft) return;
+      const modes = e.respiratory_modes || [];
+      const mode = getMapCpapMode(modes);
+      if (mode === "BOTH") {
+        const cpapErr = validateMapCpap(e.max_map_cpap_secondary, "CPAP");
+        if (cpapErr) next[`resp_a.${i}.max_map_cpap_secondary`] = cpapErr;
+        const mapErr = validateMapCpap(e.max_map_cpap, "MAP");
+        if (mapErr) next[`resp_a.${i}.max_map_cpap`] = mapErr;
+      } else if (mode && mode !== "NA") {
+        const err = validateMapCpap(e.max_map_cpap, mode);
+        if (err) next[`resp_a.${i}.max_map_cpap`] = err;
+      }
       if (e.max_fio2 !== "" && e.max_fio2 != null && (Number(e.max_fio2) < 21 || Number(e.max_fio2) > 100)) {
         next[`resp_a.${i}.max_fio2`] = "Enter 21 to 100";
       }
@@ -1105,9 +1353,16 @@ export default function MinimalMonitoringLog() {
     (entries.resp_b || []).forEach((e, i) => {
       const isOpenDraft = i === entries.resp_b.length - 1 && !hasEntryData(e);
       if (isOpenDraft) return;
-      if (e.ph !== "" && e.ph != null && (Number(e.ph) < 6.6 || Number(e.ph) > 7.8)) {
-        next[`resp_b.${i}.ph`] = "Check pH range";
-      }
+      const phErr = mmlValidatePh(e.ph);
+      if (phErr) next[`resp_b.${i}.ph`] = phErr;
+      const pao2Err = mmlValidateBloodGasMmHg(e.pao2, {
+        min: 20, max: 600, label: "PaO₂",
+      });
+      if (pao2Err) next[`resp_b.${i}.pao2`] = pao2Err;
+      const paco2Err = mmlValidateBloodGasMmHg(e.paco2, {
+        min: 15, max: 150, label: "PaCO₂",
+      });
+      if (paco2Err) next[`resp_b.${i}.paco2`] = paco2Err;
     });
     (entries.resp_c || []).forEach((e, i) => {
       ["apnea_episodes", "desaturation_episodes", "severe_desaturation_episodes"].forEach(k => {
@@ -1131,7 +1386,13 @@ export default function MinimalMonitoringLog() {
       }
     });
     (entries.met_c || []).forEach((e, i) => {
-      if (e.symptomatic_status === "symptomatic" && !e.symptomatic_detail) {
+      const isOpenDraft = i === entries.met_c.length - 1 && !hasEntryData(e);
+      if (isOpenDraft) return;
+      if (
+        e.electrolyte_abnormality === true
+        && e.symptomatic_status === "symptomatic"
+        && !String(e.symptomatic_detail || "").trim()
+      ) {
         next[`met_c.${i}.symptomatic_detail`] = "Describe symptoms";
       }
     });
@@ -1173,34 +1434,55 @@ export default function MinimalMonitoringLog() {
     return Object.keys(next).length === 0;
   };
 
-  const buildPayload = () => ({
+  const buildPayload = (entriesSnapshot = entries) => ({
     enrollment_id: enrollmentId,
-    ...flattenEntries(entries),
+    ...flattenEntries(entriesSnapshot),
     record_date: sheetDate,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
 
-  const persist = async ({ silent = false, runValidate = false } = {}) => {
-    if (!enrollmentId || !sheetDate) return false;
+  const persist = async ({
+    silent = false,
+    runValidate = false,
+    entriesSnapshot = null,
+    commitDrafts = false,
+  } = {}) => {
+    const dateYmd = sheetDateRef.current;
+    if (!enrollmentId || !dateYmd) return false;
     if (runValidate && !validate()) return false;
+    let snapshot = entriesSnapshot ?? entriesRef.current;
+    if (commitDrafts && dirtyRef.current) {
+      snapshot = commitFilledDraftRows(snapshot, dateYmd);
+      entriesRef.current = snapshot;
+      setEntries(snapshot);
+    }
     setSaving(true);
     try {
       const res = await api.put(
-        `/minimal-monitoring/${enrollmentId}/on/${sheetDate}`,
-        buildPayload(),
+        `/minimal-monitoring/${enrollmentId}/on/${dateYmd}`,
+        buildPayload(snapshot),
       );
-      if (res?.data?.record_date) setSheetDate(res.data.record_date);
+      const savedDate = res?.data?.record_date || dateYmd;
+      setSheetDate(savedDate);
+      sheetDateRef.current = savedDate;
+      rememberMmlSheetDate(enrollmentId, savedDate);
       dirtyRef.current = false;
       // Keep the sidebar tick in sync with the *current* state, not just
       // whether it was ever true — a reading added then deleted before the
       // next save must un-tick the helper, not leave it stuck complete.
-      if (counts.done > 0) markFormCompleted("minimal_monitoring");
+      const progress = countProgress(snapshot);
+      if (progress.done > 0) markFormCompleted("minimal_monitoring");
       else unmarkFormCompleted("minimal_monitoring");
       if (!silent) {
         setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
         setTimeout(() => setMessage(""), 3000);
       }
+      window.dispatchEvent(
+        new CustomEvent("portal-mml-saved", {
+          detail: { enrollmentId, sheetDate },
+        }),
+      );
       return true;
     } catch (err) {
       setMessage(err?.response?.data?.detail || "Error saving. Please try again.");
@@ -1221,24 +1503,38 @@ export default function MinimalMonitoringLog() {
       setTimeout(() => setMessage(""), 5000);
       return;
     }
-    await persist({ silent: false, runValidate: false });
+    const committed = commitFilledDraftRows(entries, sheetDate);
+    setEntries(committed);
+    await persist({ silent: false, runValidate: false, entriesSnapshot: committed });
   };
 
+  const flushPersist = (opts = {}) =>
+    persist({ silent: true, runValidate: false, commitDrafts: true, ...opts });
+
   const handlePrevious = async () => {
-    try { await persist({ silent: true, runValidate: false }); } catch (err) {
+    try {
+      if (dirtyRef.current) await flushPersist();
+    } catch (err) {
       console.error("Save before back failed:", err);
     }
     navigate(`/metab-renal-vasc-eye-log/${enrollmentId}`);
   };
 
-  useRegisterActiveFormSession(() => dirtyRef.current, () => persist({ silent: true, runValidate: false }));
+  useRegisterActiveFormSession(
+    () => dirtyRef.current,
+    () => (dirtyRef.current ? flushPersist() : Promise.resolve()),
+  );
 
   /* Debounced autosave (~1.5s) after hydrate */
   useEffect(() => {
     if (!hydratedRef.current || !enrollmentId || saveTick === 0) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(async () => {
-      const ok = await persist({ silent: true, runValidate: false });
+      const ok = await persist({
+        silent: true,
+        runValidate: false,
+        entriesSnapshot: entriesRef.current,
+      });
       if (ok) {
         setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
         setTimeout(() => setMessage(""), 2500);
@@ -1250,7 +1546,8 @@ export default function MinimalMonitoringLog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveTick, enrollmentId]);
 
-  const err = (block, idx, key) => errors[`${block}.${idx}.${key}`];
+  const err = (block, idx, key) =>
+    errors[`${block}.${idx}.${key}`] || liveFieldWarnings[`${block}.${idx}.${key}`];
 
   /** Renders the fields (Item/Num/PillSingle/etc.) for a single lettered
    *  block — this is what shows up once the user drills into one variable,
@@ -1359,7 +1656,9 @@ export default function MinimalMonitoringLog() {
             errors={errors}
             onChangeEntry={(i, k, v) => setEntryField("resp_a", i, k, v)}
             onAdd={blank => addEntry("resp_a", blank)} onRemove={i => removeEntry("resp_a", i)}
-            blankFactory={() => freshEntry({ time_range: "", respiratory_modes: [], max_map_cpap: "", max_fio2: "" }, sheetDate)}>
+            blankFactory={() => freshEntry({
+              time_range: "", respiratory_modes: [], max_map_cpap: "", max_map_cpap_secondary: "", max_fio2: "",
+            }, sheetDate)}>
             {(e, i) => (
               <>
                 <Item n={1} label="Time: Btw" sub="AM/PM range" wide>
@@ -1371,13 +1670,25 @@ export default function MinimalMonitoringLog() {
                 </Item>
                 <Item n={2} label="Mode">
                   <PillMulti options={["NC", "HFNC", "CPAP", "NIPPV", "SIMV", "A/C", "PSV", "HFOV"]}
-                    value={e.respiratory_modes || []} onChange={v => setEntryField("resp_a", i, "respiratory_modes", v)}
+                    value={e.respiratory_modes || []}
+                    onChange={(v) => {
+                      setEntryField("resp_a", i, "respiratory_modes", v);
+                      const mode = getMapCpapMode(v);
+                      if (mode === "NA") {
+                        setEntryField("resp_a", i, "max_map_cpap", "");
+                        setEntryField("resp_a", i, "max_map_cpap_secondary", "");
+                      } else if (mode !== "BOTH") {
+                        setEntryField("resp_a", i, "max_map_cpap_secondary", "");
+                      }
+                    }}
                     disabled={!isEditable} />
                 </Item>
-                <Item n={3} label="Max MAP/CPAP of the hour">
-                  <Num value={e.max_map_cpap} onChange={v => setEntryField("resp_a", i, "max_map_cpap", v)}
-                    disabled={!isEditable} unit="cm H₂O" />
-                </Item>
+                <RespAMapCpapFields
+                  entry={e}
+                  disabled={!isEditable}
+                  fieldErr={(key) => err("resp_a", i, key)}
+                  onChangeField={(key, v) => setEntryField("resp_a", i, key, v)}
+                />
                 <Item n={4} label="Max FiO₂ of the hour" hint="Must be between 21 and 100 (%)" error={err("resp_a", i, "max_fio2")}>
                   <Num value={e.max_fio2} onChange={v => setEntryField("resp_a", i, "max_fio2", v)}
                     disabled={!isEditable} unit="%" error={err("resp_a", i, "max_fio2")} />
@@ -1395,17 +1706,17 @@ export default function MinimalMonitoringLog() {
             blankFactory={() => freshEntry({ ph: "", pao2: "", paco2: "" }, sheetDate)}>
             {(e, i) => (
               <>
-                <Item n={1} label="pH" hint="Expected range 6.6–7.8" error={err("resp_b", i, "ph")}>
+                <Item n={1} label="pH" hint="Usually 6.6–7.8" error={err("resp_b", i, "ph")}>
                   <Num value={e.ph} onChange={v => setEntryField("resp_b", i, "ph", v)}
                     disabled={!isEditable} step="0.01" error={err("resp_b", i, "ph")} />
                 </Item>
-                <Item n={2} label="PaO₂">
+                <Item n={2} label="PaO₂" hint="Usually 20–600 mmHg" error={err("resp_b", i, "pao2")}>
                   <Num value={e.pao2} onChange={v => setEntryField("resp_b", i, "pao2", v)}
-                    disabled={!isEditable} unit="mm Hg" />
+                    disabled={!isEditable} unit="mm Hg" error={err("resp_b", i, "pao2")} />
                 </Item>
-                <Item n={3} label="PaCO₂">
+                <Item n={3} label="PaCO₂" hint="Usually 15–150 mmHg" error={err("resp_b", i, "paco2")}>
                   <Num value={e.paco2} onChange={v => setEntryField("resp_b", i, "paco2", v)}
-                    disabled={!isEditable} unit="mm Hg" />
+                    disabled={!isEditable} unit="mm Hg" error={err("resp_b", i, "paco2")} />
                 </Item>
               </>
             )}
@@ -1539,8 +1850,12 @@ export default function MinimalMonitoringLog() {
                     onChange={v => setEntryField("met_c", i, "hypo_hyper", v)} disabled={!isEditable} />
                 </Item>
                 <Item n={3} label="Symptomatic/asymptomatic">
-                  <PillSingle options={["symptomatic", "asymptomatic"]} value={e.symptomatic_status}
-                    onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
+                  {e.electrolyte_abnormality === true ? (
+                    <PillSingle options={["symptomatic", "asymptomatic"]} value={e.symptomatic_status}
+                      onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
+                  ) : (
+                    <span className="mml-history-empty" style={{ margin: 0 }}>Select electrolyte abnormality Yes first</span>
+                  )}
                 </Item>
                 {e.symptomatic_status === "symptomatic" && (
                   <Item n={4} label="If symptomatic" hint="Required when Symptomatic is selected above" error={err("met_c", i, "symptomatic_detail")}>
@@ -1759,8 +2074,8 @@ export default function MinimalMonitoringLog() {
                 </div>
                 <p className="mml-fields-list-hint">
                   {activeBlock === "resp_a"
-                    ? "Date is fixed to the sheet date above. Use the time range for respiratory support — readings appear in the table as you fill them."
-                    : "Date is fixed to the sheet date above; time follows the sheet rules. Values appear in the table below as you fill them."}
+                    ? "Date is fixed to the sheet date above. Use the time range for respiratory support — click Save to add readings to the table below."
+                    : "Date is fixed to the sheet date above; time follows the sheet rules. Click Save to add readings to the table below."}
                 </p>
                 {renderBlockBody(activeBlock)}
               </div>

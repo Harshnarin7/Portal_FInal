@@ -35,6 +35,7 @@ import SeriousAdverseEventsList from "./SeriousAdverseEventsList";
 
 import ViewEntries from "./ViewEntries";
 import HelperFormRecords from "./HelperFormRecords";
+import AuditTrail from "./AuditTrail";
 import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
 import TrialMonitoringDashboard from "./TrialMonitoringDashboard";
@@ -71,7 +72,8 @@ function AppContent() {
   const isWorkspaceDest =
     location.pathname === "/entries" ||
     location.pathname === "/manage-staff" ||
-    location.pathname === "/trial-monitoring";
+    location.pathname === "/trial-monitoring" ||
+    location.pathname === "/audit-trail";
   const usesDashboardLayout = isDashboardPage || isWorkspaceDest;
 
   const isFormPage =
@@ -213,6 +215,7 @@ function AppContent() {
                       <Route path="/trial-monitoring" element={<ProtectedRoute><TrialMonitoringDashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
                       <Route path="/helper-form-records" element={<ProtectedRoute><HelperFormRecords /></ProtectedRoute>} />
+                      <Route path="/audit-trail" element={<ProtectedRoute><AuditTrail /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
                       <Route path="/form-a/:screeningId?" element={<ProtectedRoute><FormLayout currentForm="form_a"><ScreeningForm /></FormLayout></ProtectedRoute>} />
                       {SCREENING_ID_FORM_REDIRECTS.map(({ basePath, currentForm, label }) => (

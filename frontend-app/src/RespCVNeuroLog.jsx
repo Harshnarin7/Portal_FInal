@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay, helperDayStripLength, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, nicuDayForCalendarYmd, calendarDateForNicuDay, helperDayStripLength, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -10,6 +10,18 @@ import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
+import { mmlSyncAggregateFieldFromMml, mmlSyncTransfusionYnFromMml } from "./utils/mmlHelperSync";
+import { rememberActiveDay, readRememberedMmlSheetDate, HELPER_SESSION_KEY_VS6_1 } from "./utils/helperSession";
+import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
+import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
+import {
+  computeRespAAutofillFromMml,
+  modesArraysEqual,
+  normalizeHelperSupportModes,
+  parseRespAEntries,
+  respModesUnionLooksSourced,
+  respNumericLooksMmlSourced,
+} from "./utils/mmlRespASync";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertCircle, Clock, Check,
@@ -49,21 +61,64 @@ const LEGEND_ITEMS = [
 
 /** True if this Minimal Monitoring sheet has any numeric 5.1.B bolus entry
  *  (cv_b in entries_json, or the legacy flat fluid_bolus_given column). */
-function mmlHasFluidBolus(data) {
+function mmlFluidBolusValuePresent(raw) {
+  if (raw == null || raw === "") return false;
+  return /^\s*\d+(?:\.\d+)?/.test(String(raw));
+}
+
+function mmlHasFluidBolusForHelperDay(data, recordDate = null) {
   if (!data) return false;
-  const hasLeadingNumber = (raw) => {
-    if (raw == null || raw === "") return false;
-    return /^\s*\d+(?:\.\d+)?/.test(String(raw));
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    return String(d).slice(0, 10) === recordDate;
   };
   let entries = data.entries_json;
   if (typeof entries === "string") {
     try { entries = JSON.parse(entries); } catch (_) { entries = null; }
   }
   const cvB = entries?.cv_b;
-  if (Array.isArray(cvB) && cvB.some((e) => hasLeadingNumber(e?.fluid_bolus_given))) {
-    return true;
+  if (Array.isArray(cvB) && cvB.length) {
+    for (const row of cvB) {
+      if (!rowOnHelperDay(row)) continue;
+      if (!mmlEntryHasData(row)) continue;
+      if (mmlFluidBolusValuePresent(row?.fluid_bolus_given)) return true;
+    }
+    return false;
   }
-  return hasLeadingNumber(data.fluid_bolus_given);
+  if (entries == null) {
+    return mmlFluidBolusValuePresent(data.fluid_bolus_given);
+  }
+  return false;
+}
+
+function mmlHasFluidBolus(data) {
+  return mmlHasFluidBolusForHelperDay(data, null);
+}
+
+async function loadMmlFluidBolusForHelperDay(enrollmentId, recordDate) {
+  let has = false;
+  const ingest = (payload) => {
+    if (mmlHasFluidBolusForHelperDay(payload, recordDate)) has = true;
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  if (has) return true;
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    else if (today.record_date && today.record_date === recordDate) {
+      has = mmlHasFluidBolusForHelperDay(today, recordDate);
+    }
+  } catch (_) { /* optional */ }
+  return has;
 }
 
 /** Helper 5 block 5.2.B (resp_b) → Helper 2 #8–#10 blood gas fields. */
@@ -71,7 +126,8 @@ function parseRespBBloodGasReadings(payload, recordDate = null) {
   const pushNum = (arr, raw) => {
     if (raw === null || raw === undefined || raw === "") return;
     const n = Number(raw);
-    if (Number.isFinite(n)) arr.push(n);
+    // Ignore placeholder 0 from empty MML draft rows — not a real gas value.
+    if (Number.isFinite(n) && n > 0) arr.push(n);
   };
   const rowOnHelperDay = (row) => {
     if (!recordDate) return true;
@@ -89,6 +145,7 @@ function parseRespBBloodGasReadings(payload, recordDate = null) {
   if (Array.isArray(list) && list.length) {
     for (const row of list) {
       if (!rowOnHelperDay(row)) continue;
+      if (!mmlEntryHasData(row)) continue;
       pushNum(out.ph, row?.ph);
       pushNum(out.pao2, row?.pao2);
       pushNum(out.paco2, row?.paco2);
@@ -103,10 +160,28 @@ function parseRespBBloodGasReadings(payload, recordDate = null) {
   return out;
 }
 
-function mmlFmtBloodGasNum(n) {
+function mmlFmtAutofillNum(n) {
   if (!Number.isFinite(n)) return "";
   const r = Math.round(n * 100) / 100;
   return Number.isInteger(r) ? String(r) : String(r);
+}
+
+const mmlFmtBloodGasNum = mmlFmtAutofillNum;
+
+function mmlEntryAnswered(v) {
+  if (v === null || v === undefined) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "boolean") return true;
+  return String(v).trim() !== "";
+}
+
+/** Same idea as MinimalMonitoringLog `hasEntryData` — ignore blank draft rows. */
+function mmlEntryHasData(entry) {
+  if (!entry) return false;
+  return Object.entries(entry).some(([k, v]) => {
+    if (k === "id" || k === "date" || k === "time") return false;
+    return mmlEntryAnswered(v);
+  });
 }
 
 function computeBloodGasAutofillFromMml(readings) {
@@ -131,6 +206,30 @@ function computeBloodGasAutofillFromMml(readings) {
 
 function isEmptyBloodGasField(v) {
   return v === null || v === undefined || v === "";
+}
+
+function mmlBloodGasNumEq(a, b) {
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-6;
+}
+
+/** Helper value is empty or matches a 5.2.B reading — safe to refresh from MML. */
+function bloodGasPhLooksMmlSourced(current, readings) {
+  if (isEmptyBloodGasField(current)) return true;
+  const n = Number(current);
+  if (!Number.isFinite(n) || !readings.ph.length) return false;
+  const minPh = Math.min(...readings.ph);
+  return mmlBloodGasNumEq(n, minPh);
+}
+
+function bloodGasRangeLooksMmlSourced(lowStr, highStr, readings, key) {
+  const list = readings[key] || [];
+  if (isEmptyBloodGasField(lowStr) && isEmptyBloodGasField(highStr)) return true;
+  const lo = Number(lowStr);
+  const hi = Number(highStr);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !list.length) return false;
+  const minR = Math.min(...list);
+  const maxR = Math.max(...list);
+  return mmlBloodGasNumEq(lo, minR) && mmlBloodGasNumEq(hi, maxR);
 }
 
 function mergeBloodGasReadingLists(a, b) {
@@ -165,6 +264,164 @@ async function loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate) {
     if (today.record_date && today.record_date !== recordDate) ingest(today);
   } catch (_) { /* optional */ }
   return merged;
+}
+
+/** Helper 5 block 5.2.A (resp_a) → Helper 1 #3–#5 modes / max MAP / CPAP / FiO₂. */
+async function loadMmlRespAForHelperDay(enrollmentId, recordDate) {
+  const rows = [];
+  const helperYmd = recordDate ? String(recordDate).slice(0, 10) : null;
+  const ingest = (payload) => {
+    if (!payload || !helperYmd) return;
+    const sheetYmd = payload.record_date
+      ? String(payload.record_date).slice(0, 10)
+      : null;
+    if (sheetYmd && sheetYmd !== helperYmd) return;
+    rows.push(...parseRespAEntries(payload, helperYmd));
+  };
+  const datesToFetch = new Set();
+  if (recordDate) datesToFetch.add(recordDate);
+  const remembered = readRememberedMmlSheetDate(enrollmentId);
+  if (remembered) datesToFetch.add(remembered);
+  for (const ymd of datesToFetch) {
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`);
+      ingest(res?.data);
+    } catch (_) { /* optional */ }
+  }
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date) ingest(today);
+  } catch (_) { /* optional */ }
+  return rows;
+}
+
+function respSupportSeedFromDayLog(d) {
+  if (!d || !Object.keys(d).length) return null;
+  return {
+    respiratorySupport: d.respiratory_support ?? null,
+    supportModes: d.support_modes
+      ? d.support_modes.split(",").map((s) => s.trim()).filter(Boolean)
+      : [],
+    mapCpap: d.map_cpap != null ? String(d.map_cpap) : "",
+    mapCpapStatus: d.map_cpap_status ?? null,
+    mapCpapSecondary: d.map_cpap_secondary != null ? String(d.map_cpap_secondary) : "",
+    mapCpapSecondaryStatus: d.map_cpap_secondary_status ?? null,
+    maxFio2: d.max_fio2 != null ? String(d.max_fio2) : "",
+    maxFio2Status: d.max_fio2_status ?? null,
+  };
+}
+
+/** Helper 5 block 5.2.C (resp_c) → Helper 1 #13–#15 daily episode totals. */
+function parseRespCEpisodeReadings(payload, recordDate = null) {
+  const pushInt = (arr, raw) => {
+    if (raw === null || raw === undefined || raw === "") return;
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0) arr.push(n);
+  };
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    const ds = String(d).slice(0, 10);
+    return ds === recordDate;
+  };
+  const out = { apnea: [], desaturation: [], severeDesat: [] };
+  let entries = payload?.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const list = entries?.resp_c;
+  if (Array.isArray(list) && list.length) {
+    for (const row of list) {
+      if (!rowOnHelperDay(row)) continue;
+      if (!mmlEntryHasData(row)) continue;
+      pushInt(out.apnea, row?.apnea_episodes);
+      pushInt(out.desaturation, row?.desaturation_episodes);
+      pushInt(out.severeDesat, row?.severe_desaturation_episodes);
+    }
+    return out;
+  }
+  if (entries == null) {
+    pushInt(out.apnea, payload?.apnea_episodes);
+    pushInt(out.desaturation, payload?.desaturation_episodes);
+    pushInt(out.severeDesat, payload?.severe_desaturation_episodes);
+  }
+  return out;
+}
+
+function mergeEpisodeReadingLists(a, b) {
+  return {
+    apnea: [...a.apnea, ...b.apnea],
+    desaturation: [...a.desaturation, ...b.desaturation],
+    severeDesat: [...a.severeDesat, ...b.severeDesat],
+  };
+}
+
+async function loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate) {
+  let merged = { apnea: [], desaturation: [], severeDesat: [] };
+  const ingest = (payload) => {
+    if (!payload) return;
+    merged = mergeEpisodeReadingLists(
+      merged,
+      parseRespCEpisodeReadings(payload, recordDate),
+    );
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+  } catch (_) { /* optional */ }
+  return merged;
+}
+
+function computeEpisodeAutofillFromMml(readings) {
+  const out = {};
+  if (readings.apnea.length) {
+    out.apnea_count = mmlFmtAutofillNum(
+      readings.apnea.reduce((sum, n) => sum + n, 0),
+    );
+  }
+  if (readings.desaturation.length) {
+    out.desaturation_count = mmlFmtAutofillNum(
+      readings.desaturation.reduce((sum, n) => sum + n, 0),
+    );
+  }
+  if (readings.severeDesat.length) {
+    out.severe_desaturation_count = mmlFmtAutofillNum(
+      readings.severeDesat.reduce((sum, n) => sum + n, 0),
+    );
+  }
+  return out;
+}
+
+/** True when helper total could be derived from per-entry MML counts (safe to refresh). */
+function episodeTotalLooksMmlSourced(current, entryValues) {
+  if (isEmptyBloodGasField(current)) return true;
+  const n = Number(current);
+  if (!Number.isInteger(n) || n < 0 || !entryValues.length) return false;
+  const vals = entryValues.filter((v) => Number.isInteger(v) && v >= 0);
+  if (!vals.length) return false;
+  const total = vals.reduce((sum, v) => sum + v, 0);
+  if (n === total) return true;
+  const sums = new Set([0]);
+  for (const v of vals) {
+    const next = new Set(sums);
+    for (const s of sums) next.add(s + v);
+    sums.clear();
+    next.forEach((x) => sums.add(x));
+  }
+  return sums.has(n);
 }
 
 /* Every field captured for a day, grouped by section, for the
@@ -290,44 +547,6 @@ function validateWeightEntries(str) {
     } else if (num < 200 || num > 8000) {
       return `"${entry}" is outside the expected 200–8000 g range`;
     }
-  }
-  return null;
-}
-
-/* Derives what the "MAP/CPAP" field should show based on the
-   selected respiratory support mode(s):
-   - NC / HFNC only  → "NA" (field not applicable)
-   - CPAP + a MAP-generating mode together → "BOTH" (show two fields)
-   - CPAP alone      → "CPAP"
-   - Any other mode alone (NIPPV, SIMV, A/C, PSV, HFOV) → "MAP"
-   - Nothing selected yet → null (fall back to default label) */
-function getMapCpapMode(modes) {
-  if (!modes || modes.length === 0) return null;
-  const pressureModes = ["NIPPV", "SIMV", "AC", "PSV", "HFOV"];
-  const hasPressureMode = modes.some(m => pressureModes.includes(m));
-  const hasCPAP = modes.includes("CPAP");
-  if (hasPressureMode && hasCPAP) return "BOTH";
-  if (hasPressureMode) return "MAP";
-  if (hasCPAP) return "CPAP";
-  if (modes.some(m => ["NC", "HFNC"].includes(m))) return "NA";
-  return null;
-}
-
-/* Validates the MAP/CPAP number field. Range depends on which
-   reading is being taken (CPAP vs MAP), since normal MAP runs
-   higher than normal CPAP. Returns an error string, or null when
-   valid / empty. */
-function validateMapCpap(value, mode) {
-  if (value === "" || value === null || value === undefined) return null;
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "Enter a valid number";
-  if (num < 0) return "Value can't be negative";
-  if (mode === "CPAP") {
-    if (num < 3 || num > 12) return "CPAP is usually 3–12 cmH₂O — please double-check this value";
-  } else if (mode === "MAP") {
-    if (num < 4 || num > 30) return "MAP is usually 4–30 cmH₂O — please double-check this value";
-  } else if (num > 40) {
-    return "This value looks too high for MAP/CPAP — please double-check";
   }
   return null;
 }
@@ -711,17 +930,45 @@ export default function RespCVNeuroLog() {
   });
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
   const [bolusAutofilled, setBolusAutofilled] = useState(false);
+  const cvStateRef = useRef({});
+  const bolusAutofilledRef = useRef(false);
+  cvStateRef.current = cvData;
+  bolusAutofilledRef.current = bolusAutofilled;
   const [bloodGasAutofilled, setBloodGasAutofilled] = useState({
-    ph: false, pao2: false, paco2: false,
+    ph: false,
+    pao2: false,
+    paco2: false,
+    apnea: false,
+    desat: false,
+    severeDesat: false,
+    maxFio2: false,
+    mapCpap: false,
+    mapCpapSecondary: false,
+    supportModes: false,
   });
   const lastMmlAutoComputedRef = useRef({});
+  const mmlSyncAllowedRef = useRef(true);
   const bloodGasStateRef = useRef({});
   bloodGasStateRef.current = {
     lowestPh, lowestPhNotDone, pao2Low, pao2High, pao2NotDone,
     paco2Low, paco2High, paco2NotDone,
+    apneaCount, apneaCountNotDone,
+    desatCount, desatCountNotDone,
+    severeDesatCount, severeDesatCountNotDone,
   };
   const bloodGasAutofilledRef = useRef(bloodGasAutofilled);
   bloodGasAutofilledRef.current = bloodGasAutofilled;
+  const respSupportStateRef = useRef({});
+  respSupportStateRef.current = {
+    respiratorySupport,
+    supportModes,
+    mapCpap,
+    mapCpapStatus,
+    mapCpapSecondary,
+    mapCpapSecondaryStatus,
+    maxFio2,
+    maxFio2Status,
+  };
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
@@ -740,10 +987,7 @@ export default function RespCVNeuroLog() {
      as "today" until that hour. Badges, future-locking, and the default
      tab all use this same number — never a separate midnight calendar
      today vs an 11am landing tab. */
-  const todayNicuDay = useMemo(
-    () => nicuDayNumberFromDay1(day1Date),
-    [day1Date],
-  );
+  const todayNicuDay = useNicuWorkingDay(day1Date);
 
   const activeDayDate = useMemo(
     () => calendarDateForNicuDay(day1Date, activeDay),
@@ -760,15 +1004,24 @@ export default function RespCVNeuroLog() {
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
-  // Default tab = the same working day todayNicuDay already computed
-  // (grace hour included). Do not subtract 1 again here — that used to
-  // make the landing tab disagree with badges/future-lock.
-  const initialDaySetRef = useRef(false);
+  useDefaultToWorkingNicuDay(todayNicuDay, enrollmentId, activeDay, setActiveDay);
+
+  /** When opening Helper 1 after MML, land on the NICU day that matches the last MML sheet date. */
   useEffect(() => {
-    if (initialDaySetRef.current || todayNicuDay == null) return;
-    initialDaySetRef.current = true;
-    setActiveDay(todayNicuDay);
-  }, [todayNicuDay]);
+    if (!enrollmentId || !day1Date) return;
+    const mmlYmd = readRememberedMmlSheetDate(enrollmentId);
+    if (!mmlYmd) return;
+    const targetDay = nicuDayForCalendarYmd(day1Date, mmlYmd);
+    if (targetDay == null) return;
+    const cal = calendarDateForNicuDay(day1Date, activeDay);
+    if (cal === mmlYmd) return;
+    setActiveDay(targetDay);
+  }, [enrollmentId, day1Date]);
+
+  useEffect(() => {
+    if (!enrollmentId || activeDay == null) return;
+    rememberActiveDay(HELPER_SESSION_KEY_VS6_1, enrollmentId, activeDay);
+  }, [enrollmentId, activeDay]);
 
   const isFieldEditable  =
     // Day 1 Date is mandatory — nurses must set it before any daily field
@@ -784,84 +1037,346 @@ export default function RespCVNeuroLog() {
     // longer forces the record read-only on its own — only isSubmitted
     // (i.e. a nurse/site user explicitly clicked Lock and confirmed) does.
 
-  const applyAutofillFromMml = async (recordDate = activeDayDate) => {
+  const applyAutofillFromMml = async (recordDate = activeDayDate, options = {}) => {
     if (!enrollmentId || !recordDate) return;
     if (isFutureActiveDay) return;
-    if (isSubmitted && !isOverrideActiveDay) return;
+    const allowSync = options.mmlSyncAllowed ?? mmlSyncAllowedRef.current;
+    if (!allowSync) return;
     try {
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+      const mmlHasBolus = await loadMmlFluidBolusForHelperDay(enrollmentId, recordDate);
       if (activeDayDateRef.current !== recordDate) return;
-      const data = res?.data || {};
-      const sheetOk = data.id != null
-        && data.record_date
-        && data.record_date === recordDate;
 
-      if (sheetOk && mmlHasFluidBolus(data)) {
-        setCvData((p) => {
-          if (p.fluid_bolus_given === true) return p;
-          setIsEditing(true);
-          return { ...p, fluid_bolus_given: true };
-        });
+      const cv = cvStateRef.current;
+      const bolusSync = mmlSyncTransfusionYnFromMml(
+        cv.fluid_bolus_given,
+        mmlHasBolus,
+        bolusAutofilledRef.current,
+      );
+      if (bolusSync.changed) {
+        setCvData((p) => ({ ...p, fluid_bolus_given: bolusSync.next }));
+        setBolusAutofilled(bolusSync.autofilled);
+        setIsEditing(true);
+      } else if (bolusSync.autofilled) {
         setBolusAutofilled(true);
       }
 
-      const bg = bloodGasStateRef.current;
+      const bg = options.bloodGasSeed
+        ? { ...bloodGasStateRef.current, ...options.bloodGasSeed }
+        : bloodGasStateRef.current;
+      const resp = options.respSupportSeed
+        ? { ...respSupportStateRef.current, ...options.respSupportSeed }
+        : respSupportStateRef.current;
       const af = bloodGasAutofilledRef.current;
-      const readings = await loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate);
+      const [readings, episodeReadings, respARows] = await Promise.all([
+        loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate),
+        loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate),
+        loadMmlRespAForHelperDay(enrollmentId, recordDate),
+      ]);
       if (activeDayDateRef.current !== recordDate) return;
       const computed = computeBloodGasAutofillFromMml(readings);
-      if (!computed.lowest_ph && !computed.pao2_low && !computed.paco2_low && !sheetOk) return;
-      const bgFlags = { ph: false, pao2: false, paco2: false };
+      const episodeComputed = computeEpisodeAutofillFromMml(episodeReadings);
+      let anyBgChanged = false;
+      const afNext = { ...af };
 
-      if (computed.lowest_ph && !bg.lowestPhNotDone) {
-        const last = lastMmlAutoComputedRef.current.lowest_ph;
-        const stillAuto = last !== undefined && bg.lowestPh === String(last);
-        if (isEmptyBloodGasField(bg.lowestPh) || stillAuto || af.ph) {
-          setLowestPh(computed.lowest_ph);
-          lastMmlAutoComputedRef.current.lowest_ph = computed.lowest_ph;
-          bgFlags.ph = true;
+      const runAggregateSync = ({
+        current,
+        blockedByNotDone,
+        wasAutofilled,
+        stillMatchesLastAuto,
+        looksSourced,
+        entryValuesForSourced,
+        mmlValue,
+        onApply,
+        lastKey,
+        flagKey,
+        force = false,
+      }) => {
+        const sync = mmlSyncAggregateFieldFromMml({
+          current,
+          blockedByNotDone,
+          wasAutofilled,
+          stillMatchesLastAuto,
+          looksSourced,
+          entryValuesForSourced,
+          mmlValue,
+          force,
+        });
+        if (sync.changed) {
+          onApply(sync.nextValue);
+          if (lastKey) {
+            lastMmlAutoComputedRef.current[lastKey] =
+              sync.nextValue === "" ? undefined : sync.nextValue;
+          }
+          afNext[flagKey] = sync.autofilled;
+          anyBgChanged = true;
+        } else if (sync.autofilled) {
+          afNext[flagKey] = true;
         }
+      };
+
+      const phAggOk = bloodGasPhLooksMmlSourced(bg.lowestPh, readings);
+      const forcePh =
+        readings.ph.length > 0 && computed.lowest_ph != null && !phAggOk;
+
+      runAggregateSync({
+        current: bg.lowestPh,
+        blockedByNotDone: bg.lowestPhNotDone,
+        wasAutofilled: af.ph,
+        stillMatchesLastAuto:
+          lastMmlAutoComputedRef.current.lowest_ph !== undefined
+          && bg.lowestPh === String(lastMmlAutoComputedRef.current.lowest_ph),
+        looksSourced: (c) => bloodGasPhLooksMmlSourced(c, readings.ph),
+        entryValuesForSourced: readings.ph,
+        mmlValue: computed.lowest_ph ?? null,
+        onApply: setLowestPh,
+        lastKey: "lowest_ph",
+        flagKey: "ph",
+        force: forcePh,
+      });
+
+      if (!bg.pao2NotDone) {
+        const pao2StillAuto =
+          lastMmlAutoComputedRef.current.pao2_low !== undefined
+          && lastMmlAutoComputedRef.current.pao2_high !== undefined
+          && bg.pao2Low === String(lastMmlAutoComputedRef.current.pao2_low)
+          && bg.pao2High === String(lastMmlAutoComputedRef.current.pao2_high);
+        const pao2LooksSourced = () => bloodGasRangeLooksMmlSourced(
+          bg.pao2Low, bg.pao2High, readings, "pao2",
+        );
+        const forcePao2 =
+          readings.pao2.length > 0
+          && computed.pao2_low != null
+          && !pao2LooksSourced();
+        runAggregateSync({
+          current: bg.pao2Low,
+          blockedByNotDone: false,
+          wasAutofilled: af.pao2,
+          stillMatchesLastAuto: pao2StillAuto,
+          looksSourced: pao2LooksSourced,
+          entryValuesForSourced: readings.pao2,
+          mmlValue: computed.pao2_low ?? null,
+          onApply: setPao2Low,
+          lastKey: "pao2_low",
+          flagKey: "pao2",
+          force: forcePao2,
+        });
+        runAggregateSync({
+          current: bg.pao2High,
+          blockedByNotDone: false,
+          wasAutofilled: af.pao2,
+          stillMatchesLastAuto: pao2StillAuto,
+          looksSourced: pao2LooksSourced,
+          entryValuesForSourced: readings.pao2,
+          mmlValue: computed.pao2_high ?? null,
+          onApply: setPao2High,
+          lastKey: "pao2_high",
+          flagKey: "pao2",
+          force: forcePao2,
+        });
       }
 
-      if (computed.pao2_low && computed.pao2_high && !bg.pao2NotDone) {
-        const lastLo = lastMmlAutoComputedRef.current.pao2_low;
-        const lastHi = lastMmlAutoComputedRef.current.pao2_high;
-        const stillAuto = lastLo !== undefined && lastHi !== undefined
-          && bg.pao2Low === String(lastLo) && bg.pao2High === String(lastHi);
-        const empty = isEmptyBloodGasField(bg.pao2Low) && isEmptyBloodGasField(bg.pao2High);
-        if (empty || stillAuto || af.pao2) {
-          setPao2Low(computed.pao2_low);
-          setPao2High(computed.pao2_high);
-          lastMmlAutoComputedRef.current.pao2_low = computed.pao2_low;
-          lastMmlAutoComputedRef.current.pao2_high = computed.pao2_high;
-          bgFlags.pao2 = true;
-        }
+      if (!bg.paco2NotDone) {
+        const paco2StillAuto =
+          lastMmlAutoComputedRef.current.paco2_low !== undefined
+          && lastMmlAutoComputedRef.current.paco2_high !== undefined
+          && bg.paco2Low === String(lastMmlAutoComputedRef.current.paco2_low)
+          && bg.paco2High === String(lastMmlAutoComputedRef.current.paco2_high);
+        const paco2LooksSourced = () => bloodGasRangeLooksMmlSourced(
+          bg.paco2Low, bg.paco2High, readings, "paco2",
+        );
+        const forcePaco2 =
+          readings.paco2.length > 0
+          && computed.paco2_low != null
+          && !paco2LooksSourced();
+        runAggregateSync({
+          current: bg.paco2Low,
+          blockedByNotDone: false,
+          wasAutofilled: af.paco2,
+          stillMatchesLastAuto: paco2StillAuto,
+          looksSourced: paco2LooksSourced,
+          entryValuesForSourced: readings.paco2,
+          mmlValue: computed.paco2_low ?? null,
+          onApply: setPaco2Low,
+          lastKey: "paco2_low",
+          flagKey: "paco2",
+          force: forcePaco2,
+        });
+        runAggregateSync({
+          current: bg.paco2High,
+          blockedByNotDone: false,
+          wasAutofilled: af.paco2,
+          stillMatchesLastAuto: paco2StillAuto,
+          looksSourced: paco2LooksSourced,
+          entryValuesForSourced: readings.paco2,
+          mmlValue: computed.paco2_high ?? null,
+          onApply: setPaco2High,
+          lastKey: "paco2_high",
+          flagKey: "paco2",
+          force: forcePaco2,
+        });
       }
 
-      if (computed.paco2_low && computed.paco2_high && !bg.paco2NotDone) {
-        const lastLo = lastMmlAutoComputedRef.current.paco2_low;
-        const lastHi = lastMmlAutoComputedRef.current.paco2_high;
-        const stillAuto = lastLo !== undefined && lastHi !== undefined
-          && bg.paco2Low === String(lastLo) && bg.paco2High === String(lastHi);
-        const empty = isEmptyBloodGasField(bg.paco2Low) && isEmptyBloodGasField(bg.paco2High);
-        if (empty || stillAuto || af.paco2) {
-          setPaco2Low(computed.paco2_low);
-          setPaco2High(computed.paco2_high);
-          lastMmlAutoComputedRef.current.paco2_low = computed.paco2_low;
-          lastMmlAutoComputedRef.current.paco2_high = computed.paco2_high;
-          bgFlags.paco2 = true;
+      runAggregateSync({
+        current: bg.apneaCount,
+        blockedByNotDone: bg.apneaCountNotDone,
+        wasAutofilled: af.apnea,
+        stillMatchesLastAuto:
+          lastMmlAutoComputedRef.current.apnea_count !== undefined
+          && bg.apneaCount === String(lastMmlAutoComputedRef.current.apnea_count),
+        looksSourced: (c) => episodeTotalLooksMmlSourced(c, episodeReadings.apnea),
+        entryValuesForSourced: episodeReadings.apnea,
+        mmlValue: episodeComputed.apnea_count ?? null,
+        onApply: setApneaCount,
+        lastKey: "apnea_count",
+        flagKey: "apnea",
+      });
+
+      runAggregateSync({
+        current: bg.desatCount,
+        blockedByNotDone: bg.desatCountNotDone,
+        wasAutofilled: af.desat,
+        stillMatchesLastAuto:
+          lastMmlAutoComputedRef.current.desaturation_count !== undefined
+          && bg.desatCount === String(lastMmlAutoComputedRef.current.desaturation_count),
+        looksSourced: (c) => episodeTotalLooksMmlSourced(
+          c, episodeReadings.desaturation,
+        ),
+        entryValuesForSourced: episodeReadings.desaturation,
+        mmlValue: episodeComputed.desaturation_count ?? null,
+        onApply: setDesatCount,
+        lastKey: "desaturation_count",
+        flagKey: "desat",
+      });
+
+      runAggregateSync({
+        current: bg.severeDesatCount,
+        blockedByNotDone: bg.severeDesatCountNotDone,
+        wasAutofilled: af.severeDesat,
+        stillMatchesLastAuto:
+          lastMmlAutoComputedRef.current.severe_desaturation_count !== undefined
+          && bg.severeDesatCount === String(
+            lastMmlAutoComputedRef.current.severe_desaturation_count,
+          ),
+        looksSourced: (c) => episodeTotalLooksMmlSourced(
+          c, episodeReadings.severeDesat,
+        ),
+        entryValuesForSourced: episodeReadings.severeDesat,
+        mmlValue: episodeComputed.severe_desaturation_count ?? null,
+        onApply: setSevereDesatCount,
+        lastKey: "severe_desaturation_count",
+        flagKey: "severeDesat",
+      });
+
+      const respComputed = computeRespAAutofillFromMml(respARows, mmlFmtAutofillNum);
+      const forceRespFromMml = respComputed.hasRows && respComputed.modesUnion.length > 0;
+
+      if (respComputed.modesUnion.length > 0) {
+        const union = respComputed.modesUnion;
+        if (forceRespFromMml || !modesArraysEqual(resp.supportModes, union)) {
+          setSupportModes(union);
+          afNext.supportModes = true;
+          anyBgChanged = true;
+        } else {
+          afNext.supportModes = true;
+        }
+        if (resp.respiratorySupport !== true) {
+          setRespiratorySupport(true);
+          anyBgChanged = true;
+        }
+      } else if (resp.supportModes.length > 0) {
+        const hadMmlModes = af.supportModes || respModesUnionLooksSourced(
+          resp.supportModes,
+          normalizeHelperSupportModes(lastMmlAutoComputedRef.current.support_modes_union || []),
+        );
+        if (hadMmlModes || af.supportModes) {
+          setSupportModes([]);
+          afNext.supportModes = false;
+          anyBgChanged = true;
         }
       }
+      if (respComputed.modesUnion.length > 0) {
+        lastMmlAutoComputedRef.current.support_modes_union = respComputed.modesUnion;
+      } else {
+        delete lastMmlAutoComputedRef.current.support_modes_union;
+      }
 
-      if (bgFlags.ph || bgFlags.pao2 || bgFlags.paco2) {
-        setBloodGasAutofilled(prev => ({
-          ph: bgFlags.ph || prev.ph,
-          pao2: bgFlags.pao2 || prev.pao2,
-          paco2: bgFlags.paco2 || prev.paco2,
-        }));
+      runAggregateSync({
+        current: resp.maxFio2,
+        blockedByNotDone: resp.maxFio2Status,
+        wasAutofilled: af.maxFio2,
+        stillMatchesLastAuto:
+          lastMmlAutoComputedRef.current.max_fio2 !== undefined
+          && resp.maxFio2 === String(lastMmlAutoComputedRef.current.max_fio2),
+        looksSourced: (c) => respNumericLooksMmlSourced(c, respComputed.fio2Vals),
+        entryValuesForSourced: respComputed.fio2Vals,
+        mmlValue: respComputed.max_fio2,
+        onApply: setMaxFio2,
+        lastKey: "max_fio2",
+        flagKey: "maxFio2",
+        force: forceRespFromMml && respComputed.max_fio2 != null,
+      });
+
+      const syncMapPrimary = (mmlValue) => {
+        runAggregateSync({
+          current: resp.mapCpap,
+          blockedByNotDone: resp.mapCpapStatus,
+          wasAutofilled: af.mapCpap,
+          stillMatchesLastAuto:
+            lastMmlAutoComputedRef.current.map_cpap !== undefined
+            && resp.mapCpap === String(lastMmlAutoComputedRef.current.map_cpap),
+          looksSourced: (c) => respNumericLooksMmlSourced(
+            c,
+            respComputed.mapVals.length ? respComputed.mapVals : respComputed.cpapVals,
+          ),
+          entryValuesForSourced: respComputed.mapVals.length
+            ? respComputed.mapVals
+            : respComputed.cpapVals,
+          mmlValue,
+          onApply: setMapCpap,
+          lastKey: "map_cpap",
+          flagKey: "mapCpap",
+          force: forceRespFromMml && mmlValue != null,
+        });
+      };
+      const syncMapSecondary = (mmlValue) => {
+        runAggregateSync({
+          current: resp.mapCpapSecondary,
+          blockedByNotDone: resp.mapCpapSecondaryStatus,
+          wasAutofilled: af.mapCpapSecondary,
+          stillMatchesLastAuto:
+            lastMmlAutoComputedRef.current.map_cpap_secondary !== undefined
+            && resp.mapCpapSecondary === String(
+              lastMmlAutoComputedRef.current.map_cpap_secondary,
+            ),
+          looksSourced: (c) => respNumericLooksMmlSourced(c, respComputed.cpapVals),
+          entryValuesForSourced: respComputed.cpapVals,
+          mmlValue,
+          onApply: setMapCpapSecondary,
+          lastKey: "map_cpap_secondary",
+          flagKey: "mapCpapSecondary",
+          force: forceRespFromMml && mmlValue != null,
+        });
+      };
+
+      const agg = respComputed.aggregateMode;
+      if (agg === "BOTH") {
+        syncMapSecondary(respComputed.map_cpap_secondary);
+        syncMapPrimary(respComputed.map_cpap);
+      } else if (agg === "CPAP" || agg === "MAP") {
+        syncMapPrimary(respComputed.map_cpap);
+        syncMapSecondary(null);
+      } else {
+        syncMapPrimary(null);
+        syncMapSecondary(null);
+      }
+
+      if (anyBgChanged) {
+        setBloodGasAutofilled(afNext);
         setIsEditing(true);
       }
-    } catch (_) { /* Helper 5 optional */ }
+    } catch (err) {
+      console.warn("MML autofill (Helper 5)", err);
+    }
   };
 
   /* ── Load patient info ── */
@@ -993,12 +1508,54 @@ export default function RespCVNeuroLog() {
       setLoading(true);
       setBolusAutofilled(false);
       lastMmlAutoComputedRef.current = {};
-      setBloodGasAutofilled({ ph: false, pao2: false, paco2: false });
+      setBloodGasAutofilled({
+        ph: false,
+        pao2: false,
+        paco2: false,
+        apnea: false,
+        desat: false,
+        severeDesat: false,
+        maxFio2: false,
+        mapCpap: false,
+        mapCpapSecondary: false,
+        supportModes: false,
+      });
+      let bloodGasSeed = null;
+      let respSupportSeed = null;
+      let mmlSyncAllowed = true;
       try {
         const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay}`);
         if (cancelled) return;
         const d = res?.data || {};
         if (d && Object.keys(d).length > 0) {
+          respSupportSeed = respSupportSeedFromDayLog(d);
+          const st = d.submission_status || STATUS.DRAFT;
+          const overrideStillActive =
+            !!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date();
+          mmlSyncAllowed = st !== STATUS.SUBMITTED || overrideStillActive;
+          mmlSyncAllowedRef.current = mmlSyncAllowed;
+          const phParsed = parseSingleField(d.lowest_ph);
+          const pao2Parsed = parseRangeField(d.pao2_range);
+          const paco2Parsed = parseRangeField(d.paco2_range);
+          const apneaParsed = parseSingleField(d.apnea_count);
+          const desatParsed = parseSingleField(d.desaturation_count);
+          const severeParsed = parseSingleField(d.severe_desaturation_count);
+          bloodGasSeed = {
+            lowestPh: phParsed.value,
+            lowestPhNotDone: phParsed.notDone,
+            pao2Low: pao2Parsed.low,
+            pao2High: pao2Parsed.high,
+            pao2NotDone: pao2Parsed.notDone,
+            paco2Low: paco2Parsed.low,
+            paco2High: paco2Parsed.high,
+            paco2NotDone: paco2Parsed.notDone,
+            apneaCount: apneaParsed.value,
+            apneaCountNotDone: apneaParsed.notDone,
+            desatCount: desatParsed.value,
+            desatCountNotDone: desatParsed.notDone,
+            severeDesatCount: severeParsed.value,
+            severeDesatCountNotDone: severeParsed.notDone,
+          };
           setWeightKg(d.weight_kg || "");
           setSupportModes(d.support_modes ? d.support_modes.split(",").map(s => s.trim()).filter(Boolean) : []);
           setRespiratorySupport(d.respiratory_support ?? null);
@@ -1011,24 +1568,12 @@ export default function RespCVNeuroLog() {
           setMaxFio2Status(d.max_fio2_status ?? null);
           setMaxFlow(d.max_flow != null ? String(d.max_flow) : "");
           setMaxFlowStatus(d.max_flow_status ?? null);
-          {
-            const phParsed = parseSingleField(d.lowest_ph);
-            setLowestPh(phParsed.value); setLowestPhNotDone(phParsed.notDone);
-          }
-          {
-            const pao2Parsed = parseRangeField(d.pao2_range);
-            setPao2Low(pao2Parsed.low); setPao2High(pao2Parsed.high); setPao2NotDone(pao2Parsed.notDone);
-            const paco2Parsed = parseRangeField(d.paco2_range);
-            setPaco2Low(paco2Parsed.low); setPaco2High(paco2Parsed.high); setPaco2NotDone(paco2Parsed.notDone);
-          }
-          {
-            const apneaParsed = parseSingleField(d.apnea_count);
-            setApneaCount(apneaParsed.value); setApneaCountNotDone(apneaParsed.notDone);
-            const desatParsed = parseSingleField(d.desaturation_count);
-            setDesatCount(desatParsed.value); setDesatCountNotDone(desatParsed.notDone);
-            const severeParsed = parseSingleField(d.severe_desaturation_count);
-            setSevereDesatCount(severeParsed.value); setSevereDesatCountNotDone(severeParsed.notDone);
-          }
+          setLowestPh(phParsed.value); setLowestPhNotDone(phParsed.notDone);
+          setPao2Low(pao2Parsed.low); setPao2High(pao2Parsed.high); setPao2NotDone(pao2Parsed.notDone);
+          setPaco2Low(paco2Parsed.low); setPaco2High(paco2Parsed.high); setPaco2NotDone(paco2Parsed.notDone);
+          setApneaCount(apneaParsed.value); setApneaCountNotDone(apneaParsed.notDone);
+          setDesatCount(desatParsed.value); setDesatCountNotDone(desatParsed.notDone);
+          setSevereDesatCount(severeParsed.value); setSevereDesatCountNotDone(severeParsed.notDone);
           setRespEvents({
             supp_o2:           d.supp_o2           ?? null,
             surfactant:        d.surfactant         ?? null,
@@ -1063,8 +1608,6 @@ export default function RespCVNeuroLog() {
             non_ivh_ich:        d.non_ivh_ich        ?? null,
             meningitis_suspected: d.meningitis_suspected ?? null,
           });
-          // Restore status metadata
-          const st = d.submission_status || STATUS.DRAFT;
           setDayStatuses(prev => ({ ...prev, [activeDay]: st }));
           setSavedAt(d.saved_at || null);
           setSavedBy(d.saved_by || "");
@@ -1072,20 +1615,17 @@ export default function RespCVNeuroLog() {
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
           setIsSaved(true);
-          // A reload/revisit during a still-active override window must not
-          // silently re-lock the fields — isFieldEditable requires isEditing
-          // whenever isSaved is true, which this effect always sets true for
-          // an existing record.
-          setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
+          setIsEditing(st !== STATUS.SUBMITTED || overrideStillActive);
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else {
           resetFormState();
+          mmlSyncAllowedRef.current = true;
         }
       } catch (err) {
         if (cancelled) return;
-        // Always clear — never leave previous day's values in the form.
         resetFormState();
+        mmlSyncAllowedRef.current = true;
         if (err?.response?.status !== 404) {
           setMessage("❌ Could not load Day " + activeDay + " — save disabled until reload");
           setTimeout(() => setMessage(""), 5000);
@@ -1093,7 +1633,14 @@ export default function RespCVNeuroLog() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-      if (!cancelled) await applyAutofillFromMml(calendarDateForNicuDay(day1Date, activeDay));
+      if (!cancelled && day1Date) {
+        const recordDate = calendarDateForNicuDay(day1Date, activeDay);
+        await applyAutofillFromMml(recordDate, {
+          ...(bloodGasSeed ? { bloodGasSeed } : {}),
+          ...(respSupportSeed ? { respSupportSeed } : {}),
+          mmlSyncAllowed,
+        });
+      }
     };
     loadDay();
     return () => { cancelled = true; };
@@ -1102,10 +1649,27 @@ export default function RespCVNeuroLog() {
   useEffect(() => {
     if (!enrollmentId || !activeDayDate || loading) return;
     if (isFutureActiveDay) return;
-    if (isSubmitted && !isOverrideActiveDay) return;
-    const tick = () => applyAutofillFromMml(activeDayDate);
+    if (!mmlSyncAllowedRef.current) return;
+    const tick = () => applyAutofillFromMml(activeDayDate, {
+      mmlSyncAllowed: mmlSyncAllowedRef.current,
+    });
+    tick();
     const interval = setInterval(tick, 60000);
     const onFocus = () => tick();
+    const onMmlSaved = (e) => {
+      const eid = e?.detail?.enrollmentId;
+      if (!eid || eid !== enrollmentId) return;
+      const savedSheet = e?.detail?.sheetDate;
+      if (savedSheet && day1Date) {
+        const targetDay = nicuDayForCalendarYmd(day1Date, savedSheet);
+        if (targetDay != null && targetDay !== activeDay) {
+          setActiveDay(targetDay);
+          return;
+        }
+      }
+      tick();
+    };
+    window.addEventListener("portal-mml-saved", onMmlSaved);
     const onVisibility = () => {
       if (document.visibilityState === "visible") tick();
     };
@@ -1115,8 +1679,9 @@ export default function RespCVNeuroLog() {
       clearInterval(interval);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("portal-mml-saved", onMmlSaved);
     };
-  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
+  }, [enrollmentId, activeDay, activeDayDate, day1Date, loading, isFutureActiveDay]);
 
   const resetFormState = () => {
     setWeightKg("");
@@ -1139,7 +1704,18 @@ export default function RespCVNeuroLog() {
     setCvData({ pda_suspected: null, echo_done: null, hs_pda: null,
       pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus_given: null });
     setBolusAutofilled(false);
-    setBloodGasAutofilled({ ph: false, pao2: false, paco2: false });
+    setBloodGasAutofilled({
+      ph: false,
+      pao2: false,
+      paco2: false,
+      apnea: false,
+      desat: false,
+      severeDesat: false,
+      maxFio2: false,
+      mapCpap: false,
+      mapCpapSecondary: false,
+      supportModes: false,
+    });
     lastMmlAutoComputedRef.current = {};
     setVasoactiveDrugs([]);
     setNeuroData({ cranial_usg: null, ivh: null,
@@ -1258,6 +1834,7 @@ export default function RespCVNeuroLog() {
   /* ── Helpers ── */
   const toggleMode = (mode) => {
     if (!isFieldEditable || respiratorySupport !== true) return;
+    setBloodGasAutofilled((p) => ({ ...p, supportModes: false }));
     setSupportModes(prev => {
       const next = prev.includes(mode) ? prev.filter(m => m !== mode) : [...prev, mode];
       const nextMode = getMapCpapMode(next);
@@ -1294,6 +1871,11 @@ export default function RespCVNeuroLog() {
     if (!force && !isFieldEditable) return false;
     if (isSubmitted && !isOverrideActiveDay) return false;
     if (isFutureActiveDay) return false;
+    if (!force && completionPct === 0 && !isSaved) {
+      setMessage("⚠️ Nothing entered for this day yet — add data before saving.");
+      setTimeout(() => setMessage(""), 3000);
+      return false;
+    }
     const now = new Date().toISOString();
     const payload = {
       enrollment_id:       enrollmentId,
@@ -1360,6 +1942,20 @@ export default function RespCVNeuroLog() {
       setMessage("❌ Error saving — please try again");
       return false;
     }
+  };
+
+  const switchActiveDay = async (d) => {
+    if (d === activeDay) return;
+    if (isFieldEditable && completionPct > 0) {
+      try {
+        const ok = await handleSave();
+        if (ok === false) return;
+      } catch (err) {
+        console.error("Save before day change failed:", err);
+        return;
+      }
+    }
+    setActiveDay(d);
   };
 
   const handlePrevious = async () => {
@@ -1683,7 +2279,7 @@ export default function RespCVNeuroLog() {
                       isMissed    ? "rcn-day--missed"    : "",
                       `rcn-day--${st}`,
                     ].filter(Boolean).join(" ")}
-                    onClick={() => !isLocked && setActiveDay(d)}
+                    onClick={() => !isLocked && switchActiveDay(d)}
                     disabled={isFuture}
                     title={
                       isDischarge ? `Day ${d} — Patient discharged`
@@ -1733,8 +2329,17 @@ export default function RespCVNeuroLog() {
               <button
                 type="button"
                 className="rcn-day-add"
-                onClick={() => {
+                onClick={async () => {
                   const next = totalDays + 1;
+                  if (isFieldEditable && completionPct > 0) {
+                    try {
+                      const ok = await handleSave();
+                      if (ok === false) return;
+                    } catch (err) {
+                      console.error("Save before add day failed:", err);
+                      return;
+                    }
+                  }
                   setTotalDays(next);
                   setActiveDay(next);
                 }}
@@ -1782,7 +2387,7 @@ export default function RespCVNeuroLog() {
               <button
                 type="button"
                 className="rcn-day-missing-pop-goto"
-                onClick={() => { setActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
+                onClick={() => { switchActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
               >
                 Go to Day {missingPopoverDay} <ArrowRight size={12} />
               </button>
@@ -2373,7 +2978,12 @@ export default function RespCVNeuroLog() {
               <div className="rcn-inputs-row rcn-inputs-row--3col">
                 <div className="rcn-input-group">
                   <div className="rcn-field-label-row">
-                    <label className="rcn-field-label">13. No of Apnea episodes</label>
+                    <label className="rcn-field-label">
+                      13. No of Apnea episodes
+                      {bloodGasAutofilled.apnea && (
+                        <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                      )}
+                    </label>
                     <button type="button"
                       className={`rcn-notdone-toggle${apneaCountNotDone ? " rcn-notdone-toggle--on" : ""}`}
                       onClick={() => { if (!isFieldEditable) return; setApneaCountNotDone(v => !v); setApneaCount(""); }}
@@ -2386,11 +2996,15 @@ export default function RespCVNeuroLog() {
                     </div>
                   ) : (
                     <>
-                      <div className={`rcn-num-input${apneaCountError ? " rcn-num-input--error" : ""}`}>
+                      <div className={`rcn-num-input${apneaCountError ? " rcn-num-input--error" : ""}${bloodGasAutofilled.apnea ? " rcn-num-input--autofill" : ""}`}>
                         <input
                           type="number" placeholder="0" min="0" step="1"
                           value={apneaCount}
-                          onChange={e => isFieldEditable && setApneaCount(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, apnea: false }));
+                            setApneaCount(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2400,7 +3014,12 @@ export default function RespCVNeuroLog() {
                 </div>
                 <div className="rcn-input-group">
                   <div className="rcn-field-label-row">
-                    <label className="rcn-field-label">14. No of Desaturations (&lt;91%)</label>
+                    <label className="rcn-field-label">
+                      14. No of Desaturations (&lt;91%)
+                      {bloodGasAutofilled.desat && (
+                        <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                      )}
+                    </label>
                     <button type="button"
                       className={`rcn-notdone-toggle${desatCountNotDone ? " rcn-notdone-toggle--on" : ""}`}
                       onClick={() => { if (!isFieldEditable) return; setDesatCountNotDone(v => !v); setDesatCount(""); }}
@@ -2413,11 +3032,15 @@ export default function RespCVNeuroLog() {
                     </div>
                   ) : (
                     <>
-                      <div className={`rcn-num-input${desatCountError ? " rcn-num-input--error" : ""}`}>
+                      <div className={`rcn-num-input${desatCountError ? " rcn-num-input--error" : ""}${bloodGasAutofilled.desat ? " rcn-num-input--autofill" : ""}`}>
                         <input
                           type="number" placeholder="0" min="0" step="1"
                           value={desatCount}
-                          onChange={e => isFieldEditable && setDesatCount(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, desat: false }));
+                            setDesatCount(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2427,7 +3050,12 @@ export default function RespCVNeuroLog() {
                 </div>
                 <div className="rcn-input-group">
                   <div className="rcn-field-label-row">
-                    <label className="rcn-field-label">15. No of severe desaturations (&lt;80%)</label>
+                    <label className="rcn-field-label">
+                      15. No of severe desaturations (&lt;80%)
+                      {bloodGasAutofilled.severeDesat && (
+                        <span className="rcn-autofill-tag rcn-autofill-tag--above">from Minimal Monitoring</span>
+                      )}
+                    </label>
                     <button type="button"
                       className={`rcn-notdone-toggle${severeDesatCountNotDone ? " rcn-notdone-toggle--on" : ""}`}
                       onClick={() => { if (!isFieldEditable) return; setSevereDesatCountNotDone(v => !v); setSevereDesatCount(""); }}
@@ -2440,11 +3068,15 @@ export default function RespCVNeuroLog() {
                     </div>
                   ) : (
                     <>
-                      <div className={`rcn-num-input${severeDesatCountError ? " rcn-num-input--error" : ""}`}>
+                      <div className={`rcn-num-input${severeDesatCountError ? " rcn-num-input--error" : ""}${bloodGasAutofilled.severeDesat ? " rcn-num-input--autofill" : ""}`}>
                         <input
                           type="number" placeholder="0" min="0" step="1"
                           value={severeDesatCount}
-                          onChange={e => isFieldEditable && setSevereDesatCount(e.target.value)}
+                          onChange={e => {
+                            if (!isFieldEditable) return;
+                            setBloodGasAutofilled(p => ({ ...p, severeDesat: false }));
+                            setSevereDesatCount(e.target.value);
+                          }}
                           readOnly={!isFieldEditable}
                         />
                       </div>
@@ -2625,7 +3257,7 @@ export default function RespCVNeuroLog() {
                               <button
                                 type="button"
                                 className="rcn-table-view-goto-btn"
-                                onClick={() => { setActiveDay(day); setShowTableView(false); }}
+                                onClick={() => { switchActiveDay(day); setShowTableView(false); }}
                                 title="Go to this day"
                               >
                                 Day {day}
@@ -2784,11 +3416,11 @@ export default function RespCVNeuroLog() {
         {canViewAudit && (
           <button
             type="button"
-            className="rcn-history-btn"
+            className="btn rcn-history-btn"
             onClick={fetchAuditHistory}
             title={`View correction history for Day ${activeDay}`}
           >
-            <History size={13}/> History
+            <History size={15}/> History
           </button>
         )}
 

@@ -60,9 +60,27 @@
   margin-right: 2px;
 }
 
+.mml-pills-compact {
+  width: 100%;
+}
+
 .mml-pills-compact .rcn-pill {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
   padding: 6px 14px;
   font-size: 12.5px;
+}
+
+/* Yes/No — equal halves inside grid columns (rcn-yn stretches, buttons did not) */
+.mml-yn {
+  width: 100%;
+}
+
+.mml-yn .rcn-yn-btn {
+  flex: 1 1 50%;
+  min-width: 0;
+  text-align: center;
 }
 
 /* ── Multi-entry card ── */
@@ -222,10 +240,12 @@
   }
 }
 
-.mml-date-input,
-.mml-time-input {
+.form-layout-content input.mml-date-input,
+.form-layout-content input.mml-time-input {
   width: auto !important;
   min-width: 140px;
+  min-height: 0 !important;
+  height: auto;
   padding: 8px 10px !important;
   font-size: 13px !important;
   text-transform: none;
@@ -234,8 +254,33 @@
   color: #0F172A;
 }
 
-.mml-time-input {
+.form-layout-content input.mml-time-input {
   min-width: 110px;
+}
+
+/* Value + unit in reading rows (Helper 4 electrolytes, pH, etc.) — same footprint as date/time */
+.form-layout-content .rcn-reading-row .mml-meta-field .rcn-num-input {
+  width: auto;
+  min-width: 140px;
+  max-width: 200px;
+  flex: 0 1 auto;
+  min-height: 0;
+  border-radius: 10px;
+  border-width: 1.5px;
+}
+.form-layout-content .rcn-reading-row .mml-meta-field .rcn-num-input input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 0 !important;
+  height: auto;
+  padding: 8px 10px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.35;
+}
+.form-layout-content .rcn-reading-row .mml-meta-field .rcn-num-unit {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 8px;
+  letter-spacing: 0.04em;
 }
 
 .mml-item-wide {
@@ -452,6 +497,11 @@
 .mml-history-table tbody tr.mml-history-row--error td {
   background: color-mix(in srgb, #ef4444 10%, transparent);
   box-shadow: inset 3px 0 0 #ef4444;
+}
+
+.mml-history-table tbody td.mml-history-cell--warn {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #b91c1c;
 }
 
 .mml-history-table tbody td {

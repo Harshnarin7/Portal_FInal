@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import GlobalSiteFilter, { siteQueryParams } from "./components/dashboard/GlobalSiteFilter";
+import { isGlobalUser } from "./utils/roles";
 import { formatBabyOfLabel } from "./utils/babyName";
 import DashboardShell from "./components/dashboard/DashboardShell";
 import DashboardKpiCard from "./components/dashboard/DashboardKpiCard";
@@ -57,11 +59,12 @@ const QUICK_AI_QUESTIONS = [
 ];
 
 const RL_MAP = {
-  superadmin: "Super Admin", admin: "Administrator", pi: "Principal Investigator",
-  scientist: "Scientist", nurse: "Research Nurse", deo: "Data Entry Operator", monitor: "Trial Monitor",
+  superadmin: "Super Admin", global_scientist: "Global Scientist", admin: "Administrator",
+  pi: "Principal Investigator", scientist: "Scientist", nurse: "Research Nurse",
+  deo: "Data Entry Operator", monitor: "Trial Monitor",
 };
 const RL_COL = {
-  superadmin: C.purple, admin: C.purple, pi: C.teal,
+  superadmin: C.purple, global_scientist: C.blue, admin: C.purple, pi: C.teal,
   scientist: C.blue, nurse: C.green, deo: C.amber, monitor: C.orange,
 };
 
@@ -124,6 +127,8 @@ export default function Dashboard() {
   const [ops, setOps] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [apiSite, setApiSite] = useState("");
+  const isGlobal = isGlobalUser(user);
 
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
@@ -152,7 +157,7 @@ export default function Dashboard() {
     setLoadError(null);
     try {
       const [opsRes, scrRes] = await Promise.all([
-        api.get("/dashboard/ops-summary"),
+        api.get("/dashboard/ops-summary", { params: siteQueryParams(apiSite) }),
         api.get("/screenings/", { params: { limit: 100 } }),
       ]);
       setOps(opsRes.data);
@@ -174,7 +179,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiSite]);
 
   useEffect(() => { loadLive(); }, [loadLive]);
 
@@ -341,6 +346,15 @@ export default function Dashboard() {
     <>
       {tab === "overview" && (
         <div className="space-y-6">
+          {isGlobal && (
+            <div className="flex justify-end">
+              <GlobalSiteFilter
+                value={apiSite}
+                onChange={setApiSite}
+                sites={siteRows.map((s) => s.site)}
+              />
+            </div>
+          )}
           <TrialContextBanner enrolled={enrolled} target={target} pct={pct} />
 
           <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">

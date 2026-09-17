@@ -6,6 +6,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
+import GlobalSiteFilter, { siteQueryParams } from "./components/dashboard/GlobalSiteFilter";
+import { isGlobalUser } from "./utils/roles";
 import { siteShortCode } from "./utils/siteNames";
 import "./TrialMonitoringDashboard.css";
 import DataQuality from "./DataQuality";
@@ -56,7 +58,9 @@ const SECTIONS = [
 export default function TrialMonitoringDashboard() {
   const { user } = useAuth();
   const isSuperadmin = (user?.role || "").toLowerCase() === "superadmin";
+  const isGlobal = isGlobalUser(user);
   const [activeSection, setActiveSection] = useState("consort");
+  const [apiSite, setApiSite] = useState("");
 
   const [consortData, setConsortData] = useState(null);
   const [consortLoading, setConsortLoading] = useState(true);
@@ -66,14 +70,14 @@ export default function TrialMonitoringDashboard() {
     setConsortLoading(true);
     setConsortError(null);
     try {
-      const res = await api.get("/dashboard/consort");
+      const res = await api.get("/dashboard/consort", { params: siteQueryParams(apiSite) });
       setConsortData(res.data);
     } catch (err) {
       setConsortError(err.response?.data?.detail || "Failed to load CONSORT flow data");
     } finally {
       setConsortLoading(false);
     }
-  }, []);
+  }, [apiSite]);
 
   useEffect(() => { loadConsort(); }, [loadConsort]);
 
@@ -111,9 +115,18 @@ export default function TrialMonitoringDashboard() {
             ))}
           </div>
         </div>
-        {isSuperadmin && consortData && activeSection === "consort" && (
-          <button className="tmd-csv-btn" onClick={downloadCsv}>Download CSV</button>
-        )}
+        <div className="tmd-topbar-actions">
+          {isGlobal && (
+            <GlobalSiteFilter
+              value={apiSite}
+              onChange={setApiSite}
+              sites={consortData?.sites}
+            />
+          )}
+          {isSuperadmin && consortData && activeSection === "consort" && (
+            <button className="tmd-csv-btn" onClick={downloadCsv}>Download CSV</button>
+          )}
+        </div>
       </div>
 
       {activeSection === "consort" && (
@@ -154,7 +167,7 @@ export default function TrialMonitoringDashboard() {
 
       {activeSection === "data-quality" && (
         <div className="tmd-card">
-          <DataQuality />
+          <DataQuality apiSite={apiSite} />
         </div>
       )}
 

@@ -6,8 +6,9 @@ import {
   FileHeart, HeartPulse, Microscope, TestTube2,
   Activity, Eye, Stethoscope, TrendingUp, BarChart3,
   Building2, Cpu, ShieldAlert, ClipboardList, FileText,
-  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X,
+  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X, History,
 } from 'lucide-react';
+import { canViewAudit } from './utils/roles';
 import { useFormProgress } from './context/FormProgressContext';
 import { useActiveFormSessionRegistry } from './context/ActiveFormSessionContext';
 import { useAuth } from './context/AuthContext';
@@ -97,7 +98,7 @@ const TOTAL_FORMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
 const ALL_ITEMS = SECTIONS.flatMap(s => s.items);
 const getCurrentFormMeta = (id) => ALL_ITEMS.find(i => i.id === id);
 const ROLE_LABELS = {
-  superadmin:'Super Admin', admin:'Admin', pi:'Principal Investigator',
+  superadmin:'Super Admin', global_scientist:'Global Scientist', admin:'Admin', pi:'Principal Investigator',
   scientist:'Scientist', nurse:'Research Nurse', deo:'Data Entry Operator', monitor:'Monitor',
 };
 const validId = value => value && value !== 'undefined' && value !== 'null' ? value : null;
@@ -432,6 +433,14 @@ export default function Sidebar({ currentForm }) {
             <ClipboardList size={14} strokeWidth={2} />
             <span>Helper Form Records</span>
           </NavLink>
+          {canViewAudit(user) && (
+            <NavLink to="/audit-trail"
+              onClick={(e) => guardedNavigate(e, '/audit-trail')}
+              className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+              <History size={14} strokeWidth={2} />
+              <span>Audit Trail</span>
+            </NavLink>
+          )}
           <div className="sidebar-sep" />
 
           {!isProgressLoaded ? (

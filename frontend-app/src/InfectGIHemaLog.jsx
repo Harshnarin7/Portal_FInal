@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
-import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay } from "./utils/datetime";
+import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay, NICU_DAY_GRACE_HOUR, helperDayStripLength } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
 // Repeatable-entry list styling (mml-*) — same component the Metabolic
@@ -15,6 +15,9 @@ import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
+import { mmlSyncAggregateFieldFromMml } from "./utils/mmlHelperSync";
+import { rememberActiveDay, HELPER_SESSION_KEY_INFECT_GI_HEMA } from "./utils/helperSession";
+import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
   CheckCircle, AlertTriangle, X, Clock, Check,
@@ -26,35 +29,222 @@ const pad2ig = n => String(n).padStart(2, "0");
 const uidIg = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const nowTimeIg = (d = new Date()) => `${pad2ig(d.getHours())}:${pad2ig(d.getMinutes())}`;
 
+function sepsisScreenHasData(entry) {
+  if (!entry) return false;
+  return Object.entries(entry).some(([k, v]) => {
+    if (k === "id" || k === "date" || k === "time" || k === "type") return false;
+    return mmlGiAEntryAnswered(v);
+  });
+}
+
 function blankSepsisScreen() {
   const d = new Date();
   return { id: uidIg(), date: toDateOnlyValue(d), time: nowTimeIg(d), type: "CRP", value: "", result: "" };
 }
 
-/** Sum of numeric 5.4.A cumulative feed volume from a Minimal Monitoring
- *  sheet — every `gi_a` entry in entries_json for that day. If gi_a is
- *  missing or empty, falls back to the row's legacy flat
- *  `cumulative_feed_volume` column as a single value. */
-function mmlSumCumulativeFeedVolume(data) {
-  if (!data) return null;
-  let entries = data.entries_json;
+function mmlGiAEntryAnswered(v) {
+  if (v === null || v === undefined) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "boolean") return true;
+  return String(v).trim() !== "";
+}
+
+function mmlGiAEntryHasData(entry) {
+  if (!entry) return false;
+  return Object.entries(entry).some(([k, v]) => {
+    if (k === "id" || k === "date" || k === "time") return false;
+    return mmlGiAEntryAnswered(v);
+  });
+}
+
+/** Per-reading 5.4.A volumes for a Helper NICU calendar day (ml). */
+function parseGiAFeedVolumeValues(payload, recordDate = null) {
+  if (!payload) return [];
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    return String(d).slice(0, 10) === recordDate;
+  };
+  const values = [];
+  let entries = payload.entries_json;
   if (typeof entries === "string") {
     try { entries = JSON.parse(entries); } catch (_) { entries = null; }
   }
   const giA = entries?.gi_a;
   if (Array.isArray(giA) && giA.length > 0) {
-    let sum = 0;
-    let found = false;
     for (const e of giA) {
+      if (!rowOnHelperDay(e)) continue;
+      if (!mmlGiAEntryHasData(e)) continue;
       const n = Number(e?.cumulative_feed_volume);
       if (!Number.isFinite(n)) continue;
-      sum += n;
-      found = true;
+      values.push(n);
     }
-    return found ? sum : null;
+    return values;
   }
-  const n = Number(data.cumulative_feed_volume);
-  return Number.isFinite(n) ? n : null;
+  if (entries == null) {
+    const n = Number(payload.cumulative_feed_volume);
+    if (Number.isFinite(n)) values.push(n);
+  }
+  return values;
+}
+
+function mergeGiAFeedValueLists(a, b) {
+  return [...a, ...b];
+}
+
+async function loadMmlGiAFeedValuesForHelperDay(enrollmentId, recordDate) {
+  let merged = [];
+  const ingest = (payload) => {
+    if (!payload) return;
+    merged = mergeGiAFeedValueLists(
+      merged,
+      parseGiAFeedVolumeValues(payload, recordDate),
+    );
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  if (merged.length > 0) return merged;
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    else if (today.record_date && today.record_date === recordDate) {
+      merged = parseGiAFeedVolumeValues(today, recordDate);
+    }
+  } catch (_) { /* optional */ }
+  return merged;
+}
+
+function sumGiAFeedVolumeValues(values) {
+  if (!values.length) return null;
+  return values.reduce((sum, n) => sum + n, 0);
+}
+
+/** Sum of numeric 5.4.A cumulative feed volume from a Minimal Monitoring sheet. */
+function mmlSumCumulativeFeedVolume(data, recordDate = null) {
+  const values = parseGiAFeedVolumeValues(data, recordDate);
+  return sumGiAFeedVolumeValues(values);
+}
+
+/** 5.6.A → Helper 3 #28–#30: any product logged that NICU day → Yes. */
+function parseHemeATransfusionFlags(payload, recordDate = null) {
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    return String(d).slice(0, 10) === recordDate;
+  };
+  const parseProducts = (raw) => {
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.split(",").map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  };
+  const out = { prbc: false, platelet: false, ffpCryo: false };
+  const absorb = (products) => {
+    if (products.includes("PRBC")) out.prbc = true;
+    if (products.includes("Platelets")) out.platelet = true;
+    if (products.includes("FFP/Cryo")) out.ffpCryo = true;
+  };
+  if (!payload) return out;
+  let entries = payload.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const list = entries?.heme_a;
+  if (Array.isArray(list) && list.length) {
+    for (const row of list) {
+      if (!rowOnHelperDay(row)) continue;
+      if (!mmlGiAEntryHasData(row)) continue;
+      absorb(parseProducts(row?.transfusion_products));
+    }
+    return out;
+  }
+  if (entries == null) absorb(parseProducts(payload.transfusion_products));
+  return out;
+}
+
+function mergeHemeTransfusionFlags(a, b) {
+  return {
+    prbc: a.prbc || b.prbc,
+    platelet: a.platelet || b.platelet,
+    ffpCryo: a.ffpCryo || b.ffpCryo,
+  };
+}
+
+async function loadMmlHemeTransfusionFlagsForHelperDay(enrollmentId, recordDate) {
+  let merged = { prbc: false, platelet: false, ffpCryo: false };
+  const ingest = (payload) => {
+    if (!payload) return;
+    merged = mergeHemeTransfusionFlags(merged, parseHemeATransfusionFlags(payload, recordDate));
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  const hasAny = merged.prbc || merged.platelet || merged.ffpCryo;
+  if (hasAny) return merged;
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    else if (today.record_date && today.record_date === recordDate) {
+      merged = parseHemeATransfusionFlags(today, recordDate);
+    }
+  } catch (_) { /* optional */ }
+  return merged;
+}
+
+/** MML may set Yes only; never auto-No. */
+function mmlYnLooksMmlSourced(current, mmlYes) {
+  if (!mmlYes) return false;
+  return current == null || current === true;
+}
+
+/** Mirror 5.6.A products onto Helper #28–#30; respect nurse explicit No (false). */
+function mmlSyncTransfusionYnFromMml(current, mmlHas, wasAutofilled) {
+  if (current === false) {
+    return { next: current, autofilled: wasAutofilled, changed: false };
+  }
+  if (mmlHas) {
+    if (mmlYnLooksMmlSourced(current, true) || wasAutofilled) {
+      const changed = current !== true;
+      return { next: true, autofilled: true, changed };
+    }
+    return { next: current, autofilled: wasAutofilled, changed: false };
+  }
+  if (current === true) {
+    return { next: null, autofilled: false, changed: true };
+  }
+  return { next: current, autofilled: wasAutofilled, changed: false };
+}
+
+function feedVolumeLooksMmlSourced(current, entryValues) {
+  if (current == null || current === "") return true;
+  const n = Number(current);
+  if (!Number.isFinite(n) || !entryValues.length) return false;
+  const ints = entryValues.map((v) => Math.round(v)).filter((v) => v >= 0);
+  if (!ints.length) return false;
+  const total = ints.reduce((sum, v) => sum + v, 0);
+  if (n === total) return true;
+  const sums = new Set([0]);
+  for (const v of ints) {
+    const next = new Set(sums);
+    for (const s of sums) next.add(s + v);
+    sums.clear();
+    next.forEach((x) => sums.add(x));
+  }
+  return sums.has(Math.round(n));
 }
 
 function parseJsonArrayIg(raw) {
@@ -699,10 +889,7 @@ export default function InfectGIHemaLog() {
      Day 1 Date, using NICU_DAY_GRACE_HOUR so overnight staff still count
      as "today" until that hour. Badges, future-locking, and the default
      tab all use this same number. */
-  const todayNicuDay = useMemo(
-    () => nicuDayNumberFromDay1(day1Date),
-    [day1Date],
-  );
+  const todayNicuDay = useNicuWorkingDay(day1Date);
 
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   // Informational only now — locking is manual (see the Lock button below),
@@ -719,18 +906,25 @@ export default function InfectGIHemaLog() {
   // value, but never overwrite a nurse's typed correction.
   const lastFeedVolumeAutoRef = useRef({ date: null, value: undefined });
   const [feedVolumeAutofilled, setFeedVolumeAutofilled] = useState(false);
+  const feedVolumeAutofilledRef = useRef(false);
+  feedVolumeAutofilledRef.current = feedVolumeAutofilled;
+  const [hemaTransfusionAutofilled, setHemaTransfusionAutofilled] = useState({
+    prbc: false, platelet: false, ffpCryo: false,
+  });
+  const hemaStateRef = useRef({});
+  hemaStateRef.current = hemaData;
+  const hemaTransfusionAutofilledRef = useRef(hemaTransfusionAutofilled);
+  hemaTransfusionAutofilledRef.current = hemaTransfusionAutofilled;
   // Site-monitor override reopens an otherwise-locked day for a limited window.
   const isOverrideActiveDay =
     overrideUntil != null && new Date() < parseUtcTimestamp(overrideUntil);
 
-  // Default tab = the same working day todayNicuDay already computed
-  // (grace hour included). Do not subtract 1 again here.
-  const initialDaySetRef = useRef(false);
+  useDefaultToWorkingNicuDay(todayNicuDay, enrollmentId, activeDay, setActiveDay);
+
   useEffect(() => {
-    if (initialDaySetRef.current || todayNicuDay == null) return;
-    initialDaySetRef.current = true;
-    setActiveDay(todayNicuDay);
-  }, [todayNicuDay]);
+    if (!enrollmentId || activeDay == null) return;
+    rememberActiveDay(HELPER_SESSION_KEY_INFECT_GI_HEMA, enrollmentId, activeDay);
+  }, [enrollmentId, activeDay]);
 
   const isSubmitted     = (dayStatuses[activeDay] || STATUS.EMPTY) === STATUS.SUBMITTED;
   const isFieldEditable =
@@ -752,40 +946,85 @@ export default function InfectGIHemaLog() {
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
     try {
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+      const entryValues = await loadMmlGiAFeedValuesForHelperDay(enrollmentId, recordDate);
       if (activeDayDateRef.current !== recordDate) return;
-      const data = res?.data || {};
-      if (data.record_date && data.record_date !== recordDate) return;
-      const vol = mmlSumCumulativeFeedVolume(data);
-      if (vol == null) return;
+      const vol = sumGiAFeedVolumeValues(entryValues);
       setGiData((p) => {
         if (p.npo === true) return p;
-        if (p.cumulative_feed_volume_status) return p;
-        const current = p.cumulative_feed_volume;
-        const isEmpty = current == null || current === "";
         const last = lastFeedVolumeAutoRef.current;
         const stillMatchesLastAutoFill =
           last.date === recordDate &&
           last.value !== undefined &&
-          String(current) === String(last.value);
-        const alreadyInSync = String(current) === String(vol);
-        if (!isEmpty && !stillMatchesLastAutoFill) {
-          // Nurse typed something else — leave it. If the saved value
-          // already equals the live sum, remember it so later ticks
-          // can keep ratcheting (same session after a matching load).
-          if (alreadyInSync) {
-            lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
+          String(p.cumulative_feed_volume) === String(last.value);
+        const sync = mmlSyncAggregateFieldFromMml({
+          current: p.cumulative_feed_volume,
+          blockedByNotDone: !!p.cumulative_feed_volume_status,
+          wasAutofilled: feedVolumeAutofilledRef.current,
+          stillMatchesLastAuto: stillMatchesLastAutoFill,
+          looksSourced: (c) => feedVolumeLooksMmlSourced(c, entryValues),
+          entryValuesForSourced: entryValues,
+          mmlValue: vol == null ? null : String(vol),
+        });
+        if (!sync.changed) {
+          if (sync.autofilled && !feedVolumeAutofilledRef.current) {
             setFeedVolumeAutofilled(true);
           }
           return p;
         }
-        lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
-        setFeedVolumeAutofilled(true);
-        if (alreadyInSync) return p;
+        if (vol != null) {
+          lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
+        } else {
+          lastFeedVolumeAutoRef.current = { date: recordDate, value: undefined };
+        }
+        setFeedVolumeAutofilled(sync.autofilled);
         setIsEditing(true);
-        return { ...p, cumulative_feed_volume: vol };
+        return { ...p, cumulative_feed_volume: sync.nextValue === "" ? null : sync.nextValue };
       });
     } catch (_) { /* Helper 5 optional */ }
+  };
+
+  const applyTransfusionFlagsFromMml = async (recordDate = activeDayDate) => {
+    if (!enrollmentId || !recordDate) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    try {
+      const flags = await loadMmlHemeTransfusionFlagsForHelperDay(enrollmentId, recordDate);
+      if (activeDayDateRef.current !== recordDate) return;
+      const hema = hemaStateRef.current;
+      const af = hemaTransfusionAutofilledRef.current;
+      const updates = {};
+      const afNext = { ...af };
+      let anyChanged = false;
+
+      const sync = (field, mmlHas, afKey) => {
+        const r = mmlSyncTransfusionYnFromMml(hema[field], mmlHas, af[afKey]);
+        if (r.changed) {
+          updates[field] = r.next;
+          anyChanged = true;
+        }
+        if (r.autofilled !== af[afKey]) {
+          afNext[afKey] = r.autofilled;
+          anyChanged = true;
+        }
+      };
+
+      sync("prbc_transfusion", flags.prbc, "prbc");
+      sync("platelet_transfusion", flags.platelet, "platelet");
+      sync("ffp_cryo", flags.ffpCryo, "ffpCryo");
+
+      if (anyChanged) {
+        if (Object.keys(updates).length) {
+          setHemaData(p => ({ ...p, ...updates }));
+        }
+        setHemaTransfusionAutofilled(afNext);
+        setIsEditing(true);
+      }
+    } catch (_) { /* Helper 5 optional */ }
+  };
+
+  const applyMmlAutofillFromHelper5 = async (recordDate = activeDayDate) => {
+    await applyFeedVolumeFromMml(recordDate);
+    await applyTransfusionFlagsFromMml(recordDate);
   };
 
   /* ══════════════════════════════════════════════
@@ -909,6 +1148,8 @@ export default function InfectGIHemaLog() {
   useEffect(() => {
     if (!enrollmentId) return;
     const load = async () => {
+      let timelineDisch = null;
+      let timelineDob = "";
       try {
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = res?.data || {};
@@ -950,12 +1191,10 @@ export default function InfectGIHemaLog() {
           dischDay = Math.max(1, Math.floor((dd - admitDate) / 86400000) + 1);
           setDischargeDay(dischDay);
         }
-
-        // Start with 14 days shown by default
-        // Don't calculate based on birth date - use Day 1 Date instead
-        const maxDay = dischDay || 14;
+        timelineDisch = dischDay;
 
         const dob = normalizeHelperDob(b.date_of_birth);
+        timelineDob = dob;
 
         setPatientInfo(prev => ({
           ...prev, enrollmentId,
@@ -966,7 +1205,10 @@ export default function InfectGIHemaLog() {
           dischargeDate: b.discharge_date || "",
           status: b.discharge_date ? "Discharged" : "In NICU",
         }));
-        setTotalDays(maxDay);
+        setTotalDays(helperDayStripLength({
+          dischargeDay: timelineDisch,
+          todayNicuDay: nicuDayNumberFromDay1(timelineDob),
+        }));
       } catch (_) {}
 
       // Load PII — mother_first_name, mother_surname, baby_name
@@ -993,10 +1235,27 @@ export default function InfectGIHemaLog() {
           newMeta[s.nicu_day] = { pct: s.completion_pct || 0, savedAt: s.saved_at };
         });
         setDayStatuses(newSt); setDayMeta(newMeta);
+        const savedMax = sums.reduce((m, s) => Math.max(m, s.nicu_day || 0), 0);
+        setTotalDays((prev) => Math.max(
+          prev,
+          helperDayStripLength({
+            dischargeDay: timelineDisch,
+            todayNicuDay: nicuDayNumberFromDay1(timelineDob),
+            savedMaxDay: savedMax,
+          }),
+        ));
       } catch (_) {}
     };
     load();
   }, [enrollmentId]);
+
+  useEffect(() => {
+    if (!day1Date) return;
+    setTotalDays((prev) => Math.max(
+      prev,
+      helperDayStripLength({ dischargeDay, todayNicuDay }),
+    ));
+  }, [day1Date, dischargeDay, todayNicuDay]);
 
   /* ── Load saved day data ── */
   useEffect(() => {
@@ -1006,6 +1265,7 @@ export default function InfectGIHemaLog() {
       setLoading(true);
       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
       setFeedVolumeAutofilled(false);
+      setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
       try {
         const res = await api.get(`/infect-gi-hema/${enrollmentId}/${activeDay}`);
         if (cancelled) return;
@@ -1065,11 +1325,9 @@ export default function InfectGIHemaLog() {
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
           setIsSaved(true);
-          // A reload/revisit during a still-active override window must not
-          // silently re-lock the fields — isFieldEditable requires isEditing
-          // whenever isSaved is true, which this effect always sets true for
-          // an existing record.
-          setIsEditing(!!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date());
+          const overrideStillActive =
+            !!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date();
+          setIsEditing(st !== STATUS.SUBMITTED || overrideStillActive);
           if (!completedDays.includes(activeDay))
             setCompletedDays(prev => [...prev, activeDay]);
         } else {
@@ -1086,7 +1344,7 @@ export default function InfectGIHemaLog() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-      if (!cancelled) await applyFeedVolumeFromMml(calendarDateForNicuDay(day1Date, activeDay));
+      if (!cancelled) await applyMmlAutofillFromHelper5(calendarDateForNicuDay(day1Date, activeDay));
     };
     loadDay();
     return () => { cancelled = true; };
@@ -1096,18 +1354,26 @@ export default function InfectGIHemaLog() {
     if (!enrollmentId || !activeDayDate || loading) return;
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
-    const tick = () => applyFeedVolumeFromMml(activeDayDate);
+    const tick = () => applyMmlAutofillFromHelper5(activeDayDate);
+    tick();
     const interval = setInterval(tick, 60000);
     const onFocus = () => tick();
     const onVisibility = () => {
       if (document.visibilityState === "visible") tick();
     };
+    const onMmlSaved = (e) => {
+      const eid = e?.detail?.enrollmentId;
+      if (!eid || eid !== enrollmentId) return;
+      tick();
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("portal-mml-saved", onMmlSaved);
     return () => {
       clearInterval(interval);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("portal-mml-saved", onMmlSaved);
     };
   }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
 
@@ -1134,10 +1400,11 @@ export default function InfectGIHemaLog() {
 
   const getPayload = () => {
     const { sepsis_screens, ...infDataFlat } = infData;
+    const screensForSave = (sepsis_screens || []).filter(sepsisScreenHasData);
     return {
       enrollment_id: enrollmentId, nicu_day: activeDay,
       ...infDataFlat,
-      sepsis_screens_json: JSON.stringify(sepsis_screens || []),
+      sepsis_screens_json: JSON.stringify(screensForSave),
       ...giData,
       feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
       ...hemaData,
@@ -1157,6 +1424,11 @@ export default function InfectGIHemaLog() {
     // force: re-save while viewing a saved draft (Submit path) without
     // requiring Edit — same pattern as Helper Form 1 (RespCVNeuroLog).
     if (!force && !isFieldEditable) return; // future / locked-past / submitted (without override) — nothing to save
+    if (!force && completionPct === 0 && !isSaved) {
+      setMessage("⚠️ Nothing entered for this day yet — add data before saving.");
+      setTimeout(() => setMessage(""), 3000);
+      return;
+    }
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
@@ -1182,6 +1454,19 @@ export default function InfectGIHemaLog() {
     } catch (err) {
       setMessage("❌ Error saving — please try again");
     }
+  };
+
+  const switchActiveDay = async (d) => {
+    if (d === activeDay) return;
+    if (isFieldEditable && completionPct > 0) {
+      try {
+        await handleSave();
+      } catch (err) {
+        console.error("Save before day change failed:", err);
+        return;
+      }
+    }
+    setActiveDay(d);
   };
 
   const handlePrevious = async () => {
@@ -1486,7 +1771,7 @@ export default function InfectGIHemaLog() {
                       isMissed    ? "rcn-day--missed"    : "",
                       `rcn-day--${st}`,
                     ].filter(Boolean).join(" ")}
-                    onClick={() => !isLocked && setActiveDay(d)}
+                    onClick={() => !isLocked && switchActiveDay(d)}
                     disabled={isFuture}
                     title={
                       isDischarge ? `Day ${d} — Patient discharged`
@@ -1536,10 +1821,18 @@ export default function InfectGIHemaLog() {
               <button
                 type="button"
                 className="rcn-day-add"
-                onClick={() => {
+                onClick={async () => {
                   const next = totalDays + 1;
+                  if (isFieldEditable && completionPct > 0) {
+                    try {
+                      await handleSave();
+                    } catch (err) {
+                      console.error("Save before add day failed:", err);
+                      return;
+                    }
+                  }
                   setTotalDays(next);
-                  setActiveDay(next);
+                  switchActiveDay(next);
                 }}
                 title={`Add Day ${totalDays + 1}`}
               >
@@ -1585,7 +1878,7 @@ export default function InfectGIHemaLog() {
               <button
                 type="button"
                 className="rcn-day-missing-pop-goto"
-                onClick={() => { setActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
+                onClick={() => { switchActiveDay(missingPopoverDay); setMissingPopoverDay(null); }}
               >
                 Go to Day {missingPopoverDay} <ArrowRight size={12} />
               </button>
@@ -1910,6 +2203,7 @@ export default function InfectGIHemaLog() {
                     if (v !== false) {
                       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
                       setFeedVolumeAutofilled(false);
+      setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
                       setGiData(p => ({ ...p, men: null, enteral_feeds_received: null,
                         feed_type: [], cumulative_feed_volume: null, feed_volume: null }));
                     }
@@ -2013,9 +2307,15 @@ export default function InfectGIHemaLog() {
                 <NumRow label="26. Peak TSB (mg/dL)" value={hemaData.peak_tsb} onChange={v => setHema("peak_tsb", v)} disabled={!isFieldEditable} unit="mg/dL" placeholder="0.0" error={peakTsbError}
                   status={hemaData.peak_tsb_status} onStatusChange={v => setHema("peak_tsb_status", v)} allowAwaited={true} />
                 <YNRow label="27. Exchange Transfusion" value={hemaData.exchange_transfusion} onChange={v => setHema("exchange_transfusion", v)} disabled={!isFieldEditable} />
-                <YNRow label="28. PRBC Transfusion" value={hemaData.prbc_transfusion} onChange={v => setHema("prbc_transfusion", v)} disabled={!isFieldEditable} />
-                <YNRow label="29. Platelet Transfusion" value={hemaData.platelet_transfusion} onChange={v => setHema("platelet_transfusion", v)} disabled={!isFieldEditable} />
-                <YNRow label="30. FFP / Cryo Transfusion" value={hemaData.ffp_cryo} onChange={v => setHema("ffp_cryo", v)} disabled={!isFieldEditable} />
+                <YNRow label="28. PRBC Transfusion" value={hemaData.prbc_transfusion}
+                  onChange={v => { setHemaTransfusionAutofilled(p => ({ ...p, prbc: false })); setHema("prbc_transfusion", v); }}
+                  disabled={!isFieldEditable} />
+                <YNRow label="29. Platelet Transfusion" value={hemaData.platelet_transfusion}
+                  onChange={v => { setHemaTransfusionAutofilled(p => ({ ...p, platelet: false })); setHema("platelet_transfusion", v); }}
+                  disabled={!isFieldEditable} />
+                <YNRow label="30. FFP / Cryo Transfusion" value={hemaData.ffp_cryo}
+                  onChange={v => { setHemaTransfusionAutofilled(p => ({ ...p, ffpCryo: false })); setHema("ffp_cryo", v); }}
+                  disabled={!isFieldEditable} />
               </div>
             </SectionCard>
 
@@ -2069,7 +2369,7 @@ export default function InfectGIHemaLog() {
                               <button
                                 type="button"
                                 className="rcn-table-view-goto-btn"
-                                onClick={() => { setActiveDay(day); setShowTableView(false); }}
+                                onClick={() => { switchActiveDay(day); setShowTableView(false); }}
                                 title="Go to this day"
                               >
                                 Day {day}
@@ -2226,11 +2526,11 @@ export default function InfectGIHemaLog() {
         {canViewAudit && (
           <button
             type="button"
-            className="rcn-history-btn"
+            className="btn rcn-history-btn"
             onClick={fetchAuditHistory}
             title={`View correction history for Day ${activeDay}`}
           >
-            <History size={13}/> History
+            <History size={15}/> History
           </button>
         )}
 

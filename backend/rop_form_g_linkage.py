@@ -129,6 +129,43 @@ def _empty_screening_entry(screening_no: int, date_str: str, nicu_day: int) -> d
     }
 
 
+def maybe_remove_rop_screening_from_metab_log(
+    db: Session,
+    enrollment_id: str,
+    nicu_day: int,
+) -> None:
+    """Remove auto-suggested Form G row when Helper #25 is cleared (mirror of append)."""
+    rop = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    screenings = _screenings_list(rop)
+    if not screenings or not rop:
+        return
+
+    kept: list = []
+    removed = False
+    for entry in screenings:
+        if not isinstance(entry, dict):
+            kept.append(entry)
+            continue
+        if (
+            is_auto_suggested_screening(entry)
+            and entry.get("source_nicu_day") == nicu_day
+            and not screening_entry_has_clinical_data(entry)
+        ):
+            removed = True
+            continue
+        kept.append(entry)
+
+    if not removed:
+        return
+    rop.screenings = kept
+    flag_modified(rop, "screenings")
+
+
 def maybe_append_rop_screening_from_metab_log(
     db: Session,
     enrollment_id: str,
@@ -182,6 +219,21 @@ def maybe_append_rop_screening_from_metab_log(
                 screenings=screenings,
             )
         )
+
+
+def sync_rop_screening_from_metab_log(
+    db: Session,
+    enrollment_id: str,
+    nicu_day: int,
+    rop_detected: Optional[bool],
+) -> None:
+    """Helper Form 4 #25 ↔ Form G: append on Yes, drop empty auto-row on No/clear."""
+    if rop_detected is True:
+        maybe_append_rop_screening_from_metab_log(
+            db, enrollment_id, nicu_day, True
+        )
+    else:
+        maybe_remove_rop_screening_from_metab_log(db, enrollment_id, nicu_day)
 
 
 def enrich_rop_screening_payload(record: ROPScreening, db: Session | None = None) -> dict:

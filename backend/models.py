@@ -19,7 +19,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
 
     role = Column(String, nullable=False)
-    site_name = Column(String, nullable=True)  # NULL for superadmin / project_scientist (global)
+    site_name = Column(String, nullable=True)  # NULL for global roles (superadmin, global_scientist)
 
     full_name = Column(String, nullable=True)
     mobile = Column(String, nullable=True)
@@ -2077,6 +2077,7 @@ class MinimalMonitoringDayLog(Base):
     respiratory_time = Column(String, nullable=True)
     respiratory_modes = Column(String, nullable=True)
     max_map_cpap = Column(Float, nullable=True)
+    max_map_cpap_secondary = Column(Float, nullable=True)
     max_fio2     = Column(Float, nullable=True)
     ph           = Column(Float, nullable=True)
     pao2         = Column(Float, nullable=True)

@@ -121,6 +121,53 @@ class TestRopFormGLinkage:
         rop = client.get(f"/rop-screening/{eid}", headers=headers).json()
         assert len(rop["screenings"]) == 1
 
+    def test_rop_detected_cleared_removes_auto_form_g_row(
+        self, client, superadmin_token, db_session
+    ):
+        eid = "ENR-ROP-D"
+        _seed_randomised_patient(db_session, eid, date(2026, 4, 1))
+        headers = {"Authorization": f"Bearer {superadmin_token}"}
+
+        client.post(
+            "/metab-renal-vasc-eye/",
+            json={"enrollment_id": eid, "nicu_day": 4, "rop_detected": True},
+            headers=headers,
+        )
+        assert len(client.get(f"/rop-screening/{eid}", headers=headers).json()["screenings"]) == 1
+
+        client.put(
+            f"/metab-renal-vasc-eye/{eid}/4",
+            json={"enrollment_id": eid, "nicu_day": 4, "rop_detected": False},
+            headers=headers,
+        )
+        rop = client.get(f"/rop-screening/{eid}", headers=headers).json()
+        assert rop["screenings"] == []
+
+    def test_rop_detected_cleared_keeps_form_g_row_with_clinical_data(
+        self, client, superadmin_token, db_session
+    ):
+        eid = "ENR-ROP-E"
+        _seed_randomised_patient(db_session, eid, date(2026, 5, 1))
+        headers = {"Authorization": f"Bearer {superadmin_token}"}
+
+        client.post(
+            "/metab-renal-vasc-eye/",
+            json={"enrollment_id": eid, "nicu_day": 2, "rop_detected": True},
+            headers=headers,
+        )
+        rop = client.get(f"/rop-screening/{eid}", headers=headers).json()
+        rop["screenings"][0]["method"] = "RetCam"
+        client.post("/rop-screening/", json={"enrollment_id": eid, **rop}, headers=headers)
+
+        client.put(
+            f"/metab-renal-vasc-eye/{eid}/2",
+            json={"enrollment_id": eid, "nicu_day": 2, "rop_detected": False},
+            headers=headers,
+        )
+        after = client.get(f"/rop-screening/{eid}", headers=headers).json()
+        assert len(after["screenings"]) == 1
+        assert after["screenings"][0]["method"] == "RetCam"
+
     def test_dashboard_flags_rop_without_matching_form_g_date(
         self, client, superadmin_token, db_session
     ):

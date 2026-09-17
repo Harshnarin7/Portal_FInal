@@ -25,7 +25,7 @@ from ae_reference import (
 )
 from rop_form_g_linkage import (
     enrich_rop_screening_payload,
-    maybe_append_rop_screening_from_metab_log,
+    sync_rop_screening_from_metab_log,
 )
 from rop_consistency import build_rop_consistency_report
 from models import (
@@ -1905,7 +1905,7 @@ class Day1DateUpdate(BaseModel):
 # Nurses may only record Day 1 Date as "today", or as "yesterday" up until
 # this local hour. Must match frontend `NICU_DAY_GRACE_HOUR` and the
 # helper-form RCN/IGH/MRVE grace constants so "today" never splits.
-NICU_DAY_GRACE_HOUR = 11
+NICU_DAY_GRACE_HOUR = 8
 DAY1_DATE_ENTRY_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
 
@@ -1980,7 +1980,7 @@ def update_day1_date(
         )
 
     # Superadmin corrections (explicit unlock) are allowed to set any date;
-    # everyday entry by nurses is restricted to today / yesterday-before-11am
+    # everyday entry by nurses is restricted to today / yesterday-before-8am
     # so the date can't be fat-fingered to some unrelated day.
     if not is_superadmin(current_user) and not _day1_date_within_allowed_range(data.day1_date):
         raise HTTPException(
@@ -6585,14 +6585,14 @@ def create_metab_renal_vasc_eye_day(
     if existing:
         for key, value in data.model_dump(exclude_unset=True).items():
             if hasattr(existing, key): setattr(existing, key, value)
-        maybe_append_rop_screening_from_metab_log(
+        sync_rop_screening_from_metab_log(
             db, existing.enrollment_id, existing.nicu_day, existing.rop_detected
         )
         db.commit(); db.refresh(existing); return existing
     record = MetabRenalVascEyeDayLog(**data.model_dump())
     db.add(record)
     db.flush()
-    maybe_append_rop_screening_from_metab_log(
+    sync_rop_screening_from_metab_log(
         db, record.enrollment_id, record.nicu_day, record.rop_detected
     )
     db.commit(); db.refresh(record); return record
@@ -6620,7 +6620,7 @@ def update_metab_renal_vasc_eye_day(
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
             setattr(record, key, value)
-    maybe_append_rop_screening_from_metab_log(
+    sync_rop_screening_from_metab_log(
         db, record.enrollment_id, record.nicu_day, record.rop_detected
     )
     db.commit(); db.refresh(record); return record
@@ -6681,7 +6681,7 @@ MINIMAL_MONITORING_FIELDS = [
     "record_date", "shift", "axillary_temp", "sbp", "dbp", "map_value",
     "fluid_bolus_given", "vasoactive_drugs", "vasoactive_dose",
     "vasoactive_unit", "pda_agent", "pda_dose", "respiratory_time",
-    "respiratory_modes", "max_map_cpap", "max_fio2", "ph", "pao2",
+    "respiratory_modes", "max_map_cpap", "max_map_cpap_secondary", "max_fio2", "ph", "pao2",
     "paco2", "apnea_shift", "apnea_episodes", "desaturation_episodes",
     "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
     "glucose", "alp", "total_calcium", "phosphorus",

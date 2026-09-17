@@ -50,7 +50,7 @@ body { color: var(--portal-ink); background: var(--portal-canvas); }
 
 .form-layout-content input:not([type="checkbox"]):not([type="radio"]),
 .form-layout-content select, .form-layout-content textarea,
-.rcn-input, .rcn-num-input input, .fh-input {
+.rcn-input, .fh-input {
   min-height: 48px; border: 1.5px solid var(--portal-border) !important;
   border-radius: 10px !important; background-color: #fff; color: var(--portal-ink);
   font: 500 14px/1.4 Inter,system-ui,sans-serif;
@@ -63,10 +63,32 @@ body { color: var(--portal-ink); background: var(--portal-canvas); }
   outline: none !important; border-color: var(--portal-blue) !important;
   box-shadow: var(--portal-focus) !important;
 }
+.form-layout-content .rcn-num-input input:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+}
 .form-layout-content input:disabled, .form-layout-content input[readonly],
 .form-layout-content select:disabled, .form-layout-content textarea:disabled {
   background: #f1f5f9 !important; color: var(--portal-muted) !important;
   cursor: not-allowed; opacity: 1;
+}
+.form-layout-content .rcn-num-input input:disabled {
+  background: transparent !important;
+}
+/* Higher specificity than .form-layout-content input — one shell, suffix unit inside */
+.form-layout-content .rcn-num-input input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 48px;
+  width: 100%;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--portal-ink);
+  font: 500 14px/1.4 Inter, system-ui, sans-serif;
+}
+.form-layout-content .rcn-num-input:focus-within {
+  border-color: var(--portal-blue) !important;
+  box-shadow: var(--portal-focus) !important;
 }
 .form-layout-content label, .rcn-field-label, .fh-label {
   color: var(--portal-ink); font-size: 13px; font-weight: 650;
