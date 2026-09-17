@@ -22,6 +22,9 @@ from ae_reference import (
     detect_infection_candidates,
     detect_form_h_heme_candidates,
     detect_pending_cranial_usg_findings,
+    detect_form_h_neuro_seizure_candidates,
+    detect_form_h_cv_shock_candidates,
+    detect_resp_misc_candidates,
 )
 from rop_form_g_linkage import (
     enrich_rop_screening_payload,
@@ -5254,6 +5257,25 @@ def get_adverse_event_candidates(
         Haematology section is primary, the Infect/GI/Hema day-log
         treatment booleans are the fallback.
 
+      - Domain 5: neuro seizures — Neonatal Convulsion vs Neonatal
+        Epileptic Seizure. Form H only (no day-log fallback), same
+        regulatory-weight policy as Domain 2. Always detect-only.
+      - Domain 6: shock (+ a weak-signal coagulopathy flag off FFP/cryo
+        given). Form H primary, RespCVNeuroDayLog fallback. Detect-only.
+      - Domain 7: respiratory & misc bundle — pneumothorax, pulmonary
+        hemorrhage, PPHN, apnea, feeding intolerance, cholestasis,
+        extravasation injury, ventriculomegaly/hydrocephalus. Form H
+        primary (day-log fallback per term; extravasation injury is
+        day-log only, no Form H field exists for it). Detect-only.
+
+    Domains 5-7 (added 2026-09) are ALL detect-only by PI decision
+    2026-09-17 — unlike domains 1-4, none of these are auto-graded even
+    where the app has some numeric/staged data, because the document's
+    grade tiers for every one of these terms hinge on a criterion this
+    app cannot independently verify (multi-day recurrence windows,
+    catecholamine-resistance duration, radiological/oxygenation-index
+    detail). See ae_reference.py's own domain-5-7 comment block.
+
     Also returns `pending_cranial_usg_findings` — advisory only, never a
     candidate: a severe Form F (Cranial USG) finding (Grade III/IV IVH,
     Grade II+ cPVL) that Form H hasn't caught up with yet (including when
@@ -5279,12 +5301,18 @@ def get_adverse_event_candidates(
         .order_by(InfectGIHemaDayLog.nicu_day)
         .all()
     )
+    resp_logs = (
+        db.query(RespCVNeuroDayLog)
+        .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id)
+        .order_by(RespCVNeuroDayLog.nicu_day)
+        .all()
+    )
     cranial_usg_record = (
         db.query(CranialUSGRecord)
         .filter(CranialUSGRecord.enrollment_id == enrollment_id)
         .first()
     )
-    if not logs and nm is None and not inf_logs and not cranial_usg_record:
+    if not logs and nm is None and not inf_logs and not resp_logs and not cranial_usg_record:
         return {"has_data": False, "candidates": [], "pending_cranial_usg_findings": []}
 
     nicu = (
@@ -5301,6 +5329,9 @@ def get_adverse_event_candidates(
     infection_windows = _compute_infection_windows(inf_logs, nicu) if inf_logs else []
     candidates += detect_infection_candidates(nm, infection_windows, day1_date=day1_date)
     candidates += detect_form_h_heme_candidates(nm, inf_logs, day1_date=day1_date)
+    candidates += detect_form_h_neuro_seizure_candidates(nm, day1_date=day1_date)
+    candidates += detect_form_h_cv_shock_candidates(nm, resp_logs, day1_date=day1_date)
+    candidates += detect_resp_misc_candidates(nm, resp_logs, inf_logs, logs, day1_date=day1_date)
     pending_cranial_usg_findings = detect_pending_cranial_usg_findings(cranial_usg_record, nm)
     return {
         "has_data": True,

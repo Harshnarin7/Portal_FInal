@@ -305,6 +305,164 @@ AE_DEFINITIONS = {
             5: "Death",
         },
     },
+
+    # ------------------------------------------------------------------
+    # Domains 5-7 (added 2026-09) — all detect-only per PI decision
+    # 2026-09-17: none of these are auto-graded, regardless of how much
+    # numeric/staged data the app happens to have for them. Unlike
+    # domains 1-4, the document's grade tiers for every term below hinge
+    # on a criterion this app cannot independently verify (multi-day
+    # recurrence windows for seizures, catecholamine-resistance duration
+    # for shock, radiological/oxygenation-index detail for the
+    # respiratory terms) — so grade is always None here; these entries
+    # exist purely to carry the name/definition/grade-text reference for
+    # the clinician once a candidate is detected.
+    # ------------------------------------------------------------------
+
+    "seizure_clinical": {
+        "name": "Neonatal Convulsion",
+        "section": "Neurological",
+        "definition": "Sudden, involuntary, rapid, rhythmic or stereotyped skeletal muscular contractions in a newborn.",
+        "grades": {
+            1: "Single, self-limited suspected seizure, no treatment",
+            2: "Suspected seizures controlled with 1 anti-seizure drug (no recurrence within 3 days after treatment)",
+            3: "Suspected seizures uncontrolled with 1 anti-seizure drug (recurrence within 3 days after treatment or requiring 2 or more anti-seizure drugs)",
+            4: "Suspected seizures with life-threatening consequences (e.g. need for ventilation); suspected status epilepticus (>30 min duration of convulsions within any 60-minute period) despite multiple anti-seizure drugs",
+            5: "Death related to suspected seizures",
+        },
+    },
+    "seizure_eeg": {
+        "name": "Neonatal Epileptic Seizure",
+        "section": "Neurological",
+        "definition": "An EEG-confirmed paroxysmal surge of electrical activity in the brain that may result in physical or behavioral changes in a neonate.",
+        "grades": {
+            1: "Single, self-limited EEG-proven seizure, no treatment",
+            2: "EEG-proven seizures controlled with 1 anti-seizure drug (no recurrence within 3 days after treatment)",
+            3: "EEG-proven seizures uncontrolled with 1 anti-seizure drug (recurrence within 3 days after treatment or requiring 2 or more anti-seizure drugs)",
+            4: "EEG-proven seizures with life-threatening consequences (e.g. need for ventilation); status epilepticus (>30 min of seizure activity within any 60-minute period) despite multiple anti-seizure drugs",
+            5: "Death related to seizures",
+        },
+    },
+    "ventriculomegaly_hydrocephalus": {
+        "name": "Hydrocephalus/Ventriculomegaly",
+        "section": "Neurological",
+        "definition": "A disorder characterized by dilatation of the ventricular system.",
+        "grades": {
+            1: "-",
+            2: "Arrested mild ventriculomegaly NOT needing medical therapy or placement of shunt",
+            3: "Ventriculomegaly or hydrocephalus needing medical therapy or placement of shunt, increased risk of adverse neurological outcome",
+            4: "Hydrocephalus causing cardiorespiratory compromise",
+            5: "Death",
+        },
+    },
+    "shock": {
+        "name": "Shock",
+        "section": "Cardiovascular",
+        "definition": "A disorder characterized by inability of circulatory system to meet metabolic requirements of tissues.",
+        "grades": {
+            1: "-",
+            2: "Hypotension or decreased organ perfusion lasting for <6 hours needing volume expander and resolving without consequence",
+            3: "Hypotension or decreased organ perfusion needing vasopressor(s)/inotropes",
+            4: "Catecholamine-resistant shock",
+            5: "Death",
+        },
+    },
+    "coagulopathy": {
+        "name": "Neonatal Coagulation Disorder",
+        "section": "Cardiovascular",
+        "definition": "A condition of abnormal blood clotting or bleeding.",
+        "grades": {
+            1: "Minor biochemical coagulation abnormalities without clinical signs; no care changes indicated",
+            2: "Biochemical coagulation abnormalities with clinical signs; requiring intervention",
+            3: "Biochemical or clinical coagulation abnormalities; requiring increased monitoring",
+            4: "Life-threatening consequences (e.g. severe pulmonary embolism, limb ischemia, hemorrhagic shock, DIC); requiring urgent major care changes",
+            5: "Death",
+        },
+    },
+    "pneumothorax": {
+        "name": "Neonatal Pneumothorax",
+        "section": "Respiratory",
+        "definition": "A collection of air or other gas between the visceral and parietal pleura.",
+        "grades": {
+            1: "Radiological evidence of pneumothorax; no clinical signs; no care change required",
+            2: "Radiological evidence of pneumothorax; minor clinical signs; minor care change required (e.g. oxygen, increased monitoring)",
+            3: "Radiological evidence of pneumothorax; with clinical signs; major care change required (e.g. chest drainage)",
+            4: "Life-threatening respiratory and/or hemodynamic compromise (e.g. tension pneumothorax); urgent major care change required",
+            5: "Death",
+        },
+    },
+    "pulmonary_hemorrhage": {
+        "name": "Neonatal Pulmonary Hemorrhage",
+        "section": "Respiratory",
+        "definition": "Bleeding in the respiratory tract of a neonate.",
+        "grades": {
+            1: "Limited hemorrhagic secretion in ET tube",
+            2: "Hemorrhagic secretion in ET tube; without relevant increase in PCO2 or decrease in oxygenation; requiring minor changes in care (e.g. increase PEEP)",
+            3: "Hemorrhagic secretion in ET tube; with relevant increase in PCO2 or decrease in oxygenation; requiring major change in ventilator support or transfusion",
+            4: "Life-threatening respiratory and/or hemodynamic compromise",
+            5: "Death",
+        },
+    },
+    "pphn": {
+        "name": "Persistent Pulmonary Hypertension of the Newborn (PPHN)",
+        "section": "Respiratory",
+        "definition": "Elevated pulmonary vascular pressure in a neonate.",
+        "grades": {
+            1: "Technical evidence of increased RV-pressures; no clinical symptoms",
+            2: "Increased estimated RV-pressures; with moderate clinical symptoms; oxygenation index <25; minor care changes required",
+            3: "Increased estimated RV-pressures; with severe clinical symptoms; oxygenation index >25; major care changes required (e.g. iNO)",
+            4: "Life-threatening respiratory and/or hemodynamic compromise; ECMO required; oxygenation index >40",
+            5: "Death",
+        },
+    },
+    "apnea": {
+        "name": "Infantile Apnea",
+        "section": "Respiratory",
+        "definition": "Cessation of airflow.",
+        "grades": {
+            1: "Self-limiting apnea",
+            2: "Apnea responsive to stimulation or intermittent FiO2-increase",
+            3: "Apnea requiring stimulation and sustained FiO2 increase; requiring non-invasive ventilation; reoccurrences requiring start of or relevant increase in dose of respiratory stimulants or other major care changes",
+            4: "Life-threatening respiratory and/or hemodynamic compromise; (semi) urgent intubation required",
+            5: "Death",
+        },
+    },
+    "feeding_intolerance": {
+        "name": "Feeding Intolerance",
+        "section": "Gastro-intestinal",
+        "definition": "Inability to achieve a full feeding volume.",
+        "grades": {
+            1: "Mild feeding intolerance (e.g. increased gastric residual volume or abdominal distension); without discomfort; no change in care indicated",
+            2: "Moderate feeding intolerance; resulting in minor discomfort or alteration of drinking behavior; minor care changes indicated (e.g. feeds withheld)",
+            3: "Severe feeding intolerance; requiring major changes in feeding support indicated (e.g. change to TPN or gavage)",
+            4: "Life-threatening consequences",
+            5: "Death",
+        },
+    },
+    "cholestasis": {
+        "name": "Neonatal Cholestasis",
+        "section": "Gastro-intestinal",
+        "definition": "Neonatal hepatitis or cholestasis (source document marks this definition itself as unresolved — \"???\").",
+        "grades": {
+            1: "-",
+            2: "Neonatal hepatitis or cholestasis which resolves spontaneously or with medical therapy",
+            3: "Neonatal hepatitis or cholestasis which does NOT resolve with treatment or is due to an untreatable metabolic condition or needs liver transplantation",
+            4: "Neonatal hepatitis or cholestasis which progresses to liver failure",
+            5: "Death",
+        },
+    },
+    "extravasation_injury": {
+        "name": "Extravasation Injury",
+        "section": "Others",
+        "definition": "A disorder characterized by injury caused to skin due to extravasation of intravenous fluid.",
+        "grades": {
+            1: "Swelling of extremity",
+            2: "Superficial skin necrosis",
+            3: "Deep skin necrosis",
+            4: "-",
+            5: "-",
+        },
+    },
 }
 
 
@@ -1095,3 +1253,207 @@ def detect_form_h_heme_candidates(nm, inf_logs, day1_date=None):
                                      f"(Infect/GI/Hema day log); Form H Haematology not filled." + _THROMBO_NOTE))
 
     return [c for c in out if c]
+
+
+# --------------------------------------------------------------------------
+# Domains 5-7 (added 2026-09) — seizures, shock/coagulopathy, respiratory
+# & misc detect-only terms. All PI-decided detect-only (2026-09-17): none
+# of these are auto-graded, even where the app has some numeric/staged
+# data for them, because every one of the document's grade tiers here
+# hinges on a criterion the app cannot independently verify (multi-day
+# seizure-recurrence windows, catecholamine-resistance duration, chest
+# X-ray/oxygenation-index detail). See AE_DEFINITIONS's own domain-5-7
+# comment block for the full reasoning.
+# --------------------------------------------------------------------------
+
+def _fh_or_daylog_presence(slug, nm, nm_attr, day_logs, day_log_attr, day1_date, source_label):
+    """Generic detect-only presence check shared by most of the domain
+    5-7 terms: Form H's own `nm_attr` field is PRIMARY -- but "primary"
+    means the day log is only ever consulted when Form H hasn't ANSWERED
+    the field at all (matching domain 4's own `_answered()` discipline),
+    not merely when it isn't truthy. An explicit Form H "No" must suppress
+    the day-log fallback the same way an explicit Form H "Yes" does --
+    otherwise a clinician's genuine "reviewed, this didn't happen" answer
+    could be silently second-guessed by an older/lower-quality day-log
+    flag. Returns a candidate dict or None -- never auto-grades (see
+    module docstring above). `day_logs`/`day_log_attr` can be omitted
+    (None) for the couple of terms with no day-log equivalent at all."""
+    nm_val = getattr(nm, nm_attr, None) if nm is not None else None
+    if _answered(nm_val):
+        if _fh_truthy(nm_val):
+            return _fh_candidate(slug, None, None, f"Form H records {AE_DEFINITIONS[slug]['name']}.")
+        return None  # Form H explicitly answered "No" -- day log is not consulted
+    if day_logs and day_log_attr:
+        day = _any_day(day_logs, day_log_attr)
+        if day is not None:
+            return _fh_candidate(
+                slug, None, _day_to_date(day1_date, day),
+                f"{AE_DEFINITIONS[slug]['name']} recorded on NICU day {day} "
+                f"({source_label} day log); Form H not filled."
+            )
+    return None
+
+
+def detect_form_h_neuro_seizure_candidates(nm, day1_date=None):
+    """Domain 5 -- Neonatal Convulsion vs Neonatal Epileptic Seizure.
+
+    Form H ONLY (no day-log fallback) -- same source policy as Domain 2's
+    major morbidities (IVH/PVL/NEC/BPD/ROP/PDA): these are genuinely
+    serious neurological events carrying the same regulatory weight, an
+    unadjudicated day-log flag shouldn't auto-land on the AE register.
+
+    Split between the two document terms uses Form H's own `eeg` field
+    (PI-confirmed 2026-09-17): seizures=Yes + eeg="Abnormal" -> the
+    EEG-confirmed term (Neonatal Epileptic Seizure); seizures=Yes +
+    eeg != "Abnormal" -> the clinical-only term (Neonatal Convulsion).
+    Always detect-only (PI-confirmed 2026-09-17) -- status_epilepticus
+    and aed_number are surfaced in the evidence text so the clinician has
+    what they need to grade it, but the document's own G2/G3 distinction
+    depends on "recurrence within 3 days after treatment", which a single
+    Form H record can't independently verify even when aed_number>=2 is a
+    plausible proxy (a clinician escalating to a 2nd drug already implies
+    some form of recurrence/failure, but the app can't confirm the timing
+    the document actually asks for)."""
+    if nm is None or not _fh_truthy(getattr(nm, "seizures", None)):
+        return []
+    eeg = str(getattr(nm, "eeg", "") or "").strip().lower()
+    slug = "seizure_eeg" if eeg == "abnormal" else "seizure_clinical"
+    bits = []
+    if _fh_truthy(getattr(nm, "status_epilepticus", None)):
+        bits.append("status epilepticus recorded")
+    aed_n = getattr(nm, "aed_number", None)
+    if _answered(aed_n):
+        bits.append(f"{aed_n} anti-seizure drug(s) given")
+    aed_t = getattr(nm, "aed_type", None)
+    if aed_t:
+        bits.append(f"drug(s): {aed_t if isinstance(aed_t, str) else ', '.join(aed_t)}")
+    ev = f"Form H records {AE_DEFINITIONS[slug]['name']}" + (f" ({'; '.join(bits)})" if bits else "")
+    ev += (". Grade not auto-assigned -- the document's G2/G3 split depends on recurrence "
+           "within 3 days after treatment, which this app cannot independently confirm.")
+    return [_fh_candidate(slug, None, None, ev)]
+
+
+def detect_form_h_cv_shock_candidates(nm, resp_logs, day1_date=None):
+    """Domain 6 -- Shock and Coagulation Disorder (Cardiovascular).
+
+    Shock: Form H's own `shock` field is PRIMARY; RespCVNeuroDayLog's
+    `shock` (any-day) is the FALLBACK when Form H hasn't been filled yet
+    -- same Form-H-primary/day-log-fallback policy as domains 3-4.
+    Always detect-only (PI-confirmed 2026-09-17) -- the document's G2/G3
+    split (volume-expander-only vs vasopressor/inotrope) is genuinely
+    available via RespCVNeuroDayLog's `vasoactive_support` flag, but the
+    PI chose not to auto-grade it, so `vasoactive_support` is only
+    surfaced in the evidence text for the clinician, not used to pick a
+    grade.
+
+    Coagulopathy: no real source anywhere in the app -- `ffp_cryo` (a
+    product given, not a lab value) is the only even tangentially related
+    field, same weak-signal caveat already noted for domain 4's own
+    ffp_cryo fallback use. Included for completeness (so the AE register
+    at least prompts a look when FFP/cryo was given) but expect this one
+    to rarely fire meaningfully; not a real coagulation-disorder
+    detector."""
+    out = []
+    resp_logs = resp_logs or []
+
+    shock_candidate = _fh_or_daylog_presence(
+        "shock", nm, "shock", resp_logs, "shock", day1_date, "Resp/CV/Neuro"
+    )
+    if shock_candidate:
+        if nm is not None and _fh_truthy(getattr(nm, "shock", None)):
+            pass  # Form H is the adjudicated source, no extra detail available on that field alone
+        elif resp_logs:
+            vaso_day = _any_day(resp_logs, "vasoactive_support")
+            if vaso_day is not None:
+                shock_candidate["evidence"] += " Vasoactive/inotrope support also recorded (verify grade)."
+        out.append(shock_candidate)
+
+    if nm is not None and _fh_truthy(getattr(nm, "ffp_cryo", None)):
+        out.append(_fh_candidate(
+            "coagulopathy", None, None,
+            "Form H Haematology records FFP/cryoprecipitate given. Weak signal only -- "
+            "the app has no coagulation lab value (PT/INR/fibrinogen/platelet count) to "
+            "confirm an actual coagulation disorder; verify before accepting."
+        ))
+
+    return out
+
+
+def detect_resp_misc_candidates(nm, resp_logs, inf_logs, metab_logs, day1_date=None):
+    """Domain 7 -- Respiratory & misc detect-only bundle (PI-confirmed
+    2026-09-17 to build all 9 terms in one pass, matching the BPD
+    precedent from domain 2): pneumothorax, pulmonary hemorrhage, PPHN,
+    apnea (all Respiratory); feeding intolerance, cholestasis
+    (Gastro-intestinal); extravasation injury (Others); ventriculomegaly/
+    hydrocephalus (Neurological -- grouped here rather than with domain
+    5's seizures since it shares this domain's Form-H-primary/day-log-
+    fallback policy, not domain 5's Form-H-only policy).
+
+    Each term: Form H's own field is PRIMARY; the matching day-log
+    boolean (RespCVNeuroDayLog for the 4 respiratory terms + hydro/
+    ventriculomegaly, InfectGIHemaDayLog for feeding intolerance/
+    cholestasis, MetabRenalVascEyeDayLog for extravasation injury -- no
+    Form H equivalent for that one, day-log only) is the FALLBACK. Never
+    auto-graded -- see module docstring above."""
+    resp_logs = resp_logs or []
+    inf_logs = inf_logs or []
+    metab_logs = metab_logs or []
+    out = []
+
+    for slug, nm_attr, day_logs, day_attr, source_label in (
+        ("pneumothorax", "pneumothorax", resp_logs, "pneumothorax", "Resp/CV/Neuro"),
+        ("pulmonary_hemorrhage", "pulmonary_hemorrhage", resp_logs, "pulm_hemorrhage", "Resp/CV/Neuro"),
+        ("pphn", "pulmonary_hypertension", resp_logs, "pphn", "Resp/CV/Neuro"),
+        ("feeding_intolerance", "feed_intolerance", inf_logs, "feed_intolerance", "Infect/GI/Hema"),
+        ("cholestasis", "cholestasis", inf_logs, "cholestasis", "Infect/GI/Hema"),
+        ("ventriculomegaly_hydrocephalus", "ventriculomegaly_present", resp_logs, "ventriculomegaly", "Resp/CV/Neuro"),
+    ):
+        c = _fh_or_daylog_presence(slug, nm, nm_attr, day_logs, day_attr, day1_date, source_label)
+        if c:
+            out.append(c)
+
+    # Apnea: Form H's own `apnea` field is PRIMARY (a real boolean) --
+    # same _answered()-before-_fh_truthy() discipline as
+    # _fh_or_daylog_presence (an explicit Form H "No" must suppress the
+    # day-log fallback, not just a missing answer). The day-log fallback
+    # needs its own logic beyond that shared helper: unlike every other
+    # term in this domain, RespCVNeuroDayLog's CURRENT apnea field is
+    # `apnea_count` (a numeric string day-count, e.g. "0"/"1"/"2"), not a
+    # boolean, so `_any_day` (which only matches Python `True`) can't be
+    # reused as-is; a day with a non-zero, non-blank count is "apnea
+    # occurred that day". The legacy `apnea` boolean column still exists
+    # but is superseded -- not used here, since current-generation
+    # records populate the count field instead.
+    apnea_nm_val = getattr(nm, "apnea", None) if nm is not None else None
+    if _answered(apnea_nm_val):
+        if _fh_truthy(apnea_nm_val):
+            out.append(_fh_candidate("apnea", None, None, f"Form H records {AE_DEFINITIONS['apnea']['name']}."))
+        # explicit Form H "No" -- day log intentionally not consulted
+    else:
+        apnea_day = None
+        for l in resp_logs:
+            raw = getattr(l, "apnea_count", None)
+            if raw is None:
+                continue
+            try:
+                if int(str(raw).strip() or 0) > 0 and l.nicu_day is not None:
+                    if apnea_day is None or l.nicu_day < apnea_day:
+                        apnea_day = l.nicu_day
+            except (TypeError, ValueError):
+                continue
+        if apnea_day is not None:
+            out.append(_fh_candidate(
+                "apnea", None, _day_to_date(day1_date, apnea_day),
+                f"Apnea episode(s) recorded on NICU day {apnea_day} (Resp/CV/Neuro day log); Form H not filled."
+            ))
+
+    # extravasation_injury has no Form H equivalent at all -- day-log only.
+    ev_day = _any_day(metab_logs, "extravasation_injury")
+    if ev_day is not None:
+        out.append(_fh_candidate(
+            "extravasation_injury", None, _day_to_date(day1_date, ev_day),
+            f"Extravasation injury recorded on NICU day {ev_day} (Metab/Renal/Vasc/Eye day log) "
+            f"-- no Form H field exists for this term."
+        ))
+
+    return out
