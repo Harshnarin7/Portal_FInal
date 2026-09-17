@@ -26,14 +26,16 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
 from deps import get_current_user, is_superadmin, is_global
-from models import User
+from models import AdverseEvents, SAEReport, Screening, User
+
+_DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger(__name__)
@@ -1443,6 +1445,189 @@ def get_safety(
             "by_site": morb_by_site,
         },
     }
+
+
+# ============================================================
+# SECTION 5b — PERIODIC CUMULATIVE AE/SAE SUMMARY REPORT (Phase 3)
+# GET /dashboard/safety/summary-report
+# ============================================================
+#
+# Site-wise, date-ranged .docx line-listing pulling from the two AE data
+# sources: sae_reports (CIOMS-shaped SAE detail) and adverse_events (the
+# broader per-baby AE register). See project memory / sae_summary_report.py
+# for the design rationale. This endpoint assembles all data; the docx
+# module itself is DB-free (same discipline as ae_reference.py/sae_report.py).
+
+
+def _parse_date_prefix(s):
+    """Parse the leading YYYY-MM-DD off a date/datetime string. Returns None
+    (never raises) for missing/malformed input — callers treat None as
+    'include regardless of range', since a safety report must never silently
+    drop an AE/SAE just because its date field is unparsed."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(str(s).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _in_date_range(d, date_from, date_to):
+    if d is None:
+        return True
+    if date_from and d < date_from:
+        return False
+    if date_to and d > date_to:
+        return False
+    return True
+
+
+def _sites_for_enrollments(db: Session, enrollment_ids: list[str]) -> dict[str, str]:
+    """Bulk site lookup for a batch of enrollment_ids, mirroring main.py's
+    per-id site_for_enrollment() (including its NR-{screening_id} handling
+    for non-randomised babies). Duplicated locally rather than imported —
+    routers/dashboard.py is imported BY main.py, so importing back from
+    main.py would be circular; this file already duplicates ALL_SITES from
+    main.py's CANONICAL_SITE_ID_MAP under the same constraint."""
+    result: dict[str, str] = {}
+    plain = [e for e in enrollment_ids if e and not e.startswith("NR-")]
+    nr = [e[3:] for e in enrollment_ids if e and e.startswith("NR-")]
+    if plain:
+        for eid, site in (
+            db.query(Screening.enrollment_id, Screening.site_name)
+            .filter(Screening.enrollment_id.in_(plain))
+            .all()
+        ):
+            result[eid] = site
+    if nr:
+        for sid, site in (
+            db.query(Screening.screening_id, Screening.site_name)
+            .filter(Screening.screening_id.in_(nr))
+            .all()
+        ):
+            result[f"NR-{sid}"] = site
+    return result
+
+
+def build_summary_ctx(
+    sae_records, ae_records, site_lookup, date_from, date_to, generated_by, severity_label,
+):
+    """Pure aggregation: turn already-fetched SAEReport/AdverseEvents rows
+    into the ctx shape sae_summary_report.build_summary_report_docx() wants.
+    No DB access — takes plain fetched rows/site_lookup so it's unit-testable
+    without a database (same separation as ae_reference.py's detectors).
+    `severity_label` is injected (rather than imported) purely to keep this
+    function importable without a live sae_config in a test context.
+
+    date_from/date_to are already-parsed `date` objects or None."""
+    sae_by_site: dict[str, list] = {}
+    ae_by_site: dict[str, list] = {}
+    counts: dict[str, dict] = {"__overall__": {"n_ae": 0, "n_sae": 0}}
+
+    def _bump(site, key):
+        counts.setdefault(site, {"n_ae": 0, "n_sae": 0})
+        counts[site][key] += 1
+        counts["__overall__"][key] += 1
+
+    for r in sae_records:
+        onset = _parse_date_prefix(r.onset_datetime) or _parse_date_prefix(r.report_date)
+        if not _in_date_range(onset, date_from, date_to):
+            continue
+        site = (r.site or "").strip() or site_lookup.get(r.enrollment_id) or "Site not recorded"
+        sae_by_site.setdefault(site, []).append({
+            "enrollment_id": r.enrollment_id,
+            "onset": r.onset_datetime or r.report_date,
+            "diagnosis": r.diagnosis,
+            "seriousness": ", ".join(r.seriousness) if isinstance(r.seriousness, list) else r.seriousness,
+            "severity_label": severity_label(r.severity),
+            "causality": r.causality,
+            "action_taken": r.action_taken,
+            "outcome": r.outcome,
+        })
+        _bump(site, "n_sae")
+
+    for rec in ae_records:
+        site = site_lookup.get(rec.enrollment_id) or "Site not recorded"
+        for ev in (rec.events or []):
+            if not isinstance(ev, dict):
+                continue
+            onset = _parse_date_prefix(ev.get("start_date"))
+            if not _in_date_range(onset, date_from, date_to):
+                continue
+            grade = ev.get("grade")
+            ae_by_site.setdefault(site, []).append({
+                "enrollment_id": rec.enrollment_id,
+                "onset": ev.get("start_date"),
+                "description": ev.get("description"),
+                "grade_label": severity_label(grade) if grade else None,
+                "converted_to_sae": ev.get("converted_to_sae"),
+            })
+            _bump(site, "n_ae")
+
+    sites = list(ALL_SITES)
+    extra_sites = (set(sae_by_site) | set(ae_by_site)) - set(ALL_SITES)
+    sites.extend(sorted(extra_sites))
+
+    return {
+        "date_from": date_from.isoformat() if hasattr(date_from, "isoformat") else date_from,
+        "date_to": date_to.isoformat() if hasattr(date_to, "isoformat") else date_to,
+        "generated_by": generated_by,
+        "sites": sites,
+        "sae_by_site": sae_by_site,
+        "ae_by_site": ae_by_site,
+        "counts": counts,
+    }
+
+
+@router.get("/safety/summary-report")
+def get_safety_summary_report(
+    date_from: str | None = Query(None, description="YYYY-MM-DD, inclusive"),
+    date_to: str | None = Query(None, description="YYYY-MM-DD, inclusive"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Periodic cumulative AE/SAE safety summary, site-wise, as a .docx —
+    Phase 3 of the AE/SAE project. Section A lists sae_reports rows
+    (CIOMS-shaped: causality/seriousness/outcome). Section B lists every row
+    in every enrollment's adverse_events.events register (broader, shallower
+    — no causality/outcome captured there). Both filtered to [date_from,
+    date_to] on onset date where a date is parseable; rows with an
+    unparseable/missing date are always included rather than silently
+    dropped from a safety report."""
+    if current_user.role.lower() != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    import sae_config as cfg
+    import sae_summary_report
+
+    df = _parse_date_prefix(date_from)
+    dt = _parse_date_prefix(date_to)
+
+    sae_records = db.query(SAEReport).all()
+    ae_records = db.query(AdverseEvents).all()
+
+    all_enrollment_ids = list(
+        {r.enrollment_id for r in sae_records if r.enrollment_id}
+        | {r.enrollment_id for r in ae_records if r.enrollment_id}
+    )
+    site_lookup = _sites_for_enrollments(db, all_enrollment_ids)
+
+    ctx = build_summary_ctx(
+        sae_records, ae_records, site_lookup, df, dt,
+        getattr(current_user, "username", None), cfg.severity_label,
+    )
+    # Keep the caller's original raw strings in the doc header rather than
+    # the parsed/re-serialized date, so "trial start"/"present" fallbacks
+    # from a blank param still read naturally.
+    ctx["date_from"], ctx["date_to"] = date_from, date_to
+
+    data = sae_summary_report.build_summary_report_docx(ctx)
+    fname = f"AE_SAE_summary_{date_from or 'start'}_to_{date_to or 'now'}.docx"
+    return Response(
+        content=data,
+        media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # ============================================================

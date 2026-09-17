@@ -140,6 +140,68 @@ function MorbidityPanel({ sites, overall, bySite }) {
   );
 }
 
+function SummaryReportPanel() {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const generate = async () => {
+    setGenerating(true);
+    setMessage("");
+    try {
+      const res = await api.get("/dashboard/safety/summary-report", {
+        params: {
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+        },
+        responseType: "blob",
+      });
+      const cd = res.headers?.["content-disposition"] || "";
+      const m = cd.match(/filename="?([^"]+)"?/);
+      const name = (m && m[1]) || "AE_SAE_summary.docx";
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Summary report generation failed", err);
+      setMessage("Could not generate the report — try again.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="cq-panel">
+      <div className="cq-panel-title">PERIODIC CUMULATIVE AE/SAE SUMMARY REPORT</div>
+      <p className="cq-hint">
+        Site-wise line-listing of every SAE (with causality/outcome) and every
+        recorded adverse event, for a chosen date range. Leave a date blank to
+        cover the trial from the start / up to now.
+      </p>
+      <div className="cq-report-controls">
+        <label>
+          From:{" "}
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+        </label>
+        <label>
+          To:{" "}
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+        </label>
+        <button type="button" disabled={generating} onClick={generate}>
+          {generating ? "Generating…" : "Generate cumulative report (.docx)"}
+        </button>
+      </div>
+      {message && <div className="cq-state cq-error">{message}</div>}
+    </div>
+  );
+}
+
 export default function SafetyEvents() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -174,6 +236,7 @@ export default function SafetyEvents() {
         overall={data.morbidity?.overall}
         bySite={data.morbidity?.by_site || {}}
       />
+      <SummaryReportPanel />
       <div className="cq-timestamp">Data as of {new Date(data.generated_at).toLocaleString()}</div>
     </div>
   );

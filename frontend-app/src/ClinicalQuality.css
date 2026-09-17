@@ -93,3 +93,46 @@
   margin-top: 4px;
   text-align: right;
 }
+
+.cq-hint {
+  color: #4a5568;
+  font-size: 12px;
+  margin: 0 0 14px;
+  max-width: 640px;
+}
+
+.cq-report-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.cq-report-controls label {
+  color: #334155;
+  font-size: 12px;
+}
+
+.cq-report-controls input[type="date"] {
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-left: 4px;
+  padding: 5px 8px;
+}
+
+.cq-report-controls button {
+  background: linear-gradient(180deg, #0e7c7b 0%, #0b6564 100%);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 8px 16px;
+}
+
+.cq-report-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
