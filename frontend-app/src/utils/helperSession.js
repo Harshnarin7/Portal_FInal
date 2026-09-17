@@ -50,3 +50,18 @@ export function rememberMmlSheetDate(enrollmentId, ymd) {
   if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return;
   safeSet(mmlSheetDateKey(enrollmentId), ymd);
 }
+
+/** Set when Helper 5 saves 5.2.A so Helper 1 can refresh even if it was unmounted. */
+export function markMmlRespDirtyForHelper(enrollmentId, ymd) {
+  if (!enrollmentId || !ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return;
+  safeSet(`portal-mml-resp-dirty-${String(enrollmentId).trim()}`, ymd);
+}
+
+export function peekMmlRespDirtyForHelper(enrollmentId) {
+  const v = safeGet(`portal-mml-resp-dirty-${String(enrollmentId || "").trim()}`);
+  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+export function clearMmlRespDirtyForHelper(enrollmentId) {
+  safeSet(`portal-mml-resp-dirty-${String(enrollmentId || "").trim()}`, "");
+}

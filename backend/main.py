@@ -28,6 +28,13 @@ from rop_form_g_linkage import (
     sync_rop_screening_from_metab_log,
 )
 from rop_consistency import build_rop_consistency_report
+from mml_resp_a_autofill import (
+    autofill_from_mml_rows,
+    autofill_resp_c_from_mml_rows,
+    calendar_date_for_nicu_day_from_birth,
+    overlay_resp_cv_day_from_autofill,
+    overlay_resp_cv_episodes_from_mml,
+)
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
     NICUAdmission, NeonatalMorbidities, StudyOutcomes,
@@ -5959,7 +5966,81 @@ def get_resp_cv_neuro_day(
     )
     if not record:
         raise HTTPException(status_code=404, detail="No data for this day")
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    cal = calendar_date_for_nicu_day_from_birth(
+        birth.date_of_birth if birth else None,
+        nicu_day,
+    )
+    if cal:
+        overlay_resp_cv_day_from_autofill(
+            record,
+            _mml_helper1_resp_autofill(db, enrollment_id, cal),
+        )
+        overlay_resp_cv_episodes_from_mml(
+            record,
+            _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
+        )
     return record
+
+
+def _mml_helper1_resp_c_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
+    """5.2.C episode sums for Helper 1 #13–#15 on a calendar date."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == calendar_ymd,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != calendar_ymd:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    return autofill_resp_c_from_mml_rows(
+        on_row,
+        today_row,
+        helper_calendar_date=calendar_ymd,
+    )
+
+
+def _mml_helper1_resp_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
+    """5.2.A aggregates for Helper 1 #3–#5 on a calendar date."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == calendar_ymd,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != calendar_ymd:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    return autofill_from_mml_rows(
+        on_row,
+        today_row,
+        helper_calendar_date=calendar_ymd,
+    )
 
 
 #  -  POST create day  - 
@@ -6835,6 +6916,20 @@ def get_minimal_monitoring_today(
     if not record:
         return _mml_empty_payload(enrollment_id, record_date)
     return record
+
+
+@app.get("/minimal-monitoring/{enrollment_id}/helper1-resp-autofill/{on_date}")
+def get_minimal_monitoring_helper1_resp_autofill(
+    enrollment_id: str,
+    on_date: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Daily 5.2.A union/maxima for Helper 1 respiratory #3–#5 (calendar date)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", on_date or ""):
+        raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
+    return _mml_helper1_resp_autofill(db, enrollment_id, on_date)
 
 
 @app.get("/minimal-monitoring/{enrollment_id}/on/{on_date}", response_model=MinimalMonitoringDayOut)

@@ -11,13 +11,21 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { mmlSyncAggregateFieldFromMml, mmlSyncTransfusionYnFromMml } from "./utils/mmlHelperSync";
-import { rememberActiveDay, readRememberedMmlSheetDate, HELPER_SESSION_KEY_VS6_1 } from "./utils/helperSession";
+import {
+  rememberActiveDay,
+  readRememberedMmlSheetDate,
+  markMmlRespDirtyForHelper,
+  peekMmlRespDirtyForHelper,
+  clearMmlRespDirtyForHelper,
+  HELPER_SESSION_KEY_VS6_1,
+} from "./utils/helperSession";
 import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
 import {
   computeRespAAutofillFromMml,
   modesArraysEqual,
   normalizeHelperSupportModes,
+  normalizeYmd,
   parseRespAEntries,
   respModesUnionLooksSourced,
   respNumericLooksMmlSourced,
@@ -242,32 +250,55 @@ function mergeBloodGasReadingLists(a, b) {
 
 /** 5.2.B readings for a Helper NICU calendar day — sheet row for that date
  *  plus any matching entry dates on today's scratchpad (readings logged late). */
-async function loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate) {
+async function loadMmlBloodGasReadingsForHelperDay(
+  enrollmentId,
+  recordDate,
+  { bustCache = false } = {},
+) {
   let merged = { ph: [], pao2: [], paco2: [] };
+  const helperYmd = recordDate ? String(recordDate).slice(0, 10) : null;
   const ingest = (payload) => {
-    if (!payload) return;
+    if (!payload || !helperYmd) return;
+    const sheetYmd = payload.record_date
+      ? String(payload.record_date).slice(0, 10)
+      : null;
+    if (sheetYmd && sheetYmd !== helperYmd) return;
     merged = mergeBloodGasReadingLists(
       merged,
-      parseRespBBloodGasReadings(payload, recordDate),
+      parseRespBBloodGasReadings(payload, helperYmd),
     );
   };
+  const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
+    );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
     const res = await api.get(
-      `/minimal-monitoring/${enrollmentId}/today`,
-      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+      `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
-    const today = res?.data || {};
-    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    ingest(res?.data || {});
   } catch (_) { /* optional */ }
   return merged;
 }
 
-/** Helper 5 block 5.2.A (resp_a) → Helper 1 #3–#5 modes / max MAP / CPAP / FiO₂. */
-async function loadMmlRespAForHelperDay(enrollmentId, recordDate) {
+function mapRespAComputedShape(computed) {
+  return {
+    hasRows: computed.hasRows,
+    modesUnion: computed.modesUnion || [],
+    aggregateMode: computed.aggregateMode ?? null,
+    max_fio2: computed.max_fio2 ?? null,
+    map_cpap: computed.map_cpap ?? null,
+    map_cpap_secondary: computed.map_cpap_secondary ?? null,
+    fio2Vals: computed.fio2Vals || [],
+    cpapVals: computed.cpapVals || [],
+    mapVals: computed.mapVals || [],
+  };
+}
+
+async function loadMmlRespAEntriesLegacy(enrollmentId, recordDate, { bustCache = false } = {}) {
   const rows = [];
   const helperYmd = recordDate ? String(recordDate).slice(0, 10) : null;
   const ingest = (payload) => {
@@ -278,25 +309,56 @@ async function loadMmlRespAForHelperDay(enrollmentId, recordDate) {
     if (sheetYmd && sheetYmd !== helperYmd) return;
     rows.push(...parseRespAEntries(payload, helperYmd));
   };
+  const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   const datesToFetch = new Set();
-  if (recordDate) datesToFetch.add(recordDate);
+  if (recordDate) datesToFetch.add(String(recordDate).slice(0, 10));
   const remembered = readRememberedMmlSheetDate(enrollmentId);
   if (remembered) datesToFetch.add(remembered);
   for (const ymd of datesToFetch) {
-    try {
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`);
-      ingest(res?.data);
-    } catch (_) { /* optional */ }
-  }
-  try {
     const res = await api.get(
-      `/minimal-monitoring/${enrollmentId}/today`,
-      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+      `/minimal-monitoring/${enrollmentId}/on/${ymd}${cacheQ}`,
     );
-    const today = res?.data || {};
-    if (today.record_date) ingest(today);
-  } catch (_) { /* optional */ }
+    ingest(res?.data);
+  }
+  const res = await api.get(
+    `/minimal-monitoring/${enrollmentId}/today${cacheQ}`,
+    { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+  );
+  const today = res?.data || {};
+  if (today.record_date) ingest(today);
   return rows;
+}
+
+/** Daily 5.2.A union/maxima from saved entries_json (always re-fetches sheet). */
+async function loadMmlRespAAutofillForHelperDay(enrollmentId, recordDate, { bustCache = true } = {}) {
+  const empty = mapRespAComputedShape({
+    hasRows: false,
+    modesUnion: [],
+    aggregateMode: null,
+    fio2Vals: [],
+    cpapVals: [],
+    mapVals: [],
+  });
+  if (!enrollmentId || !recordDate) return empty;
+  try {
+    const rows = await loadMmlRespAEntriesLegacy(enrollmentId, recordDate, {
+      bustCache: bustCache !== false,
+    });
+    const computed = computeRespAAutofillFromMml(rows, mmlFmtAutofillNum);
+    return mapRespAComputedShape(computed);
+  } catch (_) {
+    return empty;
+  }
+}
+
+function respFieldLooksEmptyForMmlSync(field, current) {
+  const t = current == null ? "" : String(current).trim();
+  if (t === "") return true;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return false;
+  if (n === 0) return true;
+  if (field === "maxFio2" && n === 21) return true;
+  return false;
 }
 
 function respSupportSeedFromDayLog(d) {
@@ -322,12 +384,27 @@ function parseRespCEpisodeReadings(payload, recordDate = null) {
     const n = Number(raw);
     if (Number.isInteger(n) && n >= 0) arr.push(n);
   };
+  const sheetDate = normalizeYmd(payload?.record_date) || normalizeYmd(recordDate);
+  const effectiveDate = normalizeYmd(recordDate) || sheetDate;
+  const sheetIsHelperDay = Boolean(
+    effectiveDate && payload?.record_date
+    && normalizeYmd(payload.record_date) === effectiveDate,
+  );
   const rowOnHelperDay = (row) => {
-    if (!recordDate) return true;
-    const d = row?.date;
-    if (d == null || d === "") return true;
-    const ds = String(d).slice(0, 10);
-    return ds === recordDate;
+    if (sheetIsHelperDay) return true;
+    if (!effectiveDate) return true;
+    const raw = row?.date;
+    const ds = raw == null || raw === ""
+      ? sheetDate
+      : normalizeYmd(raw);
+    if (!ds) return true;
+    return ds === effectiveDate;
+  };
+  const appendFlatRespC = () => {
+    if (effectiveDate && sheetDate && sheetDate !== effectiveDate) return;
+    pushInt(out.apnea, payload?.apnea_episodes);
+    pushInt(out.desaturation, payload?.desaturation_episodes);
+    pushInt(out.severeDesat, payload?.severe_desaturation_episodes);
   };
   const out = { apnea: [], desaturation: [], severeDesat: [] };
   let entries = payload?.entries_json;
@@ -343,12 +420,10 @@ function parseRespCEpisodeReadings(payload, recordDate = null) {
       pushInt(out.desaturation, row?.desaturation_episodes);
       pushInt(out.severeDesat, row?.severe_desaturation_episodes);
     }
-    return out;
   }
+  // Legacy sheets without entries_json — denormalized columns only.
   if (entries == null) {
-    pushInt(out.apnea, payload?.apnea_episodes);
-    pushInt(out.desaturation, payload?.desaturation_episodes);
-    pushInt(out.severeDesat, payload?.severe_desaturation_episodes);
+    appendFlatRespC();
   }
   return out;
 }
@@ -361,26 +436,40 @@ function mergeEpisodeReadingLists(a, b) {
   };
 }
 
-async function loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate) {
+async function loadMmlEpisodeReadingsForHelperDay(
+  enrollmentId,
+  recordDate,
+  { bustCache = false } = {},
+) {
   let merged = { apnea: [], desaturation: [], severeDesat: [] };
+  const helperYmd = recordDate ? String(recordDate).slice(0, 10) : null;
+  const ingestedSheets = new Set();
   const ingest = (payload) => {
-    if (!payload) return;
+    if (!payload || !helperYmd) return;
+    const sheetYmd = payload.record_date
+      ? String(payload.record_date).slice(0, 10)
+      : null;
+    if (sheetYmd && sheetYmd !== helperYmd) return;
+    const dedupeKey = sheetYmd || helperYmd;
+    if (ingestedSheets.has(dedupeKey)) return;
+    ingestedSheets.add(dedupeKey);
     merged = mergeEpisodeReadingLists(
       merged,
-      parseRespCEpisodeReadings(payload, recordDate),
+      parseRespCEpisodeReadings(payload, helperYmd),
     );
   };
+  const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
+    );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
     const res = await api.get(
-      `/minimal-monitoring/${enrollmentId}/today`,
-      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+      `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
-    const today = res?.data || {};
-    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    ingest(res?.data || {});
   } catch (_) { /* optional */ }
   return merged;
 }
@@ -1044,7 +1133,6 @@ export default function RespCVNeuroLog() {
     if (!allowSync) return;
     try {
       const mmlHasBolus = await loadMmlFluidBolusForHelperDay(enrollmentId, recordDate);
-      if (activeDayDateRef.current !== recordDate) return;
 
       const cv = cvStateRef.current;
       const bolusSync = mmlSyncTransfusionYnFromMml(
@@ -1067,12 +1155,12 @@ export default function RespCVNeuroLog() {
         ? { ...respSupportStateRef.current, ...options.respSupportSeed }
         : respSupportStateRef.current;
       const af = bloodGasAutofilledRef.current;
-      const [readings, episodeReadings, respARows] = await Promise.all([
-        loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate),
-        loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate),
-        loadMmlRespAForHelperDay(enrollmentId, recordDate),
+      const bustCache = options.forceMmlRespRefresh !== false;
+      const [readings, episodeReadings, respComputed] = await Promise.all([
+        loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate, { bustCache }),
+        loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate, { bustCache }),
+        loadMmlRespAAutofillForHelperDay(enrollmentId, recordDate, { bustCache }),
       ]);
-      if (activeDayDateRef.current !== recordDate) return;
       const computed = computeBloodGasAutofillFromMml(readings);
       const episodeComputed = computeEpisodeAutofillFromMml(episodeReadings);
       let anyBgChanged = false;
@@ -1216,158 +1304,132 @@ export default function RespCVNeuroLog() {
         });
       }
 
-      runAggregateSync({
-        current: bg.apneaCount,
-        blockedByNotDone: bg.apneaCountNotDone,
-        wasAutofilled: af.apnea,
-        stillMatchesLastAuto:
-          lastMmlAutoComputedRef.current.apnea_count !== undefined
-          && bg.apneaCount === String(lastMmlAutoComputedRef.current.apnea_count),
-        looksSourced: (c) => episodeTotalLooksMmlSourced(c, episodeReadings.apnea),
-        entryValuesForSourced: episodeReadings.apnea,
-        mmlValue: episodeComputed.apnea_count ?? null,
-        onApply: setApneaCount,
-        lastKey: "apnea_count",
-        flagKey: "apnea",
-      });
+      const hasEpisodeRows =
+        episodeReadings.apnea.length > 0
+        || episodeReadings.desaturation.length > 0
+        || episodeReadings.severeDesat.length > 0;
 
-      runAggregateSync({
-        current: bg.desatCount,
-        blockedByNotDone: bg.desatCountNotDone,
-        wasAutofilled: af.desat,
-        stillMatchesLastAuto:
-          lastMmlAutoComputedRef.current.desaturation_count !== undefined
-          && bg.desatCount === String(lastMmlAutoComputedRef.current.desaturation_count),
-        looksSourced: (c) => episodeTotalLooksMmlSourced(
-          c, episodeReadings.desaturation,
-        ),
-        entryValuesForSourced: episodeReadings.desaturation,
-        mmlValue: episodeComputed.desaturation_count ?? null,
-        onApply: setDesatCount,
-        lastKey: "desaturation_count",
-        flagKey: "desat",
-      });
+      // Helper 1 #13–#15: MML 5.2.C daily sums always win (unless Not Done).
+      if (hasEpisodeRows) {
+        const normEp = (v) => (v == null ? "" : String(v).trim());
+        const episodeCountIsReal = (key) => {
+          const v = episodeComputed[key];
+          if (v == null || v === "") return false;
+          const n = Number(v);
+          return Number.isFinite(n) && n > 0;
+        };
+        if (
+          !bg.apneaCountNotDone
+          && episodeCountIsReal("apnea_count")
+          && normEp(bg.apneaCount) !== normEp(episodeComputed.apnea_count)
+        ) {
+          setApneaCount(String(episodeComputed.apnea_count));
+          afNext.apnea = true;
+          lastMmlAutoComputedRef.current.apnea_count = episodeComputed.apnea_count;
+          anyBgChanged = true;
+        } else if (episodeCountIsReal("apnea_count")) {
+          afNext.apnea = true;
+        }
+        if (
+          !bg.desatCountNotDone
+          && episodeCountIsReal("desaturation_count")
+          && normEp(bg.desatCount) !== normEp(episodeComputed.desaturation_count)
+        ) {
+          setDesatCount(String(episodeComputed.desaturation_count));
+          afNext.desat = true;
+          lastMmlAutoComputedRef.current.desaturation_count =
+            episodeComputed.desaturation_count;
+          anyBgChanged = true;
+        } else if (episodeCountIsReal("desaturation_count")) {
+          afNext.desat = true;
+        }
+        if (
+          !bg.severeDesatCountNotDone
+          && episodeCountIsReal("severe_desaturation_count")
+          && normEp(bg.severeDesatCount)
+            !== normEp(episodeComputed.severe_desaturation_count)
+        ) {
+          setSevereDesatCount(String(episodeComputed.severe_desaturation_count));
+          afNext.severeDesat = true;
+          lastMmlAutoComputedRef.current.severe_desaturation_count =
+            episodeComputed.severe_desaturation_count;
+          anyBgChanged = true;
+        } else if (episodeCountIsReal("severe_desaturation_count")) {
+          afNext.severeDesat = true;
+        }
+      }
 
-      runAggregateSync({
-        current: bg.severeDesatCount,
-        blockedByNotDone: bg.severeDesatCountNotDone,
-        wasAutofilled: af.severeDesat,
-        stillMatchesLastAuto:
-          lastMmlAutoComputedRef.current.severe_desaturation_count !== undefined
-          && bg.severeDesatCount === String(
-            lastMmlAutoComputedRef.current.severe_desaturation_count,
-          ),
-        looksSourced: (c) => episodeTotalLooksMmlSourced(
-          c, episodeReadings.severeDesat,
-        ),
-        entryValuesForSourced: episodeReadings.severeDesat,
-        mmlValue: episodeComputed.severe_desaturation_count ?? null,
-        onApply: setSevereDesatCount,
-        lastKey: "severe_desaturation_count",
-        flagKey: "severeDesat",
-      });
-
-      const respComputed = computeRespAAutofillFromMml(respARows, mmlFmtAutofillNum);
-      const forceRespFromMml = respComputed.hasRows && respComputed.modesUnion.length > 0;
-
-      if (respComputed.modesUnion.length > 0) {
-        const union = respComputed.modesUnion;
-        if (forceRespFromMml || !modesArraysEqual(resp.supportModes, union)) {
+      // Helper 1 #3–#5: MML 5.2.A daily union/max always wins (unless Not Done).
+      if (respComputed.hasRows) {
+        const norm = (v) => (v == null ? "" : String(v).trim());
+        const union = respComputed.modesUnion || [];
+        if (union.length > 0 && !modesArraysEqual(resp.supportModes, union)) {
           setSupportModes(union);
           afNext.supportModes = true;
           anyBgChanged = true;
-        } else {
+        } else if (union.length > 0) {
           afNext.supportModes = true;
         }
         if (resp.respiratorySupport !== true) {
           setRespiratorySupport(true);
           anyBgChanged = true;
         }
-      } else if (resp.supportModes.length > 0) {
-        const hadMmlModes = af.supportModes || respModesUnionLooksSourced(
-          resp.supportModes,
-          normalizeHelperSupportModes(lastMmlAutoComputedRef.current.support_modes_union || []),
-        );
-        if (hadMmlModes || af.supportModes) {
-          setSupportModes([]);
-          afNext.supportModes = false;
+        if (
+          !resp.maxFio2Status
+          && respComputed.max_fio2 != null
+          && norm(resp.maxFio2) !== norm(respComputed.max_fio2)
+        ) {
+          setMaxFio2(String(respComputed.max_fio2));
+          afNext.maxFio2 = true;
+          lastMmlAutoComputedRef.current.max_fio2 = respComputed.max_fio2;
           anyBgChanged = true;
         }
-      }
-      if (respComputed.modesUnion.length > 0) {
-        lastMmlAutoComputedRef.current.support_modes_union = respComputed.modesUnion;
-      } else {
-        delete lastMmlAutoComputedRef.current.support_modes_union;
-      }
-
-      runAggregateSync({
-        current: resp.maxFio2,
-        blockedByNotDone: resp.maxFio2Status,
-        wasAutofilled: af.maxFio2,
-        stillMatchesLastAuto:
-          lastMmlAutoComputedRef.current.max_fio2 !== undefined
-          && resp.maxFio2 === String(lastMmlAutoComputedRef.current.max_fio2),
-        looksSourced: (c) => respNumericLooksMmlSourced(c, respComputed.fio2Vals),
-        entryValuesForSourced: respComputed.fio2Vals,
-        mmlValue: respComputed.max_fio2,
-        onApply: setMaxFio2,
-        lastKey: "max_fio2",
-        flagKey: "maxFio2",
-        force: forceRespFromMml && respComputed.max_fio2 != null,
-      });
-
-      const syncMapPrimary = (mmlValue) => {
-        runAggregateSync({
-          current: resp.mapCpap,
-          blockedByNotDone: resp.mapCpapStatus,
-          wasAutofilled: af.mapCpap,
-          stillMatchesLastAuto:
-            lastMmlAutoComputedRef.current.map_cpap !== undefined
-            && resp.mapCpap === String(lastMmlAutoComputedRef.current.map_cpap),
-          looksSourced: (c) => respNumericLooksMmlSourced(
-            c,
-            respComputed.mapVals.length ? respComputed.mapVals : respComputed.cpapVals,
-          ),
-          entryValuesForSourced: respComputed.mapVals.length
-            ? respComputed.mapVals
-            : respComputed.cpapVals,
-          mmlValue,
-          onApply: setMapCpap,
-          lastKey: "map_cpap",
-          flagKey: "mapCpap",
-          force: forceRespFromMml && mmlValue != null,
-        });
-      };
-      const syncMapSecondary = (mmlValue) => {
-        runAggregateSync({
-          current: resp.mapCpapSecondary,
-          blockedByNotDone: resp.mapCpapSecondaryStatus,
-          wasAutofilled: af.mapCpapSecondary,
-          stillMatchesLastAuto:
-            lastMmlAutoComputedRef.current.map_cpap_secondary !== undefined
-            && resp.mapCpapSecondary === String(
-              lastMmlAutoComputedRef.current.map_cpap_secondary,
-            ),
-          looksSourced: (c) => respNumericLooksMmlSourced(c, respComputed.cpapVals),
-          entryValuesForSourced: respComputed.cpapVals,
-          mmlValue,
-          onApply: setMapCpapSecondary,
-          lastKey: "map_cpap_secondary",
-          flagKey: "mapCpapSecondary",
-          force: forceRespFromMml && mmlValue != null,
-        });
-      };
-
-      const agg = respComputed.aggregateMode;
-      if (agg === "BOTH") {
-        syncMapSecondary(respComputed.map_cpap_secondary);
-        syncMapPrimary(respComputed.map_cpap);
-      } else if (agg === "CPAP" || agg === "MAP") {
-        syncMapPrimary(respComputed.map_cpap);
-        syncMapSecondary(null);
-      } else {
-        syncMapPrimary(null);
-        syncMapSecondary(null);
+        const agg = respComputed.aggregateMode;
+        if (agg === "BOTH") {
+          if (
+            !resp.mapCpapSecondaryStatus
+            && respComputed.map_cpap_secondary != null
+            && norm(resp.mapCpapSecondary) !== norm(respComputed.map_cpap_secondary)
+          ) {
+            setMapCpapSecondary(String(respComputed.map_cpap_secondary));
+            afNext.mapCpapSecondary = true;
+            lastMmlAutoComputedRef.current.map_cpap_secondary = respComputed.map_cpap_secondary;
+            anyBgChanged = true;
+          }
+          if (
+            !resp.mapCpapStatus
+            && respComputed.map_cpap != null
+            && norm(resp.mapCpap) !== norm(respComputed.map_cpap)
+          ) {
+            setMapCpap(String(respComputed.map_cpap));
+            afNext.mapCpap = true;
+            lastMmlAutoComputedRef.current.map_cpap = respComputed.map_cpap;
+            anyBgChanged = true;
+          }
+        } else if (agg === "CPAP" || agg === "MAP") {
+          if (
+            !resp.mapCpapStatus
+            && respComputed.map_cpap != null
+            && norm(resp.mapCpap) !== norm(respComputed.map_cpap)
+          ) {
+            setMapCpap(String(respComputed.map_cpap));
+            afNext.mapCpap = true;
+            lastMmlAutoComputedRef.current.map_cpap = respComputed.map_cpap;
+            anyBgChanged = true;
+          }
+          if (!resp.mapCpapSecondaryStatus && norm(resp.mapCpapSecondary) !== "") {
+            setMapCpapSecondary("");
+            afNext.mapCpapSecondary = false;
+            anyBgChanged = true;
+          }
+        }
+        if (union.length > 0) {
+          lastMmlAutoComputedRef.current.support_modes_union = union;
+        }
+      } else if (resp.supportModes.length > 0 && (af.supportModes || af.maxFio2)) {
+        setSupportModes([]);
+        afNext.supportModes = false;
+        anyBgChanged = true;
       }
 
       if (anyBgChanged) {
@@ -1635,10 +1697,14 @@ export default function RespCVNeuroLog() {
       }
       if (!cancelled && day1Date) {
         const recordDate = calendarDateForNicuDay(day1Date, activeDay);
+        const dirtyYmd = peekMmlRespDirtyForHelper(enrollmentId);
+        const forceMmlRespRefresh = dirtyYmd != null && dirtyYmd === recordDate;
+        if (forceMmlRespRefresh) clearMmlRespDirtyForHelper(enrollmentId);
         await applyAutofillFromMml(recordDate, {
           ...(bloodGasSeed ? { bloodGasSeed } : {}),
           ...(respSupportSeed ? { respSupportSeed } : {}),
           mmlSyncAllowed,
+          forceMmlRespRefresh,
         });
       }
     };
@@ -1650,16 +1716,23 @@ export default function RespCVNeuroLog() {
     if (!enrollmentId || !activeDayDate || loading) return;
     if (isFutureActiveDay) return;
     if (!mmlSyncAllowedRef.current) return;
-    const tick = () => applyAutofillFromMml(activeDayDate, {
+    const tick = (opts = {}) => applyAutofillFromMml(activeDayDate, {
       mmlSyncAllowed: mmlSyncAllowedRef.current,
+      ...opts,
     });
     tick();
-    const interval = setInterval(tick, 60000);
-    const onFocus = () => tick();
+    const interval = setInterval(() => tick(), 15000);
+    const onFocus = () => {
+      const dirtyYmd = peekMmlRespDirtyForHelper(enrollmentId);
+      const force = dirtyYmd != null && dirtyYmd === activeDayDate;
+      if (force) clearMmlRespDirtyForHelper(enrollmentId);
+      tick({ forceMmlRespRefresh: force });
+    };
     const onMmlSaved = (e) => {
       const eid = e?.detail?.enrollmentId;
       if (!eid || eid !== enrollmentId) return;
       const savedSheet = e?.detail?.sheetDate;
+      if (savedSheet) markMmlRespDirtyForHelper(enrollmentId, savedSheet);
       if (savedSheet && day1Date) {
         const targetDay = nicuDayForCalendarYmd(day1Date, savedSheet);
         if (targetDay != null && targetDay !== activeDay) {
@@ -1667,7 +1740,8 @@ export default function RespCVNeuroLog() {
           return;
         }
       }
-      tick();
+      if (savedSheet && activeDayDate && savedSheet !== activeDayDate) return;
+      tick({ forceMmlRespRefresh: true });
     };
     window.addEventListener("portal-mml-saved", onMmlSaved);
     const onVisibility = () => {

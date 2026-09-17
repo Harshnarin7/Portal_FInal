@@ -24,6 +24,7 @@ import {
 import {
   readRememberedMmlSheetDate,
   rememberMmlSheetDate,
+  markMmlRespDirtyForHelper,
 } from "./utils/helperSession";
 import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
 import "./styles/RespCVNeuro.css";
@@ -1478,9 +1479,10 @@ export default function MinimalMonitoringLog() {
         setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
         setTimeout(() => setMessage(""), 3000);
       }
+      markMmlRespDirtyForHelper(enrollmentId, savedDate);
       window.dispatchEvent(
         new CustomEvent("portal-mml-saved", {
-          detail: { enrollmentId, sheetDate },
+          detail: { enrollmentId, sheetDate: savedDate },
         }),
       );
       return true;
