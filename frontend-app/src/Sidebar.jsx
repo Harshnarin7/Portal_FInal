@@ -56,12 +56,25 @@ const SECTIONS = [
   {
     key: 'helpers',
     title: 'Monitoring Logs',
+    // Minimal Monitoring (Helper 5) listed FIRST here, deliberately
+    // deviating from strict CRF v1.22 numeric order (added 2026-09) --
+    // it's meant to be filled continuously through a shift as readings
+    // happen (its own UI resets each morning, unlike the once-daily
+    // Helper 1-4 logs), and several of its readings now feed Helper 4 and
+    // Form H directly (see mml_helper4_autofill.py / get_metabolic_prefill)
+    // -- putting it first nudges the actual fill order toward "capture the
+    // reading here as it happens, then the numbered logs pick up the
+    // worst/blank values from it." Each item's own "Helper N" label is
+    // UNCHANGED (still Helper 5, still Helper 1-4 in that order) --  only
+    // the visual list position moved, so nurse training materials, the
+    // eCRF issue tracker, and the CRF document's own numbering all still
+    // match what's shown on screen.
     items: [
+      { id: 'minimal_monitoring',   label: 'Helper 5', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
       { id: 'vs6_1',                label: 'Helper 1', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
       { id: 'fio2_auc',             label: 'Helper 2', sub: 'FiO₂ AUC Logging',   path: '/fio2-auc',                Icon: FileHeart  },
       { id: 'infect_gi_hema',       label: 'Helper 3', sub: 'Infect / GI / Hema',  path: '/infect-gi-hema-log',      Icon: Microscope },
       { id: 'metab_renal_vasc_eye', label: 'Helper 4', sub: 'Metab / Renal / Eye', path: '/metab-renal-vasc-eye-log',Icon: TestTube2  },
-      { id: 'minimal_monitoring',   label: 'Helper 5', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
     ],
   },
   {
