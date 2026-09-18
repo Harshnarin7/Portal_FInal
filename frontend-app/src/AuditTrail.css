@@ -135,7 +135,7 @@
 .audit-modal {
   background: #fff;
   border-radius: 14px;
-  max-width: 720px;
+  max-width: 920px;
   width: 100%;
   max-height: 85vh;
   overflow: hidden;
@@ -147,37 +147,99 @@
 .audit-modal-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 16px;
   padding: 16px 20px;
   border-bottom: 1px solid #e2e8f0;
+}
+
+.audit-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.audit-modal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.audit-change-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.audit-diff-search {
+  margin-left: auto;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.audit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.audit-summary {
+  max-width: 280px;
+  color: #334155;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.audit-action-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: #f1f5f9;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.audit-action-pill--insert {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.audit-action-pill--update {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.audit-action-pill--soft_delete {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-action-pill--override_unlock {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .audit-modal-body {
   padding: 16px 20px;
   overflow: auto;
   font-size: 13px;
-}
-
-.audit-diff-row {
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.audit-diff-key {
-  font-weight: 700;
-  color: #334155;
-  margin-bottom: 4px;
-}
-
-.audit-diff-old {
-  color: var(--text-danger);
-  word-break: break-word;
-}
-
-.audit-diff-new {
-  color: var(--text-success);
-  word-break: break-word;
 }
 
 .audit-state {

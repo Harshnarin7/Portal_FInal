@@ -948,36 +948,17 @@ export default function BirthResuscitationForm() {
   };
 
   const handleIntv = (type, time, val) =>
-    setFormData(p => {
-      const nextForType = { ...(p.interventions?.[type] || {}), [time]: val };
-      // B5 Apgar: score ≥ 7 at a minute means later intervention Apgars
-      // are not clinically needed — clear and gate them (reactive: if the
-      // trigger is edited back to ≤6 they re-enable with empty values).
-      if (type === "apgar") {
-        const idx = times.indexOf(String(time));
-        const n = val === "" || val == null ? NaN : Number(val);
-        if (idx >= 0 && Number.isFinite(n) && n >= 7) {
-          times.slice(idx + 1).forEach((t) => { nextForType[t] = ""; });
-        }
-      }
-      return {
-        ...p,
-        interventions: {
-          ...p.interventions,
-          [type]: nextForType,
-        },
-      };
-    });
+    setFormData(p => ({
+      ...p,
+      interventions: {
+        ...p.interventions,
+        [type]: { ...(p.interventions?.[type] || {}), [time]: val },
+      },
+    }));
 
-  const isLaterApgarGated = (time) => {
-    const idx = times.indexOf(String(time));
-    if (idx <= 0) return false;
-    const apgar = formData.interventions?.apgar || {};
-    return times.slice(0, idx).some((t) => {
-      const n = apgar[t] === "" || apgar[t] == null ? NaN : Number(apgar[t]);
-      return Number.isFinite(n) && n >= 7;
-    });
-  };
+  // Later minutes stay editable after a ≥7 score so deterioration
+  // (e.g. 8 at 5 min, 4 at 15 min) can be recorded.
+  const isLaterApgarGated = (_time) => false;
 
    /* ── Shared payload builder (used by saveForm, saveDraft, autoSave) ──
       Drafts and auto-saves are just unvalidated saves: empty fields are sent
@@ -2700,9 +2681,9 @@ export default function BirthResuscitationForm() {
                             ))}
                           </tr>
                         ))}
-                        {/* Apgar row — later minutes disable when an earlier
-                            With-Intervention score is ≥ 7. Oxygen/CPAP (the
-                            rest of B5) are not gated. */}
+                        {/* Apgar row — each minute stays editable so a later
+                            deterioration (e.g. 8 at 5 min, 4 at 15 min) can
+                            be recorded. */}
                         <tr style={{background:"#fffbeb"}}>
                           <td style={{padding:"9px 14px",fontSize:12,fontWeight:700,color:"#92400e",
                             borderBottom:"1px solid #fde68a",whiteSpace:"nowrap"}}>50. Apgar score</td>
@@ -2713,11 +2694,10 @@ export default function BirthResuscitationForm() {
                             <td key={t} style={{padding:"6px 8px",textAlign:"center",borderBottom:"1px solid #fde68a"}}>
                               <input type="text" inputMode="numeric" maxLength={2} placeholder="0–10"
                                 value={formData.interventions.apgar?.[t]||""}
-                                disabled={gated}
+                                disabled={locked}
                                 readOnly={locked}
                                 onChange={e=>{const v=e.target.value;if(/^\d{0,2}$/.test(v)&&(v===""||Number(v)<=10))handleIntv("apgar",t,v);}}
-                                className={gated ? "readonly-input apgar-gated" : apgarCls(formData.interventions.apgar?.[t])}
-                                title={gated ? "Apgar ≥ 7 at an earlier minute — later scores with intervention are not required" : undefined}
+                                className={apgarCls(formData.interventions.apgar?.[t])}
                                 style={{width:52,padding:"5px 4px",borderRadius:5,
                                   border:"1px solid #fde68a",textAlign:"center",fontSize:12,fontWeight:700,
                                   cursor: locked ? "not-allowed" : undefined}}/>

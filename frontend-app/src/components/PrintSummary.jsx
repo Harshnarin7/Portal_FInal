@@ -266,7 +266,9 @@ function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
         <div className="pr-sig-block pr-sig-block-date">
           <div className="pr-sig-space" />
           <div className="pr-sig-line" />
-          <div className="pr-sig-name">{fmtDate(new Date())}</div>
+          <div className="pr-sig-name">
+            {formData.consent_datetime ? fmtDate(formData.consent_datetime) : fmtDate(new Date())}
+          </div>
           <div className="pr-sig-cap">Date</div>
         </div>
         <div className="pr-sig-block">

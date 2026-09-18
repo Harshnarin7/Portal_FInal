@@ -7,7 +7,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { toDateOnlyValue, parseDateOnly, resolveScreeningLmpEdd, formatDateToDDMMYYYY } from "./utils/datetime";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import NotesBox      from "./components/NotesBox";
 import OfflineBanner from "./components/OfflineBanner";
@@ -432,7 +432,7 @@ export default function FormC() {
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
     asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
     tb: false, malaria: false, severe_anemia: false,
-    no_known_medical_disorder: true,
+    no_known_medical_disorder: false,
     other_medical_checkbox: false, other_medical_disorder: "",
     // C4 Obstetric Problems
     hdp: "", hdp_type: "",
@@ -479,7 +479,7 @@ export default function FormC() {
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
     asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
     tb: false, malaria: false, severe_anemia: false,
-    no_known_medical_disorder: true,
+    no_known_medical_disorder: false,
     other_medical_checkbox: false, other_medical_disorder: "",
     hdp: "", hdp_type: "",
     gdm: "", gdm_rx: [],
@@ -784,13 +784,19 @@ export default function FormC() {
             severe_anemia: formCData.severe_anemia ?? false,
             other_medical_disorder: formCData.other_medical_disorder ?? "",
             other_medical_checkbox: !!formCData.other_medical_disorder,
-            no_known_medical_disorder: !(
-              formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
-              formCData.renal_disease || formCData.vdrl_positive || formCData.seizure_disorder ||
-              formCData.asthma || formCData.hiv || formCData.thyroid ||
-              formCData.hypothyroidism || formCData.hyperthyroidism ||
-              formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
-            ),
+            no_known_medical_disorder: (() => {
+              const anyDisorder = !!(
+                formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
+                formCData.renal_disease || formCData.vdrl_positive || formCData.seizure_disorder ||
+                formCData.asthma || formCData.hiv || formCData.thyroid ||
+                formCData.hypothyroidism || formCData.hyperthyroidism ||
+                formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
+              );
+              if (anyDisorder) return false;
+              // Only restore "No known" after an explicit Save — a blank
+              // new/draft form stays fully unselected.
+              return !!formCData.explicitly_saved;
+            })(),
             hdp: formCData.hdp ?? "", hdp_type: formCData.hdp_type ?? "",
             gdm: formCData.gdm ?? "",
             gdm_rx: formCData.gdm_rx ? formCData.gdm_rx.split(", ").map(s => s.trim()) : [],
@@ -833,19 +839,18 @@ export default function FormC() {
             uterotonic: formCData.uterotonic ?? "",
             uterotonic_timing: formCData.uterotonic_timing ?? "",
           } : {}),
-          // LMP/EDD are labeled "(auto from Form A)" — Form A's current
-          // lmp_date / expected_delivery_date always win when present, so a
-          // later correction on Form A shows up the next time Form C opens.
-          // Form C's own saved lmp/edd are a fallback only (Form A empty or
-          // this enrollment predates those fields). They are NOT the source
-          // of truth on load. formAData comes from GET /screenings/by-enrollment
-          // on every Form C mount (not localStorage / a cached screening_id).
-          lmp: formAData?.lmp_date
-            ? parseDateOnly(formAData.lmp_date)
-            : (formCData?.lmp ? parseDateOnly(formCData.lmp) : null),
-          edd: formAData?.expected_delivery_date
-            ? parseDateOnly(formAData.expected_delivery_date)
-            : (formCData?.edd ? parseDateOnly(formCData.edd) : null),
+          // LMP/EDD are labeled "(auto from Form A)". Prefer Form A's stored
+          // dates, fill the missing one with Naegele (LMP±280), otherwise
+          // reconstruct both from screening GA + screening date (USG path
+          // never stores LMP/EDD on Form A). Form C's own saved values are
+          // a last-resort fallback only.
+          ...(() => {
+            const { lmp, edd } = resolveScreeningLmpEdd(formAData || {}, {
+              lmp: formCData?.lmp,
+              edd: formCData?.edd,
+            });
+            return { lmp, edd };
+          })(),
           mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : "",
         });
         if (formCData?.explicitly_saved || isEditMode) setIsSaved(true);
@@ -927,9 +932,12 @@ export default function FormC() {
       case "gdm_rx": return (d.gdm==="Yes"&&(!value||value.length===0)) ? "Select at least one" : "";
       case "liquor": return value ? "" : "Required";
       case "fgr": return value ? "" : "Required";
-      case "fgr_centile": if (d.fgr!=="Yes") return ""; if (!value) return "Required"; if (Number(value)<1||Number(value)>100) return "1–100"; return "";
+      case "fgr_centile":
+        if (d.fgr !== "Yes" || value === "" || value == null) return "";
+        if (Number(value) < 1 || Number(value) > 100) return "1–100";
+        return "";
       case "doppler": return value ? "" : "Required";
-      case "doppler_other": return (d.doppler==="Other"&&!value?.trim()) ? "Required" : "";
+      case "doppler_other": return "";
       case "placental_abnormality": return value ? "" : "Required";
       case "placental_type": return (d.placental_abnormality==="Yes"&&!value) ? "Required" : "";
       case "placental_other": return ((d.placental_type==="Others"||d.placental_type==="Other")&&!value?.trim()) ? "Required" : "";
@@ -991,6 +999,7 @@ export default function FormC() {
 
   const handleToggle = (name, value) => {
     const patch = { [name]: value };
+    if (name === "doppler" && value !== "Other") patch.doppler_other = "";
     if (name === "antenatal_steroids" && value !== "Yes") {
       Object.assign(patch, {
         steroid_drug: "",
@@ -1188,10 +1197,10 @@ export default function FormC() {
     if (data.gdm==="Yes"&&data.gdm_rx.length===0) e.gdm_rx = "Select at least one";
     if (!data.liquor) e.liquor = "Required";
     if (!data.fgr) e.fgr = "Required";
-    if (data.fgr==="Yes"&&(!data.fgr_centile||Number(data.fgr_centile)<1||Number(data.fgr_centile)>100))
+    if (data.fgr==="Yes" && data.fgr_centile && (Number(data.fgr_centile)<1||Number(data.fgr_centile)>100))
       e.fgr_centile = "Enter centile 1–100";
     if (!data.doppler) e.doppler = "Required";
-    if (data.doppler==="Other"&&!data.doppler_other?.trim()) e.doppler_other = "Required";
+    if (data.doppler==="Other") e.doppler = "Select Normal, AEDF, REDF, Not done, or Not known";
     if (!data.placental_abnormality) e.placental_abnormality = "Required";
     if (data.placental_abnormality==="Yes") {
       if (!data.placental_type) e.placental_type = "Required";
@@ -1367,7 +1376,6 @@ export default function FormC() {
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       markFormCompleted("form_c");
-      window.scrollTo({ top:0, behavior:"smooth" });
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {
@@ -1694,15 +1702,21 @@ export default function FormC() {
                 <div className="form-grid-3">
                   <div className="form-group">
                     <label>15. LMP <span className="field-note">(auto from Form A)</span></label>
-                    <DatePicker selected={formData.lmp} readOnly
-                      onChange={date => set({lmp:date})}
-                      dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY" className="form-input"/>
+                    <input
+                      value={formData.lmp ? formatDateToDDMMYYYY(formData.lmp) : ""}
+                      readOnly
+                      className="readonly-input"
+                      placeholder="—"
+                    />
                   </div>
                   <div className="form-group">
                     <label>16. EDD <span className="field-note">(auto from Form A)</span></label>
-                    <DatePicker selected={formData.edd} readOnly
-                      onChange={date => set({edd:date})}
-                      dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY" className="form-input"/>
+                    <input
+                      value={formData.edd ? formatDateToDDMMYYYY(formData.edd) : ""}
+                      readOnly
+                      className="readonly-input"
+                      placeholder="—"
+                    />
                   </div>
                   <div className="form-group">
                     <label>17. Conception<span className="required">*</span></label>
@@ -2167,7 +2181,7 @@ export default function FormC() {
                     </div>
                     {formData.fgr==="Yes" && (
                       <div className="form-group">
-                        <label>36. If yes, Centile<span className="required">*</span></label>
+                        <label>36. If yes, Centile</label>
                         <input type="number" name="fgr_centile" value={formData.fgr_centile||""}
                           onChange={handleChange} onBlur={handleBlur} min="1" max="100" placeholder="1–100"
                           readOnly={!isFieldEditable} className={E("fgr_centile")?"input-error":""}/>
@@ -2184,20 +2198,9 @@ export default function FormC() {
                   <div className="form-group">
                     <label>37. Doppler<span className="required">*</span></label>
                     <Toggle name="doppler" value={formData.doppler}
-                      options={["Normal","AEDF","REDF","Not done","Not known","Other"]}
+                      options={["Normal","AEDF","REDF","Not done","Not known"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("doppler")}/>
                   </div>
-                  {formData.doppler==="Other" && (
-                    <div className="followup-box">
-                      <div className="form-group">
-                        <label>Specify<span className="required">*</span></label>
-                        <input name="doppler_other" value={formData.doppler_other||""}
-                          onChange={handleChange} onBlur={handleBlur}
-                          readOnly={!isFieldEditable} className={E("doppler_other")?"input-error":""}/>
-                        <FieldError msg={E("doppler_other")}/>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* 38–40: Placental */}

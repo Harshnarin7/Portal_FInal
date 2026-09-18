@@ -9,6 +9,8 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import AuditChangeList from "./components/AuditChangeList";
+import { auditActionLabel } from "./utils/auditDiff";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { mmlSyncGlucoseFieldFromMml } from "./utils/mmlHelperSync";
@@ -235,7 +237,7 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
       <div className="rcn-field-label-row">
         <span className="rcn-yn-label">
           {label}
-          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
         </span>
         {onStatusChange && (
           <StatusToggleGroup status={status} onChange={toggle} disabled={disabled} allowAwaited={allowAwaited} />
@@ -283,7 +285,7 @@ function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, pl
       <div className="rcn-field-label-row">
         <span className="rcn-yn-label">
           {label}
-          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
         </span>
         {(allowAwaited || allowNotDone || allowNotTested) && (
           <StatusToggleGroup
@@ -324,7 +326,7 @@ function ReadonlyAutoField({ label, value, unit, autofilled }) {
     <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <span className="rcn-yn-label">
         {label}
-        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 5</span>}
+        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
       </span>
       <div className={`rcn-readonly-value${autofilled ? " rcn-num-input--autofill" : ""}`}>
         {display}{unit && display !== "—" ? ` ${unit}` : ""}
@@ -1191,8 +1193,8 @@ export default function MetabRenalVascEyeLog() {
     try {
       const ok = await applyGlucoseAutofill({ force: true });
       setMessage(ok
-        ? "✅ Glucose fields refreshed from Helper 5"
-        : "⚠️ No matching Helper 5 glucose sheet for this day");
+        ? "✅ Glucose fields refreshed from Helper 1"
+        : "⚠️ No matching Helper 1 glucose sheet for this day");
       setTimeout(() => setMessage(""), 3000);
     } finally {
       setGlucoseRefreshing(false);
@@ -1831,7 +1833,7 @@ export default function MetabRenalVascEyeLog() {
         {/* ══ PATIENT INFO HEADER ══ */}
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
-            <div className="rcn-patient-header-badge">HELPER FORM 4</div>
+            <div className="rcn-patient-header-badge">HELPER FORM 5</div>
             <h2 className="rcn-patient-header-form-name">Metab-Renal-Vasc-Eye</h2>
             <p className="rcn-patient-header-subtitle">
               NICU Day-by-Day Structured Assessment
@@ -2199,10 +2201,10 @@ export default function MetabRenalVascEyeLog() {
                   className="rcn-refresh-helper5"
                   onClick={handleRefreshGlucoseFromHelper5}
                   disabled={!isFieldEditable || glucoseRefreshing}
-                  title="Re-sync glucose #1–#4 from Helper Form 5 for this day's sheet"
+                  title="Re-sync glucose #1–#4 from Helper Form 1 for this day's sheet"
                 >
                   <RefreshCw size={12} className={glucoseRefreshing ? "rcn-spin" : ""} />
-                  {glucoseRefreshing ? "Refreshing…" : "Refresh from Helper 5"}
+                  {glucoseRefreshing ? "Refreshing…" : "Refresh from Helper 1"}
                 </button>
               ) : null}
             >
@@ -2643,7 +2645,7 @@ export default function MetabRenalVascEyeLog() {
                   {auditEntries.map(e => (
                     <div key={e.id} className="rcn-audit-entry">
                       <div className="rcn-audit-entry-top">
-                        <span className="rcn-audit-action">{(e.action || "").replace(/_/g, " ")}</span>
+                        <span className="rcn-audit-action">{auditActionLabel(e.action)}</span>
                         <span className="rcn-audit-time">
                           {e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : ""}
                         </span>
@@ -2652,6 +2654,12 @@ export default function MetabRenalVascEyeLog() {
                       {e.new_values?.reason && (
                         <p className="rcn-audit-reason">"{e.new_values.reason}"</p>
                       )}
+                      <AuditChangeList
+                        oldValues={e.old_values}
+                        newValues={e.new_values}
+                        compact
+                        hideKeys={["reason", "nicu_day"]}
+                      />
                     </div>
                   ))}
                 </div>

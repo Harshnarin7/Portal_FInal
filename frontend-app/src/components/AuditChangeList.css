@@ -1,0 +1,118 @@
+.audit-changes-empty {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.audit-changes-table-wrap {
+  overflow-x: auto;
+}
+
+.audit-changes-table {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(120px, 1fr) minmax(120px, 1fr);
+  width: 100%;
+  font-size: 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.audit-changes-thead {
+  display: contents;
+}
+
+.audit-changes-thead > span {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.audit-changes-row {
+  display: contents;
+}
+
+.audit-changes-row > span {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.audit-changes-field {
+  font-weight: 700;
+  color: #334155;
+}
+
+.audit-changes-from {
+  color: #b91c1c;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.audit-changes-to {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.audit-changes-row--added .audit-changes-from,
+.audit-changes-row--unchanged .audit-changes-from,
+.audit-changes-compact-item--added .audit-changes-from,
+.audit-changes-compact-item--unchanged .audit-changes-from {
+  text-decoration: none;
+  color: #94a3b8;
+}
+
+.audit-changes-row--unchanged .audit-changes-to,
+.audit-changes-compact-item--unchanged .audit-changes-to {
+  color: #475569;
+  font-weight: 500;
+}
+
+.audit-changes-row--removed .audit-changes-to {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.audit-changes-compact {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.audit-changes-compact-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.audit-changes-compact-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.audit-changes-compact-vals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.audit-changes-arrow {
+  color: #94a3b8;
+  font-weight: 700;
+}

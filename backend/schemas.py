@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator, field_serializer, model_validator
 from typing import Optional, List, Dict
 from datetime import datetime, date, time
 
@@ -437,6 +437,19 @@ class ScreeningClinicalOut(BaseModel):
 
     screening_datetime: Optional[datetime] = None
     created_at: Optional[datetime] = None
+
+    @field_serializer("lmp_date", "expected_delivery_date")
+    def _serialize_screening_ymd(self, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, datetime):
+            return v.date().isoformat()
+        if isinstance(v, date):
+            return v.isoformat()
+        s = str(v).strip()
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return s[:10]
+        return s
 
     class Config:
         from_attributes = True

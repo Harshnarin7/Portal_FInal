@@ -3,8 +3,14 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
 import GlobalSiteFilter, { siteQueryParams } from "./components/dashboard/GlobalSiteFilter";
+import AuditChangeList from "./components/AuditChangeList";
 import { isGlobalUser, canViewAudit } from "./utils/roles";
 import { auditTableLabel, AUDIT_ACTIONS, AUDIT_TABLE_LABELS } from "./utils/auditTableLabels";
+import {
+  auditActionLabel,
+  diffAuditValues,
+  summarizeAuditChanges,
+} from "./utils/auditDiff";
 import { siteShortCode } from "./utils/siteNames";
 import "./AuditTrail.css";
 
@@ -19,23 +25,43 @@ function formatTs(iso) {
   }
 }
 
-function formatVal(v) {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "object") return JSON.stringify(v, null, 2);
-  return String(v);
-}
-
 function DiffModal({ row, onClose }) {
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    setShowUnchanged(false);
+    setQuery("");
+  }, [row?.id]);
+
+  useEffect(() => {
+    if (!row) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [row, onClose]);
+
+  const { changes, unchanged } = useMemo(
+    () => diffAuditValues(row?.old_values, row?.new_values),
+    [row],
+  );
+
   if (!row) return null;
-  const oldV = row.old_values || {};
-  const newV = row.new_values || {};
-  const keys = [...new Set([...Object.keys(oldV), ...Object.keys(newV)])].sort();
 
   return (
     <div className="audit-modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="audit-modal" onClick={(e) => e.stopPropagation()}>
         <div className="audit-modal-head">
-          <strong>Change detail — {auditTableLabel(row.table_name)}</strong>
+          <div>
+            <strong>What changed — {auditTableLabel(row.table_name)}</strong>
+            <div className="audit-modal-meta">
+              <span className={`audit-action-pill audit-action-pill--${(row.action || "").toLowerCase()}`}>
+                {auditActionLabel(row.action)}
+              </span>
+              {row.username && <span>by {row.username}</span>}
+              <span>{formatTs(row.created_at)}</span>
+            </div>
+          </div>
           <button type="button" className="audit-btn-link" onClick={onClose}>Close</button>
         </div>
         <div className="audit-modal-body">
@@ -43,21 +69,44 @@ function DiffModal({ row, onClose }) {
             {row.enrollment_id && <>Enrollment: {row.enrollment_id} </>}
             {row.screening_id && <>· Screening: {row.screening_id}</>}
           </p>
-          {keys.length === 0 ? (
-            <p>No field-level values recorded.</p>
-          ) : (
-            keys.map((k) => (
-              <div key={k} className="audit-diff-row">
-                <div className="audit-diff-key">{k}</div>
-                <div className="audit-diff-old">{formatVal(oldV[k])}</div>
-                <div className="audit-diff-new">{formatVal(newV[k])}</div>
-              </div>
-            ))
-          )}
+          <div className="audit-modal-toolbar">
+            <span className="audit-change-count">
+              {changes.length} field{changes.length === 1 ? "" : "s"} changed
+              {unchanged.length > 0 && ` · ${unchanged.length} unchanged`}
+            </span>
+            <input
+              type="search"
+              className="audit-diff-search"
+              placeholder="Find a field…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {unchanged.length > 0 && (
+              <label className="audit-toggle">
+                <input
+                  type="checkbox"
+                  checked={showUnchanged}
+                  onChange={(e) => setShowUnchanged(e.target.checked)}
+                />
+                Show unchanged
+              </label>
+            )}
+          </div>
+          <AuditChangeList
+            oldValues={row.old_values}
+            newValues={row.new_values}
+            showUnchanged={showUnchanged}
+            filterText={query}
+          />
         </div>
       </div>
     </div>
   );
+}
+
+function changeSummary(row) {
+  const { changes } = diffAuditValues(row.old_values, row.new_values);
+  return summarizeAuditChanges(changes, { action: row.action });
 }
 
 export default function AuditTrail() {
@@ -78,6 +127,7 @@ export default function AuditTrail() {
   const [action, setAction] = useState("");
   const [tableName, setTableName] = useState("");
   const [enrollmentId, setEnrollmentId] = useState("");
+  const [screeningId, setScreeningId] = useState("");
 
   const tableOptions = useMemo(
     () => Object.keys(AUDIT_TABLE_LABELS).sort(),
@@ -99,6 +149,7 @@ export default function AuditTrail() {
       if (action) params.action = action;
       if (tableName) params.table_name = tableName;
       if (enrollmentId.trim()) params.enrollment_id = enrollmentId.trim();
+      if (screeningId.trim()) params.screening_id = screeningId.trim();
 
       const res = await api.get("/audit/", { params });
       const list = Array.isArray(res.data) ? res.data : [];
@@ -111,7 +162,7 @@ export default function AuditTrail() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, page, apiSite, dateFrom, dateTo, action, tableName, enrollmentId]);
+  }, [allowed, page, apiSite, dateFrom, dateTo, action, tableName, enrollmentId, screeningId]);
 
   useEffect(() => {
     load();
@@ -124,6 +175,7 @@ export default function AuditTrail() {
     setAction("");
     setTableName("");
     setEnrollmentId("");
+    setScreeningId("");
     setPage(0);
   };
 
@@ -136,6 +188,8 @@ export default function AuditTrail() {
       </DashboardWorkspaceLayout>
     );
   }
+
+  const colSpan = isGlobal ? 8 : 7;
 
   return (
     <DashboardWorkspaceLayout pageTitle="Audit Trail">
@@ -154,7 +208,7 @@ export default function AuditTrail() {
             <select value={action} onChange={(e) => { setPage(0); setAction(e.target.value); }}>
               <option value="">All</option>
               {AUDIT_ACTIONS.map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>{auditActionLabel(a)}</option>
               ))}
             </select>
           </label>
@@ -174,6 +228,15 @@ export default function AuditTrail() {
               placeholder="Filter…"
               value={enrollmentId}
               onChange={(e) => { setPage(0); setEnrollmentId(e.target.value); }}
+            />
+          </label>
+          <label className="audit-filter audit-filter--wide">
+            <span>Screening ID</span>
+            <input
+              type="search"
+              placeholder="Filter…"
+              value={screeningId}
+              onChange={(e) => { setPage(0); setScreeningId(e.target.value); }}
             />
           </label>
           {isGlobal && (
@@ -202,13 +265,14 @@ export default function AuditTrail() {
                     <th>Action</th>
                     <th>Form</th>
                     <th>Record</th>
+                    <th>What changed</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={isGlobal ? 7 : 6} className="audit-state">No audit entries match these filters.</td>
+                      <td colSpan={colSpan} className="audit-state">No audit entries match these filters.</td>
                     </tr>
                   ) : (
                     rows.map((row) => (
@@ -216,14 +280,19 @@ export default function AuditTrail() {
                         <td>{formatTs(row.created_at)}</td>
                         {isGlobal && <td>{row.site ? siteShortCode(row.site) : "—"}</td>}
                         <td>{row.username || "—"}</td>
-                        <td>{row.action}</td>
+                        <td>
+                          <span className={`audit-action-pill audit-action-pill--${(row.action || "").toLowerCase()}`}>
+                            {auditActionLabel(row.action)}
+                          </span>
+                        </td>
                         <td>{auditTableLabel(row.table_name)}</td>
                         <td className="audit-ref">
                           {row.enrollment_id || row.screening_id || row.record_id || "—"}
                         </td>
+                        <td className="audit-summary">{changeSummary(row)}</td>
                         <td>
                           <button type="button" className="audit-btn-link" onClick={() => setDetailRow(row)}>
-                            View changes
+                            View details
                           </button>
                         </td>
                       </tr>

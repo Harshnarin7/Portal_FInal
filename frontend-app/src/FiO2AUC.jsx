@@ -347,8 +347,8 @@ export default function Fio2AUCForm() {
       if (showToast) {
         setMessage(
           oxygenDays.length
-            ? `Synced ${oxygenDays.length} Supplemental O₂ day${oxygenDays.length === 1 ? "" : "s"} from Helper 1`
-            : "No Helper 1 days with Supplemental O₂ = Yes yet"
+            ? `Synced ${oxygenDays.length} Supplemental O₂ day${oxygenDays.length === 1 ? "" : "s"} from Helper 2`
+            : "No Helper 2 days with Supplemental O₂ = Yes yet"
         );
         setTimeout(() => setMessage(""), 3500);
       }
@@ -358,11 +358,11 @@ export default function Fio2AUCForm() {
       // background load on page mount doesn't masquerade as "no
       // Supplemental O₂ days yet". Stays up until a retry succeeds.
       setHelper2SyncError(
-        "Could not load Supplemental O₂ days from Helper 1 — the day list "
-        + "below may be incomplete or out of date. Try \"Refresh from Helper 1\" below."
+        "Could not load Supplemental O₂ days from Helper 2 — the day list "
+        + "below may be incomplete or out of date. Try \"Refresh from Helper 2\" below."
       );
       if (showToast) {
-        setMessage("Could not refresh from Helper 1 — try again");
+        setMessage("Could not refresh from Helper 2 — try again");
         setTimeout(() => setMessage(""), 3500);
       }
     } finally {
@@ -741,8 +741,8 @@ export default function Fio2AUCForm() {
       {/*  PAGE HEADER (matches FormC/D/E style)  */}
       <div className="form-header-action-row">
         <div className="form-header-title-area">
-          <div className="form-breadcrumb"><span style={{fontSize:12}}></span> HELPER FORM 2</div>
-          <h2 className="form-main-title">FiO2 AUC Log</h2>
+          <div className="form-breadcrumb"><span style={{fontSize:12}}></span> HELPER FORM 3</div>
+          <h2 className="form-main-title">FiO2 Logging</h2>
           <p className="form-main-subtitle">Area under the FiO2 curve - first 7 days of life</p>
         </div>
         <div className="form-header-meta-area">
@@ -843,10 +843,10 @@ export default function Fio2AUCForm() {
               className="btn-export"
               onClick={() => syncDaysFromHelper2({ preserveLocal: true, showToast: true })}
               disabled={helper2Refreshing || daysLoading}
-              title="Re-sync which days appear from Helper Form 1 (Supplemental O₂ = Yes)"
+              title="Re-sync which days appear from Helper Form 2 (Supplemental O₂ = Yes)"
             >
               <RefreshCw size={14} className={helper2Refreshing ? "fio2-spin" : ""} />
-              {helper2Refreshing ? "Refreshing…" : "Refresh from Helper 1"}
+              {helper2Refreshing ? "Refreshing…" : "Refresh from Helper 2"}
             </button>
             <button type="button" className="btn-export" onClick={handleExportPdf}>
               &#11123; Export PDF
@@ -862,12 +862,12 @@ export default function Fio2AUCForm() {
         )}
         <div className="day-stack">
           {daysLoading && !days.length ? (
-            <div className="fio2-empty-state">Loading Supplemental O₂ days from Helper 1…</div>
+            <div className="fio2-empty-state">Loading Supplemental O₂ days from Helper 2…</div>
           ) : !days.length ? (
             <div className="fio2-empty-state">
               {helper2SyncError
-                ? "Couldn't load Helper 1 data — see the message above. This is not the same as \"no Supplemental O₂ days\"."
-                : "FiO2 AUC tracking starts once Helper Form 1 records a day with Supplemental O₂ = Yes."}
+                ? "Couldn't load Helper 2 data — see the message above. This is not the same as \"no Supplemental O₂ days\"."
+                : "FiO2 logging starts once Helper Form 2 records a day with Supplemental O₂ = Yes."}
             </div>
           ) : days.map((d, idx) => {
             const dAuc  = dayAUC(d.w1, d.w2);

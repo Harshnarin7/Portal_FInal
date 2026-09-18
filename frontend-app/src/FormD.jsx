@@ -280,6 +280,22 @@ const totalGestationDays = (weeks, days) => {
   return w * 7 + d;
 };
 
+/** Postnatal day 1 = date of birth. Form B Q11 is screening GA; Q12
+ *  (gestation_rand_*) is GA at birth / randomization. */
+const pd1GestationFromBirth = (b = {}) => {
+  const hasRand = b?.gestation_rand_weeks != null && b.gestation_rand_weeks !== "";
+  if (hasRand) {
+    return {
+      weeks: b.gestation_rand_weeks,
+      days: b.gestation_rand_days ?? 0,
+    };
+  }
+  return {
+    weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
+    days: b?.original_gestation_days ?? b?.gestation_days ?? "",
+  };
+};
+
 export default function FormD() {
   const { enrollmentId } = useParams();
   const location  = useLocation();
@@ -449,6 +465,8 @@ export default function FormD() {
 
     let cancelled = false;
     const loadData = async () => {
+      let pd1Weeks = "";
+      let pd1Days = "";
       try {
         // ── Form B: identification fields (readonly) ──
         const res = await api.get(`/birth-resuscitation/${enrollmentId}`);
@@ -479,15 +497,18 @@ export default function FormD() {
         if (!motherName)
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
         const growth = deriveGrowthStatus(b?.intrauterine_centile);
+        const pd1 = pd1GestationFromBirth(b);
+        pd1Weeks = pd1.weeks === "" || pd1.weeks == null ? "" : String(pd1.weeks);
+        pd1Days = pd1.weeks === "" || pd1.weeks == null ? "" : String(pd1.days ?? 0);
 
         setFormData({
           ...emptyFormD(),
           enrollment_id:   b?.enrollment_id || enrollmentId,
           annual_number:   b?.baby_annual_no || "",
-          gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
-          gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
-          original_gestation_weeks: b?.original_gestation_weeks ?? b?.gestation_weeks ?? "",
-          original_gestation_days:  b?.original_gestation_days  ?? b?.gestation_days  ?? "",
+          gestation_weeks: pd1Weeks,
+          gestation_days:  pd1Days,
+          original_gestation_weeks: pd1Weeks,
+          original_gestation_days:  pd1Days,
           birth_weight:    b?.birth_weight    || "",
           baby_uid:        b?.baby_uid        || "",
           gender:          b?.gender || "",
@@ -516,8 +537,16 @@ export default function FormD() {
           ...prev,
           annual_number:   d.annual_number   || prev.annual_number,
           baby_name:       d.baby_name       || prev.baby_name,
-          gestation_weeks: d.gestation_weeks != null ? String(d.gestation_weeks) : prev.gestation_weeks,
-          gestation_days:  d.gestation_days  != null ? String(d.gestation_days)  : prev.gestation_days,
+          // NBS is a nurse-entered postnatal assessment — keep it.
+          // USG/LMP carry-over is postnatal day 1 (Form B Q12), not screening.
+          gestation_weeks: d.ga_method === "NBS" && d.gestation_weeks != null
+            ? String(d.gestation_weeks)
+            : (pd1Weeks !== "" ? pd1Weeks : prev.gestation_weeks),
+          gestation_days: d.ga_method === "NBS" && d.gestation_days != null
+            ? String(d.gestation_days)
+            : (pd1Weeks !== "" ? pd1Days : prev.gestation_days),
+          original_gestation_weeks: pd1Weeks !== "" ? pd1Weeks : prev.original_gestation_weeks,
+          original_gestation_days:  pd1Weeks !== "" ? pd1Days : prev.original_gestation_days,
           ga_method:       d.ga_method       || "",
           gender:          d.gender          || prev.gender,
           growth_status:   d.growth_status   || prev.growth_status,
@@ -743,7 +772,6 @@ export default function FormD() {
 
     if (!formData.enrollment_id) {
       setMessage("❌ Enrollment ID missing. Cannot save form.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
@@ -759,7 +787,6 @@ export default function FormD() {
       setTimeout(() => {
         if (firstErrRef.current)
           firstErrRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        else window.scrollTo({ top: 0, behavior: "smooth" });
       }, 100);
       return;
     }
@@ -796,7 +823,6 @@ export default function FormD() {
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date()); setIsDirty(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
       setTimeout(() => setMessage(""), 3000);
     } catch (err) {
       console.error("FormD save error:", err.response?.data || err);
@@ -970,7 +996,7 @@ export default function FormD() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>5. Gestational Age by</label>
+                    <label>5. Gestational Age by <span className="field-note">(at postnatal day 1)</span></label>
                     <SegmentedToggle name="ga_method" value={formData.ga_method}
                       options={["USG","LMP","NBS"]}
                       onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
@@ -1009,7 +1035,7 @@ export default function FormD() {
                     </div>
                     {formData.ga_method && formData.ga_method !== "NBS" && (
                       <div className="fv-msg" style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
-                        Carried over from the earlier {formData.ga_method} estimate. Switch to NBS to enter a new newborn assessment.
+                        Carried over from postnatal day 1 (Form B gestation at randomization). Switch to NBS to enter a new newborn assessment.
                       </div>
                     )}
                     {formData.ga_method === "NBS" && (() => {
@@ -1018,7 +1044,7 @@ export default function FormD() {
                       if (original === null || entered === null || Math.abs(entered - original) <= 14) return null;
                       return (
                         <div className="fv-msg fv-msg-warn" style={{ marginTop: 8 }}>
-                          Difference is more than 2 weeks from previous GA. This NBS GA will auto-fill subsequent forms.
+                          Difference is more than 2 weeks from postnatal day 1 GA. This NBS GA will auto-fill subsequent forms.
                         </div>
                       );
                     })()}
@@ -1677,7 +1703,7 @@ export default function FormD() {
             <div className="modal-title">Gestational age differs by more than 2 weeks</div>
             <p className="modal-subtext">
               The newborn (NBS) assessment — <strong>{formData.gestation_weeks}w {formData.gestation_days}d</strong> —
-              differs from the previously recorded gestational age — <strong>{formData.original_gestation_weeks}w {formData.original_gestation_days}d</strong> —
+              differs from postnatal day 1 gestational age — <strong>{formData.original_gestation_weeks}w {formData.original_gestation_days}d</strong> —
               by more than 2 weeks. This NBS-based gestational age will now be used on subsequent forms.
             </p>
             <button type="button" className="modal-btn" onClick={dismissGaDiffModal}>

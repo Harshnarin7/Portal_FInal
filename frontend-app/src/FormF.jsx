@@ -646,7 +646,7 @@ export default function FormF() {
             <div className="cu-alert cu-alert--warn">
               <AlertTriangle size={14} />
               <span>
-                Helper 2 (daily monitoring) flagged{" "}
+                Helper Form 2 (Resp / CV / Neuro) flagged{" "}
                 {helper2IvhGateBlocking && helper2CpvlGateBlocking
                   ? "IVH and cPVL"
                   : helper2IvhGateBlocking ? "IVH" : "cPVL"}
