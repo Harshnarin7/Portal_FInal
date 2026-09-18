@@ -127,3 +127,112 @@
 .screening-form .fc-toggle-group.fc-toggle-error {
   border-color: #fca5a5 !important;
 }
+
+/* C5 Evidence of Infection — checklist table (scoped; does not touch .fc-yes/.fc-no/.fc-other) */
+.screening-form .c5-inf-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.screening-form .c5-inf-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  border-left: 3px solid transparent;
+  background: #fff;
+}
+.screening-form .c5-inf-row:last-child { border-bottom: none; }
+.screening-form .c5-inf-row--yes { border-left-color: #dc2626; background: #fff7f7; }
+.screening-form .c5-inf-row--no { border-left-color: #16a34a; background: #f7fdf9; }
+.screening-form .c5-inf-row--neutral { border-left-color: #94a3b8; background: #f8fafc; }
+.screening-form .c5-inf-row--blank { border-left-color: transparent; background: #fff; }
+.screening-form .c5-inf-row--sub {
+  background: #f8fafc;
+  padding-left: 24px;
+}
+.screening-form .c5-inf-row--triple {
+  background: #fffbeb;
+  border-top: 1px solid #fde68a;
+}
+
+.screening-form .c5-inf-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+.screening-form .c5-inf-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+.screening-form .c5-inf-pills {
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.screening-form .c5-inf-hours {
+  width: 120px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+.screening-form .c5-inf-triple-value {
+  min-width: 120px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* Infection-meaning colours — C5 only */
+.screening-form .c5-inf-table .fc-c5-toggle { border-color: #e2e8f0 !important; }
+.screening-form .c5-inf-table .fc-toggle-btn.fc-active.fc-c5-abn {
+  background: #dc2626 !important;
+  color: #fff !important;
+}
+.screening-form .c5-inf-table .fc-toggle-btn.fc-active.fc-c5-nl {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+.screening-form .c5-inf-table .fc-toggle-btn.fc-active.fc-c5-unk {
+  background: #64748b !important;
+  color: #fff !important;
+}
+.screening-form .c5-inf-table .fc-c5-toggle:has(.fc-c5-abn) { border-color: #dc2626 !important; }
+.screening-form .c5-inf-table .fc-c5-toggle:has(.fc-c5-nl)  { border-color: #16a34a !important; }
+.screening-form .c5-inf-table .fc-c5-toggle:has(.fc-c5-unk) { border-color: #64748b !important; }
+
+.screening-form .c5-inf-table .fc-c5-toggle.fc-toggle-error,
+.screening-form .c5-inf-table .fc-c5-toggle.fc-toggle-error:has(.fc-c5-abn),
+.screening-form .c5-inf-table .fc-c5-toggle.fc-toggle-error:has(.fc-c5-nl),
+.screening-form .c5-inf-table .fc-c5-toggle.fc-toggle-error:has(.fc-c5-unk) {
+  border-color: #fca5a5 !important;
+}
+
+@media (max-width: 700px) {
+  .screening-form .c5-inf-row,
+  .screening-form .c5-inf-row--sub,
+  .screening-form .c5-inf-row--triple {
+    grid-template-columns: 36px 1fr;
+    align-items: start;
+  }
+  .screening-form .c5-inf-pills {
+    grid-column: 2;
+    justify-self: start;
+    align-items: flex-start;
+  }
+}

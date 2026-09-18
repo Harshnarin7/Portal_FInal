@@ -1017,6 +1017,7 @@ class PostnatalDay1Create(BaseModel):
     caffeine_maint_abs: float | None = None
     caffeine_date: date | None = None
     caffeine_time: str | None = None
+    caffeine_maint_frequency: str | None = None
 
     completed_by: str | None = None
     designation: str | None = None

@@ -12,6 +12,7 @@ import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Baby, Wind, Droplets, CheckSquare,
@@ -118,9 +119,10 @@ const RULES = {
   },
 
   // Caffeine — loading dose required, maintenance optional
-  caffeine_loading: { required: true, type: "toggle" },
+  caffeine: { required: true, type: "toggle" },
+  caffeine_loading: { required: (fd) => fd.caffeine === "Yes", type: "toggle" },
   caffeine_loading_abs: {
-    required: (fd) => fd.caffeine_loading === "Yes", type: "number",
+    required: (fd) => fd.caffeine === "Yes" && fd.caffeine_loading === "Yes", type: "number",
     validate: v => {
       if (!v) return "Required";
       const n = Number(v);
@@ -130,7 +132,7 @@ const RULES = {
     },
   },
   caffeine_maint_abs: {
-    required: (fd) => fd.caffeine_loading === "Yes", type: "number",
+    required: (fd) => fd.caffeine === "Yes" && fd.caffeine_loading === "Yes", type: "number",
     validate: v => {
       if (!v) return null;
       const n = Number(v);
@@ -140,12 +142,16 @@ const RULES = {
     },
   },
   caffeine_date: {
-    required: (fd) => fd.caffeine_loading === "Yes", type: "date",
+    required: (fd) => fd.caffeine === "Yes" && fd.caffeine_loading === "Yes", type: "date",
     validate: v => {
       if (!v) return null;
       if (new Date(v) > new Date()) return "Future date not allowed";
       return null;
     },
+  },
+
+  caffeine_maint_frequency: {
+    required: (fd) => !!fd.caffeine_maint_abs, type: "toggle",
   },
 
   // KMC
@@ -263,6 +269,20 @@ const deriveGrowthStatus = (centile) => {
   return { growth_status: "AGA", sga_centile: "" };
 };
 
+/** Same auto-value Form B writes for intrauterine_centile, then Form D SGA/AGA/LGA buckets. */
+const growthFromIntergrowth = (weightGrams, weeks, days, gender) => {
+  const weightKg = Number(weightGrams) / 1000;
+  const w = Number(weeks);
+  const d = Number(days);
+  const result = classifyVeryPretermCentile(weightKg, w, d, gender);
+  if (!result) return { growth_status: "", sga_centile: "", unresolvable: true, result: null };
+  const autoValue = result.lowerPoint === 0 ? result.label : String(result.lowerPoint);
+  return { ...deriveGrowthStatus(autoValue), unresolvable: false, result };
+};
+
+const INTERGROWTH_MANUAL_HINT =
+  "Auto-fills once gestational age, birth weight and gender (Male/Female) are entered — covers 24+0–32+6 weeks only";
+
 const toggleListValue = (value, item) => {
   const current = value ? value.split(",").map(s => s.trim()).filter(Boolean) : [];
   const next = current.includes(item)
@@ -325,6 +345,12 @@ export default function FormD() {
   // re-rendering with the same value they already dismissed does not nag.
   const [showGaDiffModal, setShowGaDiffModal] = useState(false);
   const gaDiffDismissedFor = useRef(null);
+  const lastNonNbsMethodRef = useRef("USG");
+  const formBGrowthRef = useRef({ growth_status: "", sga_centile: "" });
+  const lastAutoGrowthRef = useRef(null);
+  // Snapshot of NBS weeks/days as loaded from a saved record. While the
+  // on-screen GA still matches this, do not overwrite saved growth_status.
+  const loadedNbsGaRef = useRef(null);
 
   const isFieldEditable = true; // Form D is always editable
 
@@ -345,7 +371,7 @@ export default function FormD() {
     caffeine: "", caffeine_dose: "", intubation_after_resus: "",
     immediate_kmc: "", device_type_other: "",
     caffeine_loading: "", caffeine_loading_abs: "", caffeine_maint_abs: "",
-    caffeine_date: "", caffeine_time: "",
+    caffeine_date: "", caffeine_time: "", caffeine_maint_frequency: "",
     completed_by: "", designation: "", date: "",
   });
 
@@ -395,6 +421,15 @@ export default function FormD() {
         updated.caffeine_maint_abs = "";
         updated.caffeine_date = "";
         updated.caffeine_time = "";
+        updated.caffeine_maint_frequency = "";
+      }
+      if (name === "caffeine" && value !== "Yes") {
+        updated.caffeine_loading = "";
+        updated.caffeine_loading_abs = "";
+        updated.caffeine_maint_abs = "";
+        updated.caffeine_date = "";
+        updated.caffeine_time = "";
+        updated.caffeine_maint_frequency = "";
       }
       return updated;
     });
@@ -462,6 +497,11 @@ export default function FormD() {
     setTouched({});
     setSubmitErrors([]);
     setFormData(emptyFormD());
+    lastNonNbsMethodRef.current = "USG";
+    formBGrowthRef.current = { growth_status: "", sga_centile: "" };
+    lastAutoGrowthRef.current = null;
+    loadedNbsGaRef.current = null;
+    gaDiffDismissedFor.current = null;
 
     let cancelled = false;
     const loadData = async () => {
@@ -497,6 +537,10 @@ export default function FormD() {
         if (!motherName)
           motherName = `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim();
         const growth = deriveGrowthStatus(b?.intrauterine_centile);
+        formBGrowthRef.current = {
+          growth_status: growth.growth_status || "",
+          sga_centile: growth.sga_centile || "",
+        };
         const pd1 = pd1GestationFromBirth(b);
         pd1Weeks = pd1.weeks === "" || pd1.weeks == null ? "" : String(pd1.weeks);
         pd1Days = pd1.weeks === "" || pd1.weeks == null ? "" : String(pd1.days ?? 0);
@@ -587,13 +631,18 @@ export default function FormD() {
           intubation_after_resus: fromBool(d.intubation_after_resus),
           immediate_kmc:          fromBool(d.immediate_kmc),
 
-          caffeine:            fromBool(d.caffeine),
+          caffeine:            fromBool(d.caffeine) || (
+            fromBool(d.caffeine_loading) === "Yes" ? "Yes"
+            : fromBool(d.caffeine_loading) === "No" ? "No"
+            : ""
+          ),
           caffeine_dose:       d.caffeine_dose != null ? String(d.caffeine_dose) : "",
           caffeine_loading:    fromBool(d.caffeine_loading),
           caffeine_loading_abs:d.caffeine_loading_abs != null ? String(d.caffeine_loading_abs) : "",
           caffeine_maint_abs:  d.caffeine_maint_abs  != null ? String(d.caffeine_maint_abs)  : "",
           caffeine_date:       d.caffeine_date || "",
           caffeine_time:       d.caffeine_time || "",
+          caffeine_maint_frequency: d.caffeine_maint_frequency || "",
 
           completed_by: d.completed_by || "",
           designation:  d.designation  || "",
@@ -602,6 +651,19 @@ export default function FormD() {
 
         setIsRecordSaved(true);
         setIsSaved(true);
+        if (d.ga_method && d.ga_method !== "NBS") lastNonNbsMethodRef.current = d.ga_method;
+        if (d.ga_method === "NBS") {
+          loadedNbsGaRef.current = {
+            weeks: d.gestation_weeks != null ? String(d.gestation_weeks) : "",
+            days: d.gestation_days != null ? String(d.gestation_days) : "",
+          };
+        } else {
+          loadedNbsGaRef.current = null;
+          formBGrowthRef.current = {
+            growth_status: d.growth_status || formBGrowthRef.current.growth_status,
+            sga_centile: d.sga_centile || formBGrowthRef.current.sga_centile,
+          };
+        }
       } catch (err) {
         if (err?.response?.status !== 404)
           console.log("❌ Error loading Form D data", err);
@@ -612,6 +674,44 @@ export default function FormD() {
     loadData();
     return () => { cancelled = true; };
   }, [enrollmentId]);
+
+  /* Intra-uterine growth: carry Form B when GA is unchanged. Recalculate live
+     from INTERGROWTH-21st (same classifier as Form B field 14) only after a
+     genuine NBS weeks/days edit — not when opening a saved NBS record. */
+  useEffect(() => {
+    if (formData.ga_method !== "NBS") return;
+    const snap = loadedNbsGaRef.current;
+    if (
+      snap &&
+      String(formData.gestation_weeks ?? "") === snap.weeks &&
+      String(formData.gestation_days ?? "") === snap.days
+    ) {
+      return;
+    }
+    const next = growthFromIntergrowth(
+      formData.birth_weight, formData.gestation_weeks, formData.gestation_days, formData.gender
+    );
+    if (next.unresolvable) {
+      const currentKey = `${formData.growth_status}|${formData.sga_centile}`;
+      const wasAuto = lastAutoGrowthRef.current && currentKey === lastAutoGrowthRef.current;
+      if (wasAuto) {
+        setFormData(p => ({ ...p, growth_status: "", sga_centile: "" }));
+      }
+      lastAutoGrowthRef.current = null;
+      return;
+    }
+    const autoKey = `${next.growth_status}|${next.sga_centile}`;
+    if (`${formData.growth_status}|${formData.sga_centile}` !== autoKey) {
+      setFormData(p => ({ ...p, growth_status: next.growth_status, sga_centile: next.sga_centile }));
+    }
+    lastAutoGrowthRef.current = autoKey;
+  }, [
+    formData.birth_weight,
+    formData.gender,
+    formData.gestation_weeks,
+    formData.gestation_days,
+    formData.ga_method,
+  ]);
 
   /* ── Online / Offline ── */
   useEffect(() => {
@@ -741,6 +841,7 @@ export default function FormD() {
     caffeine_maint_abs:   num(formData.caffeine_maint_abs),
     caffeine_date:        formData.caffeine_date || null,
     caffeine_time:        formData.caffeine_time || null,
+    caffeine_maint_frequency: formData.caffeine_maint_frequency || null,
     intubation_after_resus: yesNoToBool(formData.intubation_after_resus),
     immediate_kmc:          yesNoToBool(formData.immediate_kmc),
     completed_by:  formData.completed_by,
@@ -864,7 +965,7 @@ export default function FormD() {
 
   const FIELD_LABELS = {
     plastic_wrap: "Plastic Wrap", et_intubation: "ET Intubation",
-    ga_method: "Gestational Age By", gender: "Gender",
+    ga_method: "Is Gestational Age > 2 weeks different by NBS?", gender: "Gender",
     growth_status: "Intra-uterine Growth Status", sga_centile: "SGA Centile",
     labored_breathing: "Labored Breathing", remained_intubated: "Remained Intubated",
     surfactant_required: "Surfactant Administered", surfactant_indication: "Surfactant Indication",
@@ -882,10 +983,12 @@ export default function FormD() {
     early_cpap: "Early / DR-CPAP", humidified_gas: "Humidified Gas",
     intubation_after_resus: "Intubation After Resuscitation",
     max_fio2_1hr: "Maximum FiO₂ in First Hour",
+    caffeine: "Caffeine",
     caffeine_loading: "Loading Dose of Caffeine",
     caffeine_loading_abs: "Caffeine Loading Dose",
     caffeine_maint_abs: "Caffeine Maintenance Dose",
     caffeine_date: "Caffeine Administration Date",
+    caffeine_maint_frequency: "Caffeine Maintenance Frequency",
     immediate_kmc: "Immediate KMC",
     completed_by: "Completed By",
     date: "Completion Date",
@@ -996,58 +1099,99 @@ export default function FormD() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>5. Gestational Age by <span className="field-note">(at postnatal day 1)</span></label>
-                    <SegmentedToggle name="ga_method" value={formData.ga_method}
-                      options={["USG","LMP","NBS"]}
-                      onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
+                    <label>5. Is Gestational Age &gt; 2 weeks different by NBS?{isRequired("ga_method") && <span className="required"> *</span>}</label>
+                    <SegmentedToggle
+                      name="ga_method"
+                      value={formData.ga_method === "NBS" ? "Yes" : formData.ga_method ? "No" : ""}
+                      options={["Yes","No"]}
+                      onChange={(_, v) => {
+                        const current = formData.ga_method === "NBS" ? "Yes" : formData.ga_method ? "No" : "";
+                        if (v === current) return;
+                        touch("ga_method");
+                        if (!isSaved || isEditing) setIsDirty(true);
+                        loadedNbsGaRef.current = null;
+                        if (v === "Yes") {
+                          setFormData(p => ({ ...p, ga_method: "NBS" }));
+                          return;
+                        }
+                        if (formData.ga_method && formData.ga_method !== "NBS") {
+                          lastNonNbsMethodRef.current = formData.ga_method;
+                        }
+                        const carried = formBGrowthRef.current;
+                        lastAutoGrowthRef.current = null;
+                        setFormData(p => ({
+                          ...p,
+                          ga_method: lastNonNbsMethodRef.current || "USG",
+                          gestation_weeks: p.original_gestation_weeks,
+                          gestation_days: p.original_gestation_days,
+                          growth_status: carried.growth_status,
+                          sga_centile: carried.sga_centile,
+                        }));
+                      }}
                       disabled={!isFieldEditable}/>
-                    <div className="form-grid-2 ga-weeks-days-row" style={{ marginTop: 8 }}>
-                      <FieldWrap name="gestation_weeks"
-                        formData={formData} touched={touched}
-                        label="Weeks" required={isRequired("gestation_weeks")}>
-                        <input type="number" name="gestation_weeks" value={formData.gestation_weeks || ""}
-                          min="18" max="42" readOnly={!isFieldEditable || formData.ga_method !== "NBS"}
-                          className={`emr-input${vr("gestation_weeks")?.level === "error" ? " fv-input-error" : vr("gestation_weeks")?.level === "ok" ? " fv-input-ok" : ""}`}
-                          onChange={e => {
-                            touch("gestation_weeks");
-                            const v = e.target.value;
-                            if (v === "" || (/^\d{0,2}$/.test(v) && Number(v) <= 42)) {
-                              setFormData(p => ({ ...p, gestation_weeks: v }));
-                            }
-                          }}
-                          onBlur={checkGaDiffOnBlur} />
-                      </FieldWrap>
-                      <FieldWrap name="gestation_days"
-                        formData={formData} touched={touched}
-                        label="Days" required={isRequired("gestation_days")}>
-                        <input type="number" name="gestation_days" value={formData.gestation_days || ""}
-                          min="0" max="6" readOnly={!isFieldEditable || formData.ga_method !== "NBS"}
-                          className={`emr-input${vr("gestation_days")?.level === "error" ? " fv-input-error" : vr("gestation_days")?.level === "ok" ? " fv-input-ok" : ""}`}
-                          onChange={e => {
-                            touch("gestation_days");
-                            const v = e.target.value;
-                            if (v === "" || (/^\d$/.test(v) && Number(v) <= 6)) {
-                              setFormData(p => ({ ...p, gestation_days: v }));
-                            }
-                          }}
-                          onBlur={checkGaDiffOnBlur} />
-                      </FieldWrap>
-                    </div>
                     {formData.ga_method && formData.ga_method !== "NBS" && (
-                      <div className="fv-msg" style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
-                        Carried over from postnatal day 1 (Form B gestation at randomization). Switch to NBS to enter a new newborn assessment.
+                      <div className="form-grid-2 ga-weeks-days-row" style={{ marginTop: 8 }}>
+                        <div className="form-group">
+                          <label>Weeks <span className="field-note">(auto)</span></label>
+                          <input value={formData.gestation_weeks || ""} readOnly className="readonly-input" />
+                        </div>
+                        <div className="form-group">
+                          <label>Days <span className="field-note">(auto)</span></label>
+                          <input value={formData.gestation_days || ""} readOnly className="readonly-input" />
+                        </div>
                       </div>
                     )}
-                    {formData.ga_method === "NBS" && (() => {
-                      const original = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
-                      const entered = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
-                      if (original === null || entered === null || Math.abs(entered - original) <= 14) return null;
-                      return (
-                        <div className="fv-msg fv-msg-warn" style={{ marginTop: 8 }}>
-                          Difference is more than 2 weeks from postnatal day 1 GA. This NBS GA will auto-fill subsequent forms.
+                    {formData.ga_method === "NBS" && (
+                      <>
+                        <div className="fv-msg" style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
+                          Enter newborn (NBS) gestational age. This value will be the final GA carried forward to subsequent forms when it differs from postnatal day 1 GA by more than 2 weeks.
                         </div>
-                      );
-                    })()}
+                        <div className="form-grid-2 ga-weeks-days-row" style={{ marginTop: 8 }}>
+                          <FieldWrap name="gestation_weeks"
+                            formData={formData} touched={touched}
+                            label="Weeks" required={isRequired("gestation_weeks")}>
+                            <input type="number" name="gestation_weeks" value={formData.gestation_weeks || ""}
+                              min="18" max="42" readOnly={!isFieldEditable}
+                              className={`emr-input${vr("gestation_weeks")?.level === "error" ? " fv-input-error" : vr("gestation_weeks")?.level === "ok" ? " fv-input-ok" : ""}`}
+                              onChange={e => {
+                                touch("gestation_weeks");
+                                const v = e.target.value;
+                                if (v === "" || (/^\d{0,2}$/.test(v) && Number(v) <= 42)) {
+                                  loadedNbsGaRef.current = null;
+                                  setFormData(p => ({ ...p, gestation_weeks: v }));
+                                }
+                              }}
+                              onBlur={checkGaDiffOnBlur} />
+                          </FieldWrap>
+                          <FieldWrap name="gestation_days"
+                            formData={formData} touched={touched}
+                            label="Days" required={isRequired("gestation_days")}>
+                            <input type="number" name="gestation_days" value={formData.gestation_days || ""}
+                              min="0" max="6" readOnly={!isFieldEditable}
+                              className={`emr-input${vr("gestation_days")?.level === "error" ? " fv-input-error" : vr("gestation_days")?.level === "ok" ? " fv-input-ok" : ""}`}
+                              onChange={e => {
+                                touch("gestation_days");
+                                const v = e.target.value;
+                                if (v === "" || (/^\d$/.test(v) && Number(v) <= 6)) {
+                                  loadedNbsGaRef.current = null;
+                                  setFormData(p => ({ ...p, gestation_days: v }));
+                                }
+                              }}
+                              onBlur={checkGaDiffOnBlur} />
+                          </FieldWrap>
+                        </div>
+                        {(() => {
+                          const original = totalGestationDays(formData.original_gestation_weeks, formData.original_gestation_days);
+                          const entered = totalGestationDays(formData.gestation_weeks, formData.gestation_days);
+                          if (original === null || entered === null || Math.abs(entered - original) <= 14) return null;
+                          return (
+                            <div className="fv-msg fv-msg-warn" style={{ marginTop: 8 }}>
+                              Difference is more than 2 weeks from postnatal day 1 GA. This NBS GA will auto-fill subsequent forms.
+                            </div>
+                          );
+                        })()}
+                      </>
+                    )}
                   </div>
                   <div className="form-group">
                     <label>6. Gender <span className="field-note">(from Form B)</span></label>
@@ -1055,22 +1199,50 @@ export default function FormD() {
                   </div>
                 </div>
                 <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>7. Intra-uterine Growth Status</label>
-                    <SegmentedToggle name="growth_status" value={formData.growth_status}
-                      options={["SGA","AGA","LGA"]}
-                      onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, growth_status: v, sga_centile: v !== "SGA" ? "" : formData.sga_centile })); }}
-                      disabled={!isFieldEditable}/>
-                  </div>
-                  {formData.growth_status === "SGA" && (
-                    <div className="form-group">
-                      <label>8. If SGA</label>
-                      <SegmentedToggle name="sga_centile" value={formData.sga_centile}
-                        options={[{label:"< 10th centile", value:"<10th"},{label:"< 3rd centile", value:"<3rd"}]}
-                        onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
-                        disabled={!isFieldEditable}/>
-                    </div>
-                  )}
+                  {(() => {
+                    const ig = growthFromIntergrowth(
+                      formData.birth_weight, formData.gestation_weeks, formData.gestation_days, formData.gender
+                    );
+                    const nbsUnresolvable = formData.ga_method === "NBS" && ig.unresolvable;
+                    const showManual = nbsUnresolvable;
+                    return (
+                      <>
+                        <div className="form-group">
+                          <label>7. Intra-uterine Growth Status <span className="field-note">(auto)</span></label>
+                          {showManual ? (
+                            <SegmentedToggle name="growth_status" value={formData.growth_status}
+                              options={["SGA","AGA","LGA"]}
+                              onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, growth_status: v, sga_centile: v !== "SGA" ? "" : p.sga_centile })); }}
+                              disabled={!isFieldEditable}/>
+                          ) : (
+                            <input value={formData.growth_status || ""} readOnly className="readonly-input" placeholder="Auto-calculated" />
+                          )}
+                          {nbsUnresolvable && (
+                            <div className="fv-msg" style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
+                              {INTERGROWTH_MANUAL_HINT}
+                            </div>
+                          )}
+                        </div>
+                        {(formData.growth_status === "SGA" || showManual) && (
+                          <div className="form-group">
+                            <label>8. If SGA {showManual ? null : <span className="field-note">(auto)</span>}</label>
+                            {showManual ? (
+                              formData.growth_status === "SGA" ? (
+                                <SegmentedToggle name="sga_centile" value={formData.sga_centile}
+                                  options={[{label:"< 10th centile", value:"<10th"},{label:"< 3rd centile", value:"<3rd"}]}
+                                  onChange={(n,v) => { touch(n); setFormData(p => ({ ...p, [n]: v })); }}
+                                  disabled={!isFieldEditable}/>
+                              ) : null
+                            ) : formData.growth_status === "SGA" ? (
+                              <input
+                                value={formData.sga_centile === "<3rd" ? "< 3rd centile" : formData.sga_centile === "<10th" ? "< 10th centile" : (formData.sga_centile || "")}
+                                readOnly className="readonly-input" placeholder="Auto-calculated" />
+                            ) : null}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -1487,9 +1659,21 @@ export default function FormD() {
                 <div className="obstetric-subcard" style={{ marginTop:16 }}>
                   <div className="obstetric-subcard__title">Caffeine Therapy</div>
                   <div className="form-grid-2">
+                    <FieldWrap name="caffeine"
+                    formData={formData} touched={touched}
+                      label="31a. Caffeine" required>
+                      <SegmentedToggle name="caffeine" value={formData.caffeine}
+                        options={["Yes","No"]} onChange={handleToggle}
+                        disabled={!isFieldEditable} />
+                    </FieldWrap>
+                    <div />
+                  </div>
+                  {formData.caffeine === "Yes" && (
+                  <>
+                  <div className="form-grid-2" style={{ marginTop:12 }}>
                     <FieldWrap name="caffeine_loading"
                     formData={formData} touched={touched}
-                      label="31. Loading Dose of Caffeine" required>
+                      label="31. Loading Dose of Caffeine" required={isRequired("caffeine_loading")}>
                       <SegmentedToggle name="caffeine_loading" value={formData.caffeine_loading}
                         options={["Yes","No"]} onChange={handleToggle}
                         disabled={!isFieldEditable} />
@@ -1538,8 +1722,10 @@ export default function FormD() {
                   )}
                   {formData.caffeine_loading === "Yes" && (
                   <div style={{ borderTop:"1px solid #e2e8f0", marginTop:16, paddingTop:16 }}>
+                    {/* TODO: error/warning for recommended caffeine dose range — needs a clinician-confirmed reference range first. */}
+                    {/* TODO (FYI): cumulative caffeine-dose tracker belongs on a Helper Form, not here. */}
                     <div style={{ fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:"#94a3b8",marginBottom:12 }}>
-                      Maintenance Dose
+                      Maintenance Dose of Caffeine
                     </div>
                     <div className="form-grid-2">
                       <FieldWrap name="caffeine_maint_abs"
@@ -1552,17 +1738,29 @@ export default function FormD() {
                           onChange={e => { touch("caffeine_maint_abs"); handleChange(e); }} />
                       </FieldWrap>
                       <div className="form-group">
-                        <label>35. Dose <span className="auto-tag">AUTO</span></label>
+                        <label>35. Dose (mg/kg/day)</label>
                         <div style={{ position:"relative" }}>
                           <input value={
                               formData.caffeine_maint_abs && formData.birth_weight
                                 ? (formData.caffeine_maint_abs / (formData.birth_weight / 1000)).toFixed(2) : ""
-                            } readOnly className="readonly-input" style={{ paddingRight:52 }} />
-                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg</span>
+                            } readOnly className="readonly-input" style={{ paddingRight:72 }} />
+                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg/day</span>
                         </div>
                       </div>
                     </div>
+                    <div className="form-grid-2" style={{ marginTop:12 }}>
+                      <FieldWrap name="caffeine_maint_frequency"
+                    formData={formData} touched={touched}
+                        label="Maintenance frequency" required={isRequired("caffeine_maint_frequency")}>
+                        <SegmentedToggle name="caffeine_maint_frequency" value={formData.caffeine_maint_frequency}
+                          options={["OD","BID","TID","QID"]} onChange={handleToggle}
+                          disabled={!isFieldEditable} />
+                      </FieldWrap>
+                      <div />
+                    </div>
                   </div>
+                  )}
+                  </>
                   )}
                 </div>
                 {/* Field 36 — Immediate KMC */}

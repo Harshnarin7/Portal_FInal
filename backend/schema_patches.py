@@ -378,6 +378,7 @@ POSTNATAL_DAY1_V2_COLUMN_PATCHES = [
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_maint_abs DOUBLE PRECISION",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_date DATE",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_time VARCHAR",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS caffeine_maint_frequency VARCHAR",
 ]
 
 NICU_ADMISSION_V2_COLUMN_PATCHES = [

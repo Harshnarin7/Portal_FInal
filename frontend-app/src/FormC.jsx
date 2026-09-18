@@ -264,7 +264,7 @@ function buildLegacySteroidSummary(steroidDrug, betaDoses, dexaDoses) {
 }
 
 /* ── Toggle component — matches YesNoToggle (Form A/B) exactly ── */
-function Toggle({ name, value, options, onChange, disabled, error }) {
+function Toggle({ name, value, options, onChange, disabled, error, variant }) {
   const isActive = (opt) => {
     const v = typeof opt === "object" ? opt.value : opt;
     if (value === v) return true;
@@ -276,7 +276,7 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
   return (
     <>
       <div style={{ display: "block", lineHeight: 0 }}>
-        <div className={`fc-toggle-group${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
+        <div className={`fc-toggle-group${variant === "infection" ? " fc-c5-toggle" : ""}${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
           {options.map((opt, idx) => {
             const v = typeof opt === "object" ? opt.value : opt;
             const l = typeof opt === "object" ? opt.label : opt;
@@ -284,9 +284,17 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
             const sv = String(v).toLowerCase();
             let activeCls = "";
             if (active) {
-              if (sv === "yes" || v === true)        activeCls = " fc-yes";
-              else if (sv === "no" || v === false)   activeCls = " fc-no";
-              else                                    activeCls = " fc-other";
+              if (variant === "infection") {
+                if (sv === "yes" || v === true)      activeCls = " fc-c5-abn";
+                else if (sv === "no" || v === false) activeCls = " fc-c5-nl";
+                else                                  activeCls = " fc-c5-unk";
+              } else if (sv === "yes" || v === true) {
+                activeCls = " fc-yes";
+              } else if (sv === "no" || v === false) {
+                activeCls = " fc-no";
+              } else {
+                activeCls = " fc-other";
+              }
             }
             return (
               <button
@@ -306,6 +314,13 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
     </>
   );
 }
+
+const c5InfectionTone = (value) => {
+  if (value === "Yes" || value === true) return "yes";
+  if (value === "No" || value === false) return "no";
+  if (value === "Not done" || value === "Not known") return "neutral";
+  return "blank";
+};
 
 /* ── MultiToggle — like Toggle but allows multiple simultaneous selections
    (used for Steroid Drug: Betamethasone / Dexamethasone can both be picked,
@@ -1000,6 +1015,7 @@ export default function FormC() {
   const handleToggle = (name, value) => {
     const patch = { [name]: value };
     if (name === "doppler" && value !== "Other") patch.doppler_other = "";
+    if (name === "pprom" && value !== "Yes") patch.pprom_duration = "";
     if (name === "antenatal_steroids" && value !== "Yes") {
       Object.assign(patch, {
         steroid_drug: "",
@@ -1020,7 +1036,11 @@ export default function FormC() {
     }
     set(patch);
     touchField(name);
-    setErrors(p => ({ ...p, [name]: validateField(name, value, { ...formData, ...patch }) }));
+    setErrors(p => {
+      const next = { ...p, [name]: validateField(name, value, { ...formData, ...patch }) };
+      if (name === "pprom" && value !== "Yes") next.pprom_duration = "";
+      return next;
+    });
   };
 
   /* Steroid drug — multi-select. "Not known" is exclusive. Clears dose fields for deselected drugs. */
@@ -2298,100 +2318,74 @@ export default function FormC() {
             <div className={`form-section card-section${ce.c7>0?" card-has-errors":""}`}>
               <SectionHeader label="C5 · Evidence of Infection" num="C5" icon={AlertTriangle} errCount={ce.c7}/>
               <div className="form-section-body">
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>44. pPROM<span className="required">*</span></label>
-                    <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
-                      onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}/>
-                    {formData.pprom==="Yes" && (
-                      <div style={{marginTop:8}}>
-                        <label style={{fontSize:12,fontWeight:600,color:"#374151"}}>45. Duration (hrs)<span className="required">*</span></label>
+                <div className="c5-inf-table">
+                  <div className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData.pprom)}`}>
+                    <span className="c5-inf-num">44</span>
+                    <label className="c5-inf-label">pPROM<span className="required">*</span></label>
+                    <div className="c5-inf-pills">
+                      <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
+                        onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}
+                        variant="infection"/>
+                    </div>
+                  </div>
+                  {formData.pprom==="Yes" && (
+                    <div className="c5-inf-row c5-inf-row--sub">
+                      <span className="c5-inf-num">45</span>
+                      <label className="c5-inf-label">Duration (hrs)<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
                         <input type="number" name="pprom_duration" value={formData.pprom_duration||""}
                           onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
-                          readOnly={!isFieldEditable} className={E("pprom_duration")?"input-error":""}/>
+                          readOnly={!isFieldEditable} className={`c5-inf-hours${E("pprom_duration")?" input-error":""}`}/>
                         <FieldError msg={E("pprom_duration")}/>
                       </div>
-                    )}
+                    </div>
+                  )}
+                  {[
+                    { num: "46", name: "preterm_labor", label: "Preterm Labor", options: ["Yes","No"] },
+                    { num: "47", name: "maternal_fever", label: "Maternal Fever (≥39℃ or 38–39℃ ×2)", options: ["Yes","No"] },
+                    { num: "48", name: "fetal_tachycardia", label: <>Baseline Fetal Tachycardia (&gt;160 bpm)</>, options: ["Yes","No"] },
+                    { num: "49", name: "maternal_tlc_high", label: <>Maternal TLC &gt;15000/mm³</>, options: ["Yes","No","Not done"] },
+                    { num: "50", name: "maternal_tachycardia", label: "Maternal Tachycardia", options: ["Yes","No"] },
+                    { num: "51", name: "maternal_abdominal_tenderness", label: "Maternal Abdominal Tenderness", options: ["Yes","No"] },
+                  ].map(row => (
+                    <div key={row.name} className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData[row.name])}`}>
+                      <span className="c5-inf-num">{row.num}</span>
+                      <label className="c5-inf-label">{row.label}<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
+                        <Toggle name={row.name} value={formData[row.name]} options={row.options}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E(row.name)}
+                          variant="infection"/>
+                      </div>
+                    </div>
+                  ))}
+                  <div className={`c5-inf-row c5-inf-row--triple c5-inf-row--${c5InfectionTone(computeTripleI(formData))}`}>
+                    <span className="c5-inf-num">52</span>
+                    <label className="c5-inf-label">
+                      Intrauterine Inflammation or Infection or both (triple ‘I’)
+                      <span className="field-note"> (auto filled)</span>
+                    </label>
+                    <div className="c5-inf-pills">
+                      <input
+                        value={computeTripleI(formData)}
+                        readOnly className="readonly-input c5-inf-triple-value" placeholder="Auto-calculated"/>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>46. Preterm Labor<span className="required">*</span></label>
-                    <Toggle name="preterm_labor" value={formData.preterm_labor}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("preterm_labor")}/>
-                  </div>
+                  {[
+                    { num: "53", name: "foul_smelling_liquor", label: "Foul-Smelling Liquor", options: ["Yes","No","Not known"] },
+                    { num: "54", name: "maternal_uti", label: "Maternal UTI", options: ["Yes","No","Not known"] },
+                    { num: "55", name: "maternal_diarrhea", label: "Maternal Diarrhea", options: ["Yes","No","Not known"] },
+                  ].map(row => (
+                    <div key={row.name} className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData[row.name])}`}>
+                      <span className="c5-inf-num">{row.num}</span>
+                      <label className="c5-inf-label">{row.label}<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
+                        <Toggle name={row.name} value={formData[row.name]} options={row.options}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E(row.name)}
+                          variant="infection"/>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>47. Maternal Fever (≥39℃ or 38–39℃ ×2)<span className="required">*</span></label>
-                    <Toggle name="maternal_fever" value={formData.maternal_fever}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_fever")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>48. Baseline Fetal Tachycardia (&gt;160 bpm)<span className="required">*</span></label>
-                    <Toggle name="fetal_tachycardia" value={formData.fetal_tachycardia}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("fetal_tachycardia")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>49. Maternal TLC &gt;15000/mm³<span className="required">*</span></label>
-                    <Toggle name="maternal_tlc_high" value={formData.maternal_tlc_high}
-                      options={["Yes","No","Not done"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_tlc_high")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>50. Maternal Tachycardia<span className="required">*</span></label>
-                    <Toggle name="maternal_tachycardia" value={formData.maternal_tachycardia}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_tachycardia")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>51. Maternal Abdominal Tenderness<span className="required">*</span></label>
-                    <Toggle name="maternal_abdominal_tenderness" value={formData.maternal_abdominal_tenderness}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_abdominal_tenderness")}/>
-                  </div>
-                  {/* Field 52: Triple I — auto-calculated from infection signs */}
-                  <div className="form-group">
-                    <label>52. Intrauterine Inflammation or Infection or both (triple ‘I’) <span className="field-note">(auto filled)</span></label>
-                    <input
-                      value={computeTripleI(formData)}
-                      readOnly className="readonly-input" placeholder="Auto-calculated"/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>53. Foul-Smelling Liquor<span className="required">*</span></label>
-                    <Toggle name="foul_smelling_liquor" value={formData.foul_smelling_liquor}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("foul_smelling_liquor")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>54. Maternal UTI<span className="required">*</span></label>
-                    <Toggle name="maternal_uti" value={formData.maternal_uti}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_uti")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>55. Maternal Diarrhea<span className="required">*</span></label>
-                    <Toggle name="maternal_diarrhea" value={formData.maternal_diarrhea}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_diarrhea")}/>
-                  </div>
-                  <div/>
-                </div>
-
               </div>
             </div>
 
