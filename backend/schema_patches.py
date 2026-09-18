@@ -1223,3 +1223,12 @@ BIRTH_RESUSCITATION_TOTAL_RESUS_TIME_MMSS_PATCHES = [
     END $$;
     """,
 ]
+
+# Form E HFOV mode: Amplitude + Frequency, shown only when the respiratory
+# mode (transport or in-NICU) is set to HFOV.
+NICU_ADMISSION_HFOV_PATCHES = [
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_amplitude DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_frequency DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_amplitude DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_frequency DOUBLE PRECISION",
+]

@@ -1049,6 +1049,8 @@ class NICUAdmissionCreate(BaseModel):
     transport_peep: Optional[float] = None
     transport_map:  Optional[float] = None
     transport_fio2: Optional[float] = None
+    transport_amplitude: Optional[float] = None
+    transport_frequency: Optional[float] = None
 
     nicu_mode_resp: Optional[str] = None
     nicu_cpap: Optional[float] = None
@@ -1056,6 +1058,8 @@ class NICUAdmissionCreate(BaseModel):
     nicu_peep: Optional[float] = None
     nicu_map:  Optional[float] = None
     nicu_fio2: Optional[float] = None
+    nicu_amplitude: Optional[float] = None
+    nicu_frequency: Optional[float] = None
 
     completed_by: Optional[str] = None
     designation: Optional[str] = None

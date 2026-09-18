@@ -538,6 +538,8 @@ class NICUAdmission(Base):
     transport_peep = Column(Float)
     transport_map  = Column(Float)
     transport_fio2 = Column(Float)
+    transport_amplitude = Column(Float)
+    transport_frequency = Column(Float)
 
     nicu_mode_resp = Column(String)
     nicu_cpap = Column(Float)
@@ -545,6 +547,8 @@ class NICUAdmission(Base):
     nicu_peep = Column(Float)
     nicu_map  = Column(Float)
     nicu_fio2 = Column(Float)
+    nicu_amplitude = Column(Float)
+    nicu_frequency = Column(Float)
 
     completed_by = Column(String)
     designation = Column(String)
