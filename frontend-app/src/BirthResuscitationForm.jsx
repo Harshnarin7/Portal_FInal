@@ -2890,7 +2890,7 @@ export default function BirthResuscitationForm() {
                                     if (!next.includes(BLENDER_ABRUPT_REASON)) patch.blender_stopped_description = "";
                                     set(patch);
                                   }}/>
-                                <span>{opt === BLENDER_ABRUPT_REASON ? `${BLENDER_ABRUPT_REASON}, describe` : opt}</span>
+                                <span>{opt}</span>
                               </label>
                               {opt === BLENDER_ABRUPT_REASON && (formData.blender_interrupt_reasons||[]).includes(opt) && (
                                 <input type="text"
