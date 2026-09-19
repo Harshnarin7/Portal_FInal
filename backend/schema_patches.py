@@ -1239,3 +1239,8 @@ NICU_ADMISSION_HFOV_PATCHES = [
 MATERNAL_DETAILS_ISOIMMUNIZATION_TYPE_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS isoimmunization_type VARCHAR",
 ]
+
+# DMS gi_a feed flowsheet: nurse-chosen row cadence (1/2/3-hourly), per sheet.
+MINIMAL_MONITORING_GI_FREQUENCY_PATCHES = [
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS gi_feed_frequency_hours INTEGER",
+]

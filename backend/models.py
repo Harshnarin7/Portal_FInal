@@ -2105,6 +2105,9 @@ class MinimalMonitoringDayLog(Base):
     symptomatic_detail = Column(String, nullable=True)
 
     cumulative_feed_volume = Column(Float, nullable=True)
+    # Nurse-chosen row cadence for the gi_a feed flowsheet (1/2/3-hourly);
+    # per-sheet, not a standing preference — defaults to 2h on a blank sheet.
+    gi_feed_frequency_hours = Column(Integer, nullable=True)
     direct_bilirubin = Column(Float, nullable=True)
 
     imaging_date = Column(String, nullable=True)

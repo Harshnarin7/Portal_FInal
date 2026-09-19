@@ -975,3 +975,263 @@
 
 .mml-coverage-hour-label:first-child { transform: translateX(0); }
 .mml-coverage-hour-label:last-child { transform: translateX(-100%); }
+
+/* ── GI Feed Flowsheet (5.4.A) — compact, no cell text overflow ── */
+
+.mml-gi-flowsheet {
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 10px;
+  background: #F8FAFC;
+}
+
+.mml-gi-freq-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.mml-gi-freq-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.mml-gi-freq-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.mml-gi-freq-btn {
+  border: 1px solid #CBD5E1;
+  background: #fff;
+  color: #475569;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.mml-gi-freq-btn--on {
+  background: var(--rcn-primary, #2563eb);
+  border-color: var(--rcn-primary, #2563eb);
+  color: #fff;
+}
+
+.mml-gi-freq-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.mml-gi-freq-note {
+  font-size: 10.5px;
+  color: #94A3B8;
+  margin-left: auto;
+}
+
+.mml-gi-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+}
+
+.mml-gi-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11px;
+}
+
+.mml-gi-table th,
+.mml-gi-table td {
+  padding: 4px 5px;
+  border-bottom: 1px solid #E2E8F0;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mml-gi-table th {
+  background: #F1F5F9;
+  color: #475569;
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mml-gi-table th:last-child,
+.mml-gi-table td.mml-gi-row-action {
+  width: 22px;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.mml-gi-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.mml-gi-row--missing {
+  background: #FFF7ED;
+}
+
+.mml-gi-row--clickable {
+  cursor: pointer;
+}
+
+.mml-gi-row--clickable:hover {
+  background: #FFEDD5;
+}
+
+.mml-gi-row--upcoming {
+  background: #F8FAFC;
+  color: #CBD5E1;
+}
+
+.mml-gi-row--error {
+  background: #FEF2F2;
+}
+
+.mml-gi-placeholder-label {
+  font-size: 10.5px;
+  font-style: italic;
+  color: #94A3B8;
+  text-align: left !important;
+  padding-left: 8px !important;
+}
+
+.mml-gi-slot {
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+  font-size: 10.5px;
+}
+
+.mml-gi-time-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #CBD5E1;
+  border-radius: 5px;
+  padding: 2px 2px;
+  font-size: 10.5px;
+  text-align: center;
+  background: #fff;
+}
+
+.mml-gi-status-toggle {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+}
+
+.mml-gi-status-btn {
+  border: 1px solid #CBD5E1;
+  background: #fff;
+  color: #64748B;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.mml-gi-status-btn--ef {
+  background: #DCFCE7;
+  border-color: #86EFAC;
+  color: #166534;
+}
+
+.mml-gi-status-btn--npo {
+  background: #FEE2E2;
+  border-color: #FCA5A5;
+  color: #991B1B;
+}
+
+.mml-gi-status-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.mml-gi-select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #CBD5E1;
+  border-radius: 5px;
+  padding: 2px 1px;
+  font-size: 10.5px;
+  background: #fff;
+}
+
+.mml-gi-vol-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #CBD5E1;
+  border-radius: 5px;
+  padding: 2px 3px;
+  font-size: 10.5px;
+  text-align: center;
+  background: #fff;
+}
+
+.mml-gi-dash {
+  color: #CBD5E1;
+}
+
+.mml-gi-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #CBD5E1;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.mml-gi-remove-btn:hover {
+  color: #EF4444;
+}
+
+.mml-gi-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+}
+
+.mml-gi-summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.mml-gi-summary-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.mml-gi-summary-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1E293B;
+}
+
+.mml-gi-legend {
+  margin: 6px 2px 0;
+  font-size: 9.5px;
+  color: #94A3B8;
+  line-height: 1.4;
+}

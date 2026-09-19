@@ -77,7 +77,7 @@ const BLOCK_META = {
   resp_d: { code: "5.2.D", label: "Postnatal Steroids", desc: "Agent & dose" },
   met_a: { code: "5.3.A", label: "Glucose", desc: "Spot glucose reading" },
   met_b: { code: "5.3.B", label: "Lab Reports — ALP, Total Ca, P", desc: "ALP, total calcium & phosphorus" },
-  gi_a: { code: "5.4.A", label: "Feed Volume", desc: "Shift & cumulative feed volume" },
+  gi_a: { code: "5.4.A", label: "Feed Volume", desc: "EF/NPO, milk type, and volume — logged on a chosen hourly cadence" },
   gi_b: { code: "5.4.B", label: "Direct Bilirubin", desc: "Direct bilirubin value" },
   neuro_combined: {
     code: "5.5",
@@ -223,7 +223,11 @@ function emptyEntries() {
     resp_d: [freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })],
     met_a: [freshEntry({ glucose: "" })],
     met_b: [freshEntry({ alp: "", total_calcium: "", phosphorus: "" })],
-    gi_a: [freshEntry({ cumulative_feed_volume: "" })],
+    // gi_a is the flowsheet block: no seed draft row — rows are generated
+    // from the chosen frequency + whatever real entries already exist (see
+    // buildGiFlowsheetRows), not the generic "always ends with a blank
+    // draft" pattern every other block uses.
+    gi_a: [],
     gi_b: [freshEntry({ direct_bilirubin: "" })],
     neuro_a: [freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })],
     neuro_b: [freshEntry({ tod: "", aca_ri: "", mca_ri: "" })],
@@ -271,7 +275,16 @@ function hydrateEntries(d) {
   e.resp_d[0] = { ...e.resp_d[0], postnatal_steroids: stringToList(d.postnatal_steroids), steroid_dose: d.steroid_dose ?? "", steroid_other: d.steroid_other || "" };
   e.met_a[0] = { ...e.met_a[0], glucose: d.glucose ?? "" };
   e.met_b[0] = { ...e.met_b[0], alp: d.alp ?? "", total_calcium: d.total_calcium ?? "", phosphorus: d.phosphorus ?? "" };
-  e.gi_a[0] = { ...e.gi_a[0], cumulative_feed_volume: d.cumulative_feed_volume ?? "" };
+  // Legacy gi_a had one flat cumulative_feed_volume number, no status/type/
+  // slot structure at all — migrate a real value into one EF entry (type
+  // unknown) rather than silently dropping it. A blank/zero legacy value
+  // needs no synthetic entry (gi_a's new default is simply empty).
+  if (d.cumulative_feed_volume != null && d.cumulative_feed_volume !== "") {
+    e.gi_a = [freshEntry({
+      slot_time: "00:00", status: "EF", milk_type: "",
+      volume_ml: String(d.cumulative_feed_volume),
+    }, d.record_date)];
+  }
   e.gi_b[0] = { ...e.gi_b[0], direct_bilirubin: d.direct_bilirubin ?? "" };
   e.neuro_a[0] = { ...e.neuro_a[0], date: d.imaging_date || e.neuro_a[0].date, ventriculomegaly_severity: d.ventriculomegaly_severity || "", vi: d.vi ?? "", ahw: d.ahw ?? "" };
   e.neuro_b[0] = { ...e.neuro_b[0], tod: d.tod ?? "", aca_ri: d.aca_ri ?? "", mca_ri: d.mca_ri ?? "" };
@@ -284,7 +297,12 @@ function flattenEntries(entries) {
   const cvA = g("cv_a"); const cvB = g("cv_b"); const cvC = g("cv_c"); const cvD = g("cv_d");
   const rA = g("resp_a"); const rB = g("resp_b"); const rC = g("resp_c"); const rD = g("resp_d");
   const mA = g("met_a"); const mB = g("met_b");
-  const giA = g("gi_a"); const giB = g("gi_b");
+  const giB = g("gi_b");
+  // gi_a is now a per-slot flowsheet (many real entries, not just the
+  // first) — the flat mirror column is the day's total EF volume.
+  const giAEfVolumeMl = (entries.gi_a || [])
+    .filter(e => hasEntryData(e) && e.status === "EF")
+    .reduce((sum, e) => sum + (Number(e.volume_ml) || 0), 0);
   const nA = g("neuro_a"); const nB = g("neuro_b"); const hA = g("heme_a");
   return {
     record_date: cvA.date || "",
@@ -319,7 +337,7 @@ function flattenEntries(entries) {
     total_calcium: asNumber(mB.total_calcium),
     phosphorus: asNumber(mB.phosphorus),
     feed_shift: "",
-    cumulative_feed_volume: asNumber(giA.cumulative_feed_volume),
+    cumulative_feed_volume: giAEfVolumeMl > 0 ? giAEfVolumeMl : null,
     direct_bilirubin: asNumber(giB.direct_bilirubin),
     imaging_date: nA.date || "",
     ventriculomegaly_severity: nA.ventriculomegaly_severity || "",
@@ -342,7 +360,10 @@ function flattenEntries(entries) {
 function hasEntryData(entry) {
   if (!entry) return false;
   return Object.entries(entry).some(([k, v]) => {
-    if (k === "id" || k === "date" || k === "time") return false;
+    // slot_time is gi_a's flowsheet-slot bookkeeping tag (which scheduled
+    // row this entry belongs to) — like id/date/time, it's metadata stamped
+    // automatically, never itself a clinical answer.
+    if (k === "id" || k === "date" || k === "time" || k === "slot_time") return false;
     return ans(v);
   });
 }
@@ -439,7 +460,11 @@ function countProgress(entries) {
         // they are bookkeeping metadata, not a clinical answer, so they must not
         // count toward "filled" progress.
         if (k === "date" || k === "time") return;
+        // slot_time is gi_a's flowsheet-slot bookkeeping tag (which scheduled
+        // slot this real entry was recorded against) — not a clinical answer.
+        if (k === "slot_time") return;
         // Conditional slots
+        if (block === "gi_a" && (k === "milk_type" || k === "volume_ml") && entry.status !== "EF") return;
         if (k === "steroid_other" && !(entry.postnatal_steroids || []).includes("Other")) return;
         if ((k === "vasoactive_dose" || k === "vasoactive_unit") && !(entry.vasoactive_drugs || []).length) return;
         if (k === "prbc_volume" && !(entry.transfusion_products || []).includes("PRBC")) return;
@@ -964,6 +989,248 @@ function CoverageTimeline({ tableRows, blockKey }) {
   );
 }
 
+/* ── GI Feed Flowsheet (5.4.A) ──────────────────────────────────────────
+   Unlike every other DMS block (event-driven: log a reading whenever one
+   occurs), feeding is a SCHEDULED, recurring activity — reconstructing a
+   12x-a-day record via "log another reading" with no sense of the day's
+   coverage is genuinely painful. This block instead generates rows from a
+   chosen cadence (1/2/3-hourly) and only asks the nurse to fill in status
+   (EF/NPO), milk type, and volume per slot. Real entries are still a plain
+   array like every other block — a frequency change never touches or
+   merges stored entries, it only changes which "expected slot" placeholders
+   get generated/flagged around them, so nothing already logged can be lost
+   or silently reassigned by toggling the cadence. */
+
+const GI_MILK_TYPES = ["FM", "EBM", "PDHM"];
+
+function minutesTo24h(mins) {
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return `${pad2(h)}:${pad2(m)}`;
+}
+
+/** 24h "HH:MM" slot start times for a given hourly cadence. */
+function giExpectedSlots(frequencyHours) {
+  const stepMin = Math.max(1, Number(frequencyHours) || 2) * 60;
+  const slots = [];
+  for (let m = 0; m < 24 * 60; m += stepMin) slots.push(minutesTo24h(m));
+  return slots;
+}
+
+/** Full displayed row list: real entries matched to their scheduled slot,
+ *  blank "missing" placeholders for past/current slots with nothing logged,
+ *  greyed "upcoming" placeholders for future slots on today's sheet (never
+ *  flagged as missing — it hasn't happened yet), and any real entry whose
+ *  slot_time doesn't match the current frequency's own boundaries (e.g. left
+ *  over from a since-changed cadence) shown as its own row rather than
+ *  dropped. */
+function buildGiFlowsheetRows(entries, frequencyHours, isToday, nowMinutes) {
+  const real = (entries || []).filter(hasEntryData);
+  const slots = giExpectedSlots(frequencyHours);
+  const bySlot = new Map();
+  const orphans = [];
+  for (const e of real) {
+    if (slots.includes(e.slot_time)) {
+      if (!bySlot.has(e.slot_time)) bySlot.set(e.slot_time, []);
+      bySlot.get(e.slot_time).push(e);
+    } else {
+      orphans.push(e);
+    }
+  }
+  const rows = [];
+  for (const slot of slots) {
+    const matched = bySlot.get(slot);
+    if (matched && matched.length) {
+      matched.forEach(e => rows.push({ kind: "filled", slot, entry: e }));
+    } else {
+      const slotMin = hhmmToMinutes(slot);
+      const isFuture = isToday && slotMin != null && slotMin > nowMinutes;
+      rows.push({ kind: isFuture ? "upcoming" : "missing", slot });
+    }
+  }
+  orphans.forEach(e => rows.push({ kind: "filled", slot: e.slot_time || "", entry: e, orphan: true }));
+  rows.sort((a, b) => {
+    const am = hhmmToMinutes(a.entry ? a.entry.time : a.slot) ?? 0;
+    const bm = hhmmToMinutes(b.entry ? b.entry.time : b.slot) ?? 0;
+    return am - bm;
+  });
+  return rows;
+}
+
+/** Day totals — NPO/EF hours only ever come from EXPLICITLY marked rows.
+ *  A blank/missing slot contributes to neither pool: unlogged is not
+ *  evidence of fasting, matching the same never-invent-data-for-gaps rule
+ *  used for the FiO2 AUC prefill. */
+function computeGiSummary(entries, frequencyHours) {
+  const real = (entries || []).filter(hasEntryData);
+  const byType = { FM: 0, EBM: 0, PDHM: 0 };
+  let totalVolume = 0;
+  let efCount = 0;
+  let npoCount = 0;
+  for (const e of real) {
+    if (e.status === "EF") {
+      efCount += 1;
+      const v = Number(e.volume_ml) || 0;
+      totalVolume += v;
+      if (e.milk_type && byType[e.milk_type] != null) byType[e.milk_type] += v;
+    } else if (e.status === "NPO") {
+      npoCount += 1;
+    }
+  }
+  const freq = Math.max(1, Number(frequencyHours) || 2);
+  return {
+    totalVolume,
+    byType,
+    efHours: efCount * freq,
+    npoHours: npoCount * freq,
+  };
+}
+
+function GiFeedFlowsheet({
+  entries, frequencyHours, onChangeFrequency, onChangeField, onAdd, onRemove,
+  disabled, sheetDate, errors,
+}) {
+  const isToday = sheetDate === realCalendarDateYmd();
+  const nowMinutes = (() => {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+  })();
+  const rows = buildGiFlowsheetRows(entries, frequencyHours, isToday, nowMinutes);
+  const summary = computeGiSummary(entries, frequencyHours);
+  const timeMax = mmlMaxAllowedTimeForSheetDate(sheetDate);
+
+  return (
+    <div className="mml-gi-flowsheet">
+      <div className="mml-gi-freq-row">
+        <span className="mml-gi-freq-label">Log every</span>
+        <div className="mml-gi-freq-pills">
+          {[1, 2, 3].map(h => (
+            <button key={h} type="button"
+              className={`mml-gi-freq-btn${Number(frequencyHours) === h ? " mml-gi-freq-btn--on" : ""}`}
+              onClick={() => !disabled && onChangeFrequency(h)}
+              disabled={disabled}>{h}h</button>
+          ))}
+        </div>
+        <span className="mml-gi-freq-note">{giExpectedSlots(frequencyHours).length} rows / 24h</span>
+      </div>
+
+      <div className="mml-gi-table-wrap">
+        <table className="mml-gi-table">
+          <thead>
+            <tr>
+              <th>Sched.</th>
+              <th>Actual</th>
+              <th>Status</th>
+              <th>Type</th>
+              <th>Vol&nbsp;(ml)</th>
+              <th aria-hidden="true" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              if (row.kind === "upcoming") {
+                return (
+                  <tr key={`up-${row.slot}-${i}`} className="mml-gi-row mml-gi-row--upcoming">
+                    <td className="mml-gi-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={4} className="mml-gi-placeholder-label">Upcoming</td>
+                    <td />
+                  </tr>
+                );
+              }
+              if (row.kind === "missing") {
+                return (
+                  <tr key={`miss-${row.slot}-${i}`}
+                    className={`mml-gi-row mml-gi-row--missing${disabled ? "" : " mml-gi-row--clickable"}`}
+                    onClick={() => !disabled && onAdd(row.slot)}>
+                    <td className="mml-gi-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={4} className="mml-gi-placeholder-label">
+                      {disabled ? "Not logged" : "Not logged — tap to add"}
+                    </td>
+                    <td />
+                  </tr>
+                );
+              }
+              const e = row.entry;
+              const isEF = e.status === "EF";
+              const err = errors[`gi_a.${e.id}.volume_ml`] || errors[`gi_a.${e.id}.milk_type`];
+              return (
+                <tr key={e.id}
+                  className={`mml-gi-row${err ? " mml-gi-row--error" : ""}`}
+                  title={row.orphan ? "Doesn't match the current frequency's slots — kept as its own reading" : undefined}>
+                  <td className="mml-gi-slot">{row.slot ? formatTimeAmPm(row.slot) : "—"}</td>
+                  <td>
+                    <input type="time" className="mml-gi-time-input" value={e.time || ""}
+                      max={timeMax} disabled={disabled}
+                      onChange={ev => onChangeField(e.id, "time", mmlClampTimeForSheetDate(sheetDate, ev.target.value))} />
+                  </td>
+                  <td>
+                    <div className="mml-gi-status-toggle">
+                      <button type="button"
+                        className={`mml-gi-status-btn${e.status === "EF" ? " mml-gi-status-btn--ef" : ""}`}
+                        onClick={() => !disabled && onChangeField(e.id, "status", "EF")}
+                        disabled={disabled}>EF</button>
+                      <button type="button"
+                        className={`mml-gi-status-btn${e.status === "NPO" ? " mml-gi-status-btn--npo" : ""}`}
+                        onClick={() => !disabled && onChangeField(e.id, "status", "NPO")}
+                        disabled={disabled}>NPO</button>
+                    </div>
+                  </td>
+                  <td>
+                    {isEF ? (
+                      <select className="mml-gi-select" value={e.milk_type || ""} disabled={disabled}
+                        onChange={ev => onChangeField(e.id, "milk_type", ev.target.value)}>
+                        <option value="">—</option>
+                        {GI_MILK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    ) : <span className="mml-gi-dash">—</span>}
+                  </td>
+                  <td>
+                    {isEF ? (
+                      <input type="number" min="0" className="mml-gi-vol-input" value={e.volume_ml || ""}
+                        disabled={disabled}
+                        onChange={ev => onChangeField(e.id, "volume_ml", ev.target.value)} />
+                    ) : <span className="mml-gi-dash">—</span>}
+                  </td>
+                  <td className="mml-gi-row-action">
+                    {!disabled && (
+                      <button type="button" className="mml-gi-remove-btn" title="Remove this reading"
+                        onClick={() => onRemove(e.id)}>
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mml-gi-summary">
+        <div className="mml-gi-summary-item">
+          <span className="mml-gi-summary-label">Total EF Vol.</span>
+          <span className="mml-gi-summary-value">{summary.totalVolume || 0} ml</span>
+        </div>
+        {GI_MILK_TYPES.filter(t => summary.byType[t] > 0).map(t => (
+          <div className="mml-gi-summary-item" key={t}>
+            <span className="mml-gi-summary-label">{t}</span>
+            <span className="mml-gi-summary-value">{summary.byType[t]} ml</span>
+          </div>
+        ))}
+        <div className="mml-gi-summary-item">
+          <span className="mml-gi-summary-label">EF Hours</span>
+          <span className="mml-gi-summary-value">{summary.efHours}h</span>
+        </div>
+        <div className="mml-gi-summary-item">
+          <span className="mml-gi-summary-label">NPO Hours</span>
+          <span className="mml-gi-summary-value">{summary.npoHours}h</span>
+        </div>
+      </div>
+      <p className="mml-gi-legend">FM = Formula Milk · EBM = Expressed Breast Milk · PDHM = Pasteurized Donor Human Milk</p>
+    </div>
+  );
+}
+
 function EntryBlock({
   blockKey, code, subsectionTitle, entries, onChangeEntry, onAdd, onRemove, disabled, blankFactory, children, fixedDate,
   errors = {},
@@ -1213,6 +1480,7 @@ export default function MinimalMonitoringLog() {
 
   const [entries, setEntries] = useState(emptyEntries);
   const [sheetDate, setSheetDate] = useState("");
+  const [giFeedFrequencyHours, setGiFeedFrequencyHours] = useState(2);
   const [patientInfo, setPatientInfo] = useState({ enrollmentId, motherName: "", babyUid: "", gestation: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1296,6 +1564,48 @@ export default function MinimalMonitoringLog() {
     dirtyRef.current = true;
   };
 
+  /* ── gi_a mutation — keyed by id, not index, since the flowsheet's row
+     order is computed (slot-sorted + placeholders), not the raw array order. */
+  const setGiEntryField = (id, key, value) => {
+    setEntries(prev => ({
+      ...prev,
+      gi_a: (prev.gi_a || []).map(e => {
+        if (e.id !== id) return e;
+        if (key === "status" && value !== "EF") {
+          return { ...e, status: value, milk_type: "", volume_ml: "" };
+        }
+        return { ...e, [key]: value };
+      }),
+    }));
+    setErrors(prev => ({ ...prev, [`gi_a.${id}.${key}`]: null }));
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
+  const addGiEntry = (slotTime) => {
+    setEntries(prev => ({
+      ...prev,
+      gi_a: [
+        ...(prev.gi_a || []),
+        freshEntry({ slot_time: slotTime, time: slotTime, status: "", milk_type: "", volume_ml: "" }, sheetDate),
+      ],
+    }));
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
+  const removeGiEntry = (id) => {
+    setEntries(prev => ({ ...prev, gi_a: (prev.gi_a || []).filter(e => e.id !== id) }));
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
+  const changeGiFrequency = (hours) => {
+    setGiFeedFrequencyHours(hours);
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
   useEffect(() => {
     if (!enrollmentId) return;
     const loadPatient = async () => {
@@ -1334,11 +1644,13 @@ export default function MinimalMonitoringLog() {
       const recordDate = data.record_date || ymd;
       setSheetDate(recordDate);
       setEntries(ensureTrailingDraftRows(hydrateEntries(data), recordDate));
+      setGiFeedFrequencyHours(data.gi_feed_frequency_hours || 2);
       rememberMmlSheetDate(enrollmentId, recordDate);
       dirtyRef.current = false;
     } catch (_) {
       setSheetDate(ymd);
       setEntries(emptyEntries());
+      setGiFeedFrequencyHours(2);
       setMessage("Could not load sheet for this date. Please try again.");
     } finally {
       setLoading(false);
@@ -1432,6 +1744,12 @@ export default function MinimalMonitoringLog() {
         next[`heme_a.${i}.transfusion_count`] = "Enter a non-negative whole number";
       }
     });
+    (entries.gi_a || []).filter(hasEntryData).forEach((e) => {
+      if (e.status === "EF") {
+        if (!ans(e.volume_ml)) next[`gi_a.${e.id}.volume_ml`] = "Enter feed volume";
+        if (!ans(e.milk_type)) next[`gi_a.${e.id}.milk_type`] = "Select milk type";
+      }
+    });
 
     Object.keys(entries).forEach(blockKey => {
       const list = entries[blockKey] || [];
@@ -1468,6 +1786,7 @@ export default function MinimalMonitoringLog() {
     enrollment_id: enrollmentId,
     ...flattenEntries(entriesSnapshot),
     record_date: sheetDate,
+    gi_feed_frequency_hours: giFeedFrequencyHours,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
@@ -1854,21 +2173,17 @@ export default function MinimalMonitoringLog() {
         );
       case "gi_a":
         return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="gi_a" code="5.4.A" entries={entries.gi_a} disabled={!isEditable}
+          <GiFeedFlowsheet
+            entries={entries.gi_a}
+            frequencyHours={giFeedFrequencyHours}
+            onChangeFrequency={changeGiFrequency}
+            onChangeField={setGiEntryField}
+            onAdd={addGiEntry}
+            onRemove={removeGiEntry}
+            disabled={!isEditable}
+            sheetDate={sheetDate}
             errors={errors}
-            onChangeEntry={(i, k, v) => setEntryField("gi_a", i, k, v)}
-            onAdd={blank => addEntry("gi_a", blank)} onRemove={i => removeEntry("gi_a", i)}
-            blankFactory={() => freshEntry({ cumulative_feed_volume: "" }, sheetDate)}>
-            {(e, i) => (
-              <>
-                <Item n={1} label="Cumulative feed volume">
-                  <Num value={e.cumulative_feed_volume}
-                    onChange={v => setEntryField("gi_a", i, "cumulative_feed_volume", v)}
-                    disabled={!isEditable} unit="ml" />
-                </Item>
-              </>
-            )}
-          </EntryBlock>
+          />
         );
       case "gi_b":
         return (
