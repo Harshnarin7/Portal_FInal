@@ -1017,15 +1017,19 @@ function giExpectedSlots(frequencyHours) {
   return slots;
 }
 
-/** Full displayed row list: real entries matched to their scheduled slot,
- *  blank "missing" placeholders for past/current slots with nothing logged,
- *  greyed "upcoming" placeholders for future slots on today's sheet (never
- *  flagged as missing — it hasn't happened yet), and any real entry whose
+/** Full displayed row list: every entry currently in state (including one
+ *  just added blank via "tap to add" — it must render as an editable row
+ *  immediately, not disappear until filled; hasEntryData only matters for
+ *  what counts as "real" for progress/summary/persistence, never for
+ *  whether a row is shown) matched to its scheduled slot, blank "missing"
+ *  placeholders for past/current slots with nothing logged yet, greyed
+ *  "upcoming" placeholders for future slots on today's sheet (never
+ *  flagged as missing — it hasn't happened yet), and any entry whose
  *  slot_time doesn't match the current frequency's own boundaries (e.g. left
  *  over from a since-changed cadence) shown as its own row rather than
  *  dropped. */
 function buildGiFlowsheetRows(entries, frequencyHours, isToday, nowMinutes) {
-  const real = (entries || []).filter(hasEntryData);
+  const real = entries || [];
   const slots = giExpectedSlots(frequencyHours);
   const bySlot = new Map();
   const orphans = [];
