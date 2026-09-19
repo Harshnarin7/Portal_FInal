@@ -2007,7 +2007,7 @@ export default function MinimalMonitoringLog() {
       <div className="rcn-page">
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
-            <div className="rcn-patient-header-badge">HELPER FORM 1</div>
+            <div className="rcn-patient-header-badge">DAILY MONITORING SHEET (DMS)</div>
             <h2 className="rcn-patient-header-form-name">Minimal Monitoring</h2>
             <p className="rcn-patient-header-subtitle">
               Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers

@@ -237,7 +237,7 @@ function NumRow({ label, value, onChange, disabled, unit, placeholder="0",
       <div className="rcn-field-label-row">
         <span className="rcn-yn-label">
           {label}
-          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Daily Monitoring Sheet</span>}
         </span>
         {onStatusChange && (
           <StatusToggleGroup status={status} onChange={toggle} disabled={disabled} allowAwaited={allowAwaited} />
@@ -285,7 +285,7 @@ function GlucoseTextRow({ label, value, onChange, disabled, unit, autofilled, pl
       <div className="rcn-field-label-row">
         <span className="rcn-yn-label">
           {label}
-          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
+          {autofilled && <span className="rcn-autofill-tag">Auto-filled from Daily Monitoring Sheet</span>}
         </span>
         {(allowAwaited || allowNotDone || allowNotTested) && (
           <StatusToggleGroup
@@ -326,7 +326,7 @@ function ReadonlyAutoField({ label, value, unit, autofilled }) {
     <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <span className="rcn-yn-label">
         {label}
-        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Helper 1</span>}
+        {autofilled && <span className="rcn-autofill-tag">Auto-filled from Daily Monitoring Sheet</span>}
       </span>
       <div className={`rcn-readonly-value${autofilled ? " rcn-num-input--autofill" : ""}`}>
         {display}{unit && display !== "—" ? ` ${unit}` : ""}
@@ -1193,8 +1193,8 @@ export default function MetabRenalVascEyeLog() {
     try {
       const ok = await applyGlucoseAutofill({ force: true });
       setMessage(ok
-        ? "✅ Glucose fields refreshed from Helper 1"
-        : "⚠️ No matching Helper 1 glucose sheet for this day");
+        ? "✅ Glucose fields refreshed from Daily Monitoring Sheet"
+        : "⚠️ No matching Daily Monitoring Sheet for this day");
       setTimeout(() => setMessage(""), 3000);
     } finally {
       setGlucoseRefreshing(false);
@@ -2204,7 +2204,7 @@ export default function MetabRenalVascEyeLog() {
                   title="Re-sync glucose #1–#4 from Helper Form 1 for this day's sheet"
                 >
                   <RefreshCw size={12} className={glucoseRefreshing ? "rcn-spin" : ""} />
-                  {glucoseRefreshing ? "Refreshing…" : "Refresh from Helper 1"}
+                  {glucoseRefreshing ? "Refreshing…" : "Refresh from Daily Monitoring Sheet"}
                 </button>
               ) : null}
             >

@@ -14,7 +14,7 @@ export const FORMS_CONFIG = [
   { key: "form_l", label: "Form L - Study Completion", route: "/form-l" },
 
   // Helper forms
-  { key: "minimal_monitoring", label: "Helper 1 – Minimal Monitoring", route: "/minimal-monitoring" },
+  { key: "minimal_monitoring", label: "Daily Monitoring Sheet (DMS)", route: "/minimal-monitoring" },
   { key: "vs6_1", label: "Helper 2 – Resp / CV / Neuro", route: "/vs6-1" },
   { key: "fio2_auc", label: "Helper 3 – FiO₂ Logging", route: "/fio2-auc" },
   { key: "infect_gi_hema", label: "Helper 4 – Infect / GI / Hema", route: "/infect-gi-hema-log" },
