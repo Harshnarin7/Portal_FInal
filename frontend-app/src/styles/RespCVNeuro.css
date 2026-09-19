@@ -173,9 +173,10 @@
   font-weight: 800;
   letter-spacing: -0.1px;
   line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .rcn-pcard-value--cap { text-transform: capitalize; }
 .rcn-pcard-empty { font-size: 11px; font-weight: 400; font-style: italic; opacity: 0.6; }
@@ -1549,6 +1550,21 @@
   font-weight: 600;
   color: #DC2626;
 }
+.rcn-field-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.rcn-field-warn svg { flex-shrink: 0; color: #D97706; margin-top: 1px; }
 
 .rcn-num-unit {
   flex-shrink: 0;
@@ -1624,7 +1640,7 @@
 }
 .rcn-yn-btn + .rcn-yn-btn { border-left: 1.5px solid #E2E8F0; }
 .rcn-yn-btn:hover:not(:disabled) { background: #F8FAFC; }
-.rcn-yn-btn:disabled { cursor: default; }
+.rcn-yn-btn:disabled { cursor: default; opacity: 0.5; }
 
 .rcn-yn-active-yes {
   background: #10B981 !important;

@@ -16,6 +16,7 @@ import FormModals    from "./components/FormModals";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import useFormSession from "./hooks/useFormSession";
 import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap, Pencil } from "lucide-react";
+import FieldLogicBadge, { FieldLogicLegend } from "./components/FieldLogicBadge";
 
 const STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
@@ -442,6 +443,7 @@ export default function FormC() {
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
     mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
+    dob: "", gestation_birth_weeks: "", gestation_birth_days: "",
     // C3 Medical Disorders
     chronic_hypertension: false, hepatitis: false, heart_disease: false,
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
@@ -490,6 +492,7 @@ export default function FormC() {
     antenatal_mgso4: "",
     steroid_date: "", gestation_at_steroids: "",
     mgso4_date: "", mgso4_gestation_weeks: "", mgso4_gestation_days: "",
+    dob: "", gestation_birth_weeks: "", gestation_birth_days: "",
     chronic_hypertension: false, hepatitis: false, heart_disease: false,
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
     asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
@@ -554,15 +557,12 @@ export default function FormC() {
   }, [formData.anc_visits]);
 
   /* ── Auto-calc MgSO4 gestation at administration ──
-     GA (days) = adminDate − (DOB − gestation_at_birth).
-     This anchors the calculation to the baby’s Date of Birth (DOB),
-     instead of using Form A’s LMP.
-
-     If the app doesn’t have the baby’s gestation-at-birth (weeks/days),
-     we fall back to 280 days (40 weeks) so the field still auto-fills.
-     DatePicker values can carry a wall-clock time; comparing those with
-     midnight dates via Math.floor(ms/86400000) drifts by ±1 day — normalize
-     both to local calendar dates first (same approach as Form A GA). */
+     GA at admin = GA at birth − (DOB − admin date), in calendar days.
+     Prefer Form B (formData.dob / gestation_birth_*), then in-session
+     PatientContext, then Form C LMP (already auto from Form A).
+     Do not invent a 40-week fallback — that would show term GA for a
+     PORTAL preterm. DatePicker values can carry wall-clock time; compare
+     local calendar dates only. */
   useEffect(() => {
     const toLocalDay = (value) => {
       if (!value) return null;
@@ -570,6 +570,19 @@ export default function FormC() {
         return new Date(value.getFullYear(), value.getMonth(), value.getDate());
       }
       return parseDateOnly(String(value).slice(0, 10));
+    };
+    const diffDays = (a, b) => {
+      const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+      const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+      return Math.round((ua - ub) / 86400000);
+    };
+    const parsePlusGa = (str) => {
+      if (typeof str !== "string" || !str.includes("+")) return null;
+      const [wRaw, dRaw] = str.split("+");
+      const w = Number(wRaw);
+      const d = Number(dRaw || 0);
+      if (!Number.isFinite(w) || !Number.isFinite(d) || w < 0 || d < 0) return null;
+      return w * 7 + d;
     };
 
     const admin = toLocalDay(formData.mgso4_date);
@@ -580,25 +593,20 @@ export default function FormC() {
       return;
     }
 
+    let gestDays = null;
     const birth = toLocalDay(formData.dob || patientData?.dob);
-    if (!birth) return; // can't compute without DOB anchor
+    const birthW = Number(formData.gestation_birth_weeks);
+    const birthD = Number(formData.gestation_birth_days || 0);
+    let gestAtBirthDays = (Number.isFinite(birthW) && birthW > 0)
+      ? birthW * 7 + (Number.isFinite(birthD) ? birthD : 0)
+      : parsePlusGa(patientData?.gestation);
 
-    // PatientContext may store gestation as "weeks+days" (e.g. "27+3").
-    // BirthResuscitationForm updatePatientData uses that shape.
-    const gestStr = patientData?.gestation;
-    let gestAtBirthDays = null;
-    if (typeof gestStr === "string" && gestStr.includes("+")) {
-      const [wRaw, dRaw] = gestStr.split("+");
-      const w = Number(wRaw);
-      const d = Number(dRaw || 0);
-      if (Number.isFinite(w) && Number.isFinite(d) && w >= 0 && d >= 0) {
-        gestAtBirthDays = w * 7 + d;
-      }
+    if (birth && gestAtBirthDays != null) {
+      gestDays = gestAtBirthDays - diffDays(birth, admin);
+    } else {
+      const lmp = toLocalDay(formData.lmp);
+      if (lmp) gestDays = diffDays(admin, lmp);
     }
-    if (gestAtBirthDays == null) gestAtBirthDays = 280; // fallback: 40 weeks
-
-    const lmpFromDob = new Date(birth.getTime() - gestAtBirthDays * 86400000);
-    const gestDays = Math.round((admin.getTime() - lmpFromDob.getTime()) / 86400000);
 
     if (gestDays == null || gestDays < 0 || gestDays > 314) {
       if (formData.mgso4_gestation_weeks !== "" || formData.mgso4_gestation_days !== "") {
@@ -609,10 +617,10 @@ export default function FormC() {
 
     const weeks = Math.floor(gestDays / 7);
     const days = gestDays % 7;
-    if (formData.mgso4_gestation_weeks !== weeks || formData.mgso4_gestation_days !== days) {
+    if (Number(formData.mgso4_gestation_weeks) !== weeks || Number(formData.mgso4_gestation_days) !== days) {
       set({ mgso4_gestation_weeks: weeks, mgso4_gestation_days: days });
     }
-  }, [formData.mgso4_date, formData.dob, patientData?.dob, patientData?.gestation]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formData.mgso4_date, formData.dob, formData.gestation_birth_weeks, formData.gestation_birth_days, formData.lmp, patientData?.dob, patientData?.gestation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Triple I computation (auto) ──
    *
@@ -688,7 +696,7 @@ export default function FormC() {
         setScreeningIdForBack("");
         setFormData(emptyFormC());
 
-        let formAData = null, formCData = null;
+        let formAData = null, formCData = null, formBData = null;
         // Look up THIS enrollment's own screening record (Form A) — not
         // whatever screening_id happens to be cached in localStorage from
         // the last screening you viewed elsewhere in the app. Using the
@@ -709,8 +717,19 @@ export default function FormC() {
           const resC = await api.get(`/maternal-details/${enrollmentId}`);
           if (resC.data) { formCData = resC.data; setIsFormCLoaded(true); }
         } catch (_) { setIsFormCLoaded(false); }
+        try {
+          const resB = await api.get(`/birth-resuscitation/${enrollmentId}`);
+          formBData = resB?.data || null;
+        } catch (_) {}
 
         if (formCData) disordersLoadedFromDb.current = true;
+
+        const birthGaWeeks = formBData?.gestation_rand_weeks != null && formBData.gestation_rand_weeks !== ""
+          ? formBData.gestation_rand_weeks
+          : (formBData?.gestation_weeks ?? "");
+        const birthGaDays = formBData?.gestation_rand_weeks != null && formBData.gestation_rand_weeks !== ""
+          ? (formBData.gestation_rand_days ?? 0)
+          : (formBData?.gestation_days ?? "");
 
         // Start from empty — never merge onto another patient's leftover state.
         setFormData({
@@ -720,6 +739,9 @@ export default function FormC() {
           maternal_uid:    formAData?.maternal_uid || "",
           contact_mother:  formAData?.contact_mother  || formAData?.mother_contact  || "",
           contact_husband: formAData?.contact_husband || formAData?.husband_contact || "",
+          dob:             formBData?.date_of_birth || "",
+          gestation_birth_weeks: birthGaWeeks,
+          gestation_birth_days:  birthGaDays,
           ...(formCData ? {
             mother_age: formCData.mother_age ?? "",
             house: formCData.house ?? "", city: formCData.city ?? "",
@@ -1511,6 +1533,7 @@ export default function FormC() {
                 </div>
               </div>
             </div>
+            <FieldLogicLegend />
 
             {/* ══════════════════════════════════════
                 C1 — IDENTIFICATION
@@ -1590,11 +1613,11 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>5. Mobile (Mother) <span className="field-note">(auto)</span></label>
+                    <label>5. Mobile (Mother) <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
                     <input value={formData.contact_mother||""} readOnly className="readonly-input"/>
                   </div>
                   <div className="form-group">
-                    <label>5. Mobile (Husband) <span className="field-note">(auto)</span></label>
+                    <label>5. Mobile (Husband) <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
                     <input value={formData.contact_husband||""} readOnly className="readonly-input"/>
                   </div>
                 </div>
@@ -1636,14 +1659,14 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-5">
                   {[
-                    {name:"gravida",  label:"6. Gravida",      min:1, max:15},
-                    {name:"parity",   label:"7. Parity",       min:0, max:15},
-                    {name:"abortions",label:"8. Abortions",    min:0, max:15},
-                    {name:"live",     label:"9. Live",  min:0, max:15},
-                    {name:"still",    label:"10. Still",min:0, max:10},
-                  ].map(({name,label,min,max}) => (
+                    {name:"gravida",  label:"6. Gravida",      min:1, max:15, logic:"Checked so Gravida = Parity + Abortions + 1"},
+                    {name:"parity",   label:"7. Parity",       min:0, max:15, logic:"Must satisfy Gravida = Parity + Abortions + 1"},
+                    {name:"abortions",label:"8. Abortions",    min:0, max:15, logic:"Abortions cannot exceed Gravida − 1; Parity + Abortions must equal Gravida − 1"},
+                    {name:"live",     label:"9. Live",  min:0, max:15, logic:"Live cannot exceed Parity"},
+                    {name:"still",    label:"10. Still",min:0, max:10, logic:"Live + Still cannot exceed Parity"},
+                  ].map(({name,label,min,max,logic}) => (
                     <div className="form-group" key={name}>
-                      <label>{label}<span className="required">*</span></label>
+                      <label>{label}<span className="required">*</span> <FieldLogicBadge type="validated" title={logic} /></label>
                       <input type="text" name={name} value={formData[name]||""} inputMode="numeric"
                         placeholder={`${min}–${max}`} readOnly={!isFieldEditable}
                         className={E(name)?"input-error":""}
@@ -1685,7 +1708,7 @@ export default function FormC() {
                     <FieldError msg={E("anc_visits")}/>
                   </div>
                   <div className="form-group">
-                    <label>12. Pregnancy <span className="field-note">(auto)</span></label>
+                    <label>12. Pregnancy <FieldLogicBadge type="auto" title="Auto from ANC visit count" /></label>
                     <input name="pregnancy_supervision" value={formData.pregnancy_supervision||""}
                       readOnly className="readonly-input" placeholder="Supervised / Unsupervised / Inadequately supervised"/>
                   </div>
@@ -1721,7 +1744,7 @@ export default function FormC() {
 
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>15. LMP <span className="field-note">(auto from Form A)</span></label>
+                    <label>15. LMP <FieldLogicBadge type="carried" title="Auto-filled from Form A LMP / GA — carried from Form A — Screening" /></label>
                     <input
                       value={formData.lmp ? formatDateToDDMMYYYY(formData.lmp) : ""}
                       readOnly
@@ -1730,7 +1753,7 @@ export default function FormC() {
                     />
                   </div>
                   <div className="form-group">
-                    <label>16. EDD <span className="field-note">(auto from Form A)</span></label>
+                    <label>16. EDD <FieldLogicBadge type="carried" title="Auto-filled from Form A EDD / GA — carried from Form A — Screening" /></label>
                     <input
                       value={formData.edd ? formatDateToDDMMYYYY(formData.edd) : ""}
                       readOnly
@@ -1780,7 +1803,7 @@ export default function FormC() {
                 {/* 19–21: Steroids */}
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>19. Antenatal Steroids<span className="required">*</span></label>
+                    <label>19. Antenatal Steroids<span className="required">*</span> <FieldLogicBadge type="conditional" title="Yes reveals drug, dose-course and LDDI fields" /></label>
                     <Toggle name="antenatal_steroids" value={formData.antenatal_steroids}
                       options={["Yes","No","Not known"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("antenatal_steroids")}/>
@@ -1791,7 +1814,7 @@ export default function FormC() {
                 {formData.antenatal_steroids==="Yes" && (
                   <div className="followup-box">
                     <div className="form-group">
-                      <label>20. If yes, drug <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
+                      <label>20. If yes, drug <FieldLogicBadge type="conditional" title="Gates Betamethasone / Dexamethasone dose-course fields" /> <span className="field-note">(select all that apply)</span><span className="required">*</span></label>
                       <MultiToggle name="steroid_drug" value={formData.steroid_drug}
                         options={["Betamethasone","Dexamethasone","Not known"]}
                         onToggle={handleSteroidDrugToggle} disabled={!isFieldEditable} error={E("steroid_drug")}/>
@@ -1885,7 +1908,7 @@ export default function FormC() {
                               <>
                                 {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
                                   <div className="form-group">
-                                    <label>22a. Betamethasone Course — Complete/Incomplete <span className="auto-tag"> (AUTO) </span></label>
+                                    <label>22a. Betamethasone Course — Complete/Incomplete <FieldLogicBadge type="auto" title="Auto from entered steroid dose count" /></label>
                                     <input
                                       readOnly
                                       className="readonly-input"
@@ -1896,7 +1919,7 @@ export default function FormC() {
                                 )}
                                 {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
                                   <div className="form-group">
-                                    <label>22b. Dexamethasone Course — Complete/Incomplete <span className="auto-tag">(AUTO)</span></label>
+                                    <label>22b. Dexamethasone Course — Complete/Incomplete <FieldLogicBadge type="auto" title="Auto from entered steroid dose count" /></label>
                                     <input
                                       readOnly
                                       className="readonly-input"
@@ -1923,7 +1946,7 @@ export default function FormC() {
                               <>
                                 {hasSteroidDrug(formData.steroid_drug, "Betamethasone") && (
                                   <div className="form-group">
-                                    <label>23a. Betamethasone — No. of Courses <span className="auto-tag">(AUTO)</span></label>
+                                    <label>23a. Betamethasone — No. of Courses <FieldLogicBadge type="auto" title="Auto from entered steroid dose count" /></label>
                                     <input
                                       readOnly
                                       className="readonly-input"
@@ -1934,7 +1957,7 @@ export default function FormC() {
                                 )}
                                 {hasSteroidDrug(formData.steroid_drug, "Dexamethasone") && (
                                   <div className="form-group">
-                                    <label>23b. Dexamethasone — No. of Courses <span className="auto-tag">(AUTO)</span></label>
+                                    <label>23b. Dexamethasone — No. of Courses <FieldLogicBadge type="auto" title="Auto from entered steroid dose count" /></label>
                                     <input
                                       readOnly
                                       className="readonly-input"
@@ -2045,12 +2068,12 @@ export default function FormC() {
                         <FieldError msg={E("mgso4_date")}/>
                       </div>
                       <div className="form-group">
-                        <label>28. Gestation at administration <span className="field-note">(auto from DOB)</span></label>
+                        <label>28. Gestation at administration <FieldLogicBadge type="auto" title="Auto from date of birth (Form B)" /></label>
                         <input value={formData.mgso4_gestation_weeks!==""&&formData.mgso4_gestation_weeks!=null
                           ? `${formData.mgso4_gestation_weeks}w ${formData.mgso4_gestation_days ?? 0}d`
                           : ""}
                           readOnly className="readonly-input"
-                          placeholder={!(formData.dob || patientData?.dob) ? "Needs DOB from Form B" : "auto"}/>
+                          placeholder={!(formData.dob || patientData?.dob || formData.lmp) ? "Needs DOB from Form B" : "auto"}/>
                       </div>
                     </div>
                   </div>
@@ -2321,7 +2344,7 @@ export default function FormC() {
                 <div className="c5-inf-table">
                   <div className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData.pprom)}`}>
                     <span className="c5-inf-num">44</span>
-                    <label className="c5-inf-label">pPROM<span className="required">*</span></label>
+                    <label className="c5-inf-label">pPROM<span className="required">*</span> <FieldLogicBadge type="conditional" title="Yes reveals 45. Duration (hrs)" /></label>
                     <div className="c5-inf-pills">
                       <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}
@@ -2362,7 +2385,7 @@ export default function FormC() {
                     <span className="c5-inf-num">52</span>
                     <label className="c5-inf-label">
                       Intrauterine Inflammation or Infection or both (triple ‘I’)
-                      <span className="field-note"> (auto filled)</span>
+                      <FieldLogicBadge type="auto" title="Auto filled from maternal fever and Q48–Q51 (Triple I)" />
                     </label>
                     <div className="c5-inf-pills">
                       <input

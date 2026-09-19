@@ -31,6 +31,32 @@
   }
 }
 
+/* Form E 6a/6b: shared label-row height so Skin and Axillary °C fields
+   line up. Measured / Not measured sits on the 6b label row. */
+.e6-temp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  min-height: 28px;
+}
+.e6-temp-head > label {
+  margin-bottom: 0 !important;
+}
+.e6-temp-head > div {
+  display: inline-block !important;
+  line-height: normal !important;
+}
+.e6-temp-head .fc-toggle-btn {
+  height: 28px !important;
+  min-width: 0 !important;
+  padding: 0 12px !important;
+  font-size: 11px !important;
+  letter-spacing: 0.3px;
+}
+
 /* ── Consistent Label Spacing ── */
 .form-group label {
   display: block;

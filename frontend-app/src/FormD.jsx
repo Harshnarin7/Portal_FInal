@@ -18,6 +18,7 @@ import {
   User, Baby, Wind, Droplets, CheckSquare,
   CheckCircle, AlertTriangle, XCircle, AlertCircle,
 } from "lucide-react";
+import FieldLogicBadge, { FieldLogicLegend } from "./components/FieldLogicBadge";
 
 /* ══════════════════════════════════════════════════════
    VALIDATION ENGINE
@@ -123,21 +124,33 @@ const RULES = {
   caffeine_loading: { required: (fd) => fd.caffeine === "Yes", type: "toggle" },
   caffeine_loading_abs: {
     required: (fd) => fd.caffeine === "Yes" && fd.caffeine_loading === "Yes", type: "number",
-    validate: v => {
+    validate: (v, fd) => {
       if (!v) return "Required";
       const n = Number(v);
       if (n <= 0) return "Dose must be greater than 0";
-      if (n > 1000) return { msg: "Dose seems very high — please verify", level: "warn" };
+      const kg = Number(fd?.birth_weight) / 1000;
+      if (kg > 0) {
+        const mpk = n / kg;
+        if (mpk < 10 || mpk > 25) {
+          return { msg: `Outside recommended loading dose (10–25 mg/kg; typical 20 mg/kg) — currently ${mpk.toFixed(1)} mg/kg`, level: "warn" };
+        }
+      }
       return null;
     },
   },
   caffeine_maint_abs: {
     required: (fd) => fd.caffeine === "Yes" && fd.caffeine_loading === "Yes", type: "number",
-    validate: v => {
+    validate: (v, fd) => {
       if (!v) return null;
       const n = Number(v);
       if (n <= 0) return "Dose must be greater than 0";
-      if (n > 1000) return { msg: "Dose seems very high — please verify", level: "warn" };
+      const kg = Number(fd?.birth_weight) / 1000;
+      if (kg > 0) {
+        const mpk = n / kg;
+        if (mpk < 5 || mpk > 10) {
+          return { msg: `Outside recommended maintenance dose (5–10 mg/kg/day) — currently ${mpk.toFixed(1)} mg/kg/day`, level: "warn" };
+        }
+      }
       return null;
     },
   },
@@ -642,7 +655,7 @@ export default function FormD() {
           caffeine_maint_abs:  d.caffeine_maint_abs  != null ? String(d.caffeine_maint_abs)  : "",
           caffeine_date:       d.caffeine_date || "",
           caffeine_time:       d.caffeine_time || "",
-          caffeine_maint_frequency: d.caffeine_maint_frequency || "",
+          caffeine_maint_frequency: d.caffeine_maint_frequency === "BID" ? "BD" : (d.caffeine_maint_frequency || ""),
 
           completed_by: d.completed_by || "",
           designation:  d.designation  || "",
@@ -1066,6 +1079,7 @@ export default function FormD() {
                 </div>
               </div>
             </div>
+            <FieldLogicLegend />
 
             {/* ═══ CARD 1 — IDENTIFICATION ═══ */}
             <div className="form-section card-section">
@@ -1079,17 +1093,17 @@ export default function FormD() {
                     <input value={formData.enrollment_id || "—"} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
-                    <label>2. Annual Number <span className="field-note">(auto)</span></label>
+                    <label>2. Annual Number <FieldLogicBadge type="carried" title="Auto from Form B baby annual number — Birth & Resuscitation" /></label>
                     <input value={formData.annual_number || ""} readOnly className="readonly-input" />
                   </div>
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>3. Baby's UID <span className="field-note">(auto)</span></label>
+                    <label>3. Baby's UID <FieldLogicBadge type="carried" title="Auto from Form B baby UID — Birth & Resuscitation" /></label>
                     <input value={formData.baby_uid || ""} readOnly className="readonly-input" />
                   </div>
                   <div className="form-group">
-                    <label>4. Birth Weight</label>
+                    <label>4. Birth Weight <FieldLogicBadge type="carried" title="From Form B — Birth & Resuscitation" /></label>
                     <div style={{ position:"relative" }}>
                       <input value={formData.birth_weight || ""} readOnly className="readonly-input" style={{ paddingRight:52 }} />
                       <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#64748b",fontWeight:600 }}>grams</span>
@@ -1099,7 +1113,7 @@ export default function FormD() {
 
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>5. Is Gestational Age &gt; 2 weeks different by NBS?{isRequired("ga_method") && <span className="required"> *</span>}</label>
+                    <label>5. Is Gestational Age &gt; 2 weeks different by NBS?{isRequired("ga_method") && <span className="required"> *</span>} <FieldLogicBadge type="conditional" title="Yes reveals editable NBS weeks/days; No keeps postnatal day 1 GA" /></label>
                     <SegmentedToggle
                       name="ga_method"
                       value={formData.ga_method === "NBS" ? "Yes" : formData.ga_method ? "No" : ""}
@@ -1132,11 +1146,11 @@ export default function FormD() {
                     {formData.ga_method && formData.ga_method !== "NBS" && (
                       <div className="form-grid-2 ga-weeks-days-row" style={{ marginTop: 8 }}>
                         <div className="form-group">
-                          <label>Weeks <span className="field-note">(auto)</span></label>
+                          <label>Weeks <FieldLogicBadge type="carried" title="From Form B — postnatal day 1 / gestation at randomization" /></label>
                           <input value={formData.gestation_weeks || ""} readOnly className="readonly-input" />
                         </div>
                         <div className="form-group">
-                          <label>Days <span className="field-note">(auto)</span></label>
+                          <label>Days <FieldLogicBadge type="carried" title="From Form B — postnatal day 1 / gestation at randomization" /></label>
                           <input value={formData.gestation_days || ""} readOnly className="readonly-input" />
                         </div>
                       </div>
@@ -1208,7 +1222,9 @@ export default function FormD() {
                     return (
                       <>
                         <div className="form-group">
-                          <label>7. Intra-uterine Growth Status <span className="field-note">(auto)</span></label>
+                          <label>7. Intra-uterine Growth Status {showManual ? null : formData.ga_method === "NBS"
+                            ? <FieldLogicBadge type="auto" title="Recalculated from birth weight, gender and NBS GA — INTERGROWTH-21st" />
+                            : <FieldLogicBadge type="carried" title="From Form B intrauterine growth / INTERGROWTH-21st" />}</label>
                           {showManual ? (
                             <SegmentedToggle name="growth_status" value={formData.growth_status}
                               options={["SGA","AGA","LGA"]}
@@ -1225,7 +1241,9 @@ export default function FormD() {
                         </div>
                         {(formData.growth_status === "SGA" || showManual) && (
                           <div className="form-group">
-                            <label>8. If SGA {showManual ? null : <span className="field-note">(auto)</span>}</label>
+                            <label>8. If SGA {showManual ? null : formData.ga_method === "NBS"
+                              ? <FieldLogicBadge type="auto" title="Recalculated from birth weight, gender and NBS GA — INTERGROWTH-21st" />
+                              : <FieldLogicBadge type="carried" title="From Form B intrauterine growth / INTERGROWTH-21st" />}</label>
                             {showManual ? (
                               formData.growth_status === "SGA" ? (
                                 <SegmentedToggle name="sga_centile" value={formData.sga_centile}
@@ -1661,7 +1679,7 @@ export default function FormD() {
                   <div className="form-grid-2">
                     <FieldWrap name="caffeine"
                     formData={formData} touched={touched}
-                      label="31a. Caffeine" required>
+                      label={<>31a. Caffeine <FieldLogicBadge type="conditional" title="Yes reveals loading dose and maintenance block" /></>} required>
                       <SegmentedToggle name="caffeine" value={formData.caffeine}
                         options={["Yes","No"]} onChange={handleToggle}
                         disabled={!isFieldEditable} />
@@ -1673,7 +1691,7 @@ export default function FormD() {
                   <div className="form-grid-2" style={{ marginTop:12 }}>
                     <FieldWrap name="caffeine_loading"
                     formData={formData} touched={touched}
-                      label="31. Loading Dose of Caffeine" required={isRequired("caffeine_loading")}>
+                      label={<>31. Loading Dose of Caffeine <FieldLogicBadge type="conditional" title="Yes reveals loading dose fields and the maintenance-dose block" /></>} required={isRequired("caffeine_loading")}>
                       <SegmentedToggle name="caffeine_loading" value={formData.caffeine_loading}
                         options={["Yes","No"]} onChange={handleToggle}
                         disabled={!isFieldEditable} />
@@ -1685,7 +1703,7 @@ export default function FormD() {
                     <div className="form-grid-2" style={{ marginTop:12 }}>
                       <FieldWrap name="caffeine_loading_abs"
                     formData={formData} touched={touched}
-                        label="Absolute Dose (mg)" required={isRequired("caffeine_loading_abs")}>
+                        label="32a. Absolute Dose" required={isRequired("caffeine_loading_abs")}>
                         <UnitInput name="caffeine_loading_abs" value={formData.caffeine_loading_abs} unit="mg"
                           readOnly={!isFieldEditable}
                           error={vr("caffeine_loading_abs")?.level === "error"}
@@ -1693,13 +1711,13 @@ export default function FormD() {
                           onChange={e => { touch("caffeine_loading_abs"); handleChange(e); }} />
                       </FieldWrap>
                       <div className="form-group">
-                        <label>32. Dose <span className="auto-tag">AUTO</span></label>
+                        <label>32b. Dose (in mg/kg/day) <FieldLogicBadge type="auto" title="Absolute dose ÷ birth weight" /></label>
                         <div style={{ position:"relative" }}>
                           <input value={
                               formData.caffeine_loading_abs && formData.birth_weight
                                 ? (formData.caffeine_loading_abs / (formData.birth_weight / 1000)).toFixed(2) : ""
-                            } readOnly className="readonly-input" style={{ paddingRight:52 }} />
-                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg</span>
+                            } readOnly className="readonly-input" style={{ paddingRight:72 }} />
+                          <span style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#94a3b8",fontWeight:600 }}>mg/kg/day</span>
                         </div>
                       </div>
                     </div>
@@ -1722,7 +1740,6 @@ export default function FormD() {
                   )}
                   {formData.caffeine_loading === "Yes" && (
                   <div style={{ borderTop:"1px solid #e2e8f0", marginTop:16, paddingTop:16 }}>
-                    {/* TODO: error/warning for recommended caffeine dose range — needs a clinician-confirmed reference range first. */}
                     {/* TODO (FYI): cumulative caffeine-dose tracker belongs on a Helper Form, not here. */}
                     <div style={{ fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:"#94a3b8",marginBottom:12 }}>
                       Maintenance Dose of Caffeine
@@ -1730,7 +1747,7 @@ export default function FormD() {
                     <div className="form-grid-2">
                       <FieldWrap name="caffeine_maint_abs"
                     formData={formData} touched={touched}
-                        label="34. If Loading dose is given, Maintenance Dose of Caffeine: Absolute Dose" required={isRequired("caffeine_maint_abs")}>
+                        label="34. Absolute Dose" required={isRequired("caffeine_maint_abs")}>
                         <UnitInput name="caffeine_maint_abs" value={formData.caffeine_maint_abs} unit="mg"
                           readOnly={!isFieldEditable}
                           error={vr("caffeine_maint_abs")?.level === "error"}
@@ -1738,7 +1755,7 @@ export default function FormD() {
                           onChange={e => { touch("caffeine_maint_abs"); handleChange(e); }} />
                       </FieldWrap>
                       <div className="form-group">
-                        <label>35. Dose (mg/kg/day)</label>
+                        <label>35. Dose (in mg/kg/day) <FieldLogicBadge type="auto" title="Absolute maintenance dose ÷ birth weight" /></label>
                         <div style={{ position:"relative" }}>
                           <input value={
                               formData.caffeine_maint_abs && formData.birth_weight
@@ -1753,7 +1770,7 @@ export default function FormD() {
                     formData={formData} touched={touched}
                         label="Maintenance frequency" required={isRequired("caffeine_maint_frequency")}>
                         <SegmentedToggle name="caffeine_maint_frequency" value={formData.caffeine_maint_frequency}
-                          options={["OD","BID","TID","QID"]} onChange={handleToggle}
+                          options={["OD","BD","TID","QID"]} onChange={handleToggle}
                           disabled={!isFieldEditable} />
                       </FieldWrap>
                       <div />

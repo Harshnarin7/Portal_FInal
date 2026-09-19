@@ -399,6 +399,8 @@ NICU_ADMISSION_V2_COLUMN_PATCHES = [
     # Form E age-at-admission: total whole minutes alongside floored hours
     # (a 30-minute DOB→admission gap stores hours=0, minutes=30).
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS age_at_admission_minutes INTEGER",
+    # Form E 6b Axillary: nurse can mark temperature as not measured.
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS temp_axillary_not_measured BOOLEAN",
 ]
 
 BIRTH_RESUSCITATION_SAVE_STATE_PATCHES = [

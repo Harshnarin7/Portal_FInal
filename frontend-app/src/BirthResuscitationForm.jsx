@@ -20,6 +20,7 @@ import {
   Heart, Activity, BarChart2, Droplets, AlertTriangle, Shuffle,
 } from "lucide-react";
 import ModernTimeInput from "./components/ModernTimeInput";
+import FieldLogicBadge, { FieldLogicLegend } from "./components/FieldLogicBadge";
 
 /* ── Safe localStorage helpers ──
    localStorage.setItem coerces its value with String(), so
@@ -256,167 +257,32 @@ const clampTimestampFromElapsed = (timeOfBirth, elapsedSeconds) => {
   return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
 };
 
-function DurationColumn({ label, options, active, onPick, listRef }) {
-  return (
-    <div className="duration-picker-col">
-      <div className="duration-picker-col-label">{label}</div>
-      <div className="duration-picker-col-list" ref={listRef}>
-        {options.map(opt => (
-          <button key={opt} type="button"
-            data-value={opt}
-            className={`duration-picker-col-item${active === opt ? " is-active" : ""}`}
-            onClick={() => onPick(opt)}>
-            {opt}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ── Duration picker (HH:MM:SS or MM:SS) ──
-   Scroll-column picker paired with a free-text input. */
-function DurationPicker({ mode = "hms", value, onChange, disabled = false }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-  const hhListRef = useRef(null);
-  const mmListRef = useRef(null);
-  const ssListRef = useRef(null);
-
-  useEffect(() => {
-    const onDocClick = e => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
+function DurationField({ mode, value, onChange, disabled, placeholder, hasError }) {
   const parts = parseDurationParts(value, mode);
-  const hh = mode === "hms" ? parts.hh : "";
-  const mm = mode === "hms" ? parts.mm : parts.mm;
-  const ss = parts.ss;
-
-  const apply = (which, v) => {
-    const nHh = which === "hh" ? v : hh;
-    const nMm = which === "mm" ? v : mm;
-    const nSs = which === "ss" ? v : ss;
-    onChange(mode === "hms"
-      ? `${nHh || "00"}:${nMm || "00"}:${nSs || "00"}`
-      : `${nMm || "00"}:${nSs || "00"}`);
-  };
-
-  const hourOpts = Array.from({ length: 100 }, (_, i) => padDur(i));
-  const minSecOpts = Array.from({ length: 60 }, (_, i) => padDur(i));
-  const preview = mode === "hms"
-    ? `${hh || "00"}:${mm || "00"}:${ss || "00"}`
-    : `${mm || "00"}:${ss || "00"}`;
-
-  useEffect(() => {
-    if (!open) return;
-    [hhListRef, mmListRef, ssListRef].forEach(ref => {
-      const active = ref.current?.querySelector(".is-active");
-      active?.scrollIntoView({ block: "center" });
-    });
-  }, [open, hh, mm, ss]);
-
-  return (
-    <div className="duration-picker-wrap" ref={wrapRef}>
-      <button type="button" title="Pick duration" disabled={disabled}
-        className={`duration-picker-btn${open ? " is-open" : ""}`}
-        onClick={() => !disabled && setOpen(o => !o)}>
-        <Ic d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </button>
-      {open && !disabled && (
-        <div className="duration-picker-panel">
-          <div className="duration-picker-preview">{preview}</div>
-          <div className="duration-picker-columns">
-            {mode === "hms" && (
-              <>
-                <DurationColumn label="HH" options={hourOpts} active={hh || "00"}
-                  listRef={hhListRef} onPick={v => apply("hh", v)} />
-                <span className="duration-picker-sep">:</span>
-              </>
-            )}
-            <DurationColumn label="MM" options={minSecOpts} active={mm || "00"}
-              listRef={mmListRef} onPick={v => apply("mm", v)} />
-            <span className="duration-picker-sep">:</span>
-            <DurationColumn label="SS" options={minSecOpts} active={ss || "00"}
-              listRef={ssListRef} onPick={v => apply("ss", v)} />
-          </div>
-          <div className="duration-picker-actions">
-            <button type="button" className="duration-picker-clear"
-              onClick={() => { onChange(""); setOpen(false); }}>Clear</button>
-            <button type="button" className="duration-picker-done"
-              onClick={() => setOpen(false)}>Done</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Max value allowed per 2-digit segment, matching the picker's own ranges
-    (DurationPicker offers HH 00-99, MM/SS 00-59). */
-const DURATION_SEGMENT_MAX = { hms: [99, 59, 59], ms: [59, 59] };
-
-/** Live "auto-colon" formatter for duration inputs, like a card-expiry
-    field: strips whatever the user typed down to raw digits, caps them
-    to the field's digit budget, then re-inserts colons every 2 digits
-    as they type — so "0130" becomes "01:30" immediately, not just
-    after the field loses focus. Typing a colon yourself is harmless
-    (it gets stripped and re-inserted in the right place).
-    Each segment is also range-checked live: a leading digit that could
-    never complete into a valid segment (e.g. "7" for minutes/seconds,
-    since 7X can never be ≤59) is rejected outright, and a completed
-    2-digit segment is clamped to its max (so minutes/seconds can't
-    exceed 59, hours can't exceed 99). Returns null if the keystroke
-    can't lead anywhere valid, so the caller should leave the field
-    unchanged. */
-const autoFormatDurationInput = (raw, mode) => {
-  const digitsOnly = String(raw || "").replace(/\D/g, "");
-  const segMaxes = DURATION_SEGMENT_MAX[mode] || DURATION_SEGMENT_MAX.ms;
-  const maxDigits = segMaxes.length * 2;
-  const capped = digitsOnly.slice(0, maxDigits);
-
-  const groups = [];
-  for (let i = 0; i < capped.length; i += 2) groups.push(capped.slice(i, i + 2));
-
-  const formattedGroups = [];
-  for (let i = 0; i < groups.length; i++) {
-    const max = segMaxes[i];
-    const g = groups[i];
-    if (g.length === 1) {
-      const leadDigit = Number(g);
-      if (leadDigit * 10 > max) return null; // e.g. "7" for a 0-59 segment — no valid completion
-      formattedGroups.push(g);
-    } else {
-      const n = Math.min(Number(g), max);
-      formattedGroups.push(String(n).padStart(2, "0"));
-    }
+  if (mode === "hms") {
+    return (
+      <ModernTimeInput
+        format="hms"
+        hour={parts.hh}
+        minute={parts.mm}
+        second={parts.ss}
+        placeholder={placeholder || "HH:MM:SS"}
+        disabled={disabled}
+        hasError={hasError}
+        onChange={(h, m, s) => onChange(`${padDur(h)}:${padDur(m)}:${padDur(s)}`)}
+      />
+    );
   }
-  return formattedGroups.join(":");
-};
-
-function DurationField({ mode, name, value, onChange, disabled, placeholder, maxLength, hasError }) {
-  const formatOnBlur = () => {
-    if (!value) return;
-    const formatted = mode === "hms" ? formatDurationHms(value) : formatDurationMs(value);
-    if (formatted !== value) onChange(formatted);
-  };
-
   return (
-    <div className="duration-field">
-      <input type="text" name={name} value={value || ""}
-        inputMode="numeric" maxLength={maxLength} placeholder={placeholder}
-        readOnly={disabled}
-        className={`duration-field-input${hasError ? " input-error" : ""}`}
-        onChange={e => {
-          const formatted = autoFormatDurationInput(e.target.value, mode);
-          if (formatted !== null) onChange(formatted);
-        }}
-        onBlur={formatOnBlur}/>
-      <DurationPicker mode={mode} value={value} disabled={disabled} onChange={onChange}/>
-    </div>
+    <ModernTimeInput
+      format="ms"
+      minute={parts.mm}
+      second={parts.ss}
+      placeholder={placeholder || "MM:SS"}
+      disabled={disabled}
+      hasError={hasError}
+      onChange={(_, m, s) => onChange(`${padDur(m)}:${padDur(s)}`)}
+    />
   );
 }
 
@@ -1893,6 +1759,7 @@ export default function BirthResuscitationForm() {
                 </div>
               </div>
             </div>
+            <FieldLogicLegend />
 
             {/* ════════════════════════════════════════
                 B1 — IDENTIFICATION
@@ -2032,12 +1899,12 @@ export default function BirthResuscitationForm() {
 
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>11. Gestation at Screening (auto)</label>
+                    <label>11. Gestation at Screening <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
                     <input readOnly className="readonly-input"
                       value={formData.gestation_weeks ? `${formData.gestation_weeks}w ${formData.gestation_days??0}d` : "—"} placeholder="From Form A"/>
                   </div>
                   <div className="form-group">
-                    <label>12. Gestation at Randomization (auto from Form A and DOB)</label>
+                    <label>12. Gestation at Randomization <FieldLogicBadge type="auto" title="Auto from Form A gestational age and date of birth" /></label>
                     <input readOnly className="readonly-input"
                       value={formData.gestation_rand_weeks !== "" ? `${formData.gestation_rand_weeks}w ${formData.gestation_rand_days||0}d` : "—"}
                       placeholder="Auto from DOB"/>
@@ -2063,7 +1930,7 @@ export default function BirthResuscitationForm() {
 
                 <div className="form-grid-3">
                   <div className="form-group">
-                    <label>14. Intrauterine Growth Status (centile, auto)</label>
+                    <label>14. Intrauterine Growth Status (centile) <FieldLogicBadge type="auto" title="Auto-calculated from birth weight, GA at randomization and gender — INTERGROWTH-21st Very Preterm" /></label>
                     <input type="text" name="intrauterine_centile"
                       value={formData.intrauterine_centile||""}
                       inputMode="decimal" placeholder="0–100"
@@ -2243,7 +2110,7 @@ export default function BirthResuscitationForm() {
                     <span className="followup-label">Randomization details</span>
                     <div className="form-grid-3">
                         <div className="form-group">
-                          <label>24. Randomised?<span className="required">*</span></label>
+                          <label>24. Randomised?<span className="required">*</span> <FieldLogicBadge type="conditional" title="Gates strata (if Yes) and reason not randomized (if No)" /></label>
                         <select name="randomised" value={formData.randomised}
                           disabled={!isFieldEditable}
                           onChange={e=>{
@@ -2307,7 +2174,7 @@ export default function BirthResuscitationForm() {
                     {formData.randomised==="Yes" && (
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label>27. Strata <span className="field-note">(auto, from Gestation at Randomization)</span></label>
+                          <label>27. Strata <FieldLogicBadge type="auto" title="Auto from Gestation at Randomization" /></label>
                           <input value={formData.strata||""} readOnly className="readonly-input" placeholder="—"/>
                         </div>
                         <div/>
@@ -2562,7 +2429,7 @@ export default function BirthResuscitationForm() {
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>44. Cord clamping time from birth (sec) <span className="field-note">auto from 9. Time of Birth + 43. Cord clamped at — or type here to auto-fill 43</span></label>
+                      <label>44. Cord clamping time from birth (sec) <FieldLogicBadge type="auto" title="Auto from 9. Time of Birth + 43. Cord clamped at — or type here to auto-fill 43" /></label>
                       <input type="text" name="cord_clamp_time"
                         value={formData.cord_clamp_time === 0 || formData.cord_clamp_time === "0"
                           ? "0"
@@ -2590,7 +2457,7 @@ export default function BirthResuscitationForm() {
                   {/* Timings 45–47 */}
                   <div className="form-grid-2" style={{marginTop:16}}>
                     <div className="form-group">
-                      <label>45. Time to spontaneous respiratory efforts (HH:MM:SS)</label>
+                      <label>45. Time to spontaneous respiratory efforts (HH:MM:SS) <FieldLogicBadge type="validated" title="Must be ≤ 57. Total time from APGAR timer" /></label>
                       <DurationField mode="hms" name="time_to_respiration"
                         value={formData.time_to_respiration}
                         disabled={!isFieldEditable}
@@ -2826,7 +2693,7 @@ export default function BirthResuscitationForm() {
                         }}/>
                     </div>
                     <div className="form-group">
-                      <label>57. Total time (MM:SS) <span className="field-note">from APGAR timer</span></label>
+                      <label>57. Total time (MM:SS) <FieldLogicBadge type="validated" title="Cross-checked against field B4 (Time to spontaneous respiratory efforts) — must be ≥ that value" /> <span className="field-note">from APGAR timer</span></label>
                       <DurationField mode="ms" name="total_resus_time"
                         value={formData.total_resus_time}
                         disabled={!isFieldEditable}
@@ -2914,7 +2781,7 @@ export default function BirthResuscitationForm() {
                   )}
 
                   <LetterToggle
-                    label={<>61. Blender Unit ID{requiredMark} <span className="field-note">(auto, from Enrollment ID)</span></>}
+                    label={<>61. Blender Unit ID{requiredMark} <FieldLogicBadge type="auto" title="Auto from Enrollment ID" /></>}
                     name="blender_letter"
                     value={formData.blender_letter}
                     onChange={handleChange}

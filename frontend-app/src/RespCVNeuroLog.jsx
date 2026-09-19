@@ -662,6 +662,44 @@ function validateWeightEntries(str) {
   return null;
 }
 
+function parseWeightToGrams(entry) {
+  const m = String(entry || "").trim().match(/^(\d+(?:\.\d+)?)\s*(g|kg)?$/i);
+  if (!m) return null;
+  const num = parseFloat(m[1]);
+  if (!Number.isFinite(num)) return null;
+  return (m[2] || "g").toLowerCase() === "kg" ? num * 1000 : num;
+}
+function lastWeightGrams(str) {
+  if (!str || !String(str).trim()) return null;
+  const entries = String(str).split(",").map(s => s.trim()).filter(Boolean);
+  if (!entries.length) return null;
+  return parseWeightToGrams(entries[entries.length - 1]);
+}
+function weightChangeWarning({ todayStr, prevStr, ageDays }) {
+  if (ageDays == null || ageDays < 0) return null;
+  const todayG = lastWeightGrams(todayStr);
+  const prevG = lastWeightGrams(prevStr);
+  if (todayG == null || prevG == null || prevG === 0) return null;
+  const pct = ((todayG - prevG) / prevG) * 100;
+  const absPct = Math.abs(pct);
+  const dir = pct > 0 ? "gain" : "loss";
+  if (ageDays < 14) {
+    if (absPct > 2) {
+      return `Weight ${dir} of ${absPct.toFixed(1)}% vs yesterday (threshold 2% at age < 2 weeks). Check the reading — save is still allowed.`;
+    }
+    return null;
+  }
+  if (pct < 0) {
+    return `Weight loss of ${absPct.toFixed(1)}% vs yesterday (any loss is flagged at age ≥ 2 weeks). Check the reading — save is still allowed.`;
+  }
+  if (pct >= 2) {
+    return `Weight gain of ${absPct.toFixed(1)}% vs yesterday (threshold 2% at age ≥ 2 weeks). Check the reading — save is still allowed.`;
+  }
+  return null;
+}
+
+const INVASIVE_MODES = ["SIMV", "AC", "PSV", "HFOV"];
+
 /* Validates Max FiO2 (%). Room air is 21% and 100% is the physical
    ceiling, so anything outside that band is invalid. */
 function validateMaxFio2(value) {
@@ -781,24 +819,28 @@ function ProgressRing({ percent }) {
   );
 }
 
-function YNToggle({ value, onChange, disabled }) {
+function YNToggle({ value, onChange, disabled, disabledValue }) {
+  const yesDisabled = !!disabled || disabledValue === true;
+  const noDisabled  = !!disabled || disabledValue === false;
   return (
     <div className="rcn-yn">
       <button
         type="button"
         className={`rcn-yn-btn rcn-yn-yes${value === true ? " rcn-yn-active-yes" : ""}`}
-        onClick={() => !disabled && onChange(value === true ? null : true)}
+        disabled={yesDisabled}
+        onClick={() => !yesDisabled && onChange(value === true ? null : true)}
       >Yes</button>
       <button
         type="button"
         className={`rcn-yn-btn rcn-yn-no${value === false ? " rcn-yn-active-no" : ""}`}
-        onClick={() => !disabled && onChange(value === false ? null : false)}
+        disabled={noDisabled}
+        onClick={() => !noDisabled && onChange(value === false ? null : false)}
       >No</button>
     </div>
   );
 }
 
-function YNRow({ label, value, onChange, disabled, hint, autofilled }) {
+function YNRow({ label, value, onChange, disabled, disabledValue, hint, autofilled }) {
   return (
     <div className={`rcn-yn-row${autofilled ? " rcn-autofilled-row" : ""}`}>
       <span className="rcn-yn-label">
@@ -806,7 +848,7 @@ function YNRow({ label, value, onChange, disabled, hint, autofilled }) {
         {autofilled && <span className="rcn-autofill-tag">from Minimal Monitoring</span>}
         {hint && <span className="rcn-yn-hint">{hint}</span>}
       </span>
-      <YNToggle value={value} onChange={onChange} disabled={disabled} />
+      <YNToggle value={value} onChange={onChange} disabled={disabled} disabledValue={disabledValue} />
     </div>
   );
 }
@@ -1000,6 +1042,7 @@ export default function RespCVNeuroLog() {
 
   /* ── Weight (2.1) ── */
   const [weightKg, setWeightKg] = useState("");
+  const [prevDayWeightKg, setPrevDayWeightKg] = useState("");
 
   /* ── Respiratory state ── */
   const [supportModes, setSupportModes] = useState([]);
@@ -1694,6 +1737,23 @@ export default function RespCVNeuroLog() {
   }, [enrollmentId, activeDay, day1Date]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!enrollmentId || activeDay < 2) {
+      setPrevDayWeightKg("");
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay - 1}`);
+        if (!cancelled) setPrevDayWeightKg(res?.data?.weight_kg || "");
+      } catch {
+        if (!cancelled) setPrevDayWeightKg("");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [enrollmentId, activeDay]);
+
+  useEffect(() => {
     if (!enrollmentId || !activeDayDate || loading) return;
     if (isFutureActiveDay) return;
     if (!mmlSyncAllowedRef.current) return;
@@ -1799,6 +1859,14 @@ export default function RespCVNeuroLog() {
   const respSupportIsNo = respiratorySupport === false;
   const isRespSupportYes = respiratorySupport === true;
   const weightError  = validateWeightEntries(weightKg);
+  const ageDaysOnLog = (day1Date && activeDayDate)
+    ? Math.round(
+        (new Date(`${activeDayDate}T00:00:00`) - new Date(`${day1Date}T00:00:00`)) / 86400000
+      )
+    : null;
+  const weightWarn = !weightError
+    ? weightChangeWarning({ todayStr: weightKg, prevStr: prevDayWeightKg, ageDays: ageDaysOnLog })
+    : null;
   const mapCpapMode  = getMapCpapMode(supportModes);
   const mapCpapModeForCount = mapCpapMode;
   const isMapCpapNA  = mapCpapMode === "NA";
@@ -1889,6 +1957,7 @@ export default function RespCVNeuroLog() {
   /* ── Helpers ── */
   const toggleMode = (mode) => {
     if (!isFieldEditable || respiratorySupport !== true) return;
+    if (INVASIVE_MODES.includes(mode) && endotrachealIntubation !== true) return;
     setBloodGasAutofilled((p) => ({ ...p, supportModes: false }));
     setSupportModes(prev => {
       const next = prev.includes(mode) ? prev.filter(m => m !== mode) : [...prev, mode];
@@ -2246,15 +2315,8 @@ export default function RespCVNeuroLog() {
               <span className="rcn-pcard-icon">🪪</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Enrolment ID</span>
-                <span className="rcn-pcard-value">{patientInfo.enrollmentId || "—"}</span>
-              </div>
-            </div>
-            <div className="rcn-pcard rcn-pcard--violet">
-              <span className="rcn-pcard-icon">🤱</span>
-              <div className="rcn-pcard-body">
-                <span className="rcn-pcard-label">Mother's Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap">
-                  {patientInfo.motherName || "—"}
+                <span className="rcn-pcard-value" title={patientInfo.enrollmentId || ""}>
+                  {patientInfo.enrollmentId || "—"}
                 </span>
               </div>
             </div>
@@ -2262,22 +2324,27 @@ export default function RespCVNeuroLog() {
               <span className="rcn-pcard-icon">🧬</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Gestation</span>
-                <span className="rcn-pcard-value">{patientInfo.gestationalAge || "—"}</span>
+                <span className="rcn-pcard-value" title={patientInfo.gestationalAge || ""}>
+                  {patientInfo.gestationalAge || "—"}
+                </span>
               </div>
             </div>
             <div className="rcn-pcard rcn-pcard--amber">
               <span className="rcn-pcard-icon">🏷️</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Baby UID</span>
-                <span className="rcn-pcard-value">{patientInfo.babyUid || "—"}</span>
+                <span className="rcn-pcard-value" title={patientInfo.babyUid || ""}>
+                  {patientInfo.babyUid || "—"}
+                </span>
               </div>
             </div>
             <div className="rcn-pcard rcn-pcard--rose">
               <span className="rcn-pcard-icon">👶</span>
               <div className="rcn-pcard-body">
-                <span className="rcn-pcard-label">Baby Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap">
-                  {patientInfo.babyName || <span className="rcn-pcard-empty">if available</span>}
+                <span className="rcn-pcard-label">B/O</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap" title={String(patientInfo.babyName || "").replace(/^baby of\s+/i, "").replace(/^b\/o\s+/i, "").trim()}>
+                  {String(patientInfo.babyName || "").replace(/^baby of\s+/i, "").replace(/^b\/o\s+/i, "").trim()
+                    || <span className="rcn-pcard-empty">if available</span>}
                 </span>
               </div>
             </div>
@@ -2617,6 +2684,12 @@ export default function RespCVNeuroLog() {
                 readOnly={!isFieldEditable}
               />
               {weightError && <span className="rcn-field-error">{weightError}</span>}
+              {!weightError && weightWarn && (
+                <div className="rcn-field-warn">
+                  <AlertTriangle size={14} />
+                  <span>{weightWarn}</span>
+                </div>
+              )}
             </div>
 
             {/* ════ RESPIRATORY ════ */}
@@ -2640,10 +2713,19 @@ export default function RespCVNeuroLog() {
                       setMaxFio2("");
                       setMaxFlow("");
                       setResp("supp_o2", null);
+                      setEndotrachealIntubation(prev => (prev === true ? null : prev));
                     }
                   }} disabled={!isFieldEditable} />
                 <YNRow label="2. Endotracheally intubated" value={endotrachealIntubation}
-                  onChange={v => isFieldEditable && setEndotrachealIntubation(v)} disabled={!isFieldEditable} />
+                  onChange={v => {
+                    if (!isFieldEditable) return;
+                    setEndotrachealIntubation(v);
+                    if (v !== true) {
+                      setSupportModes(prev => prev.filter(m => !INVASIVE_MODES.includes(m)));
+                    }
+                  }}
+                  disabled={!isFieldEditable}
+                  disabledValue={respiratorySupport === false ? true : undefined} />
               </div>
 
               {/* #3 Mode Pills — only relevant once Respiratory support = Yes */}
@@ -2652,7 +2734,9 @@ export default function RespCVNeuroLog() {
                   3. Mode
                   <span className="rcn-field-sub">
                     {isRespSupportYes
-                      ? "NC, HFNC, CPAP, NIPPV, SIMV, A/C, PSV, HFOV — select all that apply"
+                      ? (endotrachealIntubation === true
+                          ? "NC, HFNC, CPAP, NIPPV, SIMV, A/C, PSV, HFOV — select all that apply"
+                          : "NC, HFNC, CPAP, NIPPV — select all that apply. SIMV/AC/PSV/HFOV require Endotracheal intubation (#2) = Yes")
                       : "Enabled once Respiratory support (#1) is Yes"}
                   </span>
                 </label>
@@ -2663,7 +2747,11 @@ export default function RespCVNeuroLog() {
                       type="button"
                       className={`rcn-pill${supportModes.includes(mode) ? " rcn-pill--on" : ""}`}
                       onClick={() => toggleMode(mode)}
-                      disabled={!isFieldEditable || !isRespSupportYes}
+                      disabled={
+                        !isFieldEditable
+                        || !isRespSupportYes
+                        || (INVASIVE_MODES.includes(mode) && endotrachealIntubation !== true)
+                      }
                     >{mode}</button>
                   ))}
                 </div>

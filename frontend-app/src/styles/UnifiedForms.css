@@ -163,3 +163,76 @@ body { color: var(--portal-ink); background: var(--portal-canvas); }
   align-self: center !important;
   flex-shrink: 0 !important;
 }
+
+/* ── Field-logic badges (auto / conditional / carried / validated) ── */
+.fl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 0 0 24px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--portal-border);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--portal-muted);
+}
+.fl-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.fl-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+  cursor: help;
+  outline: none;
+}
+.fl-badge--auto { color: #2563eb; }
+.fl-badge--conditional { color: #d97706; }
+.fl-badge--carried { color: #16a34a; }
+.fl-badge--validated { color: #7c3aed; }
+.fl-badge-popup {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, calc(-100% - 8px));
+  max-width: 260px;
+  padding: 8px 10px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  pointer-events: none;
+  white-space: normal;
+  text-align: left;
+}
+.fl-badge-popup::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #0f172a;
+}
+.fl-badge-popup--below {
+  transform: translate(-50%, 8px);
+}
+.fl-badge-popup--below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: #0f172a;
+}

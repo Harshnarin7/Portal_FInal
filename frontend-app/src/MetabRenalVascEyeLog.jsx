@@ -1860,21 +1860,22 @@ export default function MetabRenalVascEyeLog() {
                 </span>
               </div>
             </div>
-            <div className="rcn-pcard rcn-pcard--violet">
-              <span className="rcn-pcard-icon">🤱</span>
-              <div className="rcn-pcard-body">
-                <span className="rcn-pcard-label">Mother's Name</span>
-                <span className="rcn-pcard-value rcn-pcard-value--cap" title={patientInfo.motherName || ""}>
-                  {patientInfo.motherName || "—"}
-                </span>
-              </div>
-            </div>
             <div className="rcn-pcard rcn-pcard--amber">
               <span className="rcn-pcard-icon">🏷️</span>
               <div className="rcn-pcard-body">
                 <span className="rcn-pcard-label">Baby UID</span>
                 <span className="rcn-pcard-value" title={patientInfo.babyUid || ""}>
                   {patientInfo.babyUid || "—"}
+                </span>
+              </div>
+            </div>
+            <div className="rcn-pcard rcn-pcard--rose">
+              <span className="rcn-pcard-icon">👶</span>
+              <div className="rcn-pcard-body">
+                <span className="rcn-pcard-label">B/O</span>
+                <span className="rcn-pcard-value rcn-pcard-value--cap" title={String(patientInfo.babyName || "").replace(/^baby of\s+/i, "").replace(/^b\/o\s+/i, "").trim()}>
+                  {String(patientInfo.babyName || "").replace(/^baby of\s+/i, "").replace(/^b\/o\s+/i, "").trim()
+                    || <span className="rcn-pcard-empty">if available</span>}
                 </span>
               </div>
             </div>

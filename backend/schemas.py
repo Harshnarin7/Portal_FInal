@@ -1046,6 +1046,7 @@ class NICUAdmissionCreate(BaseModel):
     temp_dr: Optional[float] = None
     temp_skin: Optional[float] = None
     temp_axillary: Optional[float] = None
+    temp_axillary_not_measured: Optional[bool] = None
 
     transport_incubator: Optional[bool] = None
     transport_mode: Optional[str] = None

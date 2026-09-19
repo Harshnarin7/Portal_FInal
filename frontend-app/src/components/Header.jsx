@@ -24,7 +24,7 @@ const Header = ({ title, subtitle, siteName, idBadge }) => (
           {subtitle || 'Initial Oxygen for Delivery Room Resuscitation of Preterm Neonates'}
         </p>
         <div className="header-badges">
-          <span>{siteName || 'PGIMER CHANDIGARH'}</span>
+          <span>{siteName || 'PORTAL TRIAL'}</span>
           <span className="badge-green">ICMR FUNDED</span>
           <span>MULTI-SITE RCT</span>
         </div>

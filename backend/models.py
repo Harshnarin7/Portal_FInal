@@ -522,6 +522,7 @@ class NICUAdmission(Base):
     temp_dr = Column(Float)
     temp_skin = Column(Float)
     temp_axillary = Column(Float)
+    temp_axillary_not_measured = Column(Boolean)
 
     transport_incubator = Column(Boolean)
     transport_mode = Column(String)
