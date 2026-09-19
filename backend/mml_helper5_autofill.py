@@ -1,28 +1,40 @@
-"""Helper 5 (Minimal Monitoring) block 5.3.A (glucose) / 5.1.A (vitals,
-temperature only) -> Helper 4 (Metab/Renal/Vasc/Eye) #1/#4/#15.
+"""DMS (Daily Monitoring Sheet, `MinimalMonitoringLog.jsx`) block 5.3.A
+(glucose) / 5.1.A (vitals, temperature only) -> Helper 5 (Metab/Renal/
+Vasc/Eye, `MetabRenalVascEyeLog.jsx`) #1/#4/#15.
 
-Second step of the Minimal Monitoring <-> Helper 1-4 linkage project (see
+NOTE ON NAMING (2026-09-19): this module and its functions are still
+named "helper4"/"helper5" from before that day's sidebar renumbering,
+when MetabRenalVascEyeLog.jsx was Helper 4 and Minimal Monitoring was
+Helper 5. The module/function names below now match the CURRENT
+numbering (MetabRenalVascEyeLog.jsx = Helper 5; Minimal Monitoring is
+DMS, unnumbered) -- if this file is ever renumbered again, rename these
+too rather than letting the names drift stale a second time (that drift
+is exactly what caused a real mix-up when asked which Helper form DMS
+Vitals feeds).
+
+Second step of the DMS <-> Helper 2-5 linkage project (see
 get_metabolic_prefill's docstring in main.py for step 1, which fed Form H
-directly). This step surfaces the same underlying readings inside Helper 4
-itself -- so a nurse looking at Helper 4 sees the real worst reading for
-that NICU day, not just whatever Form H separately computed admission-wide.
+directly). This step surfaces the same underlying readings inside
+Helper 5 itself -- so a nurse looking at Helper 5 sees the real worst
+reading for that NICU day, not just whatever Form H separately computed
+admission-wide.
 
 Deliberately a fill-if-blank overlay, NOT the always-overwrite-unless-
-"Not Recorded" pattern used by mml_resp_a_autofill.py's Helper 1 overlays
+"Not Recorded" pattern used by mml_resp_a_autofill.py's DMS overlays
 (overlay_resp_cv_day_from_autofill / overlay_resp_cv_blood_gas_from_mml).
 That pattern relies on a per-field `*_status` companion column giving the
-clinician an explicit "Not Recorded / Not Done" escape hatch before MML is
+clinician an explicit "Not Recorded / Not Done" escape hatch before DMS is
 allowed to always win; lowest_glucose/highest_glucose/axillary_temperature
 have no such companion column today, so unconditionally overwriting a
 manually-typed value (e.g. from an actual lab draw) with a different
-MML-derived number would have no way to be overridden. Fill-if-blank is
+DMS-derived number would have no way to be overridden. Fill-if-blank is
 the safe default used everywhere else in this codebase for exactly this
 reason -- revisit if/when `*_status` columns are added for these fields
-too, matching the Helper 1 precedent fully.
+too, matching the mml_resp_a_autofill.py precedent fully.
 
 Unlike get_metabolic_prefill (step 1), which aggregates across the WHOLE
 admission to find the true worst reading Form H should show, this module
-is deliberately scoped to a single NICU day, matching what Helper 4 itself
+is deliberately scoped to a single NICU day, matching what Helper 5 itself
 displays -- a day's lowest_glucose/highest_glucose/axillary_temperature is
 a per-day fact, not an admission-wide one.
 """
@@ -109,12 +121,13 @@ def _block_values(mml_row: Any, block_key: str, entry_key: str, legacy_attr: str
     return values
 
 
-def compute_helper4_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> Dict[str, Any]:
+def compute_helper5_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> Dict[str, Any]:
     """Merge Minimal Monitoring's 5.3.A (glucose) and 5.1.A (temperature)
     readings dated for `helper_calendar_date` across one or more MML rows
-    (the row saved under that exact date, plus -- same as the Helper 1
-    precedent -- today's still-open scratchpad row when different, so a
-    reading logged before MML's own day-rollover still counts)."""
+    (the row saved under that exact date, plus -- same as the
+    mml_resp_a_autofill.py precedent -- today's still-open scratchpad row
+    when different, so a reading logged before MML's own day-rollover
+    still counts)."""
     glucose_vals: List[float] = []
     temp_vals: List[float] = []
     seen_ids = set()
@@ -127,12 +140,18 @@ def compute_helper4_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> D
                 continue
             seen_ids.add(rid)
         glucose_vals.extend(_block_values(row, "met_a", "glucose", "glucose", helper_calendar_date))
-        temp_vals.extend(_block_values(row, "cv_a", "axillary_temperature", "axillary_temperature", helper_calendar_date))
+        # DMS stores this as `axillary_temp` (both the cv_a entries_json key and
+        # the legacy flat column on MinimalMonitoringDayLog) -- Helper 5's own
+        # field is separately named `axillary_temperature`, which is only the
+        # OUTPUT key below / the overlay's write target, never the DMS source
+        # key. Reading "axillary_temperature" here always missed (silent
+        # None), so this overlay branch never actually fired.
+        temp_vals.extend(_block_values(row, "cv_a", "axillary_temp", "axillary_temp", helper_calendar_date))
 
     result: Dict[str, Any] = {"has_data": bool(glucose_vals or temp_vals)}
 
     # Same <45 / >125 mg/dL thresholds as step 1 (get_metabolic_prefill) --
-    # <45 matches both Helper 4's own storage convention and the CRF;
+    # <45 matches both Helper 5's own storage convention and the CRF;
     # >125 is the corrected hyperglycemia threshold (the CRF's own text
     # currently reads ">180", confirmed by the PI as a documentation error
     # being fixed separately).
@@ -144,7 +163,7 @@ def compute_helper4_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> D
         result["highest_glucose"] = _fmt_num(max(highs))
 
     # axillary_temperature is a single flagged reading, not a lowest/
-    # highest pair (Helper 4's own field label: "<36.5 or >37.5") -- report
+    # highest pair (Helper 5's own field label: "<36.5 or >37.5") -- report
     # whichever direction the day's readings actually went abnormal,
     # preferring hypothermia if both occurred the same day (the more
     # urgent of the two, and the actual live incident this project was
@@ -159,26 +178,26 @@ def compute_helper4_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> D
     return result
 
 
-def _helper4_str_is_blank(val: Any) -> bool:
+def _helper5_str_is_blank(val: Any) -> bool:
     return val is None or str(val).strip() == ""
 
 
-def overlay_helper4_day_from_mml(record, autofill: Dict[str, Any]) -> None:
+def overlay_helper5_day_from_mml(record, autofill: Dict[str, Any]) -> None:
     """In-memory overlay on GET (does not commit) -- fills lowest_glucose/
-    highest_glucose/axillary_temperature only when Helper 4's own field is
+    highest_glucose/axillary_temperature only when Helper 5's own field is
     still blank. See module docstring for why this is fill-if-blank rather
-    than the Helper 1 precedent's always-overwrite-unless-Not-Recorded."""
+    than the mml_resp_a_autofill.py precedent's always-overwrite-unless-Not-Recorded."""
     if not autofill.get("has_data"):
         return
-    if _helper4_str_is_blank(getattr(record, "lowest_glucose", None)):
+    if _helper5_str_is_blank(getattr(record, "lowest_glucose", None)):
         val = autofill.get("lowest_glucose")
         if val is not None:
             record.lowest_glucose = val
-    if _helper4_str_is_blank(getattr(record, "highest_glucose", None)):
+    if _helper5_str_is_blank(getattr(record, "highest_glucose", None)):
         val = autofill.get("highest_glucose")
         if val is not None:
             record.highest_glucose = val
-    if _helper4_str_is_blank(getattr(record, "axillary_temperature", None)):
+    if _helper5_str_is_blank(getattr(record, "axillary_temperature", None)):
         val = autofill.get("axillary_temperature")
         if val is not None:
             record.axillary_temperature = val

@@ -193,3 +193,74 @@ export function modesArraysEqual(a, b) {
   if (!na.length && !nb.length) return true;
   return respModesUnionLooksSourced(na, nb) && respModesUnionLooksSourced(nb, na);
 }
+
+/** Parse "08:00–14:00" / "8:00 AM - 2:00 PM" / a single time into {from, to} 24h HH:MM. */
+function parseTimeRangeStr(value) {
+  const s = String(value || "").trim();
+  if (!s) return { from: "", to: "" };
+  const parts = s.split(/\s*[–—−-]\s*|\s+to\s+/i).map((p) => p.trim()).filter(Boolean);
+  const toHHmm = (raw) => {
+    const t = String(raw || "").trim();
+    const m = t.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+    if (!m) return "";
+    let h = Number(m[1]);
+    const min = m[2];
+    const ap = (m[3] || "").toUpperCase();
+    if (ap === "PM" && h < 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    if (!Number.isFinite(h) || h < 0 || h > 23) return "";
+    return `${String(h).padStart(2, "0")}:${min}`;
+  };
+  if (parts.length === 1) return { from: toHHmm(parts[0]), to: "" };
+  return { from: toHHmm(parts[0]), to: toHHmm(parts[1]) };
+}
+
+function hhmmToMinutes(hhmm) {
+  const m = String(hhmm || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const mins = Number(m[1]) * 60 + Number(m[2]);
+  return Number.isFinite(mins) ? mins : null;
+}
+
+/**
+ * Convert DMS 5.2.A entries (each a {time_range, max_fio2, ...}) into FiO2
+ * AUC rectangle rows for the two 12h windows, splitting any entry that spans
+ * the 12h boundary. Entries with no usable time range or no max_fio2 are
+ * skipped outright — a real clinical gap stays a gap here, it is never
+ * papered over with an invented value (e.g. assumed room air).
+ */
+export function buildFio2AucRowsFromRespA(respARows) {
+  const spans = [];
+  for (const row of respARows || []) {
+    const { from, to } = parseTimeRangeStr(row?.time_range);
+    const fromMin = hhmmToMinutes(from);
+    const toMin = hhmmToMinutes(to);
+    const fio2 = row?.max_fio2;
+    if (fromMin == null || toMin == null || toMin <= fromMin) continue;
+    if (fio2 === "" || fio2 == null || !Number.isFinite(Number(fio2))) continue;
+    spans.push({ from: fromMin, to: toMin, fio2: Number(fio2) });
+  }
+  spans.sort((a, b) => a.from - b.from);
+
+  const BOUNDARY = 12 * 60;
+  const w1 = [];
+  const w2 = [];
+  for (const s of spans) {
+    if (s.to <= BOUNDARY) {
+      w1.push(s);
+    } else if (s.from >= BOUNDARY) {
+      w2.push({ from: s.from - BOUNDARY, to: s.to - BOUNDARY, fio2: s.fio2 });
+    } else {
+      w1.push({ from: s.from, to: BOUNDARY, fio2: s.fio2 });
+      w2.push({ from: 0, to: s.to - BOUNDARY, fio2: s.fio2 });
+    }
+  }
+
+  const toRows = (list) =>
+    list.map(({ from, to, fio2 }) => ({
+      fio2: String(fio2),
+      dur: String(Math.round(((to - from) / 60) * 100) / 100),
+    }));
+
+  return { w1: toRows(w1), w2: toRows(w2) };
+}

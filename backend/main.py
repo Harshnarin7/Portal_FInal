@@ -33,16 +33,18 @@ from rop_form_g_linkage import (
 from rop_consistency import build_rop_consistency_report
 from mml_resp_a_autofill import (
     autofill_from_mml_rows,
+    autofill_list_field_from_mml_rows,
     autofill_resp_b_from_mml_rows,
     autofill_resp_c_from_mml_rows,
     calendar_date_for_nicu_day_from_birth,
+    overlay_boolean_presence_from_mml,
     overlay_resp_cv_blood_gas_from_mml,
     overlay_resp_cv_day_from_autofill,
     overlay_resp_cv_episodes_from_mml,
 )
-from mml_helper4_autofill import (
-    compute_helper4_day_autofill,
-    overlay_helper4_day_from_mml,
+from mml_helper5_autofill import (
+    compute_helper5_day_autofill,
+    overlay_helper5_day_from_mml,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -2175,30 +2177,30 @@ def get_metabolic_prefill(
     comments) to split into the hypo-/hyper- checkboxes Form H uses.
 
     Glucose (#1/#4) additionally pulls from Minimal Monitoring's 5.3.A
-    block (`met_a` in `entries_json`, added 2026-09) — unlike Helper 4's
+    block (`met_a` in `entries_json`, added 2026-09) — unlike Helper 5's
     own lowest_glucose/highest_glucose columns, which only ever get
     populated when a reading is already abnormal, Minimal Monitoring logs
     every spot glucose reading regardless of value, so each reading is
     numerically thresholded here before being folded into the same
-    hypoglycemia_lowest/hyperglycemia_highest pool Helper 4 feeds — same
+    hypoglycemia_lowest/hyperglycemia_highest pool Helper 5 feeds — same
     "which of these repeated readings is the worst" problem already
     solved for CV's SBP/DBP/MAP, VM/Doppler, and max-direct-bilirubin
     (see get_cv_prefill/get_vm_doppler_prefill/get_bilirubin_prefill).
     Thresholds are the CRF's own hypoglycemia cutoff (<45 mg/dL, matching
-    Helper 4's storage convention exactly) and a corrected hyperglycemia
+    Helper 5's storage convention exactly) and a corrected hyperglycemia
     cutoff of >125 mg/dL — NOT the CRF document's currently-written >180,
     which the PI has confirmed is a documentation error being corrected
-    separately; Helper 4's own existing >180-filtered data is untouched
+    separately; Helper 5's own existing >180-filtered data is untouched
     by this change and still folds into the same combined pool.
 
     ALP peak / lowest total Ca / lowest phosphorus (#113-115, osteopenia
-    lab values) are new here — Helper 4 has never had a source for these
+    lab values) are new here — Helper 5 has never had a source for these
     (its old docstring here said so explicitly), but Minimal Monitoring's
     5.3.B block (`met_b`) records exactly this, multiple times per day.
     Simple running max (ALP) / running min (Ca, phosphorus) across every
     entry from every day, same max/min-ratchet pattern as the other
     Minimal-Monitoring-sourced Form H fields. Osteopenia itself (#112)
-    stays sourced from Helper 4's own osteopenia_suspected flag, unchanged
+    stays sourced from Helper 5's own osteopenia_suspected flag, unchanged
     — a lab value crossing some range doesn't itself diagnose osteopenia,
     that's still a clinical judgment call the day log already captures
     directly.
@@ -5997,6 +5999,18 @@ def get_resp_cv_neuro_summary(
         for r in records
     ]
 
+# DMS's 5.1.C pills ("Epinephrine"/"Norepinephrine") and Helper 2's own
+# vasoactive_drugs pills ("Adrenaline"/"Noradrenaline") independently picked
+# different terms for the same two drugs. Without translating on the way in,
+# a DMS-sourced value would fail Helper 2's own pill "on" check
+# (vasoactiveDrugs.includes(drug), RespCVNeuroLog.jsx) and Form H's
+# inotrope_adr/inotrope_nadr detection (both do exact-string matches against
+# "Adrenaline"/"Noradrenaline") -- silently missing a real shock/AE signal.
+VASOACTIVE_DRUG_NAME_ALIASES = {
+    "Epinephrine": "Adrenaline",
+    "Norepinephrine": "Noradrenaline",
+}
+
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
     enrollment_id: str,
@@ -6036,6 +6050,25 @@ def get_resp_cv_neuro_day(
         overlay_resp_cv_blood_gas_from_mml(
             record,
             _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(
+                db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
+                value_map=VASOACTIVE_DRUG_NAME_ALIASES,
+            ),
+            "vasoactive_support",
+            "vasoactive_drugs",
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
+            "pda_medical_rx",
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
+            "postnatal_steroids",
         )
     return record
 
@@ -6124,7 +6157,43 @@ def _mml_helper1_resp_autofill(db: Session, enrollment_id: str, calendar_ymd: st
     )
 
 
-#  -  POST create day  - 
+def _mml_helper1_list_field_autofill(
+    db: Session, enrollment_id: str, calendar_ymd: str, block_key: str, list_key: str,
+    value_map: Optional[dict] = None,
+) -> dict:
+    """Presence of a DMS list-type field (5.1.C Vasoactive Drugs, 5.1.D PDA
+    Medical Rx, 5.2.D Postnatal Steroids) on a calendar date -- these 3
+    blocks were captured but had zero downstream consumer (2026-09 audit)."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == calendar_ymd,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != calendar_ymd:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    return autofill_list_field_from_mml_rows(
+        on_row,
+        today_row,
+        block_key=block_key,
+        list_key=list_key,
+        helper_calendar_date=calendar_ymd,
+        value_map=value_map,
+    )
+
+
+#  -  POST create day  -
 @app.post("/resp-cv-neuro/")
 def create_resp_cv_neuro_day(
     data:         RespCVNeuroDayCreate,
@@ -6668,7 +6737,7 @@ def override_unlock_infect_gi_hema_day(
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  
 def _metab_completion_pct(r) -> int:
-    """Compute completion % for Helper Form 4 (items 1-25), with gated fields."""
+    """Compute completion % for Helper Form 5 (items 1-25), with gated fields."""
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
 
     def _is_numeric_high(v):
@@ -6802,9 +6871,9 @@ def get_metab_renal_vasc_eye_day(
     # sheet without treating "not started yet" as an error.
     if not record:
         return None
-    # Minimal Monitoring linkage step 2 -- see mml_helper4_autofill.py.
+    # Minimal Monitoring linkage step 2 -- see mml_helper5_autofill.py.
     # Fills lowest_glucose/highest_glucose/axillary_temperature only when
-    # Helper 4's own field is still blank; never touches an already-
+    # Helper 5's own field is still blank; never touches an already-
     # answered field. In-memory only, not committed.
     birth = (
         db.query(BirthResuscitation)
@@ -6835,8 +6904,8 @@ def get_metab_renal_vasc_eye_day(
                 )
                 .first()
             )
-        autofill = compute_helper4_day_autofill(on_row, today_row, helper_calendar_date=cal)
-        overlay_helper4_day_from_mml(record, autofill)
+        autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
+        overlay_helper5_day_from_mml(record, autofill)
     return record
  
  
@@ -6954,8 +7023,7 @@ MINIMAL_MONITORING_FIELDS = [
     "paco2", "apnea_shift", "apnea_episodes", "desaturation_episodes",
     "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
     "glucose", "alp", "total_calcium", "phosphorus",
-    "electrolyte_abnormality", "hypo_hyper",
-    "symptomatic_status", "cumulative_feed_volume", "feed_shift",
+    "cumulative_feed_volume", "feed_shift",
     "direct_bilirubin", "imaging_date", "ventriculomegaly_severity",
     "vi", "ahw", "tod", "aca_ri", "mca_ri", "transfusion_products",
     "transfusion_count", "prbc_volume",
@@ -7144,7 +7212,7 @@ def upsert_minimal_monitoring_on_date(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upsert the nurse-selected calendar sheet (Helper Form 5 date dropdown)."""
+    """Upsert the nurse-selected calendar sheet (DMS date dropdown)."""
     require_enrollment_access(enrollment_id, db, current_user)
     _validate_mml_manual_on_date(on_date)
     return _upsert_minimal_monitoring_for_date(enrollment_id, on_date, data, db)

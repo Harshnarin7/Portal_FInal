@@ -78,7 +78,14 @@ function parseGiAFeedVolumeValues(payload, recordDate = null) {
     for (const e of giA) {
       if (!rowOnHelperDay(e)) continue;
       if (!mmlGiAEntryHasData(e)) continue;
-      const n = Number(e?.cumulative_feed_volume);
+      // New flowsheet shape (5.4.A redesign): each row is a discrete EF/NPO
+      // reading, "status"/"volume_ml" replace the old single flat
+      // cumulative_feed_volume field — only EF rows carry a real volume.
+      // Legacy rows (saved before the redesign) have no "status" key at all
+      // and still carry the old field directly.
+      const isNewShape = e?.status !== undefined;
+      if (isNewShape && e.status !== "EF") continue;
+      const n = Number(isNewShape ? e.volume_ml : e?.cumulative_feed_volume);
       if (!Number.isFinite(n)) continue;
       values.push(n);
     }
@@ -93,6 +100,63 @@ function parseGiAFeedVolumeValues(payload, recordDate = null) {
 
 function mergeGiAFeedValueLists(a, b) {
   return [...a, ...b];
+}
+
+/** Distinct milk types used across a day's EF readings (5.4.A flowsheet
+ *  redesign) — legacy-shape entries have no milk_type field at all, so
+ *  they simply never contribute here (nothing to backward-compat for). */
+function parseGiAMilkTypes(payload, recordDate = null) {
+  if (!payload) return [];
+  const rowOnHelperDay = (row) => {
+    if (!recordDate) return true;
+    const d = row?.date;
+    if (d == null || d === "") return true;
+    return String(d).slice(0, 10) === recordDate;
+  };
+  let entries = payload.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const giA = entries?.gi_a;
+  if (!Array.isArray(giA)) return [];
+  const seen = [];
+  for (const e of giA) {
+    if (!rowOnHelperDay(e)) continue;
+    if (e?.status !== "EF" || !e?.milk_type) continue;
+    if (!seen.includes(e.milk_type)) seen.push(e.milk_type);
+  }
+  return seen;
+}
+
+function mergeGiAMilkTypeLists(a, b) {
+  const out = [...a];
+  for (const t of b) if (!out.includes(t)) out.push(t);
+  return out;
+}
+
+async function loadMmlGiAMilkTypesForHelperDay(enrollmentId, recordDate) {
+  let merged = [];
+  const ingest = (payload) => {
+    if (!payload) return;
+    merged = mergeGiAMilkTypeLists(merged, parseGiAMilkTypes(payload, recordDate));
+  };
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    ingest(res?.data);
+  } catch (_) { /* optional */ }
+  if (merged.length > 0) return merged;
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today`,
+      { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
+    );
+    const today = res?.data || {};
+    if (today.record_date && today.record_date !== recordDate) ingest(today);
+    else if (today.record_date && today.record_date === recordDate) {
+      merged = parseGiAMilkTypes(today, recordDate);
+    }
+  } catch (_) { /* optional */ }
+  return merged;
 }
 
 async function loadMmlGiAFeedValuesForHelperDay(enrollmentId, recordDate) {
@@ -910,6 +974,7 @@ export default function InfectGIHemaLog() {
   const [feedVolumeAutofilled, setFeedVolumeAutofilled] = useState(false);
   const feedVolumeAutofilledRef = useRef(false);
   feedVolumeAutofilledRef.current = feedVolumeAutofilled;
+  const [feedTypeAutofilled, setFeedTypeAutofilled] = useState(false);
   const [hemaTransfusionAutofilled, setHemaTransfusionAutofilled] = useState({
     prbc: false, platelet: false, ffpCryo: false,
   });
@@ -985,6 +1050,29 @@ export default function InfectGIHemaLog() {
     } catch (_) { /* Helper 5 optional */ }
   };
 
+  /** Fill-if-blank only (no *_status sidecar exists for feed_type, and
+   *  unlike cumulative_feed_volume this is a nurse-editable multi-select
+   *  with no single "the" MML value to keep re-syncing against) — once the
+   *  nurse has picked anything here, or picked nothing on purpose, DMS
+   *  never touches it again. */
+  const applyFeedTypeFromMml = async (recordDate = activeDayDate) => {
+    if (!enrollmentId || !recordDate) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    try {
+      const types = await loadMmlGiAMilkTypesForHelperDay(enrollmentId, recordDate);
+      if (activeDayDateRef.current !== recordDate) return;
+      if (!types.length) return;
+      setGiData((p) => {
+        if (p.npo === true) return p;
+        if ((p.feed_type || []).length) return p;
+        setFeedTypeAutofilled(true);
+        setIsEditing(true);
+        return { ...p, feed_type: types };
+      });
+    } catch (_) { /* Helper 5 optional */ }
+  };
+
   const applyTransfusionFlagsFromMml = async (recordDate = activeDayDate) => {
     if (!enrollmentId || !recordDate) return;
     if (isFutureActiveDay) return;
@@ -1026,6 +1114,7 @@ export default function InfectGIHemaLog() {
 
   const applyMmlAutofillFromHelper5 = async (recordDate = activeDayDate) => {
     await applyFeedVolumeFromMml(recordDate);
+    await applyFeedTypeFromMml(recordDate);
     await applyTransfusionFlagsFromMml(recordDate);
   };
 
@@ -1267,6 +1356,7 @@ export default function InfectGIHemaLog() {
       setLoading(true);
       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
       setFeedVolumeAutofilled(false);
+      setFeedTypeAutofilled(false);
       setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
       try {
         const res = await api.get(`/infect-gi-hema/${enrollmentId}/${activeDay}`);
@@ -2205,6 +2295,7 @@ export default function InfectGIHemaLog() {
                     if (v !== false) {
                       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
                       setFeedVolumeAutofilled(false);
+                      setFeedTypeAutofilled(false);
       setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
                       setGiData(p => ({ ...p, men: null, enteral_feeds_received: null,
                         feed_type: [], cumulative_feed_volume: null, feed_volume: null }));
@@ -2226,11 +2317,18 @@ export default function InfectGIHemaLog() {
 
                   {enteralYes && (
                     <div className="rcn-subsection">
-                      <div className="rcn-subsection-title">13. Feed Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span></div>
+                      <div className="rcn-subsection-title">
+                        13. Feed Type <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}>(select all that apply)</span>
+                        {feedTypeAutofilled && <span className="rcn-autofill-tag">from Minimal Monitoring</span>}
+                      </div>
                       <PillMulti
                         options={["PDHM","EBM","FM"]}
                         value={giData.feed_type}
-                        onChange={v => isFieldEditable && setGiData(p => ({ ...p, feed_type: v }))}
+                        onChange={v => {
+                          if (!isFieldEditable) return;
+                          setFeedTypeAutofilled(false);
+                          setGiData(p => ({ ...p, feed_type: v }));
+                        }}
                         disabled={!isFieldEditable}
                       />
                     </div>

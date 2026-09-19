@@ -17,7 +17,7 @@ const FORMS = [
   { key: "form_j", label: "Form J – External Hospital Outcomes" },
 
   /* Helper forms */
-  { key: "minimal_monitoring", label: "Helper 1 – Minimal Monitoring" },
+  { key: "minimal_monitoring", label: "Daily Monitoring Sheet (DMS)" },
   { key: "vs6_1", label: "Helper 2 – Resp / CV / Neuro" },
   { key: "fio2_auc", label: "Helper 3 – FiO₂ Logging" },
   { key: "infect_gi_hema", label: "Helper 4 – Infect / GI / Hema" },
