@@ -206,7 +206,7 @@ export default function ScreeningForm() {
       return null;
     }
     if (field === "hospital_admission_number") {
-      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: true };
+      if (site === "PGIMER") return { pattern: /^\d{10}$/, hint: "Must be exactly 10 digits", charFilter: /[^0-9]/g, maxLen: 10, required: false };
       if (site === "GMCH-A") return { pattern: /^\d{4,6}$/, hint: "Must be 4–6 digits", charFilter: /[^0-9]/g, maxLen: 6, required: false };
       if (site === "GMCH")   return { pattern: /^\d{9,11}$/, hint: "Must be 9–11 digits", charFilter: /[^0-9]/g, maxLen: 11, required: false };
       if (site === "IOG")    return { pattern: /^\d{4,6}$/, hint: "Must be 4–6 digits", charFilter: /[^0-9]/g, maxLen: 6, required: false };
@@ -1736,7 +1736,7 @@ export default function ScreeningForm() {
                       {errors.maternal_uid && <div className="field-error">{errors.maternal_uid}</div>}
                     </div>
                     <div className="form-group">
-                      <label>16. Hospital Admission Number{formData.site_name === "PGIMER" && <span className="required">*</span>}</label>
+                      <label>16. Hospital Admission Number{idFieldRule(formData.site_name, "hospital_admission_number")?.required && <span className="required">*</span>}</label>
                       <input name="hospital_admission_number" value={formData.hospital_admission_number||""}
                         maxLength={15}
                         inputMode={["PGIMER","GMCH-A","GMCH","IOG"].includes(formData.site_name) ? "numeric" : "text"}
@@ -1881,8 +1881,11 @@ export default function ScreeningForm() {
                   )}
                   {allExclusionAnswered && !anyExclusionYes && (
                     <div style={{textAlign:"center", marginTop:16}}>
+                      <div style={{fontSize:13, fontWeight:600, color:"#15803d", marginBottom:6}}>
+                        All answers are NO
+                      </div>
                       <span className="badge-eligible" style={{fontSize:18, padding:"10px 20px"}}>
-                        Exclusion Criteria Absent - Proceed to Consent
+                        Exclusion criteria ABSENT - Proceed to CONSENT
                       </span>
                     </div>
                   )}
