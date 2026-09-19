@@ -881,6 +881,7 @@ class MaternalDetailsCreate(BaseModel):
     aph_type: Optional[str] = None
     aph_other: Optional[str] = None
     isoimmunization: Optional[str] = None
+    isoimmunization_type: Optional[str] = None
     pprom: Optional[str] = None
     pprom_duration: Optional[str] = None
     preterm_labor: Optional[str] = None
@@ -1064,6 +1065,8 @@ class NICUAdmissionCreate(BaseModel):
     transport_peep: Optional[float] = None
     transport_map:  Optional[float] = None
     transport_fio2: Optional[float] = None
+    transport_amplitude: Optional[float] = None
+    transport_frequency: Optional[float] = None
 
     nicu_mode_resp: Optional[str] = None
     nicu_cpap: Optional[float] = None
@@ -1071,6 +1074,8 @@ class NICUAdmissionCreate(BaseModel):
     nicu_peep: Optional[float] = None
     nicu_map:  Optional[float] = None
     nicu_fio2: Optional[float] = None
+    nicu_amplitude: Optional[float] = None
+    nicu_frequency: Optional[float] = None
 
     completed_by: Optional[str] = None
     designation: Optional[str] = None
@@ -2716,6 +2721,9 @@ class MinimalMonitoringDayCreate(BaseModel):
     symptomatic_detail: Optional[str] = None
 
     cumulative_feed_volume: Optional[float] = None
+    gi_feed_frequency_hours: Optional[int] = None
+    glucose_frequency_hours: Optional[int] = None
+    vitals_frequency_hours: Optional[int] = None
     direct_bilirubin: Optional[float] = None
 
     imaging_date: Optional[str] = None

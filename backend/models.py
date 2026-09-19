@@ -397,6 +397,7 @@ class MaternalDetails(Base):
     aph_type = Column(String)
     aph_other = Column(String)
     isoimmunization = Column(String, nullable=True)
+    isoimmunization_type = Column(String, nullable=True)
     # ---------- EVIDENCE OF INFECTION ----------
     pprom = Column(String)
     pprom_duration = Column(String)
@@ -540,6 +541,8 @@ class NICUAdmission(Base):
     transport_peep = Column(Float)
     transport_map  = Column(Float)
     transport_fio2 = Column(Float)
+    transport_amplitude = Column(Float)
+    transport_frequency = Column(Float)
 
     nicu_mode_resp = Column(String)
     nicu_cpap = Column(Float)
@@ -547,6 +550,8 @@ class NICUAdmission(Base):
     nicu_peep = Column(Float)
     nicu_map  = Column(Float)
     nicu_fio2 = Column(Float)
+    nicu_amplitude = Column(Float)
+    nicu_frequency = Column(Float)
 
     completed_by = Column(String)
     designation = Column(String)
@@ -2101,7 +2106,15 @@ class MinimalMonitoringDayLog(Base):
     symptomatic_detail = Column(String, nullable=True)
 
     cumulative_feed_volume = Column(Float, nullable=True)
+    # Nurse-chosen row cadence for the gi_a feed flowsheet (1/2/3-hourly);
+    # per-sheet, not a standing preference — defaults to 2h on a blank sheet.
+    gi_feed_frequency_hours = Column(Integer, nullable=True)
     direct_bilirubin = Column(Float, nullable=True)
+
+    # Same per-sheet cadence pattern as gi_feed_frequency_hours, for the
+    # met_a (Glucose) and cv_a (Vitals) Scheduled Flowsheets.
+    glucose_frequency_hours = Column(Integer, nullable=True)
+    vitals_frequency_hours = Column(Integer, nullable=True)
 
     imaging_date = Column(String, nullable=True)
     ventriculomegaly_severity = Column(String, nullable=True)

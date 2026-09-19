@@ -57,7 +57,7 @@ const SECTIONS = [
     key: 'helpers',
     title: 'Monitoring Logs',
     items: [
-      { id: 'minimal_monitoring',   label: 'Helper 1', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
+      { id: 'minimal_monitoring',   label: 'Daily Monitoring Sheet (DMS)', sub: 'Minimal Monitoring',  path: '/minimal-monitoring',      Icon: Activity   },
       { id: 'vs6_1',                label: 'Helper 2', sub: 'Resp / CV / Neuro',   path: '/vs6-1',                   Icon: HeartPulse },
       { id: 'fio2_auc',             label: 'Helper 3', sub: 'FiO₂ Logging',        path: '/fio2-auc',                Icon: FileHeart  },
       { id: 'infect_gi_hema',       label: 'Helper 4', sub: 'Infect / GI / Hema',  path: '/infect-gi-hema-log',      Icon: Microscope },

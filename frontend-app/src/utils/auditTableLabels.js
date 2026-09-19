@@ -12,7 +12,7 @@ export const AUDIT_TABLE_LABELS = {
   external_hospital_assessments: "Form J — External Hospital",
   mri_brain_assessments: "Form K — MRI Brain",
   blender_study_summaries: "Form L — Blender Summary",
-  minimal_monitoring_day_logs: "Helper 1 — Minimal Monitoring",
+  minimal_monitoring_day_logs: "Daily Monitoring Sheet (DMS)",
   resp_cv_neuro_day_logs: "Helper 2 — Resp/CV/Neuro (daily)",
   fio2_auc_logs: "Helper 3 — FiO₂ Logging",
   infect_gi_hema_day_logs: "Helper 4 — Infect/GI/Hema (daily)",

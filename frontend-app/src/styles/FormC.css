@@ -406,14 +406,14 @@
 }
 .rx-horizontal-group {
   display: flex;
-  flex-wrap: nowrap; /* Prevent wrapping */
+  flex-wrap: wrap; /* Wrap onto new rows instead of squeezing buttons below their text width */
   gap: 10px;
   width: 100%;
 }
 
 .rx-horizontal-btn {
-  flex: 1; /* Equal width buttons */
-  min-width: 0;
+  flex: 1 1 auto; /* Fill available width, but never shrink below the label's own size */
+  min-width: max-content;
   height: 42px;
   border: 1.5px solid #cbd5e1;
   border-radius: 8px;
