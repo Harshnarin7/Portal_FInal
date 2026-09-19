@@ -1233,3 +1233,9 @@ NICU_ADMISSION_HFOV_PATCHES = [
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_amplitude DOUBLE PRECISION",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_frequency DOUBLE PRECISION",
 ]
+
+# Form C item 43: Isoimmunization type (Rh / ABO / Minor blood group), shown
+# only when Isoimmunization = Yes.
+MATERNAL_DETAILS_ISOIMMUNIZATION_TYPE_PATCHES = [
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS isoimmunization_type VARCHAR",
+]
