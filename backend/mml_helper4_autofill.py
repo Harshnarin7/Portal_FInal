@@ -127,7 +127,13 @@ def compute_helper4_day_autofill(*mml_rows: Any, helper_calendar_date: str) -> D
                 continue
             seen_ids.add(rid)
         glucose_vals.extend(_block_values(row, "met_a", "glucose", "glucose", helper_calendar_date))
-        temp_vals.extend(_block_values(row, "cv_a", "axillary_temperature", "axillary_temperature", helper_calendar_date))
+        # DMS stores this as `axillary_temp` (both the cv_a entries_json key and
+        # the legacy flat column on MinimalMonitoringDayLog) -- Helper 4's own
+        # field is separately named `axillary_temperature`, which is only the
+        # OUTPUT key below / the overlay's write target, never the DMS source
+        # key. Reading "axillary_temperature" here always missed (silent
+        # None), so this overlay branch never actually fired.
+        temp_vals.extend(_block_values(row, "cv_a", "axillary_temp", "axillary_temp", helper_calendar_date))
 
     result: Dict[str, Any] = {"has_data": bool(glucose_vals or temp_vals)}
 

@@ -1224,3 +1224,30 @@ BIRTH_RESUSCITATION_TOTAL_RESUS_TIME_MMSS_PATCHES = [
     END $$;
     """,
 ]
+
+# Form E HFOV mode: Amplitude + Frequency, shown only when the respiratory
+# mode (transport or in-NICU) is set to HFOV.
+NICU_ADMISSION_HFOV_PATCHES = [
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_amplitude DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS transport_frequency DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_amplitude DOUBLE PRECISION",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS nicu_frequency DOUBLE PRECISION",
+]
+
+# Form C item 43: Isoimmunization type (Rh / ABO / Minor blood group), shown
+# only when Isoimmunization = Yes.
+MATERNAL_DETAILS_ISOIMMUNIZATION_TYPE_PATCHES = [
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS isoimmunization_type VARCHAR",
+]
+
+# DMS gi_a feed flowsheet: nurse-chosen row cadence (1/2/3-hourly), per sheet.
+MINIMAL_MONITORING_GI_FREQUENCY_PATCHES = [
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS gi_feed_frequency_hours INTEGER",
+]
+
+# Same per-sheet cadence pattern, for the met_a (Glucose) and cv_a (Vitals)
+# Scheduled Flowsheets.
+MINIMAL_MONITORING_GLUCOSE_VITALS_FREQUENCY_PATCHES = [
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS glucose_frequency_hours INTEGER",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS vitals_frequency_hours INTEGER",
+]

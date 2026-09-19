@@ -5,6 +5,9 @@ import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import api from "./api/axios";
 import { ArrowLeft, ArrowRight, Save, RefreshCw } from "lucide-react";
+import { calendarDateForNicuDay } from "./utils/datetime";
+import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
+import { parseRespAEntries, buildFio2AucRowsFromRespA } from "./utils/mmlRespASync";
 import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
@@ -193,11 +196,16 @@ export default function Fio2AUCForm() {
   const [patient, setPatient] = useState({
     enrollment_id: "", dob: "", gestation: "", gestation_source: "", mother_name: "", maternal_uid: ""
   });
+  // Raw ISO DOB (separate from `patient.dob`'s DD-MM-YYYY display string) —
+  // needed to convert a NICU day number into the calendar date DMS is keyed
+  // by, same as RespCVNeuroLog's own day1Date usage.
+  const [day1Date, setDay1Date] = useState("");
 
   /*  Per-day state — built from Helper 1 Supplemental O₂=Yes days (not a fixed 1–7) */
   const [days, setDays] = useState([]);
   const [daysLoading, setDaysLoading] = useState(false);
   const [helper2Refreshing, setHelper2Refreshing] = useState(false);
+  const [dmsPrefillingDay, setDmsPrefillingDay] = useState(null);
   // Persistent (not auto-dismissed) — set whenever the Helper 1 sync fetch
   // itself fails, so a real load failure is never visually identical to
   // "Helper 1 legitimately has no Supplemental O₂ days yet".
@@ -273,6 +281,7 @@ export default function Fio2AUCForm() {
         mother_name:   `${b?.mother_name_first || ""} ${b?.mother_name_surname || ""}`.trim(),
         maternal_uid:  b?.baby_uid || b?.maternal_uid || "",
       }));
+      setDay1Date(normalizeHelperDob(b?.date_of_birth));
     }).catch(() => {});
   }, [enrollmentId]);
 
@@ -477,6 +486,64 @@ export default function Fio2AUCForm() {
 
     if (justHitTwelve) {
       setCompletionPopup({ day: d, window: win === "w1" ? "1\u201312h" : "13\u201324h" });
+    }
+  };
+
+  /** A window still holds only its untouched default (single blank row,
+   *  duration defaulted to 12) \u2014 safe to prefill without discarding a real
+   *  nurse entry. */
+  const windowIsBlank = (rows) =>
+    !rows || rows.length === 0
+    || (rows.length === 1 && (rows[0].fio2 === "" || rows[0].fio2 == null));
+
+  /**
+   * Fill-if-blank prefill from the Daily Monitoring Sheet's 5.2.A readings \u2014
+   * same override-friendly pattern as every other MML autofill in this
+   * codebase: computes rows, only writes into windows that are still blank,
+   * never touches a window the nurse has already started filling in.
+   */
+  const prefillDayFromDms = async (dayNum) => {
+    if (!enrollmentId || !day1Date) {
+      setMessage("Need the baby's Date of Birth (Form B) before prefilling from DMS");
+      setTimeout(() => setMessage(""), 3500);
+      return;
+    }
+    const calendarYmd = calendarDateForNicuDay(day1Date, dayNum);
+    if (!calendarYmd) return;
+    setDmsPrefillingDay(dayNum);
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${calendarYmd}`);
+      const respARows = parseRespAEntries(res?.data, calendarYmd);
+      const { w1, w2 } = buildFio2AucRowsFromRespA(respARows);
+
+      const currentDay = daysRef.current
+        ? daysRef.current.find(x => x.day === dayNum)
+        : days.find(x => x.day === dayNum);
+      const canFillW1 = w1.length > 0 && windowIsBlank(currentDay?.w1);
+      const canFillW2 = w2.length > 0 && windowIsBlank(currentDay?.w2);
+
+      if (!canFillW1 && !canFillW2) {
+        setMessage(
+          (w1.length || w2.length)
+            ? "That window already has entries \u2014 clear it first to prefill from DMS"
+            : "No Daily Monitoring Sheet respiratory readings found for this day"
+        );
+        setTimeout(() => setMessage(""), 3500);
+        return;
+      }
+
+      setHasUnsavedChanges(true);
+      setDay(dayNum, () => ({
+        ...(canFillW1 ? { w1: w1.map(r => ({ id: Date.now() + Math.random(), ...r })) } : {}),
+        ...(canFillW2 ? { w2: w2.map(r => ({ id: Date.now() + Math.random(), ...r })) } : {}),
+      }));
+      setMessage("\u2705 Prefilled from Daily Monitoring Sheet \u2014 review and adjust as needed");
+      setTimeout(() => setMessage(""), 3500);
+    } catch (err) {
+      setMessage("Could not load Daily Monitoring Sheet for this day");
+      setTimeout(() => setMessage(""), 3500);
+    } finally {
+      setDmsPrefillingDay(null);
     }
   };
 
@@ -941,6 +1008,17 @@ export default function Fio2AUCForm() {
                           className="entry-input" />
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      className="btn-export"
+                      style={{ marginBottom: 12 }}
+                      onClick={() => prefillDayFromDms(d.day)}
+                      disabled={dmsPrefillingDay === d.day}
+                      title="Fill blank windows from the Daily Monitoring Sheet's hourly FiO2 readings for this day"
+                    >
+                      <RefreshCw size={14} className={dmsPrefillingDay === d.day ? "fio2-spin" : ""} />
+                      {dmsPrefillingDay === d.day ? "Loading…" : "Prefill from Daily Monitoring Sheet"}
+                    </button>
                     <div className="windows-grid">
                       <WindowCard
                         title="WINDOW: 1 - 12 HOURS"

@@ -33,9 +33,11 @@ from rop_form_g_linkage import (
 from rop_consistency import build_rop_consistency_report
 from mml_resp_a_autofill import (
     autofill_from_mml_rows,
+    autofill_list_field_from_mml_rows,
     autofill_resp_b_from_mml_rows,
     autofill_resp_c_from_mml_rows,
     calendar_date_for_nicu_day_from_birth,
+    overlay_boolean_presence_from_mml,
     overlay_resp_cv_blood_gas_from_mml,
     overlay_resp_cv_day_from_autofill,
     overlay_resp_cv_episodes_from_mml,
@@ -5997,6 +5999,18 @@ def get_resp_cv_neuro_summary(
         for r in records
     ]
 
+# DMS's 5.1.C pills ("Epinephrine"/"Norepinephrine") and Helper 2's own
+# vasoactive_drugs pills ("Adrenaline"/"Noradrenaline") independently picked
+# different terms for the same two drugs. Without translating on the way in,
+# a DMS-sourced value would fail Helper 2's own pill "on" check
+# (vasoactiveDrugs.includes(drug), RespCVNeuroLog.jsx) and Form H's
+# inotrope_adr/inotrope_nadr detection (both do exact-string matches against
+# "Adrenaline"/"Noradrenaline") -- silently missing a real shock/AE signal.
+VASOACTIVE_DRUG_NAME_ALIASES = {
+    "Epinephrine": "Adrenaline",
+    "Norepinephrine": "Noradrenaline",
+}
+
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
     enrollment_id: str,
@@ -6036,6 +6050,25 @@ def get_resp_cv_neuro_day(
         overlay_resp_cv_blood_gas_from_mml(
             record,
             _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(
+                db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
+                value_map=VASOACTIVE_DRUG_NAME_ALIASES,
+            ),
+            "vasoactive_support",
+            "vasoactive_drugs",
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
+            "pda_medical_rx",
+        )
+        overlay_boolean_presence_from_mml(
+            record,
+            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
+            "postnatal_steroids",
         )
     return record
 
@@ -6124,7 +6157,43 @@ def _mml_helper1_resp_autofill(db: Session, enrollment_id: str, calendar_ymd: st
     )
 
 
-#  -  POST create day  - 
+def _mml_helper1_list_field_autofill(
+    db: Session, enrollment_id: str, calendar_ymd: str, block_key: str, list_key: str,
+    value_map: Optional[dict] = None,
+) -> dict:
+    """Presence of a DMS list-type field (5.1.C Vasoactive Drugs, 5.1.D PDA
+    Medical Rx, 5.2.D Postnatal Steroids) on a calendar date -- these 3
+    blocks were captured but had zero downstream consumer (2026-09 audit)."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == calendar_ymd,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != calendar_ymd:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    return autofill_list_field_from_mml_rows(
+        on_row,
+        today_row,
+        block_key=block_key,
+        list_key=list_key,
+        helper_calendar_date=calendar_ymd,
+        value_map=value_map,
+    )
+
+
+#  -  POST create day  -
 @app.post("/resp-cv-neuro/")
 def create_resp_cv_neuro_day(
     data:         RespCVNeuroDayCreate,
@@ -6954,8 +7023,7 @@ MINIMAL_MONITORING_FIELDS = [
     "paco2", "apnea_shift", "apnea_episodes", "desaturation_episodes",
     "severe_desaturation_episodes", "postnatal_steroids", "steroid_dose",
     "glucose", "alp", "total_calcium", "phosphorus",
-    "electrolyte_abnormality", "hypo_hyper",
-    "symptomatic_status", "cumulative_feed_volume", "feed_shift",
+    "cumulative_feed_volume", "feed_shift",
     "direct_bilirubin", "imaging_date", "ventriculomegaly_severity",
     "vi", "ahw", "tod", "aca_ri", "mca_ri", "transfusion_products",
     "transfusion_count", "prbc_volume",

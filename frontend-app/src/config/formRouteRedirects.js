@@ -15,7 +15,7 @@ export const ENROLLMENT_ID_FORM_REDIRECTS = [
   { basePath: "/form-j", currentForm: "form_j", label: "Form J" },
   { basePath: "/form-k", currentForm: "form_k", label: "Form K" },
   { basePath: "/form-l", currentForm: "form_l", label: "Form L" },
-  { basePath: "/minimal-monitoring", currentForm: "minimal_monitoring", label: "Helper 1 (Minimal Monitoring)" },
+  { basePath: "/minimal-monitoring", currentForm: "minimal_monitoring", label: "Daily Monitoring Sheet (DMS)" },
   { basePath: "/vs6-1", currentForm: "vs6_1", label: "Helper 2 (Resp/CV/Neuro)" },
   { basePath: "/fio2-auc", currentForm: "fio2_auc", label: "Helper 3 (FiO₂ Logging)" },
   { basePath: "/infect-gi-hema-log", currentForm: "infect_gi_hema", label: "Helper 4" },

@@ -147,19 +147,30 @@ const normalizeIndicationForDelivery = (raw) => {
   return list.map(v => CRF_INDICATION_LEGACY[v] || v);
 };
 
-/* CRF Q60 — reasons the PORTAL blender was interrupted before 30 minutes. */
+/* CRF Q60 — reasons the TRIAL blender was interrupted before 30 minutes. */
 const BLENDER_INTERRUPT_REASONS = [
-  "Blender stopped abruptly",
-  "Surfactant decision",
-  "Intubation",
-  "FiO₂ – 21 or 100%",
-  "Early transfer",
+  "Blender stopped working abruptly",
+  "To decide need for Surfactant",
+  "To decide need for Intubation",
+  "For transfer to NICU (have to switch to routine blender)",
+  "Reached 21% or 100% FiO2",
 ];
-const BLENDER_ABRUPT_REASON = "Blender stopped abruptly";
+const BLENDER_ABRUPT_REASON = "Blender stopped working abruptly";
+// Old option text from before the 2026-09 CRF wording update — still present in
+// records saved earlier, rewritten to the current option so they keep matching
+// the right checkbox instead of showing up unchecked.
+const BLENDER_INTERRUPT_REASON_LEGACY_ALIASES = {
+  "Blender stopped abruptly": "Blender stopped working abruptly",
+  "Surfactant decision": "To decide need for Surfactant",
+  "Intubation": "To decide need for Intubation",
+  "Early transfer": "For transfer to NICU (have to switch to routine blender)",
+  "FiO₂ – 21 or 100%": "Reached 21% or 100% FiO2",
+};
 const parseBlenderInterruptReasons = (raw) => {
-  if (Array.isArray(raw)) return raw.map(v => String(v).trim()).filter(Boolean);
+  const alias = v => BLENDER_INTERRUPT_REASON_LEGACY_ALIASES[v] || v;
+  if (Array.isArray(raw)) return raw.map(v => alias(String(v).trim())).filter(Boolean);
   if (typeof raw === "string" && raw.trim()) {
-    return raw.split(",").map(v => v.trim()).filter(Boolean);
+    return raw.split(",").map(v => alias(v.trim())).filter(Boolean);
   }
   return [];
 };
@@ -715,27 +726,11 @@ export default function BirthResuscitationForm() {
     const match = String(value).match(/^(\d{1,3}):([0-5]\d)$/);
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
   };
-  // HH:MM:SS -> total seconds (field 48 — no separate day/hour breakout needed,
-  // hours simply keeps counting past 23 for durations longer than a day)
-  const durationHmsToSeconds = value => {
-    if (value === "" || value === null || value === undefined) return null;
-    const match = String(value).match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)$/);
-    if (!match) return null;
-    return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-  };
-  /** Field 45 (HH:MM:SS) must not exceed field 57 (MM:SS APGAR timer). */
+  /** Field 45 (seconds) must not exceed field 57 (MM:SS APGAR timer). */
   const spontaneousExceedsApgar = (resp, total) => {
-    const r = durationHmsToSeconds(formatDurationHms(resp));
+    const r = optionalNum(resp);
     const t = durationToSeconds(formatDurationMs(total));
     return r != null && t != null && r > t;
-  };
-  const secondsToDurationHms = value => {
-    if (value === "" || value === null || value === undefined) return "";
-    const total = Number(value);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
   useEffect(() => {
@@ -1029,7 +1024,7 @@ export default function BirthResuscitationForm() {
       transfusion_method:  fd.placental_transfusion === "Yes" ? (fd.transfusion_method || null) : null,
       cord_clamp_timestamp: fd.cord_clamp_timestamp || null,
       cord_clamp_time:     optionalNumInRange(fd.cord_clamp_time, 0, 300),
-      time_to_respiration: durationHmsToSeconds(formatDurationHms(fd.time_to_respiration)),
+      time_to_respiration: optionalNum(fd.time_to_respiration),
       spo2_5min:           optionalNumInRange(fd.spo2_5min, 1, 100),
       time_to_spo2_80:     durationToSeconds(formatDurationMs(fd.time_to_spo2_80)),
       randomised:          yn(fd.randomised),
@@ -1190,8 +1185,8 @@ export default function BirthResuscitationForm() {
         add("B4. Placental Transfusion Method", "transfusion_method");
       if(!formData.cord_clamp_timestamp)
         add("B4. Cord Clamp Timestamp", "cord_clamp_timestamp");
-      if(formData.time_to_respiration && durationHmsToSeconds(formatDurationHms(formData.time_to_respiration))===null)
-        add("B4. Time to Respiratory Efforts must be HH:MM:SS", "time_to_respiration");
+      if(formData.time_to_respiration && optionalNum(formData.time_to_respiration)===null)
+        add("B4. Time to Respiratory Efforts must be a whole number of seconds", "time_to_respiration");
       if(spontaneousExceedsApgar(formData.time_to_respiration, formData.total_resus_time))
         add("B4. Time to spontaneous respiratory efforts must be ≤ 57. Total time from APGAR timer", "time_to_respiration");
       if(formData.time_to_spo2_80 && durationToSeconds(formatDurationMs(formData.time_to_spo2_80))===null)
@@ -1214,7 +1209,7 @@ export default function BirthResuscitationForm() {
       if(!formData.reason_exit_trial_gas) add("B6. Reason for Exit",  "reason_exit_trial_gas");
       if(formData.reason_exit_trial_gas==="Other" && !formData.reason_exit_trial_gas_other)
         add("B6. Other Exit Reason", "reason_exit_trial_gas_other");
-      if(!formData.blender_stopped) add("B6. PORTAL blender interrupted before 30 minutes",  "blender_stopped");
+      if(!formData.blender_stopped) add("B6. TRIAL blender interrupted before 30 minutes from birth",  "blender_stopped");
       if(formData.blender_stopped==="Yes" && !(formData.blender_interrupt_reasons||[]).length)
         add("B6. Reason blender was interrupted", "blender_interrupt_reasons");
       if(formData.blender_stopped==="Yes"
@@ -1618,7 +1613,7 @@ export default function BirthResuscitationForm() {
           })(),
           blender_letter:    blenderLetterFromEnrollmentId(d.enrollment_id)
             || (["A","B","C","D"].includes(d.blender_letter) ? d.blender_letter : ""),
-          time_to_respiration: secondsToDurationHms(d.time_to_respiration),
+          time_to_respiration: d.time_to_respiration != null ? String(d.time_to_respiration) : "",
           time_to_spo2_80:     secondsToDuration(d.time_to_spo2_80),
           // Field 57: MM:SS string (legacy integer minutes → "MM:00")
           total_resus_time: (() => {
@@ -2203,7 +2198,7 @@ export default function BirthResuscitationForm() {
                   disabled={!isFieldEditable}/>
                 )}
                 {!birthConditionAllNormal && formData.initial_steps === "Yes" && (
-                <YesNoToggle label={<>23. Does baby require ventilation (PPV)?{requiredMark}</>}
+                <YesNoToggle label={<>23. Did baby require respiratory support for resuscitation (T-piece CPAP or PPV)?{requiredMark}</>}
                   name="required_resuscitation" value={formData.required_resuscitation}
                   yesLabel="Required" noLabel="Not required"
                   onChange={e=>{
@@ -2590,13 +2585,14 @@ export default function BirthResuscitationForm() {
                   {/* Timings 45–47 */}
                   <div className="form-grid-2" style={{marginTop:16}}>
                     <div className="form-group">
-                      <label>45. Time to spontaneous respiratory efforts (HH:MM:SS)</label>
-                      <DurationField mode="hms" name="time_to_respiration"
-                        value={formData.time_to_respiration}
-                        disabled={!isFieldEditable}
-                        placeholder="HH:MM:SS" maxLength={8}
-                        hasError={!!errors.time_to_respiration || spontaneousExceedsApgar(formData.time_to_respiration, formData.total_resus_time)}
-                        onChange={v => {
+                      <label>45. Time to spontaneous respiratory efforts <span className="field-note">(fill from Stop watch / Apgar timer)</span></label>
+                      <input type="text" name="time_to_respiration" value={formData.time_to_respiration||""}
+                        inputMode="numeric" maxLength={4} placeholder="Enter seconds"
+                        readOnly={!isFieldEditable}
+                        className={(errors.time_to_respiration || spontaneousExceedsApgar(formData.time_to_respiration, formData.total_resus_time)) ? "input-error" : ""}
+                        onChange={e => {
+                          const v = e.target.value;
+                          if (v !== "" && !/^\d{1,4}$/.test(v)) return;
                           set({ time_to_respiration: v });
                           setErrors(p => ({
                             ...p,
@@ -2813,7 +2809,7 @@ export default function BirthResuscitationForm() {
 
                   <div className="form-grid-2" style={{marginTop:14}}>
                     <div className="form-group">
-                      <label>56. SpO₂ at exit from trial gas (%) <span className="field-note">1–100 only</span></label>
+                      <label>56. SpO₂ (%) at EXIT from TRIAL BLENDER <span className="field-note">1–100 only</span></label>
                       <input type="text" name="spo2_exit_trial_gas" value={formData.spo2_exit_trial_gas||""}
                         inputMode="numeric" maxLength={3} placeholder="1–100"
                         readOnly={!isFieldEditable}
@@ -2826,7 +2822,7 @@ export default function BirthResuscitationForm() {
                         }}/>
                     </div>
                     <div className="form-group">
-                      <label>57. Total time (MM:SS) <span className="field-note">from APGAR timer</span></label>
+                      <label>57. Total time for Resuscitation (in seconds) <span className="field-note">(note from Apgar timer)</span></label>
                       <DurationField mode="ms" name="total_resus_time"
                         value={formData.total_resus_time}
                         disabled={!isFieldEditable}
@@ -2869,7 +2865,7 @@ export default function BirthResuscitationForm() {
                     <div/>
                   </div>
 
-                  <YesNoToggle label={<>59. Was the PORTAL blender interrupted before 30 minutes:{requiredMark}</>}
+                  <YesNoToggle label={<>59. Was the TRIAL blender interrupted before 30 minutes from BIRTH?{requiredMark}</>}
                     name="blender_stopped" value={formData.blender_stopped}
                     onChange={e=>{
                       handleChange(e);
@@ -2894,7 +2890,7 @@ export default function BirthResuscitationForm() {
                                     if (!next.includes(BLENDER_ABRUPT_REASON)) patch.blender_stopped_description = "";
                                     set(patch);
                                   }}/>
-                                <span>{opt === BLENDER_ABRUPT_REASON ? "Blender stopped abruptly, describe" : opt}</span>
+                                <span>{opt}</span>
                               </label>
                               {opt === BLENDER_ABRUPT_REASON && (formData.blender_interrupt_reasons||[]).includes(opt) && (
                                 <input type="text"
