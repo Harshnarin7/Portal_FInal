@@ -1,4 +1,7 @@
-"""Helper 5 block 5.2.A → Helper 1 respiratory #3–#5 (modes, MAP/CPAP, FiO₂)."""
+"""Daily Monitoring Sheet (DMS, formerly "Helper 1") -> Helper 2 (RespCVNeuroLog)
+autofill: 5.2.A respiratory (#3-5), 5.2.B blood gas (#8-10), 5.2.C episodes
+(#13-15), and the 5.1.C/5.1.D/5.2.D presence-only fields (Vasoactive Drugs,
+PDA Medical Rx, Postnatal Steroids)."""
 from __future__ import annotations
 
 import json
@@ -559,3 +562,103 @@ def overlay_resp_cv_blood_gas_from_mml(record, blood_gas: Dict[str, Any]) -> Non
         lo, hi = blood_gas.get("paco2_low"), blood_gas.get("paco2_high")
         if lo is not None and hi is not None:
             record.paco2_range = f"{lo}-{hi}"
+
+
+# ── Generic "presence of a list-type field means an event occurred" overlay ──
+# Covers 5.1.C (Vasoactive Drugs), 5.1.D (PDA Medical Rx), 5.2.D (Postnatal
+# Steroids) — three MML blocks that were captured but had zero downstream
+# consumer (2026-09 Helper 2-5 field audit). Unlike resp_a/b/c above, Helper 1's
+# own target fields for these three are plain booleans with no `*_status`
+# escape hatch, so — matching how respiratory_support/support_modes already
+# behave in overlay_resp_cv_day_from_autofill — MML wins outright whenever it
+# has any qualifying entry, same as every other field in that function.
+
+def _list_field_values(payload: Any, record_date: Optional[str], block_key: str, list_key: str) -> List[str]:
+    """Distinct, non-empty values of a list-type field across one MML day
+    row's `block_key` entries dated for `record_date` (same per-entry date
+    matching as parse_resp_a_entries)."""
+    if payload is None:
+        return []
+    if hasattr(payload, "__dict__"):
+        data = {
+            k: getattr(payload, k)
+            for k in ("record_date", "entries_json")
+            if hasattr(payload, k)
+        }
+    else:
+        data = dict(payload)
+
+    sheet_date = _normalize_ymd(data.get("record_date")) or _normalize_ymd(record_date)
+    effective = _normalize_ymd(record_date) or sheet_date
+    sheet_is_helper = bool(
+        effective and data.get("record_date")
+        and _normalize_ymd(data.get("record_date")) == effective
+    )
+
+    entries = data.get("entries_json")
+    if isinstance(entries, str):
+        try:
+            entries = json.loads(entries)
+        except (TypeError, ValueError):
+            entries = None
+
+    block = (entries or {}).get(block_key) if isinstance(entries, dict) else None
+    out: List[str] = []
+    if isinstance(block, list):
+        for row in block:
+            if not isinstance(row, dict):
+                continue
+            if not sheet_is_helper:
+                raw_d = row.get("date")
+                ds = _normalize_ymd(raw_d) if raw_d not in (None, "") else sheet_date
+                if effective and ds and ds != effective:
+                    continue
+            vals = row.get(list_key)
+            if isinstance(vals, list):
+                out.extend(str(v).strip() for v in vals if str(v).strip())
+            elif isinstance(vals, str) and vals.strip():
+                out.extend(p.strip() for p in vals.split(",") if p.strip())
+    return out
+
+
+def compute_list_field_autofill(values: List[str]) -> Dict[str, Any]:
+    seen: List[str] = []
+    for v in values:
+        if v not in seen:
+            seen.append(v)
+    return {"has_rows": bool(seen), "values": seen}
+
+
+def autofill_list_field_from_mml_rows(
+    *mml_rows: Any, block_key: str, list_key: str, helper_calendar_date: str
+) -> Dict[str, Any]:
+    """Merge one MML block's list-type field across one or more MML day rows
+    for a helper calendar date — same shape as autofill_from_mml_rows etc."""
+    merged: List[str] = []
+    seen_ids = set()
+    for mml in mml_rows:
+        if mml is None:
+            continue
+        mid = getattr(mml, "id", None)
+        if mid is not None and mid in seen_ids:
+            continue
+        if mid is not None:
+            seen_ids.add(mid)
+        merged.extend(_list_field_values(mml, helper_calendar_date, block_key, list_key))
+    return compute_list_field_autofill(merged)
+
+
+def overlay_boolean_presence_from_mml(
+    record: Any, autofill: Dict[str, Any], bool_field: str, list_field: Optional[str] = None,
+) -> None:
+    """In-memory overlay on GET — sets `bool_field` True (and, if given,
+    joins `values` into `list_field`) whenever MML has a qualifying entry.
+    No blocking/override mechanism: `bool_field` has no `*_status` sidecar
+    on Helper 1's schema, same as respiratory_support/support_modes above."""
+    if not autofill.get("has_rows"):
+        return
+    setattr(record, bool_field, True)
+    if list_field:
+        values = autofill.get("values") or []
+        if values:
+            setattr(record, list_field, ", ".join(values))

@@ -46,7 +46,7 @@ const SECTION_KEYS = Object.keys(SECTION_META);
 const BLOCK_TO_SECTION = {
   cv_a: "cardiovascular", cv_b: "cardiovascular", cv_c: "cardiovascular", cv_d: "cardiovascular",
   resp_a: "respiratory", resp_b: "respiratory", resp_c: "respiratory", resp_d: "respiratory",
-  met_a: "metabolic", met_b: "metabolic", met_c: "metabolic",
+  met_a: "metabolic", met_b: "metabolic",
   gi_a: "gastrointestinal", gi_b: "gastrointestinal",
   neuro_a: "neurological", neuro_b: "neurological",
   neuro_combined: "neurological",
@@ -59,7 +59,7 @@ const BLOCK_TO_SECTION = {
 const BLOCKS_BY_SECTION = {
   cardiovascular: ["cv_a", "cv_b", "cv_c", "cv_d"],
   respiratory: ["resp_a", "resp_b", "resp_c", "resp_d"],
-  metabolic: ["met_a", "met_b", "met_c"],
+  metabolic: ["met_a", "met_b"],
   gastrointestinal: ["gi_a", "gi_b"],
   neurological: ["neuro_combined"],
   hematology: ["heme_a"],
@@ -77,7 +77,6 @@ const BLOCK_META = {
   resp_d: { code: "5.2.D", label: "Postnatal Steroids", desc: "Agent & dose" },
   met_a: { code: "5.3.A", label: "Glucose", desc: "Spot glucose reading" },
   met_b: { code: "5.3.B", label: "Lab Reports — ALP, Total Ca, P", desc: "ALP, total calcium & phosphorus" },
-  met_c: { code: "5.3.C", label: "Electrolyte Abnormality", desc: "Yes/No, Hypo/Hyper, symptomatic status" },
   gi_a: { code: "5.4.A", label: "Feed Volume", desc: "Shift & cumulative feed volume" },
   gi_b: { code: "5.4.B", label: "Direct Bilirubin", desc: "Direct bilirubin value" },
   neuro_combined: {
@@ -224,7 +223,6 @@ function emptyEntries() {
     resp_d: [freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })],
     met_a: [freshEntry({ glucose: "" })],
     met_b: [freshEntry({ alp: "", total_calcium: "", phosphorus: "" })],
-    met_c: [freshEntry({ electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "", symptomatic_status: "", symptomatic_detail: "" })],
     gi_a: [freshEntry({ cumulative_feed_volume: "" })],
     gi_b: [freshEntry({ direct_bilirubin: "" })],
     neuro_a: [freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })],
@@ -273,7 +271,6 @@ function hydrateEntries(d) {
   e.resp_d[0] = { ...e.resp_d[0], postnatal_steroids: stringToList(d.postnatal_steroids), steroid_dose: d.steroid_dose ?? "", steroid_other: d.steroid_other || "" };
   e.met_a[0] = { ...e.met_a[0], glucose: d.glucose ?? "" };
   e.met_b[0] = { ...e.met_b[0], alp: d.alp ?? "", total_calcium: d.total_calcium ?? "", phosphorus: d.phosphorus ?? "" };
-  e.met_c[0] = { ...e.met_c[0], electrolyte_abnormality: d.electrolyte_abnormality ?? null, electrolytes: stringToList(d.electrolytes), hypo_hyper: d.hypo_hyper || "", symptomatic_status: d.symptomatic_status || "", symptomatic_detail: d.symptomatic_detail || "" };
   e.gi_a[0] = { ...e.gi_a[0], cumulative_feed_volume: d.cumulative_feed_volume ?? "" };
   e.gi_b[0] = { ...e.gi_b[0], direct_bilirubin: d.direct_bilirubin ?? "" };
   e.neuro_a[0] = { ...e.neuro_a[0], date: d.imaging_date || e.neuro_a[0].date, ventriculomegaly_severity: d.ventriculomegaly_severity || "", vi: d.vi ?? "", ahw: d.ahw ?? "" };
@@ -286,7 +283,7 @@ function flattenEntries(entries) {
   const g = (key, i = 0) => (entries[key] && entries[key][i]) || {};
   const cvA = g("cv_a"); const cvB = g("cv_b"); const cvC = g("cv_c"); const cvD = g("cv_d");
   const rA = g("resp_a"); const rB = g("resp_b"); const rC = g("resp_c"); const rD = g("resp_d");
-  const mA = g("met_a"); const mB = g("met_b"); const mC = g("met_c");
+  const mA = g("met_a"); const mB = g("met_b");
   const giA = g("gi_a"); const giB = g("gi_b");
   const nA = g("neuro_a"); const nB = g("neuro_b"); const hA = g("heme_a");
   return {
@@ -321,11 +318,6 @@ function flattenEntries(entries) {
     alp: asNumber(mB.alp),
     total_calcium: asNumber(mB.total_calcium),
     phosphorus: asNumber(mB.phosphorus),
-    electrolyte_abnormality: mC.electrolyte_abnormality,
-    electrolytes: listToString(mC.electrolytes),
-    hypo_hyper: mC.hypo_hyper || "",
-    symptomatic_status: mC.symptomatic_status || "",
-    symptomatic_detail: mC.symptomatic_detail || "",
     feed_shift: "",
     cumulative_feed_volume: asNumber(giA.cumulative_feed_volume),
     direct_bilirubin: asNumber(giB.direct_bilirubin),
@@ -449,10 +441,6 @@ function countProgress(entries) {
         if (k === "date" || k === "time") return;
         // Conditional slots
         if (k === "steroid_other" && !(entry.postnatal_steroids || []).includes("Other")) return;
-        if (k === "symptomatic_detail" && entry.symptomatic_status !== "symptomatic") return;
-        if (k === "electrolytes" && entry.electrolyte_abnormality !== true) return;
-        if (k === "hypo_hyper" && entry.electrolyte_abnormality !== true) return;
-        if (k === "symptomatic_status" && entry.electrolyte_abnormality !== true) return;
         if ((k === "vasoactive_dose" || k === "vasoactive_unit") && !(entry.vasoactive_drugs || []).length) return;
         if (k === "prbc_volume" && !(entry.transfusion_products || []).includes("PRBC")) return;
         bump(section, block, ans(v));
@@ -774,17 +762,6 @@ function RespAMapCpapFields({ entry, disabled, fieldErr, onChangeField }) {
   );
 }
 
-function YNToggle({ value, onChange, disabled }) {
-  return (
-    <div className="rcn-yn mml-yn">
-      <button type="button" className={`rcn-yn-btn${value === true ? " rcn-yn-active-yes" : ""}`}
-        disabled={disabled} onClick={() => onChange(value === true ? null : true)}>Yes</button>
-      <button type="button" className={`rcn-yn-btn${value === false ? " rcn-yn-active-no" : ""}`}
-        disabled={disabled} onClick={() => onChange(value === false ? null : false)}>No</button>
-    </div>
-  );
-}
-
 /** Column metadata for every lettered field block — drives the read-only
  *  "previously added" summary table under each field's blank entry form.
  *  Keys match the entry object keys used throughout renderBlockBody. */
@@ -835,13 +812,6 @@ const BLOCK_FIELDS = {
     { key: "alp", label: "ALP", unit: "IU/L" },
     { key: "total_calcium", label: "Total Ca", unit: "mg/dL" },
     { key: "phosphorus", label: "Phosphorus", unit: "mg/dL" },
-  ],
-  met_c: [
-    { key: "electrolyte_abnormality", label: "Electrolyte abn.", bool: true },
-    { key: "electrolytes", label: "Electrolytes", list: true },
-    { key: "hypo_hyper", label: "Hypo/Hyper" },
-    { key: "symptomatic_status", label: "Symptomatic" },
-    { key: "symptomatic_detail", label: "Details" },
   ],
   gi_a: [
     { key: "cumulative_feed_volume", label: "Cum. Feed Vol.", unit: "ml" },
@@ -915,6 +885,83 @@ function blockProgressForPicker(blockKey, counts) {
     return { done: a.done + b.done, total: a.total + b.total };
   }
   return counts.byBlock[blockKey] || { done: 0, total: 0 };
+}
+
+function hhmmToMinutes(hhmm) {
+  const m = String(hhmm || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const mins = Number(m[1]) * 60 + Number(m[2]);
+  return Number.isFinite(mins) ? mins : null;
+}
+
+function minutesToHHmm(mins) {
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return formatTimeAmPm(`${pad2(h)}:${pad2(m)}`);
+}
+
+/** A reading's position on the 24h coverage strip — a single point for most
+ *  blocks (stamped `time`), or a span for resp_a's "From–To" time range. */
+function coverageSpanForEntry(entry, blockKey) {
+  if (blockKey === "resp_a") {
+    const { from, to } = parseTimeRange(entry.time_range);
+    const fromMin = hhmmToMinutes(from);
+    if (fromMin == null) return null;
+    return { from: fromMin, to: hhmmToMinutes(to) };
+  }
+  const t = hhmmToMinutes(entry.time);
+  if (t == null) return null;
+  return { from: t, to: null };
+}
+
+const COVERAGE_HOUR_MARKS = [0, 4, 8, 12, 16, 20, 24];
+
+/** Horizontal 24h strip marking WHEN today's saved readings landed, so a gap
+ *  is obvious at a glance without implying every hour needs an entry — DMS
+ *  is event-driven ("jot spot values as they occur"), not a fixed schedule,
+ *  so this is a coverage reference, not a must-fill grid. */
+function CoverageTimeline({ tableRows, blockKey }) {
+  const spans = tableRows
+    .map(({ entry, idx }) => ({ idx, ...coverageSpanForEntry(entry, blockKey) }))
+    .filter(s => s.from != null);
+
+  if (!spans.length) {
+    return (
+      <div className="mml-coverage">
+        <div className="mml-coverage-empty">No readings logged yet today</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mml-coverage">
+      <div className="mml-coverage-track">
+        {spans.map(s => {
+          const leftPct = (s.from / 1440) * 100;
+          if (s.to != null && s.to > s.from) {
+            const widthPct = ((s.to - s.from) / 1440) * 100;
+            return (
+              <div key={s.idx} className="mml-coverage-range"
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                title={`${minutesToHHmm(s.from)} – ${minutesToHHmm(s.to)}`} />
+            );
+          }
+          return (
+            <div key={s.idx} className="mml-coverage-dot"
+              style={{ left: `${leftPct}%` }}
+              title={minutesToHHmm(s.from)} />
+          );
+        })}
+      </div>
+      <div className="mml-coverage-hours">
+        {COVERAGE_HOUR_MARKS.map(h => (
+          <span key={h} className="mml-coverage-hour-label" style={{ left: `${(h / 24) * 100}%` }}>
+            {pad2(h % 24)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function EntryBlock({
@@ -1015,6 +1062,11 @@ function EntryBlock({
           )}
         </div>
         <div className="rcn-grid-3">{children(draft, draftIdx)}</div>
+      </div>
+
+      <div className="mml-coverage-section">
+        <h4 className="mml-history-title">Coverage today</h4>
+        <CoverageTimeline tableRows={tableRows} blockKey={blockKey} />
       </div>
 
       <div className="mml-history">
@@ -1218,18 +1270,6 @@ export default function MinimalMonitoringLog() {
     setEntries(prev => {
       const list = [...(prev[block] || [])];
       let row = { ...list[idx], [key]: value };
-      if (block === "met_c" && key === "electrolyte_abnormality" && value !== true) {
-        row = {
-          ...row,
-          electrolytes: [],
-          hypo_hyper: "",
-          symptomatic_status: "",
-          symptomatic_detail: "",
-        };
-      }
-      if (block === "met_c" && key === "symptomatic_status" && value !== "symptomatic") {
-        row = { ...row, symptomatic_detail: "" };
-      }
       if (block === "resp_c") row = applyRespCEpisodeConstraints(row);
       list[idx] = row;
       return { ...prev, [block]: list };
@@ -1384,17 +1424,6 @@ export default function MinimalMonitoringLog() {
     (entries.resp_d || []).forEach((e, i) => {
       if ((e.postnatal_steroids || []).includes("Other") && !e.steroid_other) {
         next[`resp_d.${i}.steroid_other`] = "Specify other steroid";
-      }
-    });
-    (entries.met_c || []).forEach((e, i) => {
-      const isOpenDraft = i === entries.met_c.length - 1 && !hasEntryData(e);
-      if (isOpenDraft) return;
-      if (
-        e.electrolyte_abnormality === true
-        && e.symptomatic_status === "symptomatic"
-        && !String(e.symptomatic_detail || "").trim()
-      ) {
-        next[`met_c.${i}.symptomatic_detail`] = "Describe symptoms";
       }
     });
     (entries.heme_a || []).forEach((e, i) => {
@@ -1819,53 +1848,6 @@ export default function MinimalMonitoringLog() {
                   <Num value={e.phosphorus} onChange={v => setEntryField("met_b", i, "phosphorus", v)}
                     disabled={!isEditable} unit="mg/dL" />
                 </Item>
-              </>
-            )}
-          </EntryBlock>
-        );
-      case "met_c":
-        return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="met_c" code="5.3.C" entries={entries.met_c} disabled={!isEditable}
-            errors={errors}
-            onChangeEntry={(i, k, v) => setEntryField("met_c", i, k, v)}
-            onAdd={blank => addEntry("met_c", blank)} onRemove={i => removeEntry("met_c", i)}
-            blankFactory={() => freshEntry({
-              electrolyte_abnormality: null, electrolytes: [], hypo_hyper: "",
-              symptomatic_status: "", symptomatic_detail: "",
-            }, sheetDate)}>
-            {(e, i) => (
-              <>
-                <Item n={1} label="Electrolyte abnormality">
-                  <YNToggle value={e.electrolyte_abnormality}
-                    onChange={v => setEntryField("met_c", i, "electrolyte_abnormality", v)}
-                    disabled={!isEditable} />
-                  {e.electrolyte_abnormality === true && (
-                    <div style={{ marginTop: 8 }}>
-                      <PillMulti options={["Na", "K", "Ionized Ca"]} value={e.electrolytes || []}
-                        onChange={v => setEntryField("met_c", i, "electrolytes", v)}
-                        disabled={!isEditable} />
-                    </div>
-                  )}
-                </Item>
-                <Item n={2} label="Hypo/Hyper">
-                  <PillSingle options={["Hypo", "Hyper"]} value={e.hypo_hyper}
-                    onChange={v => setEntryField("met_c", i, "hypo_hyper", v)} disabled={!isEditable} />
-                </Item>
-                <Item n={3} label="Symptomatic/asymptomatic">
-                  {e.electrolyte_abnormality === true ? (
-                    <PillSingle options={["symptomatic", "asymptomatic"]} value={e.symptomatic_status}
-                      onChange={v => setEntryField("met_c", i, "symptomatic_status", v)} disabled={!isEditable} />
-                  ) : (
-                    <span className="mml-history-empty" style={{ margin: 0 }}>Select electrolyte abnormality Yes first</span>
-                  )}
-                </Item>
-                {e.symptomatic_status === "symptomatic" && (
-                  <Item n={4} label="If symptomatic" hint="Required when Symptomatic is selected above" error={err("met_c", i, "symptomatic_detail")}>
-                    <Txt value={e.symptomatic_detail}
-                      onChange={v => setEntryField("met_c", i, "symptomatic_detail", v)}
-                      disabled={!isEditable} error={err("met_c", i, "symptomatic_detail")} />
-                  </Item>
-                )}
               </>
             )}
           </EntryBlock>

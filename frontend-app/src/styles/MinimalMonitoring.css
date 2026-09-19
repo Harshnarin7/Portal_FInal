@@ -903,3 +903,75 @@
   .mml-field-rows { padding: 0 16px; }
   .mml-detail { padding: 0 16px 20px; }
 }
+
+/* ── Coverage timeline: a 24h strip marking when today's readings landed,
+   so a gap is visible at a glance without implying every hour is mandatory
+   (DMS is event-driven, not a fixed schedule) ── */
+.mml-coverage-section {
+  margin: 14px 0;
+}
+
+.mml-coverage {
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 14px 12px 8px;
+  background: #F8FAFC;
+}
+
+.mml-coverage-empty {
+  margin: 0;
+  padding: 6px 0;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #94A3B8;
+  font-style: italic;
+}
+
+.mml-coverage-track {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  background: #E2E8F0;
+}
+
+.mml-coverage-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rcn-primary, #2563eb);
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  cursor: default;
+}
+
+.mml-coverage-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--rcn-primary, #2563eb) 75%, transparent);
+  cursor: default;
+}
+
+.mml-coverage-hours {
+  position: relative;
+  height: 14px;
+  margin-top: 4px;
+}
+
+.mml-coverage-hour-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.02em;
+}
+
+.mml-coverage-hour-label:first-child { transform: translateX(0); }
+.mml-coverage-hour-label:last-child { transform: translateX(-100%); }
