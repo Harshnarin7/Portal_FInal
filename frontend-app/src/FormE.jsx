@@ -80,12 +80,85 @@ const FieldErr = ({ msg }) => msg
     </div>
   : null;
 
-const KNOWN_HEATING_TYPES = ["Gel pack", "PCM", "Plastic wrap", "Cap", "Other"];
-const KNOWN_ADVERSE_TYPES = ["Apnea", "Bradycardia", "Tube accident", "Air leak", "Hypothermia", "Other"];
-const KNOWN_CARRY_MODES = ["Physically carried", "Kangaroo transport"];
-const CARRY_MODE_OPTIONS = [...KNOWN_CARRY_MODES, "Other"];
+const KNOWN_HEATING_TYPES = ["Gel pack", "PCM", "Plastic wrap", "Cap/Hat", "Other"];
+const KNOWN_ADVERSE_TYPES = ["Apnea", "Bradycardia", "ET tube accident", "Pulmonary air leak", "Hypothermia", "Hyperthermia", "Other"];
 const KNOWN_TRANSPORT_MODES = ["Room air", "CPAP", "SIB", "NIPPV", "IMV", "SIMV", "HFOV", "Other"];
 const KNOWN_NICU_MODES = ["Room air", "CPAP", "NIPPV", "IMV", "SIMV", "HFOV", "Other"];
+const KNOWN_MODE_OF_TRANSPORT = ["Transport incubator", "Kangaroo method", "Other"];
+
+// Renamed option values — old stored strings from before the rename still need
+// to decode into the current option so existing records keep displaying correctly.
+const HEATING_TYPE_LEGACY_ALIASES = { "Cap": "Cap/Hat" };
+const ADVERSE_TYPE_LEGACY_ALIASES = { "Tube accident": "ET tube accident" };
+
+/** Rewrite legacy option tokens in a comma-joined stored string to their current names. */
+function applyLegacyAliases(raw, aliases) {
+  if (!raw) return raw;
+  return raw.split(",").map(s => {
+    const t = s.trim();
+    return aliases[t] || t;
+  }).join(", ");
+}
+
+/** Respiratory-support field dulling rules, keyed by mode. `dull` lists which
+ * of cpap/pip/peep/map become inapplicable (disabled + greyed) for that mode;
+ * FiO2 is never dulled. HFOV additionally swaps in Amplitude/Frequency. */
+const RESP_MODE_DULL_RULES = {
+  "CPAP": ["pip", "peep", "map"],
+  "SIB": ["cpap", "pip", "peep", "map"],
+  "NIPPV": ["cpap"],
+  "IMV": ["cpap"],
+  "SIMV": ["cpap"],
+  "HFOV": ["cpap", "pip", "peep"],
+};
+function getRespDulledFields(mode) {
+  return RESP_MODE_DULL_RULES[mode] || [];
+}
+
+/** Fields to blank out when a respiratory mode is (re)selected, so a value
+ * entered under a previous mode doesn't linger against an inapplicable field. */
+function computeModeClearFields(prefix, mode) {
+  const clear = {};
+  const setEmpty = (f) => { clear[`${prefix}_${f}`] = ""; };
+  if (mode === "Room air") {
+    ["cpap", "pip", "peep", "map", "fio2", "amplitude", "frequency"].forEach(setEmpty);
+  } else if (mode === "CPAP") {
+    ["pip", "peep", "map", "amplitude", "frequency"].forEach(setEmpty);
+  } else if (mode === "SIB") {
+    ["cpap", "pip", "peep", "map", "amplitude", "frequency"].forEach(setEmpty);
+  } else if (["NIPPV", "IMV", "SIMV"].includes(mode)) {
+    ["cpap", "amplitude", "frequency"].forEach(setEmpty);
+  } else if (mode === "HFOV") {
+    ["cpap", "pip", "peep"].forEach(setEmpty);
+  } else {
+    ["amplitude", "frequency"].forEach(setEmpty);
+  }
+  return clear;
+}
+
+/** Derive the legacy `transport_incubator` bool + `transport_mode` text columns
+ * from the single "Mode of Transport" selector, so existing backend/DB shape
+ * (and any historical records) stay meaningful without a schema change. */
+function deriveTransportModeFields(modeOfTransport, modeOfTransportOther) {
+  return {
+    transport_incubator: modeOfTransport ? modeOfTransport === "Transport incubator" : null,
+    transport_mode: modeOfTransport === "Transport incubator" ? null
+      : modeOfTransport === "Other" ? (modeOfTransportOther || null)
+      : (modeOfTransport || null),
+  };
+}
+
+/** Reverse of deriveTransportModeFields, for loading a saved record. */
+function decodeModeOfTransport(transportIncubator, transportModeRaw) {
+  const raw = String(transportModeRaw || "").trim();
+  if (raw === "Transport incubator" || (transportIncubator === true && !raw)) {
+    return { mode: "Transport incubator", other: "" };
+  }
+  if (raw === "Kangaroo method") return { mode: "Kangaroo method", other: "" };
+  if (raw) return { mode: "Other", other: raw };
+  if (transportIncubator === false) return { mode: "", other: "" };
+  return { mode: "", other: "" };
+}
 
 /** Encode multi-select + optional Other free-text into a single DB string. */
 function encodeMultiChoice(selected, otherText) {
@@ -212,37 +285,17 @@ function formatAgeAtAdmissionDisplay(hours, totalMinutes) {
   return "";
 }
 
-function respVisibleParams(mode) {
-  switch (mode) {
-    case "SIB":  return { cpap: false, pip: false, peep: false, map: false, fio2: true };
-    case "CPAP": return { cpap: true,  pip: false, peep: false, map: false, fio2: true };
-    case "NIPPV":
-    case "IMV":
-    case "SIMV": return { cpap: false, pip: true,  peep: true,  map: true,  fio2: true };
-    case "HFOV": return { cpap: false, pip: false, peep: false, map: true,  fio2: true };
-    case "Other": return { cpap: true,  pip: true,  peep: true,  map: true,  fio2: true };
-    default:     return { cpap: false, pip: false, peep: false, map: false, fio2: false };
-  }
-}
-function clearedRespParams(prefix, mode) {
-  const vis = respVisibleParams(mode);
-  const out = {};
-  for (const k of ["cpap", "pip", "peep", "map", "fio2"]) {
-    if (!vis[k]) out[`${prefix}_${k}`] = "";
-  }
-  return out;
-}
-
 /* ── Respiratory parameter grid — defined OUTSIDE FormE to prevent remount on state change ── */
 function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable, handleChange }) {
-  const vis = respVisibleParams(mode);
+  const dulled = getRespDulledFields(mode);
+  const isHfov = mode === "HFOV";
+  const dulledStyle = { opacity: 0.45 };
   return (
     <div className="form-grid-2" style={{ marginTop: 12 }}>
-      {vis.cpap && (
-      <div className="form-group">
+      <div className="form-group" style={dulled.includes("cpap") ? dulledStyle : undefined}>
         <label>{serial}b. CPAP</label>
         <UnitInput name={`${prefix}_cpap`} value={formData[`${prefix}_cpap`]} unit="cmH₂O"
-          readOnly={!isFieldEditable} error={errors[`${prefix}_cpap`]}
+          readOnly={!isFieldEditable || dulled.includes("cpap")} error={errors[`${prefix}_cpap`]}
           placeholder="2–12"
           onChange={e => {
             const v = e.target.value;
@@ -255,12 +308,10 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
           }} />
         <FieldErr msg={errors[`${prefix}_cpap`]} />
       </div>
-      )}
-      {vis.pip && (
-      <div className="form-group">
+      <div className="form-group" style={dulled.includes("pip") ? dulledStyle : undefined}>
         <label>{serial}c. PIP</label>
         <UnitInput name={`${prefix}_pip`} value={formData[`${prefix}_pip`]} unit="cmH₂O"
-          readOnly={!isFieldEditable} error={errors[`${prefix}_pip`]}
+          readOnly={!isFieldEditable || dulled.includes("pip")} error={errors[`${prefix}_pip`]}
           placeholder="10–40"
           onChange={e => {
             const v = e.target.value;
@@ -273,12 +324,10 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
           }} />
         <FieldErr msg={errors[`${prefix}_pip`]} />
       </div>
-      )}
-      {vis.peep && (
-      <div className="form-group">
+      <div className="form-group" style={dulled.includes("peep") ? dulledStyle : undefined}>
         <label>{serial}d. PEEP</label>
         <UnitInput name={`${prefix}_peep`} value={formData[`${prefix}_peep`]} unit="cmH₂O"
-          readOnly={!isFieldEditable} error={errors[`${prefix}_peep`]}
+          readOnly={!isFieldEditable || dulled.includes("peep")} error={errors[`${prefix}_peep`]}
           placeholder="2–10"
           onChange={e => {
             const v = e.target.value;
@@ -291,12 +340,10 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
           }} />
         <FieldErr msg={errors[`${prefix}_peep`]} />
       </div>
-      )}
-      {vis.map && (
-      <div className="form-group">
+      <div className="form-group" style={dulled.includes("map") ? dulledStyle : undefined}>
         <label>{serial}e. MAP</label>
         <UnitInput name={`${prefix}_map`} value={formData[`${prefix}_map`]} unit="cmH₂O"
-          readOnly={!isFieldEditable} error={errors[`${prefix}_map`]}
+          readOnly={!isFieldEditable || dulled.includes("map")} error={errors[`${prefix}_map`]}
           placeholder="5–20"
           onChange={e => {
             const v = e.target.value;
@@ -309,9 +356,7 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
           }} />
         <FieldErr msg={errors[`${prefix}_map`]} />
       </div>
-      )}
       {/* FiO₂ — inline (not via UnitInput) to avoid spinner overlap */}
-      {vis.fio2 && (
       <div className="form-group">
         <label>{serial}f. FiO2</label>
         <div style={{ position: "relative" }}>
@@ -356,6 +401,45 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
           </div>
         )}
       </div>
+      {isHfov && (
+        <>
+          <div className="form-group">
+            <label>{serial}g. Amplitude <span className="field-note">(% or cmH₂O)</span></label>
+            <input type="number" name={`${prefix}_amplitude`}
+              value={formData[`${prefix}_amplitude`] || ""}
+              readOnly={!isFieldEditable}
+              className={`emr-input${errors[`${prefix}_amplitude`] ? " input-error" : ""}`}
+              placeholder="2–80"
+              onChange={e => {
+                const v = e.target.value;
+                if (v === "" || (/^\d+$/.test(v) && Number(v) <= 100)) handleChange(e);
+              }}
+              onBlur={e => {
+                if (e.target.value === "") return;
+                let v = Number(e.target.value);
+                if (v > 80) v = 80; if (v < 2) v = 2;
+                handleChange({ target: { name: `${prefix}_amplitude`, value: v } });
+              }} />
+            <FieldErr msg={errors[`${prefix}_amplitude`]} />
+          </div>
+          <div className="form-group">
+            <label>{serial}h. Frequency <span className="field-note">(Hz)</span></label>
+            <UnitInput name={`${prefix}_frequency`} value={formData[`${prefix}_frequency`]} unit="Hz"
+              readOnly={!isFieldEditable} error={errors[`${prefix}_frequency`]}
+              placeholder="5–20"
+              onChange={e => {
+                const v = e.target.value;
+                if (v === "" || (/^\d+$/.test(v) && Number(v) <= 30)) handleChange(e);
+              }}
+              onBlur={e => {
+                if (e.target.value === "") return;
+                let v = Number(e.target.value);
+                if (v > 20) v = 20; if (v < 5) v = 5;
+                handleChange({ target: { name: `${prefix}_frequency`, value: v } });
+              }} />
+            <FieldErr msg={errors[`${prefix}_frequency`]} />
+          </div>
+        </>
       )}
     </div>
   );
@@ -379,13 +463,9 @@ function RespModeSection({ prefix, label, serial, modes, formData, errors, isFie
                   ...prev,
                   [modeField]: mode,
                   [otherField]: "",
-                  ...clearedRespParams(prefix, mode),
+                  ...computeModeClearFields(prefix, mode),
                 }));
-                setErrors(prev => {
-                  const next = { ...prev, [modeField]: "" };
-                  for (const k of Object.keys(clearedRespParams(prefix, mode))) next[k] = "";
-                  return next;
-                });
+                setErrors(prev => ({ ...prev, [modeField]: "" }));
               }}
               disabled={!isFieldEditable}>{mode}</button>
           ))}
@@ -442,17 +522,16 @@ export default function FormE() {
     admission_datetime: "", age_at_admission_hours: "", age_at_admission_minutes: "",
     temp_dr: "",
     temp_skin: "", temp_axillary: "",
-    temp_axillary_not_measured: "",
-    transport_incubator: "", transport_mode: "",
+    mode_of_transport: "", mode_of_transport_other: "",
     transport_mode_other: "", nicu_mode_other: "",
     additional_heating: "", heating_type_other: "", heating_type: [],
     transport_adverse_event: "", adverse_event_type: [], tube_accident_type: "",
     transport_mode_resp: "", adverse_event_other: "",
     transport_cpap: "", transport_pip: "", transport_peep: "",
-    transport_map: "", transport_fio2: "",
+    transport_map: "", transport_fio2: "", transport_amplitude: "", transport_frequency: "",
     nicu_mode_resp: "",
     nicu_cpap: "", nicu_pip: "", nicu_peep: "",
-    nicu_map: "", nicu_fio2: "",
+    nicu_map: "", nicu_fio2: "", nicu_amplitude: "", nicu_frequency: "",
     completed_by: "", designation: "", completion_date: "",
   });
 
@@ -468,19 +547,14 @@ export default function FormE() {
     age_at_admission_hours: num(formData.age_at_admission_hours),
     age_at_admission_minutes: num(formData.age_at_admission_minutes),
     temp_skin: num(formData.temp_skin),
-    temp_axillary: formData.temp_axillary_not_measured === "No"
-      ? null : num(formData.temp_axillary),
-    temp_axillary_not_measured: formData.temp_axillary_not_measured === "No" ? true
-      : formData.temp_axillary_not_measured === "Yes" ? false
-      : null,
+    temp_axillary: num(formData.temp_axillary),
     temp_dr: num(formData.temp_dr),
-    transport_incubator: yesNoToBool(formData.transport_incubator),
-    transport_mode: formData.transport_mode,
+    ...deriveTransportModeFields(formData.mode_of_transport, formData.mode_of_transport_other),
     additional_heating: yesNoToBool(formData.additional_heating),
     heating_type: encodeMultiChoice(formData.heating_type, formData.heating_type_other),
     transport_adverse_event: yesNoToBool(formData.transport_adverse_event),
     adverse_event_type: encodeMultiChoice(formData.adverse_event_type, formData.adverse_event_other),
-    tube_accident_type: formData.adverse_event_type?.includes("Tube accident")
+    tube_accident_type: formData.adverse_event_type?.includes("ET tube accident")
       ? (formData.tube_accident_type || null) : null,
     transport_mode_resp: formData.transport_mode_resp === "Other" ? formData.transport_mode_other : formData.transport_mode_resp,
     transport_cpap: num(formData.transport_cpap),
@@ -488,12 +562,16 @@ export default function FormE() {
     transport_peep: num(formData.transport_peep),
     transport_map: num(formData.transport_map),
     transport_fio2: num(formData.transport_fio2),
+    transport_amplitude: num(formData.transport_amplitude),
+    transport_frequency: num(formData.transport_frequency),
     nicu_mode_resp: formData.nicu_mode_resp === "Other" ? formData.nicu_mode_other : formData.nicu_mode_resp,
     nicu_cpap: num(formData.nicu_cpap),
     nicu_pip: num(formData.nicu_pip),
     nicu_peep: num(formData.nicu_peep),
     nicu_map: num(formData.nicu_map),
     nicu_fio2: num(formData.nicu_fio2),
+    nicu_amplitude: num(formData.nicu_amplitude),
+    nicu_frequency: num(formData.nicu_frequency),
     completed_by: formData.completed_by,
     designation: formData.designation,
     completion_date: formData.completion_date || null,
@@ -635,8 +713,11 @@ export default function FormE() {
 
        const fromBool = (v) => v === true ? "Yes" : v === false ? "No" : "";
 
-      const heatingDecoded = decodeMultiChoice(e.heating_type, KNOWN_HEATING_TYPES);
-      const adverseDecoded = decodeMultiChoice(e.adverse_event_type, KNOWN_ADVERSE_TYPES);
+      const heatingDecoded = decodeMultiChoice(
+        applyLegacyAliases(e.heating_type, HEATING_TYPE_LEGACY_ALIASES), KNOWN_HEATING_TYPES);
+      const adverseDecoded = decodeMultiChoice(
+        applyLegacyAliases(e.adverse_event_type, ADVERSE_TYPE_LEGACY_ALIASES), KNOWN_ADVERSE_TYPES);
+      const modeOfTransportDecoded = decodeModeOfTransport(e.transport_incubator, e.transport_mode);
 
       const transportModeRaw = e.transport_mode_resp || "";
       const transportModeIsOther = transportModeRaw && !KNOWN_TRANSPORT_MODES.includes(transportModeRaw);
@@ -669,18 +750,13 @@ export default function FormE() {
           temp_dr:       e.temp_dr       != null ? String(e.temp_dr)       : "",
           temp_skin:     e.temp_skin     != null ? String(e.temp_skin)     : "",
           temp_axillary: e.temp_axillary != null ? String(e.temp_axillary) : "",
-          // Toggle Yes/No is inverted vs the boolean: Measured=Yes (green),
-          // Not measured=No (red). DB true means not measured.
-          temp_axillary_not_measured: e.temp_axillary_not_measured === true ? "No"
-            : e.temp_axillary_not_measured === false ? "Yes"
-            : "",
 
           additional_heating: fromBool(e.additional_heating),
           heating_type: heatingDecoded.selected,
           heating_type_other: heatingDecoded.other,
 
-          transport_incubator: fromBool(e.transport_incubator),
-          transport_mode: e.transport_mode || "",
+          mode_of_transport: modeOfTransportDecoded.mode,
+          mode_of_transport_other: modeOfTransportDecoded.other,
 
           transport_adverse_event: fromBool(e.transport_adverse_event),
           adverse_event_type: adverseDecoded.selected,
@@ -694,6 +770,8 @@ export default function FormE() {
           transport_peep: e.transport_peep != null ? String(e.transport_peep) : "",
           transport_map:  e.transport_map  != null ? String(e.transport_map)  : "",
           transport_fio2: e.transport_fio2 != null ? String(e.transport_fio2) : "",
+          transport_amplitude: e.transport_amplitude != null ? String(e.transport_amplitude) : "",
+          transport_frequency: e.transport_frequency != null ? String(e.transport_frequency) : "",
 
           nicu_mode_resp: nicuModeIsOther ? "Other" : nicuModeRaw,
           nicu_mode_other: nicuModeIsOther ? nicuModeRaw : "",
@@ -702,6 +780,8 @@ export default function FormE() {
           nicu_peep: e.nicu_peep != null ? String(e.nicu_peep) : "",
           nicu_map:  e.nicu_map  != null ? String(e.nicu_map)  : "",
           nicu_fio2: e.nicu_fio2 != null ? String(e.nicu_fio2) : "",
+          nicu_amplitude: e.nicu_amplitude != null ? String(e.nicu_amplitude) : "",
+          nicu_frequency: e.nicu_frequency != null ? String(e.nicu_frequency) : "",
 
           completed_by:    e.completed_by    || "",
           designation:     e.designation     || "",
@@ -759,9 +839,9 @@ export default function FormE() {
       if (!isNaN(date)) updatedValue = toDateTimeLocalValue(date);
     }
     if (["temp_dr","temp_skin","temp_axillary"].includes(name))
-      if (!(name === "temp_axillary" && formData.temp_axillary_not_measured === "No")
-          && value && (Number(value) < 30 || Number(value) > 40))
-        errorMsg = "Must be between 30–40 °C";
+      if (value && (Number(value) < 30 || Number(value) > 40)) errorMsg = "Must be between 30–40 °C";
+    if (name === "mode_of_transport_other" && formData.mode_of_transport === "Other" && !value)
+      errorMsg = "Specify mode of transport";
     if (["transport_fio2","nicu_fio2"].includes(name)) {
       if (value && Number(value) < 21) errorMsg = "Minimum is 21% (room air)";
       else if (value && Number(value) > 100) errorMsg = "Maximum is 100%";
@@ -771,11 +851,9 @@ export default function FormE() {
     if (name === "adverse_event_other")
       if (formData.adverse_event_type?.includes("Other") && !value) errorMsg = "Specify adverse event";
       else if (value && !/^[A-Za-z\s]+$/.test(value)) errorMsg = "Only letters are allowed";
-    const requiredFields = ["admission_datetime","temp_dr","temp_skin","temp_axillary","additional_heating",
-      "transport_incubator","transport_adverse_event","transport_mode_resp","nicu_mode_resp","completed_by"];
-    if (requiredFields.includes(name) && !value
-        && !(name === "temp_axillary" && formData.temp_axillary_not_measured === "No"))
-      errorMsg = "This field is required";
+    const requiredFields = ["admission_datetime","temp_dr","temp_skin","additional_heating",
+      "mode_of_transport","transport_adverse_event","transport_mode_resp","nicu_mode_resp","completed_by"];
+    if (requiredFields.includes(name) && !value) errorMsg = "This field is required";
     if (name === "transport_cpap" && value && (Number(value) < 2 || Number(value) > 12)) errorMsg = "Range: 2–12";
     if (name === "transport_pip" && value && (Number(value) < 10 || Number(value) > 40)) errorMsg = "Range: 10–40";
     if (name === "transport_peep" && value && (Number(value) < 2 || Number(value) > 10)) errorMsg = "Range: 2–10";
@@ -784,14 +862,15 @@ export default function FormE() {
     if (name === "nicu_pip" && value && (Number(value) < 10 || Number(value) > 40)) errorMsg = "Range: 10–40";
     if (name === "nicu_peep" && value && (Number(value) < 2 || Number(value) > 10)) errorMsg = "Range: 2–10";
     if (name === "nicu_map" && value && (Number(value) < 5 || Number(value) > 20)) errorMsg = "Range: 5–20";
+    if (["transport_amplitude","nicu_amplitude"].includes(name) && value && (Number(value) < 2 || Number(value) > 80)) errorMsg = "Range: 2–80";
+    if (["transport_frequency","nicu_frequency"].includes(name) && value && (Number(value) < 5 || Number(value) > 20)) errorMsg = "Range: 5–20";
     if (name === "heating_type" && formData.additional_heating === "Yes" && !(Array.isArray(value) ? value.length : value)) errorMsg = "Select heating type";
     if (name === "heating_type_other") {
       if (!value) errorMsg = "Specify heating method";
       else if (!/^[A-Za-z\s]+$/.test(value)) errorMsg = "Only letters are allowed";
     }
-    if (name === "transport_mode" && formData.transport_incubator === "No" && (!value || value === "Other")) errorMsg = "Specify transport mode";
     if (name === "adverse_event_type" && formData.transport_adverse_event === "Yes" && !(Array.isArray(value) ? value.length : value)) errorMsg = "Select adverse event";
-    if (name === "tube_accident_type" && formData.adverse_event_type?.includes?.("Tube accident") && !value) errorMsg = "Select tube accident type";
+    if (name === "tube_accident_type" && formData.adverse_event_type?.includes?.("ET tube accident") && !value) errorMsg = "Select tube accident type";
     if (name === "transport_mode_other" && formData.transport_mode_resp === "Other" && !value) errorMsg = "Specify mode";
     if (name === "nicu_mode_other" && formData.nicu_mode_resp === "Other" && !value) errorMsg = "Specify mode";
     setFormData(prev => ({ ...prev, [name]: updatedValue }));
@@ -810,20 +889,9 @@ export default function FormE() {
         updated.adverse_event_other = "";
         updated.tube_accident_type = "";
       }
-      if (name === "transport_incubator" && value !== "No") {
-        updated.transport_mode = "";
-      }
-      if (name === "temp_axillary_not_measured" && value === "No") {
-        updated.temp_axillary = "";
-      }
       return updated;
     });
-    setErrors(prev => ({
-      ...prev,
-      [name]: "",
-      ...(name === "temp_axillary_not_measured" && value === "No"
-        ? { temp_axillary: "" } : {}),
-    }));
+    setErrors(prev => ({ ...prev, [name]: "" }));
   };
 
   const yesNoToBool = (v) => v === "Yes" ? true : v === "No" ? false : null;
@@ -861,11 +929,9 @@ export default function FormE() {
     }
     if (!formData.temp_dr) v.temp_dr = "This field is required";
     if (!formData.temp_skin) v.temp_skin = "This field is required";
-    if (formData.temp_axillary_not_measured !== "No" && !formData.temp_axillary)
-      v.temp_axillary = "This field is required";
-    if (!formData.transport_incubator) v.transport_incubator = "This field is required";
-    if (formData.transport_incubator === "No" && (!formData.transport_mode || formData.transport_mode === "Other"))
-      v.transport_mode = "Specify transport mode";
+    if (!formData.mode_of_transport) v.mode_of_transport = "This field is required";
+    if (formData.mode_of_transport === "Other" && !formData.mode_of_transport_other)
+      v.mode_of_transport_other = "Specify mode of transport";
     if (!formData.additional_heating) v.additional_heating = "This field is required";
     if (formData.additional_heating === "Yes" && !(formData.heating_type?.length))
       v.heating_type = "Select heating type";
@@ -874,7 +940,7 @@ export default function FormE() {
     if (!formData.transport_adverse_event) v.transport_adverse_event = "This field is required";
     if (formData.transport_adverse_event === "Yes" && !(formData.adverse_event_type?.length))
       v.adverse_event_type = "Select adverse event";
-    if (formData.adverse_event_type?.includes("Tube accident") && !formData.tube_accident_type)
+    if (formData.adverse_event_type?.includes("ET tube accident") && !formData.tube_accident_type)
       v.tube_accident_type = "Select tube accident type";
     if (formData.adverse_event_type?.includes("Other") && !formData.adverse_event_other)
       v.adverse_event_other = "Specify adverse event";
@@ -888,7 +954,6 @@ export default function FormE() {
     if (!formData.completion_date) v.completion_date = "This field is required";
 
     ["temp_dr","temp_skin","temp_axillary"].forEach(f => {
-      if (f === "temp_axillary" && formData.temp_axillary_not_measured === "No") return;
       if (formData[f] && (Number(formData[f]) < 30 || Number(formData[f]) > 40))
         v[f] = "Must be between 30–40 °C";
     });
@@ -911,19 +976,14 @@ export default function FormE() {
       age_at_admission_hours: num(formData.age_at_admission_hours),
       age_at_admission_minutes: num(formData.age_at_admission_minutes),
       temp_skin: num(formData.temp_skin),
-      temp_axillary: formData.temp_axillary_not_measured === "No"
-        ? null : num(formData.temp_axillary),
-      temp_axillary_not_measured: formData.temp_axillary_not_measured === "No" ? true
-        : formData.temp_axillary_not_measured === "Yes" ? false
-        : null,
+      temp_axillary: num(formData.temp_axillary),
       temp_dr: num(formData.temp_dr),
-      transport_incubator: yesNoToBool(formData.transport_incubator),
-      transport_mode: formData.transport_mode,
+      ...deriveTransportModeFields(formData.mode_of_transport, formData.mode_of_transport_other),
       additional_heating: yesNoToBool(formData.additional_heating),
       heating_type: encodeMultiChoice(formData.heating_type, formData.heating_type_other),
       transport_adverse_event: yesNoToBool(formData.transport_adverse_event),
       adverse_event_type: encodeMultiChoice(formData.adverse_event_type, formData.adverse_event_other),
-      tube_accident_type: formData.adverse_event_type?.includes("Tube accident")
+      tube_accident_type: formData.adverse_event_type?.includes("ET tube accident")
         ? (formData.tube_accident_type || null) : null,
       transport_mode_resp: formData.transport_mode_resp === "Other" ? formData.transport_mode_other : formData.transport_mode_resp,
       transport_cpap: num(formData.transport_cpap),
@@ -931,12 +991,16 @@ export default function FormE() {
       transport_peep: num(formData.transport_peep),
       transport_map:  num(formData.transport_map),
       transport_fio2: num(formData.transport_fio2),
+      transport_amplitude: num(formData.transport_amplitude),
+      transport_frequency: num(formData.transport_frequency),
       nicu_mode_resp: formData.nicu_mode_resp === "Other" ? formData.nicu_mode_other : formData.nicu_mode_resp,
       nicu_cpap: num(formData.nicu_cpap),
       nicu_pip:  num(formData.nicu_pip),
       nicu_peep: num(formData.nicu_peep),
       nicu_map:  num(formData.nicu_map),
       nicu_fio2: num(formData.nicu_fio2),
+      nicu_amplitude: num(formData.nicu_amplitude),
+      nicu_frequency: num(formData.nicu_frequency),
       completed_by: formData.completed_by,
       designation: formData.designation,
       completion_date: formData.completion_date || null,
@@ -1215,97 +1279,60 @@ export default function FormE() {
                   </div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <div className="e6-temp-head">
-                        <label>6a. Skin <span className="required">*</span></label>
-                      </div>
+                      <label>6a. Skin <span className="required">*</span></label>
                       <UnitInput name="temp_skin" value={formData.temp_skin} unit="°C"
                         readOnly={!isFieldEditable} error={!!errors.temp_skin}
                         placeholder="30–40" onChange={handleChange} />
                       <FieldErr msg={errors.temp_skin} />
                     </div>
                     <div className="form-group">
-                      {/* TODO: reviewer asked whether axillary temp in specific bands (<36.5–36.1
-                          mild / <36.1–32.1 moderate / ≤32 severe hypothermia) should auto-trigger
-                          a morbidity entry in Form H and/or an AE/SAE record. Needs clinical
-                          threshold confirmation and a decision on cross-form triggering before
-                          this can be built — not implemented in this pass. */}
-                      {/* Measured=Yes (green), Not measured=No (red) so Toggle colors match
-                          clinical meaning. Payload maps No → temp_axillary_not_measured true.
-                          Toggle sits on the label row so the °C field aligns with 6a Skin. */}
-                      <div className="e6-temp-head">
-                        <label>6b. Axillary <span className="required">*</span></label>
-                        <Toggle name="temp_axillary_not_measured"
-                          value={formData.temp_axillary_not_measured}
-                          options={[
-                            { label: "Measured", value: "Yes" },
-                            { label: "Not measured", value: "No" },
-                          ]}
-                          onChange={handleToggle}
-                          disabled={!isFieldEditable} />
-                      </div>
-                      {formData.temp_axillary_not_measured !== "No" && (
-                        <UnitInput name="temp_axillary" value={formData.temp_axillary} unit="°C"
-                          readOnly={!isFieldEditable} error={!!errors.temp_axillary}
-                          placeholder="30–40" onChange={handleChange} />
-                      )}
+                      <label>6b. Axillary</label>
+                      <UnitInput name="temp_axillary" value={formData.temp_axillary} unit="°C"
+                        readOnly={!isFieldEditable} error={!!errors.temp_axillary}
+                        placeholder="30–40" onChange={handleChange} />
                       <FieldErr msg={errors.temp_axillary} />
                     </div>
                   </div>
                 </div>
 
-                {/* Transport Incubator */}
+                {/* Transport */}
                 <div className="obstetric-subcard">
                   <div className="obstetric-subcard__title">Transport</div>
                   <div className="form-group">
-                    <label>7. Transport incubator used <span className="required">*</span></label>
-                    <Toggle name="transport_incubator" value={formData.transport_incubator}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={errors.transport_incubator} />
+                    <label>7. Mode of transport <span className="required">*</span></label>
+                    <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
+                      {KNOWN_MODE_OF_TRANSPORT.map(opt => (
+                        <button key={opt} type="button"
+                          className={`rx-horizontal-btn${formData.mode_of_transport === opt ? " active" : ""}`}
+                          onClick={() => {
+                            if (!isFieldEditable) return;
+                            setFormData(prev => ({
+                              ...prev,
+                              mode_of_transport: opt,
+                              mode_of_transport_other: opt === "Other" ? prev.mode_of_transport_other : "",
+                            }));
+                            setErrors(prev => ({ ...prev, mode_of_transport: "" }));
+                          }}
+                          disabled={!isFieldEditable}>{opt}</button>
+                      ))}
+                    </div>
+                    <FieldErr msg={errors.mode_of_transport} />
                   </div>
-                  {formData.transport_incubator === "No" && (
+                  {formData.mode_of_transport === "Other" && (
                     <div className="followup-box" style={{ marginTop:10 }}>
                       <div className="form-group">
-                        <label>8. If No, mode of transport <span className="required">*</span></label>
-                        <div className="rx-horizontal-group" style={{ flexWrap:"wrap" }}>
-                          {CARRY_MODE_OPTIONS.map(mode => {
-                            const isKnown = KNOWN_CARRY_MODES.includes(formData.transport_mode);
-                            const active = mode === "Other"
-                              ? (!!formData.transport_mode && !isKnown)
-                              : formData.transport_mode === mode;
-                            return (
-                              <button key={mode} type="button"
-                                className={`rx-horizontal-btn${active ? " active" : ""}`}
-                                onClick={() => {
-                                  if (!isFieldEditable) return;
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    transport_mode: mode === "Other"
-                                      ? (KNOWN_CARRY_MODES.includes(prev.transport_mode) ? "Other" : (prev.transport_mode || "Other"))
-                                      : mode,
-                                  }));
-                                  setErrors(prev => ({ ...prev, transport_mode: "" }));
-                                }}
-                                disabled={!isFieldEditable}>{mode}</button>
-                            );
-                          })}
-                        </div>
-                        <FieldErr msg={errors.transport_mode} />
+                        <label>Specify mode of transport <span className="required">*</span></label>
+                        <input type="text" name="mode_of_transport_other"
+                          value={formData.mode_of_transport_other || ""}
+                          readOnly={!isFieldEditable}
+                          className={`emr-input${errors.mode_of_transport_other ? " input-error" : ""}`}
+                          placeholder="e.g. Ambulance"
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);
+                          }} />
+                        <FieldErr msg={errors.mode_of_transport_other} />
                       </div>
-                      {formData.transport_mode && !KNOWN_CARRY_MODES.includes(formData.transport_mode) && (
-                        <div className="form-group" style={{ marginTop:10 }}>
-                          <label>Specify mode of transport <span className="required">*</span></label>
-                          <input type="text" name="transport_mode"
-                            value={formData.transport_mode === "Other" ? "" : (formData.transport_mode || "")}
-                            readOnly={!isFieldEditable}
-                            className={`emr-input${errors.transport_mode ? " input-error" : ""}`}
-                            placeholder="e.g. Ambulance"
-                            onChange={e => {
-                              const v = e.target.value;
-                              if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);
-                            }} />
-                          <FieldErr msg={errors.transport_mode} />
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1388,7 +1415,7 @@ export default function FormE() {
                                     ...prev,
                                     adverse_event_type: next,
                                     adverse_event_other: next.includes("Other") ? prev.adverse_event_other : "",
-                                    tube_accident_type: next.includes("Tube accident") ? prev.tube_accident_type : "",
+                                    tube_accident_type: next.includes("ET tube accident") ? prev.tube_accident_type : "",
                                   };
                                 });
                                 setErrors(prev => ({ ...prev, adverse_event_type: "" }));
@@ -1398,9 +1425,9 @@ export default function FormE() {
                         </div>
                         <FieldErr msg={errors.adverse_event_type} />
                       </div>
-                      {formData.adverse_event_type?.includes("Tube accident") && (
+                      {formData.adverse_event_type?.includes("ET tube accident") && (
                         <div className="form-group" style={{ marginTop:10 }}>
-                          <label>13. If Tube accident <span className="required">*</span></label>
+                          <label>13. If ET tube accident <span className="required">*</span></label>
                           <Toggle name="tube_accident_type" value={formData.tube_accident_type}
                             options={["Displacement","Blockage"]} onChange={handleToggle}
                             disabled={!isFieldEditable} error={errors.tube_accident_type} />
@@ -1413,7 +1440,7 @@ export default function FormE() {
                             value={formData.adverse_event_other || ""}
                             readOnly={!isFieldEditable}
                             className={`emr-input${errors.adverse_event_other ? " input-error" : ""}`}
-                            placeholder="e.g. Hypothermia"
+                            placeholder="e.g. Cold stress"
                             onChange={e => {
                               const v = e.target.value;
                               if (/^[A-Za-z\s]*$/.test(v)) handleChange(e);
