@@ -409,16 +409,34 @@ function RespParamGrid({ prefix, serial, mode, formData, errors, isFieldEditable
               value={formData[`${prefix}_amplitude`] || ""}
               readOnly={!isFieldEditable}
               className={`emr-input${errors[`${prefix}_amplitude`] ? " input-error" : ""}`}
-              placeholder="Amplitude"
-              onChange={handleChange} />
+              placeholder="2–80"
+              onChange={e => {
+                const v = e.target.value;
+                if (v === "" || (/^\d+$/.test(v) && Number(v) <= 100)) handleChange(e);
+              }}
+              onBlur={e => {
+                if (e.target.value === "") return;
+                let v = Number(e.target.value);
+                if (v > 80) v = 80; if (v < 2) v = 2;
+                handleChange({ target: { name: `${prefix}_amplitude`, value: v } });
+              }} />
             <FieldErr msg={errors[`${prefix}_amplitude`]} />
           </div>
           <div className="form-group">
             <label>{serial}h. Frequency <span className="field-note">(Hz)</span></label>
             <UnitInput name={`${prefix}_frequency`} value={formData[`${prefix}_frequency`]} unit="Hz"
               readOnly={!isFieldEditable} error={errors[`${prefix}_frequency`]}
-              placeholder="Frequency"
-              onChange={handleChange} />
+              placeholder="5–20"
+              onChange={e => {
+                const v = e.target.value;
+                if (v === "" || (/^\d+$/.test(v) && Number(v) <= 30)) handleChange(e);
+              }}
+              onBlur={e => {
+                if (e.target.value === "") return;
+                let v = Number(e.target.value);
+                if (v > 20) v = 20; if (v < 5) v = 5;
+                handleChange({ target: { name: `${prefix}_frequency`, value: v } });
+              }} />
             <FieldErr msg={errors[`${prefix}_frequency`]} />
           </div>
         </>
@@ -844,6 +862,8 @@ export default function FormE() {
     if (name === "nicu_pip" && value && (Number(value) < 10 || Number(value) > 40)) errorMsg = "Range: 10–40";
     if (name === "nicu_peep" && value && (Number(value) < 2 || Number(value) > 10)) errorMsg = "Range: 2–10";
     if (name === "nicu_map" && value && (Number(value) < 5 || Number(value) > 20)) errorMsg = "Range: 5–20";
+    if (["transport_amplitude","nicu_amplitude"].includes(name) && value && (Number(value) < 2 || Number(value) > 80)) errorMsg = "Range: 2–80";
+    if (["transport_frequency","nicu_frequency"].includes(name) && value && (Number(value) < 5 || Number(value) > 20)) errorMsg = "Range: 5–20";
     if (name === "heating_type" && formData.additional_heating === "Yes" && !(Array.isArray(value) ? value.length : value)) errorMsg = "Select heating type";
     if (name === "heating_type_other") {
       if (!value) errorMsg = "Specify heating method";
