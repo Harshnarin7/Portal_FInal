@@ -42,9 +42,9 @@ from mml_resp_a_autofill import (
     overlay_resp_cv_day_from_autofill,
     overlay_resp_cv_episodes_from_mml,
 )
-from mml_helper4_autofill import (
-    compute_helper4_day_autofill,
-    overlay_helper4_day_from_mml,
+from mml_helper5_autofill import (
+    compute_helper5_day_autofill,
+    overlay_helper5_day_from_mml,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -2177,30 +2177,30 @@ def get_metabolic_prefill(
     comments) to split into the hypo-/hyper- checkboxes Form H uses.
 
     Glucose (#1/#4) additionally pulls from Minimal Monitoring's 5.3.A
-    block (`met_a` in `entries_json`, added 2026-09) — unlike Helper 4's
+    block (`met_a` in `entries_json`, added 2026-09) — unlike Helper 5's
     own lowest_glucose/highest_glucose columns, which only ever get
     populated when a reading is already abnormal, Minimal Monitoring logs
     every spot glucose reading regardless of value, so each reading is
     numerically thresholded here before being folded into the same
-    hypoglycemia_lowest/hyperglycemia_highest pool Helper 4 feeds — same
+    hypoglycemia_lowest/hyperglycemia_highest pool Helper 5 feeds — same
     "which of these repeated readings is the worst" problem already
     solved for CV's SBP/DBP/MAP, VM/Doppler, and max-direct-bilirubin
     (see get_cv_prefill/get_vm_doppler_prefill/get_bilirubin_prefill).
     Thresholds are the CRF's own hypoglycemia cutoff (<45 mg/dL, matching
-    Helper 4's storage convention exactly) and a corrected hyperglycemia
+    Helper 5's storage convention exactly) and a corrected hyperglycemia
     cutoff of >125 mg/dL — NOT the CRF document's currently-written >180,
     which the PI has confirmed is a documentation error being corrected
-    separately; Helper 4's own existing >180-filtered data is untouched
+    separately; Helper 5's own existing >180-filtered data is untouched
     by this change and still folds into the same combined pool.
 
     ALP peak / lowest total Ca / lowest phosphorus (#113-115, osteopenia
-    lab values) are new here — Helper 4 has never had a source for these
+    lab values) are new here — Helper 5 has never had a source for these
     (its old docstring here said so explicitly), but Minimal Monitoring's
     5.3.B block (`met_b`) records exactly this, multiple times per day.
     Simple running max (ALP) / running min (Ca, phosphorus) across every
     entry from every day, same max/min-ratchet pattern as the other
     Minimal-Monitoring-sourced Form H fields. Osteopenia itself (#112)
-    stays sourced from Helper 4's own osteopenia_suspected flag, unchanged
+    stays sourced from Helper 5's own osteopenia_suspected flag, unchanged
     — a lab value crossing some range doesn't itself diagnose osteopenia,
     that's still a clinical judgment call the day log already captures
     directly.
@@ -6737,7 +6737,7 @@ def override_unlock_infect_gi_hema_day(
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  
 def _metab_completion_pct(r) -> int:
-    """Compute completion % for Helper Form 4 (items 1-25), with gated fields."""
+    """Compute completion % for Helper Form 5 (items 1-25), with gated fields."""
     def ans(v): return v is not None and v != "" and not (isinstance(v, list) and len(v)==0)
 
     def _is_numeric_high(v):
@@ -6871,9 +6871,9 @@ def get_metab_renal_vasc_eye_day(
     # sheet without treating "not started yet" as an error.
     if not record:
         return None
-    # Minimal Monitoring linkage step 2 -- see mml_helper4_autofill.py.
+    # Minimal Monitoring linkage step 2 -- see mml_helper5_autofill.py.
     # Fills lowest_glucose/highest_glucose/axillary_temperature only when
-    # Helper 4's own field is still blank; never touches an already-
+    # Helper 5's own field is still blank; never touches an already-
     # answered field. In-memory only, not committed.
     birth = (
         db.query(BirthResuscitation)
@@ -6904,8 +6904,8 @@ def get_metab_renal_vasc_eye_day(
                 )
                 .first()
             )
-        autofill = compute_helper4_day_autofill(on_row, today_row, helper_calendar_date=cal)
-        overlay_helper4_day_from_mml(record, autofill)
+        autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
+        overlay_helper5_day_from_mml(record, autofill)
     return record
  
  
@@ -7212,7 +7212,7 @@ def upsert_minimal_monitoring_on_date(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upsert the nurse-selected calendar sheet (Helper Form 5 date dropdown)."""
+    """Upsert the nurse-selected calendar sheet (DMS date dropdown)."""
     require_enrollment_access(enrollment_id, db, current_user)
     _validate_mml_manual_on_date(on_date)
     return _upsert_minimal_monitoring_for_date(enrollment_id, on_date, data, db)

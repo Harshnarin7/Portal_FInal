@@ -186,7 +186,7 @@ METAB_RENAL_VASC_EYE_COLUMN_PATCHES = [
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8am_2pm_status VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_2pm_8pm_status VARCHAR",
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS urine_output_8pm_8am_status VARCHAR",
-    # Blood-gas "Not Recorded / Not Done" sidecar for Helper 4 field #6
+    # Blood-gas "Not Recorded / Not Done" sidecar for Helper 5 field #6
     # (Metabolic acidosis). Distinguishes "gas wasn't done" from an empty
     # pH-readings list that hasn't been filled in yet.
     "ALTER TABLE metab_renal_vasc_eye_day_logs ADD COLUMN IF NOT EXISTS metabolic_acidosis_status VARCHAR",
