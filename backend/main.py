@@ -5999,6 +5999,18 @@ def get_resp_cv_neuro_summary(
         for r in records
     ]
 
+# DMS's 5.1.C pills ("Epinephrine"/"Norepinephrine") and Helper 2's own
+# vasoactive_drugs pills ("Adrenaline"/"Noradrenaline") independently picked
+# different terms for the same two drugs. Without translating on the way in,
+# a DMS-sourced value would fail Helper 2's own pill "on" check
+# (vasoactiveDrugs.includes(drug), RespCVNeuroLog.jsx) and Form H's
+# inotrope_adr/inotrope_nadr detection (both do exact-string matches against
+# "Adrenaline"/"Noradrenaline") -- silently missing a real shock/AE signal.
+VASOACTIVE_DRUG_NAME_ALIASES = {
+    "Epinephrine": "Adrenaline",
+    "Norepinephrine": "Noradrenaline",
+}
+
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
     enrollment_id: str,
@@ -6041,7 +6053,10 @@ def get_resp_cv_neuro_day(
         )
         overlay_boolean_presence_from_mml(
             record,
-            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_c", "vasoactive_drugs"),
+            _mml_helper1_list_field_autofill(
+                db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
+                value_map=VASOACTIVE_DRUG_NAME_ALIASES,
+            ),
             "vasoactive_support",
             "vasoactive_drugs",
         )
@@ -6144,6 +6159,7 @@ def _mml_helper1_resp_autofill(db: Session, enrollment_id: str, calendar_ymd: st
 
 def _mml_helper1_list_field_autofill(
     db: Session, enrollment_id: str, calendar_ymd: str, block_key: str, list_key: str,
+    value_map: Optional[dict] = None,
 ) -> dict:
     """Presence of a DMS list-type field (5.1.C Vasoactive Drugs, 5.1.D PDA
     Medical Rx, 5.2.D Postnatal Steroids) on a calendar date -- these 3
@@ -6173,6 +6189,7 @@ def _mml_helper1_list_field_autofill(
         block_key=block_key,
         list_key=list_key,
         helper_calendar_date=calendar_ymd,
+        value_map=value_map,
     )
 
 

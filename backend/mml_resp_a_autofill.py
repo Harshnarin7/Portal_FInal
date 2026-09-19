@@ -630,10 +630,18 @@ def compute_list_field_autofill(values: List[str]) -> Dict[str, Any]:
 
 
 def autofill_list_field_from_mml_rows(
-    *mml_rows: Any, block_key: str, list_key: str, helper_calendar_date: str
+    *mml_rows: Any, block_key: str, list_key: str, helper_calendar_date: str,
+    value_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Merge one MML block's list-type field across one or more MML day rows
-    for a helper calendar date — same shape as autofill_from_mml_rows etc."""
+    for a helper calendar date — same shape as autofill_from_mml_rows etc.
+    `value_map` translates DMS's own option wording into Helper 1's, for
+    blocks where the two forms independently picked different terms for the
+    same thing (e.g. DMS's "Epinephrine"/"Norepinephrine" vs Helper 1's own
+    "Adrenaline"/"Noradrenaline" pills) — without it, a token that only
+    matches on one side would silently fail every downstream exact-string
+    check that reads Helper 1's own vocabulary (its own pill "on" state,
+    and Form H's inotrope_adr/inotrope_nadr detection)."""
     merged: List[str] = []
     seen_ids = set()
     for mml in mml_rows:
@@ -645,6 +653,8 @@ def autofill_list_field_from_mml_rows(
         if mid is not None:
             seen_ids.add(mid)
         merged.extend(_list_field_values(mml, helper_calendar_date, block_key, list_key))
+    if value_map:
+        merged = [value_map.get(v, v) for v in merged]
     return compute_list_field_autofill(merged)
 
 
