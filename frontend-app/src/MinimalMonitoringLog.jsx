@@ -213,7 +213,11 @@ function freshEntry(fields = {}, sheetDateYmd = null) {
 
 function emptyEntries() {
   return {
-    cv_a: [freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" })],
+    // cv_a, met_a and gi_a are Scheduled Flowsheet blocks: no seed draft
+    // row — rows are generated from the chosen frequency + whatever real
+    // entries already exist (see buildFlowsheetRows), not the generic
+    // "always ends with a blank draft" pattern every other block uses.
+    cv_a: [],
     cv_b: [freshEntry({ fluid_bolus_given: "" })],
     cv_c: [freshEntry({ vasoactive_drugs: [], vasoactive_dose: "", vasoactive_unit: "" })],
     cv_d: [freshEntry({ pda_agent: [], pda_dose: "" })],
@@ -221,12 +225,8 @@ function emptyEntries() {
     resp_b: [freshEntry({ ph: "", pao2: "", paco2: "" })],
     resp_c: [freshEntry({ apnea_episodes: "", desaturation_episodes: "", severe_desaturation_episodes: "" })],
     resp_d: [freshEntry({ postnatal_steroids: [], steroid_dose: "", steroid_other: "" })],
-    met_a: [freshEntry({ glucose: "" })],
+    met_a: [],
     met_b: [freshEntry({ alp: "", total_calcium: "", phosphorus: "" })],
-    // gi_a is the flowsheet block: no seed draft row — rows are generated
-    // from the chosen frequency + whatever real entries already exist (see
-    // buildGiFlowsheetRows), not the generic "always ends with a blank
-    // draft" pattern every other block uses.
     gi_a: [],
     gi_b: [freshEntry({ direct_bilirubin: "" })],
     neuro_a: [freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })],
@@ -255,7 +255,18 @@ function hydrateEntries(d) {
   }
   // Legacy flat-row → single entry per block
   const e = emptyEntries();
-  e.cv_a[0] = { ...e.cv_a[0], date: d.record_date || e.cv_a[0].date, axillary_temp: d.axillary_temp ?? "", sbp: d.sbp ?? "", dbp: d.dbp ?? "", map_value: d.map_value ?? "" };
+  // Legacy cv_a/met_a had one flat reading per day (no multi-entry
+  // slot/flowsheet structure at all) — migrate a real value into one
+  // synthetic slot-00:00 entry rather than silently dropping it, same
+  // pattern as gi_a's legacy migration below. A row where every one of
+  // these fields is blank needs no synthetic entry (the new default is
+  // simply empty, matching gi_a).
+  if (d.axillary_temp != null || d.sbp != null || d.dbp != null || d.map_value != null) {
+    e.cv_a = [freshEntry({
+      slot_time: "00:00", axillary_temp: d.axillary_temp ?? "", sbp: d.sbp ?? "",
+      dbp: d.dbp ?? "", map_value: d.map_value ?? "",
+    }, d.record_date)];
+  }
   e.cv_b[0] = {
     ...e.cv_b[0],
     fluid_bolus_given: normalizeFluidBolusValue(d.fluid_bolus_given),
@@ -273,7 +284,9 @@ function hydrateEntries(d) {
   e.resp_b[0] = { ...e.resp_b[0], ph: d.ph ?? "", pao2: d.pao2 ?? "", paco2: d.paco2 ?? "" };
   e.resp_c[0] = { ...e.resp_c[0], apnea_episodes: d.apnea_episodes ?? "", desaturation_episodes: d.desaturation_episodes ?? "", severe_desaturation_episodes: d.severe_desaturation_episodes ?? "" };
   e.resp_d[0] = { ...e.resp_d[0], postnatal_steroids: stringToList(d.postnatal_steroids), steroid_dose: d.steroid_dose ?? "", steroid_other: d.steroid_other || "" };
-  e.met_a[0] = { ...e.met_a[0], glucose: d.glucose ?? "" };
+  if (d.glucose != null && d.glucose !== "") {
+    e.met_a = [freshEntry({ slot_time: "00:00", glucose: String(d.glucose) }, d.record_date)];
+  }
   e.met_b[0] = { ...e.met_b[0], alp: d.alp ?? "", total_calcium: d.total_calcium ?? "", phosphorus: d.phosphorus ?? "" };
   // Legacy gi_a had one flat cumulative_feed_volume number, no status/type/
   // slot structure at all — migrate a real value into one EF entry (type
@@ -360,9 +373,9 @@ function flattenEntries(entries) {
 function hasEntryData(entry) {
   if (!entry) return false;
   return Object.entries(entry).some(([k, v]) => {
-    // slot_time is gi_a's flowsheet-slot bookkeeping tag (which scheduled
-    // row this entry belongs to) — like id/date/time, it's metadata stamped
-    // automatically, never itself a clinical answer.
+    // slot_time is a Scheduled Flowsheet's slot bookkeeping tag (which
+    // scheduled row this entry belongs to) — like id/date/time, it's
+    // metadata stamped automatically, never itself a clinical answer.
     if (k === "id" || k === "date" || k === "time" || k === "slot_time") return false;
     return ans(v);
   });
@@ -460,8 +473,9 @@ function countProgress(entries) {
         // they are bookkeeping metadata, not a clinical answer, so they must not
         // count toward "filled" progress.
         if (k === "date" || k === "time") return;
-        // slot_time is gi_a's flowsheet-slot bookkeeping tag (which scheduled
-        // slot this real entry was recorded against) — not a clinical answer.
+        // slot_time is a Scheduled Flowsheet's slot bookkeeping tag (which
+        // scheduled slot this real entry was recorded against) — not a
+        // clinical answer.
         if (k === "slot_time") return;
         // Conditional slots
         if (block === "gi_a" && (k === "milk_type" || k === "volume_ml") && entry.status !== "EF") return;
@@ -989,17 +1003,22 @@ function CoverageTimeline({ tableRows, blockKey }) {
   );
 }
 
-/* ── GI Feed Flowsheet (5.4.A) ──────────────────────────────────────────
-   Unlike every other DMS block (event-driven: log a reading whenever one
-   occurs), feeding is a SCHEDULED, recurring activity — reconstructing a
-   12x-a-day record via "log another reading" with no sense of the day's
-   coverage is genuinely painful. This block instead generates rows from a
-   chosen cadence (1/2/3-hourly) and only asks the nurse to fill in status
-   (EF/NPO), milk type, and volume per slot. Real entries are still a plain
-   array like every other block — a frequency change never touches or
-   merges stored entries, it only changes which "expected slot" placeholders
-   get generated/flagged around them, so nothing already logged can be lost
-   or silently reassigned by toggling the cadence. */
+/* ── Scheduled Flowsheet infrastructure (5.1.A Vitals, 5.3.A Glucose,
+   5.4.A GI Feed Volume) ──────────────────────────────────────────────────
+   Unlike an event-driven DMS block (log a reading whenever one occurs,
+   visualized with CoverageTimeline above), these three are SCHEDULED,
+   recurring activities — reconstructing a 12x-a-day record via "log
+   another reading" with no sense of the day's coverage is genuinely
+   painful. Each instead generates rows from a chosen cadence (1/2/3-
+   hourly) and only asks the nurse to fill in that slot's value(s). Real
+   entries are still a plain array like every other block — a frequency
+   change never touches or merges stored entries, it only changes which
+   "expected slot" placeholders get generated/flagged around them, so
+   nothing already logged can be lost or silently reassigned by toggling
+   the cadence. GI Feed Volume needs EF/NPO status + milk type branching
+   (GiFeedFlowsheet, below); Glucose/Vitals are plain numeric-column
+   readings (the generic ScheduledFlowsheet, further below) — both share
+   the same expectedSlots/buildFlowsheetRows row-building. */
 
 const GI_MILK_TYPES = ["FM", "EBM", "PDHM"];
 
@@ -1010,7 +1029,7 @@ function minutesTo24h(mins) {
 }
 
 /** 24h "HH:MM" slot start times for a given hourly cadence. */
-function giExpectedSlots(frequencyHours) {
+function expectedSlots(frequencyHours) {
   const stepMin = Math.max(1, Number(frequencyHours) || 2) * 60;
   const slots = [];
   for (let m = 0; m < 24 * 60; m += stepMin) slots.push(minutesTo24h(m));
@@ -1028,9 +1047,9 @@ function giExpectedSlots(frequencyHours) {
  *  slot_time doesn't match the current frequency's own boundaries (e.g. left
  *  over from a since-changed cadence) shown as its own row rather than
  *  dropped. */
-function buildGiFlowsheetRows(entries, frequencyHours, isToday, nowMinutes) {
+function buildFlowsheetRows(entries, frequencyHours, isToday, nowMinutes) {
   const real = entries || [];
-  const slots = giExpectedSlots(frequencyHours);
+  const slots = expectedSlots(frequencyHours);
   const bySlot = new Map();
   const orphans = [];
   for (const e of real) {
@@ -1099,27 +1118,27 @@ function GiFeedFlowsheet({
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
   })();
-  const rows = buildGiFlowsheetRows(entries, frequencyHours, isToday, nowMinutes);
+  const rows = buildFlowsheetRows(entries, frequencyHours, isToday, nowMinutes);
   const summary = computeGiSummary(entries, frequencyHours);
   const timeMax = mmlMaxAllowedTimeForSheetDate(sheetDate);
 
   return (
-    <div className="mml-gi-flowsheet">
-      <div className="mml-gi-freq-row">
-        <span className="mml-gi-freq-label">Log every</span>
-        <div className="mml-gi-freq-pills">
+    <div className="mml-flowsheet">
+      <div className="mml-flowsheet-freq-row">
+        <span className="mml-flowsheet-freq-label">Log every</span>
+        <div className="mml-flowsheet-freq-pills">
           {[1, 2, 3].map(h => (
             <button key={h} type="button"
-              className={`mml-gi-freq-btn${Number(frequencyHours) === h ? " mml-gi-freq-btn--on" : ""}`}
+              className={`mml-flowsheet-freq-btn${Number(frequencyHours) === h ? " mml-flowsheet-freq-btn--on" : ""}`}
               onClick={() => !disabled && onChangeFrequency(h)}
               disabled={disabled}>{h}h</button>
           ))}
         </div>
-        <span className="mml-gi-freq-note">{giExpectedSlots(frequencyHours).length} rows / 24h</span>
+        <span className="mml-flowsheet-freq-note">{expectedSlots(frequencyHours).length} rows / 24h</span>
       </div>
 
-      <div className="mml-gi-table-wrap">
-        <table className="mml-gi-table">
+      <div className="mml-flowsheet-table-wrap">
+        <table className="mml-flowsheet-table">
           <thead>
             <tr>
               <th>Sched.</th>
@@ -1134,9 +1153,9 @@ function GiFeedFlowsheet({
             {rows.map((row, i) => {
               if (row.kind === "upcoming") {
                 return (
-                  <tr key={`up-${row.slot}-${i}`} className="mml-gi-row mml-gi-row--upcoming">
-                    <td className="mml-gi-slot">{formatTimeAmPm(row.slot)}</td>
-                    <td colSpan={4} className="mml-gi-placeholder-label">Upcoming</td>
+                  <tr key={`up-${row.slot}-${i}`} className="mml-flowsheet-row mml-flowsheet-row--upcoming">
+                    <td className="mml-flowsheet-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={4} className="mml-flowsheet-placeholder-label">Upcoming</td>
                     <td />
                   </tr>
                 );
@@ -1144,10 +1163,10 @@ function GiFeedFlowsheet({
               if (row.kind === "missing") {
                 return (
                   <tr key={`miss-${row.slot}-${i}`}
-                    className={`mml-gi-row mml-gi-row--missing${disabled ? "" : " mml-gi-row--clickable"}`}
+                    className={`mml-flowsheet-row mml-flowsheet-row--missing${disabled ? "" : " mml-flowsheet-row--clickable"}`}
                     onClick={() => !disabled && onAdd(row.slot)}>
-                    <td className="mml-gi-slot">{formatTimeAmPm(row.slot)}</td>
-                    <td colSpan={4} className="mml-gi-placeholder-label">
+                    <td className="mml-flowsheet-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={4} className="mml-flowsheet-placeholder-label">
                       {disabled ? "Not logged" : "Not logged — tap to add"}
                     </td>
                     <td />
@@ -1159,11 +1178,11 @@ function GiFeedFlowsheet({
               const err = errors[`gi_a.${e.id}.volume_ml`] || errors[`gi_a.${e.id}.milk_type`];
               return (
                 <tr key={e.id}
-                  className={`mml-gi-row${err ? " mml-gi-row--error" : ""}`}
+                  className={`mml-flowsheet-row${err ? " mml-flowsheet-row--error" : ""}`}
                   title={row.orphan ? "Doesn't match the current frequency's slots — kept as its own reading" : undefined}>
-                  <td className="mml-gi-slot">{row.slot ? formatTimeAmPm(row.slot) : "—"}</td>
+                  <td className="mml-flowsheet-slot">{row.slot ? formatTimeAmPm(row.slot) : "—"}</td>
                   <td>
-                    <input type="time" className="mml-gi-time-input" value={e.time || ""}
+                    <input type="time" className="mml-flowsheet-time-input" value={e.time || ""}
                       max={timeMax} disabled={disabled}
                       onChange={ev => onChangeField(e.id, "time", mmlClampTimeForSheetDate(sheetDate, ev.target.value))} />
                   </td>
@@ -1186,18 +1205,18 @@ function GiFeedFlowsheet({
                         <option value="">—</option>
                         {GI_MILK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
-                    ) : <span className="mml-gi-dash">—</span>}
+                    ) : <span className="mml-flowsheet-dash">—</span>}
                   </td>
                   <td>
                     {isEF ? (
-                      <input type="number" min="0" className="mml-gi-vol-input" value={e.volume_ml || ""}
+                      <input type="number" min="0" className="mml-flowsheet-num-input" value={e.volume_ml || ""}
                         disabled={disabled}
                         onChange={ev => onChangeField(e.id, "volume_ml", ev.target.value)} />
-                    ) : <span className="mml-gi-dash">—</span>}
+                    ) : <span className="mml-flowsheet-dash">—</span>}
                   </td>
-                  <td className="mml-gi-row-action">
+                  <td className="mml-flowsheet-row-action">
                     {!disabled && (
-                      <button type="button" className="mml-gi-remove-btn" title="Remove this reading"
+                      <button type="button" className="mml-flowsheet-remove-btn" title="Remove this reading"
                         onClick={() => onRemove(e.id)}>
                         <Trash2 size={11} />
                       </button>
@@ -1210,27 +1229,187 @@ function GiFeedFlowsheet({
         </table>
       </div>
 
-      <div className="mml-gi-summary">
-        <div className="mml-gi-summary-item">
-          <span className="mml-gi-summary-label">Total EF Vol.</span>
-          <span className="mml-gi-summary-value">{summary.totalVolume || 0} ml</span>
+      <div className="mml-flowsheet-summary">
+        <div className="mml-flowsheet-summary-item">
+          <span className="mml-flowsheet-summary-label">Total EF Vol.</span>
+          <span className="mml-flowsheet-summary-value">{summary.totalVolume || 0} ml</span>
         </div>
         {GI_MILK_TYPES.filter(t => summary.byType[t] > 0).map(t => (
-          <div className="mml-gi-summary-item" key={t}>
-            <span className="mml-gi-summary-label">{t}</span>
-            <span className="mml-gi-summary-value">{summary.byType[t]} ml</span>
+          <div className="mml-flowsheet-summary-item" key={t}>
+            <span className="mml-flowsheet-summary-label">{t}</span>
+            <span className="mml-flowsheet-summary-value">{summary.byType[t]} ml</span>
           </div>
         ))}
-        <div className="mml-gi-summary-item">
-          <span className="mml-gi-summary-label">EF Hours</span>
-          <span className="mml-gi-summary-value">{summary.efHours}h</span>
+        <div className="mml-flowsheet-summary-item">
+          <span className="mml-flowsheet-summary-label">EF Hours</span>
+          <span className="mml-flowsheet-summary-value">{summary.efHours}h</span>
         </div>
-        <div className="mml-gi-summary-item">
-          <span className="mml-gi-summary-label">NPO Hours</span>
-          <span className="mml-gi-summary-value">{summary.npoHours}h</span>
+        <div className="mml-flowsheet-summary-item">
+          <span className="mml-flowsheet-summary-label">NPO Hours</span>
+          <span className="mml-flowsheet-summary-value">{summary.npoHours}h</span>
         </div>
       </div>
-      <p className="mml-gi-legend">FM = Formula Milk · EBM = Expressed Breast Milk · PDHM = Pasteurized Donor Human Milk</p>
+      <p className="mml-flowsheet-legend">FM = Formula Milk · EBM = Expressed Breast Milk · PDHM = Pasteurized Donor Human Milk</p>
+    </div>
+  );
+}
+
+/* ── Generic numeric-column Scheduled Flowsheet (Glucose 5.3.A, Vitals
+   5.1.A) — the same cadence-driven row/slot infrastructure as the GI Feed
+   Flowsheet above, but for blocks that are plain repeated-measurement
+   readings with no EF/NPO-style branching: just one or more numeric
+   columns filled in per scheduled slot. */
+
+const MET_A_COLUMNS = [
+  { key: "glucose", label: "Glucose", unit: "mg/dL" },
+];
+
+const CV_A_COLUMNS = [
+  { key: "axillary_temp", label: "Skin/Axillary Temp", unit: "°C" },
+  { key: "sbp", label: "SBP", unit: "mm Hg" },
+  { key: "dbp", label: "DBP", unit: "mm Hg" },
+  { key: "map_value", label: "MAP", unit: "mm Hg" },
+];
+
+/** Min/max per numeric column across the day's real entries — a blank slot
+ *  contributes to neither bound, same never-invent-data-for-gaps rule as
+ *  every other DMS aggregate this session. */
+function computeMinMaxSummary(entries, columns) {
+  const real = (entries || []).filter(hasEntryData);
+  const out = {};
+  columns.forEach(col => {
+    // A vitals-style row can fill only SOME of its columns — must check
+    // ans() first, since Number("") is 0 (finite), which would otherwise
+    // count an unfilled column as a genuine "0" reading.
+    const vals = real
+      .filter(e => ans(e[col.key]))
+      .map(e => Number(e[col.key]))
+      .filter(v => Number.isFinite(v));
+    out[col.key] = {
+      min: vals.length ? Math.min(...vals) : null,
+      max: vals.length ? Math.max(...vals) : null,
+      count: vals.length,
+    };
+  });
+  return out;
+}
+
+function ScheduledFlowsheet({
+  blockKey, columns, entries, frequencyHours, onChangeFrequency, onChangeField, onAdd, onRemove,
+  disabled, sheetDate, errors,
+}) {
+  const isToday = sheetDate === realCalendarDateYmd();
+  const nowMinutes = (() => {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+  })();
+  const rows = buildFlowsheetRows(entries, frequencyHours, isToday, nowMinutes);
+  const summary = computeMinMaxSummary(entries, columns);
+  const timeMax = mmlMaxAllowedTimeForSheetDate(sheetDate);
+
+  return (
+    <div className="mml-flowsheet">
+      <div className="mml-flowsheet-freq-row">
+        <span className="mml-flowsheet-freq-label">Log every</span>
+        <div className="mml-flowsheet-freq-pills">
+          {[1, 2, 3].map(h => (
+            <button key={h} type="button"
+              className={`mml-flowsheet-freq-btn${Number(frequencyHours) === h ? " mml-flowsheet-freq-btn--on" : ""}`}
+              onClick={() => !disabled && onChangeFrequency(h)}
+              disabled={disabled}>{h}h</button>
+          ))}
+        </div>
+        <span className="mml-flowsheet-freq-note">{expectedSlots(frequencyHours).length} rows / 24h</span>
+      </div>
+
+      <div className="mml-flowsheet-table-wrap">
+        <table className="mml-flowsheet-table">
+          <thead>
+            <tr>
+              <th>Sched.</th>
+              <th>Actual</th>
+              {columns.map(col => (
+                <th key={col.key}>{col.label}{col.unit ? ` (${col.unit})` : ""}</th>
+              ))}
+              <th aria-hidden="true" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              if (row.kind === "upcoming") {
+                return (
+                  <tr key={`up-${row.slot}-${i}`} className="mml-flowsheet-row mml-flowsheet-row--upcoming">
+                    <td className="mml-flowsheet-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={columns.length + 1} className="mml-flowsheet-placeholder-label">Upcoming</td>
+                    <td />
+                  </tr>
+                );
+              }
+              if (row.kind === "missing") {
+                return (
+                  <tr key={`miss-${row.slot}-${i}`}
+                    className={`mml-flowsheet-row mml-flowsheet-row--missing${disabled ? "" : " mml-flowsheet-row--clickable"}`}
+                    onClick={() => !disabled && onAdd(row.slot)}>
+                    <td className="mml-flowsheet-slot">{formatTimeAmPm(row.slot)}</td>
+                    <td colSpan={columns.length + 1} className="mml-flowsheet-placeholder-label">
+                      {disabled ? "Not logged" : "Not logged — tap to add"}
+                    </td>
+                    <td />
+                  </tr>
+                );
+              }
+              const e = row.entry;
+              const err = columns.some(col => errors[`${blockKey}.${e.id}.${col.key}`]);
+              return (
+                <tr key={e.id}
+                  className={`mml-flowsheet-row${err ? " mml-flowsheet-row--error" : ""}`}
+                  title={row.orphan ? "Doesn't match the current frequency's slots — kept as its own reading" : undefined}>
+                  <td className="mml-flowsheet-slot">{row.slot ? formatTimeAmPm(row.slot) : "—"}</td>
+                  <td>
+                    <input type="time" className="mml-flowsheet-time-input" value={e.time || ""}
+                      max={timeMax} disabled={disabled}
+                      onChange={ev => onChangeField(e.id, "time", mmlClampTimeForSheetDate(sheetDate, ev.target.value))} />
+                  </td>
+                  {columns.map(col => (
+                    <td key={col.key}>
+                      <input type="number" step="any" className="mml-flowsheet-num-input"
+                        value={e[col.key] ?? ""} disabled={disabled}
+                        onChange={ev => onChangeField(e.id, col.key, ev.target.value)} />
+                    </td>
+                  ))}
+                  <td className="mml-flowsheet-row-action">
+                    {!disabled && (
+                      <button type="button" className="mml-flowsheet-remove-btn" title="Remove this reading"
+                        onClick={() => onRemove(e.id)}>
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mml-flowsheet-summary">
+        {columns.map(col => {
+          const s = summary[col.key];
+          if (!s.count) return null;
+          return (
+            <React.Fragment key={col.key}>
+              <div className="mml-flowsheet-summary-item">
+                <span className="mml-flowsheet-summary-label">{col.label} Min</span>
+                <span className="mml-flowsheet-summary-value">{s.min}{col.unit ? ` ${col.unit}` : ""}</span>
+              </div>
+              <div className="mml-flowsheet-summary-item">
+                <span className="mml-flowsheet-summary-label">{col.label} Max</span>
+                <span className="mml-flowsheet-summary-value">{s.max}{col.unit ? ` ${col.unit}` : ""}</span>
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1485,6 +1664,8 @@ export default function MinimalMonitoringLog() {
   const [entries, setEntries] = useState(emptyEntries);
   const [sheetDate, setSheetDate] = useState("");
   const [giFeedFrequencyHours, setGiFeedFrequencyHours] = useState(2);
+  const [glucoseFrequencyHours, setGlucoseFrequencyHours] = useState(2);
+  const [vitalsFrequencyHours, setVitalsFrequencyHours] = useState(2);
   const [patientInfo, setPatientInfo] = useState({ enrollmentId, motherName: "", babyUid: "", gestation: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1568,44 +1749,60 @@ export default function MinimalMonitoringLog() {
     dirtyRef.current = true;
   };
 
-  /* ── gi_a mutation — keyed by id, not index, since the flowsheet's row
-     order is computed (slot-sorted + placeholders), not the raw array order. */
-  const setGiEntryField = (id, key, value) => {
+  /* ── Scheduled-flowsheet mutation (gi_a, met_a, cv_a) — keyed by id, not
+     index, since a flowsheet's row order is slot-computed (slot-sorted +
+     placeholders), not raw array order. */
+  const setFlowsheetEntryField = (block, id, key, value) => {
     setEntries(prev => ({
       ...prev,
-      gi_a: (prev.gi_a || []).map(e => {
+      [block]: (prev[block] || []).map(e => {
         if (e.id !== id) return e;
-        if (key === "status" && value !== "EF") {
+        // gi_a-only: clearing to NPO also clears the now-hidden milk-type/
+        // volume fields, so a stale value can't silently resurface if the
+        // nurse flips back to EF later.
+        if (block === "gi_a" && key === "status" && value !== "EF") {
           return { ...e, status: value, milk_type: "", volume_ml: "" };
         }
         return { ...e, [key]: value };
       }),
     }));
-    setErrors(prev => ({ ...prev, [`gi_a.${id}.${key}`]: null }));
+    setErrors(prev => ({ ...prev, [`${block}.${id}.${key}`]: null }));
     setSaveTick(t => t + 1);
     dirtyRef.current = true;
   };
 
-  const addGiEntry = (slotTime) => {
+  const addFlowsheetEntry = (block, slotTime, extraFields = {}) => {
     setEntries(prev => ({
       ...prev,
-      gi_a: [
-        ...(prev.gi_a || []),
-        freshEntry({ slot_time: slotTime, time: slotTime, status: "", milk_type: "", volume_ml: "" }, sheetDate),
+      [block]: [
+        ...(prev[block] || []),
+        freshEntry({ slot_time: slotTime, time: slotTime, ...extraFields }, sheetDate),
       ],
     }));
     setSaveTick(t => t + 1);
     dirtyRef.current = true;
   };
 
-  const removeGiEntry = (id) => {
-    setEntries(prev => ({ ...prev, gi_a: (prev.gi_a || []).filter(e => e.id !== id) }));
+  const removeFlowsheetEntry = (block, id) => {
+    setEntries(prev => ({ ...prev, [block]: (prev[block] || []).filter(e => e.id !== id) }));
     setSaveTick(t => t + 1);
     dirtyRef.current = true;
   };
 
   const changeGiFrequency = (hours) => {
     setGiFeedFrequencyHours(hours);
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
+  const changeGlucoseFrequency = (hours) => {
+    setGlucoseFrequencyHours(hours);
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
+  const changeVitalsFrequency = (hours) => {
+    setVitalsFrequencyHours(hours);
     setSaveTick(t => t + 1);
     dirtyRef.current = true;
   };
@@ -1649,12 +1846,16 @@ export default function MinimalMonitoringLog() {
       setSheetDate(recordDate);
       setEntries(ensureTrailingDraftRows(hydrateEntries(data), recordDate));
       setGiFeedFrequencyHours(data.gi_feed_frequency_hours || 2);
+      setGlucoseFrequencyHours(data.glucose_frequency_hours || 2);
+      setVitalsFrequencyHours(data.vitals_frequency_hours || 2);
       rememberMmlSheetDate(enrollmentId, recordDate);
       dirtyRef.current = false;
     } catch (_) {
       setSheetDate(ymd);
       setEntries(emptyEntries());
       setGiFeedFrequencyHours(2);
+      setGlucoseFrequencyHours(2);
+      setVitalsFrequencyHours(2);
       setMessage("Could not load sheet for this date. Please try again.");
     } finally {
       setLoading(false);
@@ -1791,6 +1992,8 @@ export default function MinimalMonitoringLog() {
     ...flattenEntries(entriesSnapshot),
     record_date: sheetDate,
     gi_feed_frequency_hours: giFeedFrequencyHours,
+    glucose_frequency_hours: glucoseFrequencyHours,
+    vitals_frequency_hours: vitalsFrequencyHours,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
@@ -1910,33 +2113,19 @@ export default function MinimalMonitoringLog() {
     switch (blockKey) {
       case "cv_a":
         return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="cv_a" code="5.1.A" entries={entries.cv_a} disabled={!isEditable}
+          <ScheduledFlowsheet
+            blockKey="cv_a"
+            columns={CV_A_COLUMNS}
+            entries={entries.cv_a}
+            frequencyHours={vitalsFrequencyHours}
+            onChangeFrequency={changeVitalsFrequency}
+            onChangeField={(id, k, v) => setFlowsheetEntryField("cv_a", id, k, v)}
+            onAdd={slot => addFlowsheetEntry("cv_a", slot, { axillary_temp: "", sbp: "", dbp: "", map_value: "" })}
+            onRemove={id => removeFlowsheetEntry("cv_a", id)}
+            disabled={!isEditable}
+            sheetDate={sheetDate}
             errors={errors}
-            onChangeEntry={(i, k, v) => setEntryField("cv_a", i, k, v)}
-            onAdd={blank => addEntry("cv_a", blank)}
-            onRemove={i => removeEntry("cv_a", i)}
-            blankFactory={() => freshEntry({ axillary_temp: "", sbp: "", dbp: "", map_value: "" }, sheetDate)}>
-            {(e, i) => (
-              <>
-                <Item n={1} label="Skin/Axillary Temp">
-                  <Num value={e.axillary_temp} onChange={v => setEntryField("cv_a", i, "axillary_temp", v)}
-                    disabled={!isEditable} unit="°C" />
-                </Item>
-                <Item n={2} label="SBP">
-                  <Num value={e.sbp} onChange={v => setEntryField("cv_a", i, "sbp", v)}
-                    disabled={!isEditable} unit="mm Hg" />
-                </Item>
-                <Item n={3} label="DBP">
-                  <Num value={e.dbp} onChange={v => setEntryField("cv_a", i, "dbp", v)}
-                    disabled={!isEditable} unit="mm Hg" />
-                </Item>
-                <Item n={4} label="MAP">
-                  <Num value={e.map_value} onChange={v => setEntryField("cv_a", i, "map_value", v)}
-                    disabled={!isEditable} unit="mm Hg" />
-                </Item>
-              </>
-            )}
-          </EntryBlock>
+          />
         );
       case "cv_b":
         return (
@@ -2137,18 +2326,19 @@ export default function MinimalMonitoringLog() {
         );
       case "met_a":
         return (
-          <EntryBlock fixedDate={sheetDate || ""} blockKey="met_a" code="5.3.A" entries={entries.met_a} disabled={!isEditable}
+          <ScheduledFlowsheet
+            blockKey="met_a"
+            columns={MET_A_COLUMNS}
+            entries={entries.met_a}
+            frequencyHours={glucoseFrequencyHours}
+            onChangeFrequency={changeGlucoseFrequency}
+            onChangeField={(id, k, v) => setFlowsheetEntryField("met_a", id, k, v)}
+            onAdd={slot => addFlowsheetEntry("met_a", slot, { glucose: "" })}
+            onRemove={id => removeFlowsheetEntry("met_a", id)}
+            disabled={!isEditable}
+            sheetDate={sheetDate}
             errors={errors}
-            onChangeEntry={(i, k, v) => setEntryField("met_a", i, k, v)}
-            onAdd={blank => addEntry("met_a", blank)} onRemove={i => removeEntry("met_a", i)}
-            blankFactory={() => freshEntry({ glucose: "" }, sheetDate)}>
-            {(e, i) => (
-              <Item n={1} label="Glucose">
-                <Num value={e.glucose} onChange={v => setEntryField("met_a", i, "glucose", v)}
-                  disabled={!isEditable} unit="mg/dL" />
-              </Item>
-            )}
-          </EntryBlock>
+          />
         );
       case "met_b":
         return (
@@ -2181,9 +2371,9 @@ export default function MinimalMonitoringLog() {
             entries={entries.gi_a}
             frequencyHours={giFeedFrequencyHours}
             onChangeFrequency={changeGiFrequency}
-            onChangeField={setGiEntryField}
-            onAdd={addGiEntry}
-            onRemove={removeGiEntry}
+            onChangeField={(id, k, v) => setFlowsheetEntryField("gi_a", id, k, v)}
+            onAdd={slot => addFlowsheetEntry("gi_a", slot, { status: "", milk_type: "", volume_ml: "" })}
+            onRemove={id => removeFlowsheetEntry("gi_a", id)}
             disabled={!isEditable}
             sheetDate={sheetDate}
             errors={errors}

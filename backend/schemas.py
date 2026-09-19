@@ -2721,6 +2721,8 @@ class MinimalMonitoringDayCreate(BaseModel):
 
     cumulative_feed_volume: Optional[float] = None
     gi_feed_frequency_hours: Optional[int] = None
+    glucose_frequency_hours: Optional[int] = None
+    vitals_frequency_hours: Optional[int] = None
     direct_bilirubin: Optional[float] = None
 
     imaging_date: Optional[str] = None

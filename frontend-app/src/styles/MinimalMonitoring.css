@@ -978,14 +978,14 @@
 
 /* ── GI Feed Flowsheet (5.4.A) — compact, no cell text overflow ── */
 
-.mml-gi-flowsheet {
+.mml-flowsheet {
   border: 1px solid #E2E8F0;
   border-radius: 10px;
   padding: 10px;
   background: #F8FAFC;
 }
 
-.mml-gi-freq-row {
+.mml-flowsheet-freq-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -993,18 +993,18 @@
   margin-bottom: 8px;
 }
 
-.mml-gi-freq-label {
+.mml-flowsheet-freq-label {
   font-size: 11px;
   font-weight: 600;
   color: #475569;
 }
 
-.mml-gi-freq-pills {
+.mml-flowsheet-freq-pills {
   display: flex;
   gap: 4px;
 }
 
-.mml-gi-freq-btn {
+.mml-flowsheet-freq-btn {
   border: 1px solid #CBD5E1;
   background: #fff;
   color: #475569;
@@ -1016,38 +1016,38 @@
   line-height: 1.6;
 }
 
-.mml-gi-freq-btn--on {
+.mml-flowsheet-freq-btn--on {
   background: var(--rcn-primary, #2563eb);
   border-color: var(--rcn-primary, #2563eb);
   color: #fff;
 }
 
-.mml-gi-freq-btn:disabled {
+.mml-flowsheet-freq-btn:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.mml-gi-freq-note {
+.mml-flowsheet-freq-note {
   font-size: 10.5px;
   color: #94A3B8;
   margin-left: auto;
 }
 
-.mml-gi-table-wrap {
+.mml-flowsheet-table-wrap {
   overflow-x: auto;
   border-radius: 8px;
   border: 1px solid #E2E8F0;
 }
 
-.mml-gi-table {
+.mml-flowsheet-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 11px;
 }
 
-.mml-gi-table th,
-.mml-gi-table td {
+.mml-flowsheet-table th,
+.mml-flowsheet-table td {
   padding: 4px 5px;
   border-bottom: 1px solid #E2E8F0;
   text-align: center;
@@ -1056,7 +1056,7 @@
   white-space: nowrap;
 }
 
-.mml-gi-table th {
+.mml-flowsheet-table th {
   background: #F1F5F9;
   color: #475569;
   font-weight: 700;
@@ -1065,39 +1065,39 @@
   letter-spacing: 0.03em;
 }
 
-.mml-gi-table th:last-child,
-.mml-gi-table td.mml-gi-row-action {
+.mml-flowsheet-table th:last-child,
+.mml-flowsheet-table td.mml-flowsheet-row-action {
   width: 22px;
   padding-left: 2px;
   padding-right: 2px;
 }
 
-.mml-gi-table tbody tr:last-child td {
+.mml-flowsheet-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.mml-gi-row--missing {
+.mml-flowsheet-row--missing {
   background: #FFF7ED;
 }
 
-.mml-gi-row--clickable {
+.mml-flowsheet-row--clickable {
   cursor: pointer;
 }
 
-.mml-gi-row--clickable:hover {
+.mml-flowsheet-row--clickable:hover {
   background: #FFEDD5;
 }
 
-.mml-gi-row--upcoming {
+.mml-flowsheet-row--upcoming {
   background: #F8FAFC;
   color: #CBD5E1;
 }
 
-.mml-gi-row--error {
+.mml-flowsheet-row--error {
   background: #FEF2F2;
 }
 
-.mml-gi-placeholder-label {
+.mml-flowsheet-placeholder-label {
   font-size: 10.5px;
   font-style: italic;
   color: #94A3B8;
@@ -1105,14 +1105,14 @@
   padding-left: 8px !important;
 }
 
-.mml-gi-slot {
+.mml-flowsheet-slot {
   font-weight: 700;
   color: #475569;
   white-space: nowrap;
   font-size: 10.5px;
 }
 
-.mml-gi-time-input {
+.mml-flowsheet-time-input {
   width: 100%;
   min-width: 0;
   border: 1px solid #CBD5E1;
@@ -1168,7 +1168,7 @@
   background: #fff;
 }
 
-.mml-gi-vol-input {
+.mml-flowsheet-num-input {
   width: 100%;
   min-width: 0;
   border: 1px solid #CBD5E1;
@@ -1179,11 +1179,11 @@
   background: #fff;
 }
 
-.mml-gi-dash {
+.mml-flowsheet-dash {
   color: #CBD5E1;
 }
 
-.mml-gi-remove-btn {
+.mml-flowsheet-remove-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1194,11 +1194,11 @@
   padding: 2px;
 }
 
-.mml-gi-remove-btn:hover {
+.mml-flowsheet-remove-btn:hover {
   color: #EF4444;
 }
 
-.mml-gi-summary {
+.mml-flowsheet-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
@@ -1209,13 +1209,13 @@
   border-radius: 8px;
 }
 
-.mml-gi-summary-item {
+.mml-flowsheet-summary-item {
   display: flex;
   align-items: baseline;
   gap: 4px;
 }
 
-.mml-gi-summary-label {
+.mml-flowsheet-summary-label {
   font-size: 10px;
   font-weight: 600;
   color: #94A3B8;
@@ -1223,13 +1223,13 @@
   letter-spacing: 0.02em;
 }
 
-.mml-gi-summary-value {
+.mml-flowsheet-summary-value {
   font-size: 12px;
   font-weight: 700;
   color: #1E293B;
 }
 
-.mml-gi-legend {
+.mml-flowsheet-legend {
   margin: 6px 2px 0;
   font-size: 9.5px;
   color: #94A3B8;

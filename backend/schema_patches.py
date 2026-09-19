@@ -1244,3 +1244,10 @@ MATERNAL_DETAILS_ISOIMMUNIZATION_TYPE_PATCHES = [
 MINIMAL_MONITORING_GI_FREQUENCY_PATCHES = [
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS gi_feed_frequency_hours INTEGER",
 ]
+
+# Same per-sheet cadence pattern, for the met_a (Glucose) and cv_a (Vitals)
+# Scheduled Flowsheets.
+MINIMAL_MONITORING_GLUCOSE_VITALS_FREQUENCY_PATCHES = [
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS glucose_frequency_hours INTEGER",
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS vitals_frequency_hours INTEGER",
+]

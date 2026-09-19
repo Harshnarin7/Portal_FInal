@@ -2110,6 +2110,11 @@ class MinimalMonitoringDayLog(Base):
     gi_feed_frequency_hours = Column(Integer, nullable=True)
     direct_bilirubin = Column(Float, nullable=True)
 
+    # Same per-sheet cadence pattern as gi_feed_frequency_hours, for the
+    # met_a (Glucose) and cv_a (Vitals) Scheduled Flowsheets.
+    glucose_frequency_hours = Column(Integer, nullable=True)
+    vitals_frequency_hours = Column(Integer, nullable=True)
+
     imaging_date = Column(String, nullable=True)
     ventriculomegaly_severity = Column(String, nullable=True)
     vi = Column(Float, nullable=True)
