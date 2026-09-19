@@ -137,9 +137,15 @@ export function toDateOnlyValue(d) {
  */
 export function parseDateOnly(value) {
   if (!value) return null;
-  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const s = String(value).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  m = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})/);
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  return null;
 }
 
 /**
@@ -260,6 +266,31 @@ export function normalizeDateTimeLocalString(value) {
     return toDateTimeLocalValue(d);
   }
 
+  /* Mobile Form A display: "dd-MM-yyyy  |  HH:mm" (hyphens or slashes). */
+  m = s.match(
+    /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\s*(?:\|\s*)?(\d{1,2}):(\d{2})/,
+  );
+  if (m) {
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    const d = new Date(y, Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]));
+    return toDateTimeLocalValue(d);
+  }
+
+  /* Naive ISO from either client — use the wall-clock digits, ignore Z,
+     so IST (and any other TZ) does not shift screening_datetime on reload. */
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    const d = new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+    );
+    return toDateTimeLocalValue(d);
+  }
+
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) return toDateTimeLocalValue(d);
   return s;
@@ -327,11 +358,71 @@ export function calendarDaysBetween(a, b) {
  * @param {string|null|undefined} lmpDateStr
  */
 export function eddFromLmp(lmpDateStr) {
-  const lmp = parseDateOnly(String(lmpDateStr || "").slice(0, 10));
+  const lmp = parseDateOnly(lmpDateStr);
   if (!lmp) return "";
   const edd = new Date(lmp.getFullYear(), lmp.getMonth(), lmp.getDate());
   edd.setDate(edd.getDate() + 280);
   return toDateOnlyValue(edd);
+}
+
+/** Inverse of Naegele: LMP = EDD − 280 days. Returns "YYYY-MM-DD" or "". */
+export function lmpFromEdd(eddDateStr) {
+  const edd = parseDateOnly(eddDateStr);
+  if (!edd) return "";
+  const lmp = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate());
+  lmp.setDate(lmp.getDate() - 280);
+  return toDateOnlyValue(lmp);
+}
+
+/**
+ * Reconstruct LMP/EDD from completed GA on a given calendar day
+ * (Form A screening date, or DOB). Returns YYYY-MM-DD strings.
+ */
+export function lmpEddFromGestation(gestationWeeks, gestationDays, asOfDateStr) {
+  const asOf = parseDateOnly(asOfDateStr);
+  const weeks = Number(gestationWeeks);
+  const days = Number(gestationDays ?? 0);
+  if (!asOf || !Number.isFinite(weeks) || weeks <= 0) return { lmp: "", edd: "" };
+  const gaDays = weeks * 7 + (Number.isFinite(days) ? days : 0);
+  const lmp = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  lmp.setDate(lmp.getDate() - gaDays);
+  const lmpStr = toDateOnlyValue(lmp);
+  return { lmp: lmpStr, edd: eddFromLmp(lmpStr) };
+}
+
+/**
+ * Form C LMP/EDD autofill from Form A:
+ * stored LMP/EDD first, then complete the missing one with Naegele,
+ * then derive both from screening GA + screening date.
+ */
+export function resolveScreeningLmpEdd(screening = {}, fallback = {}) {
+  let lmpStr = screening?.lmp_date ? toDateOnlyValue(parseDateOnly(screening.lmp_date)) : "";
+  let eddStr = screening?.expected_delivery_date
+    ? toDateOnlyValue(parseDateOnly(screening.expected_delivery_date))
+    : "";
+
+  if (lmpStr && !eddStr) eddStr = eddFromLmp(lmpStr);
+  else if (eddStr && !lmpStr) lmpStr = lmpFromEdd(eddStr);
+
+  if (!lmpStr && !eddStr) {
+    const derived = lmpEddFromGestation(
+      screening?.gestation_weeks,
+      screening?.gestation_days,
+      screening?.screening_datetime,
+    );
+    lmpStr = derived.lmp;
+    eddStr = derived.edd;
+  }
+
+  if (!lmpStr && fallback.lmp) lmpStr = toDateOnlyValue(parseDateOnly(fallback.lmp)) || "";
+  if (!eddStr && fallback.edd) eddStr = toDateOnlyValue(parseDateOnly(fallback.edd)) || "";
+  if (lmpStr && !eddStr) eddStr = eddFromLmp(lmpStr);
+  else if (eddStr && !lmpStr) lmpStr = lmpFromEdd(eddStr);
+
+  return {
+    lmp: lmpStr ? parseDateOnly(lmpStr) : null,
+    edd: eddStr ? parseDateOnly(eddStr) : null,
+  };
 }
 
 /**

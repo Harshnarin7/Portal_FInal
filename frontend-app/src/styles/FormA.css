@@ -327,6 +327,11 @@
 .screening-form .form-group select:hover:not(:focus):not(:disabled) { border-color: #9ca3af; }
 
 .screening-form .form-group input::placeholder { color: #9ca3af; }
+
+.screening-form .form-group .react-datepicker-wrapper input.screening-datetime-input {
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
 .screening-form .form-group select,
 .form-group select { cursor: pointer; padding-right: 34px;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");

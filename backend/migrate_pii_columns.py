@@ -31,6 +31,7 @@ ALL_PATCHES = [
     ("postnatal_day1", "caffeine_maint_abs",           "FLOAT"),
     ("postnatal_day1", "caffeine_date",                "DATE"),
     ("postnatal_day1", "caffeine_time",                "VARCHAR"),
+    ("postnatal_day1", "caffeine_maint_frequency",     "VARCHAR"),
 ]
 
 with engine.begin() as conn:

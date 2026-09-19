@@ -1443,15 +1443,27 @@ def get_birth_resuscitation(
         .filter(PostnatalDay1.enrollment_id == enrollment_id)
         .first()
     )
+    # Compare NBS against postnatal day 1 GA (Form B gestation at
+    # randomization / birth). Fall back to screening GA only for legacy
+    # rows that never stored gestation_rand_*.
+    baseline_weeks = (
+        entry.gestation_rand_weeks
+        if entry.gestation_rand_weeks is not None
+        else entry.gestation_weeks
+    )
+    baseline_days = (
+        entry.gestation_rand_days
+        if entry.gestation_rand_weeks is not None
+        else entry.gestation_days
+    )
     if (
         form_d
         and form_d.ga_method == "NBS"
         and form_d.gestation_weeks is not None
         and form_d.gestation_days is not None
-        and entry.gestation_weeks is not None
-        and entry.gestation_days is not None
+        and baseline_weeks is not None
     ):
-        original_days = int(entry.gestation_weeks) * 7 + int(entry.gestation_days or 0)
+        original_days = int(baseline_weeks) * 7 + int(baseline_days or 0)
         nbs_days = int(form_d.gestation_weeks) * 7 + int(form_d.gestation_days or 0)
         if abs(nbs_days - original_days) > 14:
             record_dict["gestation_weeks"] = form_d.gestation_weeks

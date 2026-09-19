@@ -8,6 +8,8 @@ import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
 import SaveSuccessModal from "./components/SaveSuccessModal";
+import AuditChangeList from "./components/AuditChangeList";
+import { auditActionLabel } from "./utils/auditDiff";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { mmlSyncAggregateFieldFromMml, mmlSyncTransfusionYnFromMml } from "./utils/mmlHelperSync";
@@ -2235,7 +2237,7 @@ export default function RespCVNeuroLog() {
         {/* ══ PATIENT INFO HEADER ══ */}
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
-            <div className="rcn-patient-header-badge">HELPER FORM 1</div>
+            <div className="rcn-patient-header-badge">HELPER FORM 2</div>
             <h2 className="rcn-patient-header-form-name">Resp / CV / Neuro Daily Log</h2>
             <p className="rcn-patient-header-subtitle">NICU Day-by-Day Structured Assessment</p>
           </div>
@@ -3373,7 +3375,7 @@ export default function RespCVNeuroLog() {
                   {auditEntries.map(e => (
                     <div key={e.id} className="rcn-audit-entry">
                       <div className="rcn-audit-entry-top">
-                        <span className="rcn-audit-action">{(e.action || "").replace(/_/g, " ")}</span>
+                        <span className="rcn-audit-action">{auditActionLabel(e.action)}</span>
                         <span className="rcn-audit-time">
                           {e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : ""}
                         </span>
@@ -3382,6 +3384,12 @@ export default function RespCVNeuroLog() {
                       {e.new_values?.reason && (
                         <p className="rcn-audit-reason">"{e.new_values.reason}"</p>
                       )}
+                      <AuditChangeList
+                        oldValues={e.old_values}
+                        newValues={e.new_values}
+                        compact
+                        hideKeys={["reason", "nicu_day"]}
+                      />
                     </div>
                   ))}
                 </div>

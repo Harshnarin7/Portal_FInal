@@ -495,6 +495,7 @@ class PostnatalDay1(Base):
     caffeine_maint_abs = Column(Float, nullable=True)
     caffeine_date = Column(Date, nullable=True)
     caffeine_time = Column(String, nullable=True)
+    caffeine_maint_frequency = Column(String, nullable=True)
     intubation_after_resus = Column(Boolean, nullable=True)
     immediate_kmc = Column(Boolean, nullable=True)
 

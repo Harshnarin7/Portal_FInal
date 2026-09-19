@@ -902,7 +902,6 @@ export default function FormE() {
 
     if (!formData.enrollment_id) {
       setMessage("❌ Enrollment ID missing. Cannot save form.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
       return false;
     }
 
@@ -966,7 +965,6 @@ export default function FormE() {
     if (Object.keys(v).length > 0) {
       setErrors(prev => ({ ...prev, ...v }));
       setMessage("❌ Please complete the required fields highlighted below.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
       return false;
     }
     const payload = {
@@ -1023,7 +1021,6 @@ export default function FormE() {
       setMessage("✅ Form E saved successfully");
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
       setTimeout(() => setMessage(""), 3000);
       return true;
       // Do NOT navigate here — only navigate when user clicks "Next"

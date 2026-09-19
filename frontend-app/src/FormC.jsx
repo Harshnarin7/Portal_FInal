@@ -7,7 +7,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import { usePatient } from "./context/PatientContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { toDateOnlyValue, parseDateOnly, resolveScreeningLmpEdd, formatDateToDDMMYYYY } from "./utils/datetime";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import NotesBox      from "./components/NotesBox";
 import OfflineBanner from "./components/OfflineBanner";
@@ -264,7 +264,7 @@ function buildLegacySteroidSummary(steroidDrug, betaDoses, dexaDoses) {
 }
 
 /* ── Toggle component — matches YesNoToggle (Form A/B) exactly ── */
-function Toggle({ name, value, options, onChange, disabled, error }) {
+function Toggle({ name, value, options, onChange, disabled, error, variant }) {
   const isActive = (opt) => {
     const v = typeof opt === "object" ? opt.value : opt;
     if (value === v) return true;
@@ -276,7 +276,7 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
   return (
     <>
       <div style={{ display: "block", lineHeight: 0 }}>
-        <div className={`fc-toggle-group${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
+        <div className={`fc-toggle-group${variant === "infection" ? " fc-c5-toggle" : ""}${disabled ? " fc-disabled" : ""}${error ? " fc-toggle-error" : ""}`}>
           {options.map((opt, idx) => {
             const v = typeof opt === "object" ? opt.value : opt;
             const l = typeof opt === "object" ? opt.label : opt;
@@ -284,9 +284,17 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
             const sv = String(v).toLowerCase();
             let activeCls = "";
             if (active) {
-              if (sv === "yes" || v === true)        activeCls = " fc-yes";
-              else if (sv === "no" || v === false)   activeCls = " fc-no";
-              else                                    activeCls = " fc-other";
+              if (variant === "infection") {
+                if (sv === "yes" || v === true)      activeCls = " fc-c5-abn";
+                else if (sv === "no" || v === false) activeCls = " fc-c5-nl";
+                else                                  activeCls = " fc-c5-unk";
+              } else if (sv === "yes" || v === true) {
+                activeCls = " fc-yes";
+              } else if (sv === "no" || v === false) {
+                activeCls = " fc-no";
+              } else {
+                activeCls = " fc-other";
+              }
             }
             return (
               <button
@@ -306,6 +314,13 @@ function Toggle({ name, value, options, onChange, disabled, error }) {
     </>
   );
 }
+
+const c5InfectionTone = (value) => {
+  if (value === "Yes" || value === true) return "yes";
+  if (value === "No" || value === false) return "no";
+  if (value === "Not done" || value === "Not known") return "neutral";
+  return "blank";
+};
 
 /* ── MultiToggle — like Toggle but allows multiple simultaneous selections
    (used for Steroid Drug: Betamethasone / Dexamethasone can both be picked,
@@ -432,7 +447,7 @@ export default function FormC() {
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
     asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
     tb: false, malaria: false, severe_anemia: false,
-    no_known_medical_disorder: true,
+    no_known_medical_disorder: false,
     other_medical_checkbox: false, other_medical_disorder: "",
     // C4 Obstetric Problems
     hdp: "", hdp_type: "",
@@ -479,7 +494,7 @@ export default function FormC() {
     renal_disease: false, vdrl_positive: false, seizure_disorder: false,
     asthma: false, hiv: false, hypothyroidism: false, hyperthyroidism: false,
     tb: false, malaria: false, severe_anemia: false,
-    no_known_medical_disorder: true,
+    no_known_medical_disorder: false,
     other_medical_checkbox: false, other_medical_disorder: "",
     hdp: "", hdp_type: "",
     gdm: "", gdm_rx: [],
@@ -784,13 +799,19 @@ export default function FormC() {
             severe_anemia: formCData.severe_anemia ?? false,
             other_medical_disorder: formCData.other_medical_disorder ?? "",
             other_medical_checkbox: !!formCData.other_medical_disorder,
-            no_known_medical_disorder: !(
-              formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
-              formCData.renal_disease || formCData.vdrl_positive || formCData.seizure_disorder ||
-              formCData.asthma || formCData.hiv || formCData.thyroid ||
-              formCData.hypothyroidism || formCData.hyperthyroidism ||
-              formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
-            ),
+            no_known_medical_disorder: (() => {
+              const anyDisorder = !!(
+                formCData.chronic_hypertension || formCData.hepatitis || formCData.heart_disease ||
+                formCData.renal_disease || formCData.vdrl_positive || formCData.seizure_disorder ||
+                formCData.asthma || formCData.hiv || formCData.thyroid ||
+                formCData.hypothyroidism || formCData.hyperthyroidism ||
+                formCData.tb || formCData.malaria || formCData.severe_anemia || formCData.other_medical_disorder
+              );
+              if (anyDisorder) return false;
+              // Only restore "No known" after an explicit Save — a blank
+              // new/draft form stays fully unselected.
+              return !!formCData.explicitly_saved;
+            })(),
             hdp: formCData.hdp ?? "", hdp_type: formCData.hdp_type ?? "",
             gdm: formCData.gdm ?? "",
             gdm_rx: formCData.gdm_rx ? formCData.gdm_rx.split(", ").map(s => s.trim()) : [],
@@ -833,19 +854,18 @@ export default function FormC() {
             uterotonic: formCData.uterotonic ?? "",
             uterotonic_timing: formCData.uterotonic_timing ?? "",
           } : {}),
-          // LMP/EDD are labeled "(auto from Form A)" — Form A's current
-          // lmp_date / expected_delivery_date always win when present, so a
-          // later correction on Form A shows up the next time Form C opens.
-          // Form C's own saved lmp/edd are a fallback only (Form A empty or
-          // this enrollment predates those fields). They are NOT the source
-          // of truth on load. formAData comes from GET /screenings/by-enrollment
-          // on every Form C mount (not localStorage / a cached screening_id).
-          lmp: formAData?.lmp_date
-            ? parseDateOnly(formAData.lmp_date)
-            : (formCData?.lmp ? parseDateOnly(formCData.lmp) : null),
-          edd: formAData?.expected_delivery_date
-            ? parseDateOnly(formAData.expected_delivery_date)
-            : (formCData?.edd ? parseDateOnly(formCData.edd) : null),
+          // LMP/EDD are labeled "(auto from Form A)". Prefer Form A's stored
+          // dates, fill the missing one with Naegele (LMP±280), otherwise
+          // reconstruct both from screening GA + screening date (USG path
+          // never stores LMP/EDD on Form A). Form C's own saved values are
+          // a last-resort fallback only.
+          ...(() => {
+            const { lmp, edd } = resolveScreeningLmpEdd(formAData || {}, {
+              lmp: formCData?.lmp,
+              edd: formCData?.edd,
+            });
+            return { lmp, edd };
+          })(),
           mgso4_date: formCData?.mgso4_date ? parseDateOnly(formCData.mgso4_date) : "",
         });
         if (formCData?.explicitly_saved || isEditMode) setIsSaved(true);
@@ -927,9 +947,12 @@ export default function FormC() {
       case "gdm_rx": return (d.gdm==="Yes"&&(!value||value.length===0)) ? "Select at least one" : "";
       case "liquor": return value ? "" : "Required";
       case "fgr": return value ? "" : "Required";
-      case "fgr_centile": if (d.fgr!=="Yes") return ""; if (!value) return "Required"; if (Number(value)<1||Number(value)>100) return "1–100"; return "";
+      case "fgr_centile":
+        if (d.fgr !== "Yes" || value === "" || value == null) return "";
+        if (Number(value) < 1 || Number(value) > 100) return "1–100";
+        return "";
       case "doppler": return value ? "" : "Required";
-      case "doppler_other": return (d.doppler==="Other"&&!value?.trim()) ? "Required" : "";
+      case "doppler_other": return "";
       case "placental_abnormality": return value ? "" : "Required";
       case "placental_type": return (d.placental_abnormality==="Yes"&&!value) ? "Required" : "";
       case "placental_other": return ((d.placental_type==="Others"||d.placental_type==="Other")&&!value?.trim()) ? "Required" : "";
@@ -991,6 +1014,8 @@ export default function FormC() {
 
   const handleToggle = (name, value) => {
     const patch = { [name]: value };
+    if (name === "doppler" && value !== "Other") patch.doppler_other = "";
+    if (name === "pprom" && value !== "Yes") patch.pprom_duration = "";
     if (name === "antenatal_steroids" && value !== "Yes") {
       Object.assign(patch, {
         steroid_drug: "",
@@ -1011,7 +1036,11 @@ export default function FormC() {
     }
     set(patch);
     touchField(name);
-    setErrors(p => ({ ...p, [name]: validateField(name, value, { ...formData, ...patch }) }));
+    setErrors(p => {
+      const next = { ...p, [name]: validateField(name, value, { ...formData, ...patch }) };
+      if (name === "pprom" && value !== "Yes") next.pprom_duration = "";
+      return next;
+    });
   };
 
   /* Steroid drug — multi-select. "Not known" is exclusive. Clears dose fields for deselected drugs. */
@@ -1188,10 +1217,10 @@ export default function FormC() {
     if (data.gdm==="Yes"&&data.gdm_rx.length===0) e.gdm_rx = "Select at least one";
     if (!data.liquor) e.liquor = "Required";
     if (!data.fgr) e.fgr = "Required";
-    if (data.fgr==="Yes"&&(!data.fgr_centile||Number(data.fgr_centile)<1||Number(data.fgr_centile)>100))
+    if (data.fgr==="Yes" && data.fgr_centile && (Number(data.fgr_centile)<1||Number(data.fgr_centile)>100))
       e.fgr_centile = "Enter centile 1–100";
     if (!data.doppler) e.doppler = "Required";
-    if (data.doppler==="Other"&&!data.doppler_other?.trim()) e.doppler_other = "Required";
+    if (data.doppler==="Other") e.doppler = "Select Normal, AEDF, REDF, Not done, or Not known";
     if (!data.placental_abnormality) e.placental_abnormality = "Required";
     if (data.placental_abnormality==="Yes") {
       if (!data.placental_type) e.placental_type = "Required";
@@ -1367,7 +1396,6 @@ export default function FormC() {
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       markFormCompleted("form_c");
-      window.scrollTo({ top:0, behavior:"smooth" });
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {
@@ -1694,15 +1722,21 @@ export default function FormC() {
                 <div className="form-grid-3">
                   <div className="form-group">
                     <label>15. LMP <span className="field-note">(auto from Form A)</span></label>
-                    <DatePicker selected={formData.lmp} readOnly
-                      onChange={date => set({lmp:date})}
-                      dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY" className="form-input"/>
+                    <input
+                      value={formData.lmp ? formatDateToDDMMYYYY(formData.lmp) : ""}
+                      readOnly
+                      className="readonly-input"
+                      placeholder="—"
+                    />
                   </div>
                   <div className="form-group">
                     <label>16. EDD <span className="field-note">(auto from Form A)</span></label>
-                    <DatePicker selected={formData.edd} readOnly
-                      onChange={date => set({edd:date})}
-                      dateFormat="dd-MM-yyyy" placeholderText="DD-MM-YYYY" className="form-input"/>
+                    <input
+                      value={formData.edd ? formatDateToDDMMYYYY(formData.edd) : ""}
+                      readOnly
+                      className="readonly-input"
+                      placeholder="—"
+                    />
                   </div>
                   <div className="form-group">
                     <label>17. Conception<span className="required">*</span></label>
@@ -2167,7 +2201,7 @@ export default function FormC() {
                     </div>
                     {formData.fgr==="Yes" && (
                       <div className="form-group">
-                        <label>36. If yes, Centile<span className="required">*</span></label>
+                        <label>36. If yes, Centile</label>
                         <input type="number" name="fgr_centile" value={formData.fgr_centile||""}
                           onChange={handleChange} onBlur={handleBlur} min="1" max="100" placeholder="1–100"
                           readOnly={!isFieldEditable} className={E("fgr_centile")?"input-error":""}/>
@@ -2184,20 +2218,9 @@ export default function FormC() {
                   <div className="form-group">
                     <label>37. Doppler<span className="required">*</span></label>
                     <Toggle name="doppler" value={formData.doppler}
-                      options={["Normal","AEDF","REDF","Not done","Not known","Other"]}
+                      options={["Normal","AEDF","REDF","Not done","Not known"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("doppler")}/>
                   </div>
-                  {formData.doppler==="Other" && (
-                    <div className="followup-box">
-                      <div className="form-group">
-                        <label>Specify<span className="required">*</span></label>
-                        <input name="doppler_other" value={formData.doppler_other||""}
-                          onChange={handleChange} onBlur={handleBlur}
-                          readOnly={!isFieldEditable} className={E("doppler_other")?"input-error":""}/>
-                        <FieldError msg={E("doppler_other")}/>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* 38–40: Placental */}
@@ -2295,100 +2318,74 @@ export default function FormC() {
             <div className={`form-section card-section${ce.c7>0?" card-has-errors":""}`}>
               <SectionHeader label="C5 · Evidence of Infection" num="C5" icon={AlertTriangle} errCount={ce.c7}/>
               <div className="form-section-body">
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>44. pPROM<span className="required">*</span></label>
-                    <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
-                      onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}/>
-                    {formData.pprom==="Yes" && (
-                      <div style={{marginTop:8}}>
-                        <label style={{fontSize:12,fontWeight:600,color:"#374151"}}>45. Duration (hrs)<span className="required">*</span></label>
+                <div className="c5-inf-table">
+                  <div className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData.pprom)}`}>
+                    <span className="c5-inf-num">44</span>
+                    <label className="c5-inf-label">pPROM<span className="required">*</span></label>
+                    <div className="c5-inf-pills">
+                      <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
+                        onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}
+                        variant="infection"/>
+                    </div>
+                  </div>
+                  {formData.pprom==="Yes" && (
+                    <div className="c5-inf-row c5-inf-row--sub">
+                      <span className="c5-inf-num">45</span>
+                      <label className="c5-inf-label">Duration (hrs)<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
                         <input type="number" name="pprom_duration" value={formData.pprom_duration||""}
                           onChange={handleChange} onBlur={handleBlur} min="0" max="99" placeholder="0–99 hrs"
-                          readOnly={!isFieldEditable} className={E("pprom_duration")?"input-error":""}/>
+                          readOnly={!isFieldEditable} className={`c5-inf-hours${E("pprom_duration")?" input-error":""}`}/>
                         <FieldError msg={E("pprom_duration")}/>
                       </div>
-                    )}
+                    </div>
+                  )}
+                  {[
+                    { num: "46", name: "preterm_labor", label: "Preterm Labor", options: ["Yes","No"] },
+                    { num: "47", name: "maternal_fever", label: "Maternal Fever (≥39℃ or 38–39℃ ×2)", options: ["Yes","No"] },
+                    { num: "48", name: "fetal_tachycardia", label: <>Baseline Fetal Tachycardia (&gt;160 bpm)</>, options: ["Yes","No"] },
+                    { num: "49", name: "maternal_tlc_high", label: <>Maternal TLC &gt;15000/mm³</>, options: ["Yes","No","Not done"] },
+                    { num: "50", name: "maternal_tachycardia", label: "Maternal Tachycardia", options: ["Yes","No"] },
+                    { num: "51", name: "maternal_abdominal_tenderness", label: "Maternal Abdominal Tenderness", options: ["Yes","No"] },
+                  ].map(row => (
+                    <div key={row.name} className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData[row.name])}`}>
+                      <span className="c5-inf-num">{row.num}</span>
+                      <label className="c5-inf-label">{row.label}<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
+                        <Toggle name={row.name} value={formData[row.name]} options={row.options}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E(row.name)}
+                          variant="infection"/>
+                      </div>
+                    </div>
+                  ))}
+                  <div className={`c5-inf-row c5-inf-row--triple c5-inf-row--${c5InfectionTone(computeTripleI(formData))}`}>
+                    <span className="c5-inf-num">52</span>
+                    <label className="c5-inf-label">
+                      Intrauterine Inflammation or Infection or both (triple ‘I’)
+                      <span className="field-note"> (auto filled)</span>
+                    </label>
+                    <div className="c5-inf-pills">
+                      <input
+                        value={computeTripleI(formData)}
+                        readOnly className="readonly-input c5-inf-triple-value" placeholder="Auto-calculated"/>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>46. Preterm Labor<span className="required">*</span></label>
-                    <Toggle name="preterm_labor" value={formData.preterm_labor}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("preterm_labor")}/>
-                  </div>
+                  {[
+                    { num: "53", name: "foul_smelling_liquor", label: "Foul-Smelling Liquor", options: ["Yes","No","Not known"] },
+                    { num: "54", name: "maternal_uti", label: "Maternal UTI", options: ["Yes","No","Not known"] },
+                    { num: "55", name: "maternal_diarrhea", label: "Maternal Diarrhea", options: ["Yes","No","Not known"] },
+                  ].map(row => (
+                    <div key={row.name} className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData[row.name])}`}>
+                      <span className="c5-inf-num">{row.num}</span>
+                      <label className="c5-inf-label">{row.label}<span className="required">*</span></label>
+                      <div className="c5-inf-pills">
+                        <Toggle name={row.name} value={formData[row.name]} options={row.options}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E(row.name)}
+                          variant="infection"/>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>47. Maternal Fever (≥39℃ or 38–39℃ ×2)<span className="required">*</span></label>
-                    <Toggle name="maternal_fever" value={formData.maternal_fever}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_fever")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>48. Baseline Fetal Tachycardia (&gt;160 bpm)<span className="required">*</span></label>
-                    <Toggle name="fetal_tachycardia" value={formData.fetal_tachycardia}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("fetal_tachycardia")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>49. Maternal TLC &gt;15000/mm³<span className="required">*</span></label>
-                    <Toggle name="maternal_tlc_high" value={formData.maternal_tlc_high}
-                      options={["Yes","No","Not done"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_tlc_high")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>50. Maternal Tachycardia<span className="required">*</span></label>
-                    <Toggle name="maternal_tachycardia" value={formData.maternal_tachycardia}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_tachycardia")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>51. Maternal Abdominal Tenderness<span className="required">*</span></label>
-                    <Toggle name="maternal_abdominal_tenderness" value={formData.maternal_abdominal_tenderness}
-                      options={["Yes","No"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_abdominal_tenderness")}/>
-                  </div>
-                  {/* Field 52: Triple I — auto-calculated from infection signs */}
-                  <div className="form-group">
-                    <label>52. Intrauterine Inflammation or Infection or both (triple ‘I’) <span className="field-note">(auto filled)</span></label>
-                    <input
-                      value={computeTripleI(formData)}
-                      readOnly className="readonly-input" placeholder="Auto-calculated"/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>53. Foul-Smelling Liquor<span className="required">*</span></label>
-                    <Toggle name="foul_smelling_liquor" value={formData.foul_smelling_liquor}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("foul_smelling_liquor")}/>
-                  </div>
-                  <div className="form-group">
-                    <label>54. Maternal UTI<span className="required">*</span></label>
-                    <Toggle name="maternal_uti" value={formData.maternal_uti}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_uti")}/>
-                  </div>
-                </div>
-
-                <div className="form-grid-2">
-                  <div className="form-group">
-                    <label>55. Maternal Diarrhea<span className="required">*</span></label>
-                    <Toggle name="maternal_diarrhea" value={formData.maternal_diarrhea}
-                      options={["Yes","No","Not known"]} onChange={handleToggle}
-                      disabled={!isFieldEditable} error={E("maternal_diarrhea")}/>
-                  </div>
-                  <div/>
-                </div>
-
               </div>
             </div>
 
