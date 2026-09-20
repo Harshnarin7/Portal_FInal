@@ -1285,7 +1285,7 @@ const CV_A_COLUMNS = [
 ];
 
 const GROWTH_A_COLUMNS = [
-  { key: "weight_kg", label: "Weight", unit: "kg" },
+  { key: "weight_g", label: "Weight", unit: "g" },
 ];
 // Weight is normally once-daily (occasionally twice for an unstable baby) —
 // a different cadence menu than the hourly GI/Glucose/Vitals flowsheets.
@@ -2528,7 +2528,7 @@ export default function MinimalMonitoringLog() {
             frequencyHours={weightFrequencyHours}
             onChangeFrequency={changeWeightFrequency}
             onChangeField={(id, k, v) => setFlowsheetEntryField("growth_a", id, k, v)}
-            onAdd={slot => addFlowsheetEntry("growth_a", slot, { weight_kg: "" })}
+            onAdd={slot => addFlowsheetEntry("growth_a", slot, { weight_g: "" })}
             onRemove={id => removeFlowsheetEntry("growth_a", id)}
             disabled={!isEditable}
             sheetDate={sheetDate}

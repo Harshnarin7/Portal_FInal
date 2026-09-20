@@ -7130,7 +7130,14 @@ def get_minimal_monitoring_latest_weight_kg(
     admission-wide lowest-vital/highest-value prefills, just parameterized
     by a caller-supplied cutoff date here instead of scanning to the
     present). Used by Helper 4's ml/kg/day feed-volume calculation, which
-    needs "the baby's weight as of this NICU day," not "as of today.\""""
+    needs "the baby's weight as of this NICU day," not "as of today."
+
+    DMS itself stores the entered value as GRAMS (`weight_g` in
+    entries_json -- matches how weight is actually charted at the
+    bedside, e.g. "1250", not a decimal-kg entry), converted to kg here
+    before returning, so every downstream consumer of this endpoint
+    keeps working in kg without needing to know DMS's own storage unit.
+    """
     require_enrollment_access(enrollment_id, db, current_user)
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", as_of_date or ""):
         raise HTTPException(status_code=400, detail="as_of_date must be YYYY-MM-DD")
@@ -7158,11 +7165,11 @@ def get_minimal_monitoring_latest_weight_kg(
             entry_date = str(raw_date)[:10] if raw_date else None
             if not entry_date or entry_date > as_of_date:
                 continue
-            raw_val = entry.get("weight_kg")
+            raw_val = entry.get("weight_g")
             if raw_val in (None, ""):
                 continue
             try:
-                val = float(raw_val)
+                val = float(raw_val) / 1000.0
             except (TypeError, ValueError):
                 continue
             key = (entry_date, entry.get("time") or "")

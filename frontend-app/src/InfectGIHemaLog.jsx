@@ -1565,7 +1565,14 @@ export default function InfectGIHemaLog() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("portal-mml-saved", onMmlSaved);
     };
-  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
+    // birthWeightGrams: birth-resuscitation loads in a separate effect and
+    // can resolve after this one's first tick already ran with it still
+    // null -- without it in the deps, applyFeedVolumeCalcFromWeight's
+    // closure stays stuck on that stale null for the rest of this effect's
+    // lifetime (interval/focus/visibility ticks all reuse the same
+    // closure), so the ml/kg/d calc would never actually fire until
+    // something else in this list happened to change first.
+  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay, birthWeightGrams]);
 
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
