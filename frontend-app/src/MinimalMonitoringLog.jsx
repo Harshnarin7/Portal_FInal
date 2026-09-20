@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft, ChevronDown, ChevronRight, Plus, Save, Trash2, CheckCircle2,
-  Heart, Wind, Beaker, Utensils, Brain, Droplet, Clock, Info,
+  Heart, Wind, Beaker, Utensils, Brain, Droplet, Clock, Info, Scale,
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
@@ -39,6 +39,7 @@ const SECTION_META = {
   gastrointestinal: { code: "5.4", title: "Gastrointestinal", icon: Utensils },
   neurological: { code: "5.5", title: "Neurological", icon: Brain },
   hematology: { code: "5.6", title: "Hematology", icon: Droplet },
+  growth: { code: "5.7", title: "Growth", icon: Scale },
 };
 
 const SECTION_KEYS = Object.keys(SECTION_META);
@@ -51,6 +52,7 @@ const BLOCK_TO_SECTION = {
   neuro_a: "neurological", neuro_b: "neurological",
   neuro_combined: "neurological",
   heme_a: "hematology",
+  growth_a: "growth",
 };
 
 /** Ordered list of variable/field blocks under each heading — drives the
@@ -63,6 +65,7 @@ const BLOCKS_BY_SECTION = {
   gastrointestinal: ["gi_a", "gi_b"],
   neurological: ["neuro_combined"],
   hematology: ["heme_a"],
+  growth: ["growth_a"],
 };
 
 /** Friendly label + one-line description shown in the field-picker list. */
@@ -85,6 +88,10 @@ const BLOCK_META = {
     desc: "Ventriculomegaly (severity, VI, AHW) and Doppler (TOD, ACA RI, MCA RI)",
   },
   heme_a: { code: "5.6.A", label: "Transfusion", desc: "Products, count, PRBC volume" },
+  growth_a: {
+    code: "5.7.A", label: "Weight",
+    desc: "Daily weight — logged on a chosen cadence, feeds Helper 4's ml/kg/day feed calculation",
+  },
 };
 
 const LEGACY_FLUID_BOLUS_NOT_INDICATED = /^should\s+not\s+have\s+been\s+done$/i;
@@ -232,6 +239,11 @@ function emptyEntries() {
     neuro_a: [freshEntry({ ventriculomegaly_severity: "", vi: "", ahw: "" })],
     neuro_b: [freshEntry({ tod: "", aca_ri: "", mca_ri: "" })],
     heme_a: [freshEntry({ transfusion_products: [], transfusion_count: "", prbc_volume: "" })],
+    // growth_a is a Scheduled Flowsheet block like met_a/cv_a: no seed
+    // draft row, and no legacy flat column either — Weight is a brand-new
+    // DMS field, so there's no pre-existing single-value row shape to
+    // migrate on load (unlike gi_a/met_a/cv_a's legacy migrations below).
+    growth_a: [],
   };
 }
 
@@ -447,6 +459,7 @@ function countProgress(entries) {
     gastrointestinal: { done: 0, total: 0 },
     neurological: { done: 0, total: 0 },
     hematology: { done: 0, total: 0 },
+    growth: { done: 0, total: 0 },
   };
   const byBlock = {};
   Object.keys(BLOCK_TO_SECTION).forEach(b => { byBlock[b] = { done: 0, total: 0 }; });
@@ -1271,6 +1284,13 @@ const CV_A_COLUMNS = [
   { key: "map_value", label: "MAP", unit: "mm Hg" },
 ];
 
+const GROWTH_A_COLUMNS = [
+  { key: "weight_g", label: "Weight", unit: "g" },
+];
+// Weight is normally once-daily (occasionally twice for an unstable baby) —
+// a different cadence menu than the hourly GI/Glucose/Vitals flowsheets.
+const GROWTH_A_FREQUENCY_OPTIONS = [12, 24];
+
 /** Min/max per numeric column across the day's real entries — a blank slot
  *  contributes to neither bound, same never-invent-data-for-gaps rule as
  *  every other DMS aggregate this session. */
@@ -1296,7 +1316,7 @@ function computeMinMaxSummary(entries, columns) {
 
 function ScheduledFlowsheet({
   blockKey, columns, entries, frequencyHours, onChangeFrequency, onChangeField, onAdd, onRemove,
-  disabled, sheetDate, errors,
+  disabled, sheetDate, errors, frequencyOptions = [1, 2, 3],
 }) {
   const isToday = sheetDate === realCalendarDateYmd();
   const nowMinutes = (() => {
@@ -1312,7 +1332,7 @@ function ScheduledFlowsheet({
       <div className="mml-flowsheet-freq-row">
         <span className="mml-flowsheet-freq-label">Log every</span>
         <div className="mml-flowsheet-freq-pills">
-          {[1, 2, 3].map(h => (
+          {frequencyOptions.map(h => (
             <button key={h} type="button"
               className={`mml-flowsheet-freq-btn${Number(frequencyHours) === h ? " mml-flowsheet-freq-btn--on" : ""}`}
               onClick={() => !disabled && onChangeFrequency(h)}
@@ -1666,6 +1686,7 @@ export default function MinimalMonitoringLog() {
   const [giFeedFrequencyHours, setGiFeedFrequencyHours] = useState(2);
   const [glucoseFrequencyHours, setGlucoseFrequencyHours] = useState(2);
   const [vitalsFrequencyHours, setVitalsFrequencyHours] = useState(2);
+  const [weightFrequencyHours, setWeightFrequencyHours] = useState(24);
   const [patientInfo, setPatientInfo] = useState({ enrollmentId, motherName: "", babyUid: "", gestation: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1807,6 +1828,12 @@ export default function MinimalMonitoringLog() {
     dirtyRef.current = true;
   };
 
+  const changeWeightFrequency = (hours) => {
+    setWeightFrequencyHours(hours);
+    setSaveTick(t => t + 1);
+    dirtyRef.current = true;
+  };
+
   useEffect(() => {
     if (!enrollmentId) return;
     const loadPatient = async () => {
@@ -1848,6 +1875,7 @@ export default function MinimalMonitoringLog() {
       setGiFeedFrequencyHours(data.gi_feed_frequency_hours || 2);
       setGlucoseFrequencyHours(data.glucose_frequency_hours || 2);
       setVitalsFrequencyHours(data.vitals_frequency_hours || 2);
+      setWeightFrequencyHours(data.weight_frequency_hours || 24);
       rememberMmlSheetDate(enrollmentId, recordDate);
       dirtyRef.current = false;
     } catch (_) {
@@ -1856,6 +1884,7 @@ export default function MinimalMonitoringLog() {
       setGiFeedFrequencyHours(2);
       setGlucoseFrequencyHours(2);
       setVitalsFrequencyHours(2);
+      setWeightFrequencyHours(24);
       setMessage("Could not load sheet for this date. Please try again.");
     } finally {
       setLoading(false);
@@ -1994,6 +2023,7 @@ export default function MinimalMonitoringLog() {
     gi_feed_frequency_hours: giFeedFrequencyHours,
     glucose_frequency_hours: glucoseFrequencyHours,
     vitals_frequency_hours: vitalsFrequencyHours,
+    weight_frequency_hours: weightFrequencyHours,
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
@@ -2487,6 +2517,23 @@ export default function MinimalMonitoringLog() {
               </>
             )}
           </EntryBlock>
+        );
+      case "growth_a":
+        return (
+          <ScheduledFlowsheet
+            blockKey="growth_a"
+            columns={GROWTH_A_COLUMNS}
+            frequencyOptions={GROWTH_A_FREQUENCY_OPTIONS}
+            entries={entries.growth_a}
+            frequencyHours={weightFrequencyHours}
+            onChangeFrequency={changeWeightFrequency}
+            onChangeField={(id, k, v) => setFlowsheetEntryField("growth_a", id, k, v)}
+            onAdd={slot => addFlowsheetEntry("growth_a", slot, { weight_g: "" })}
+            onRemove={id => removeFlowsheetEntry("growth_a", id)}
+            disabled={!isEditable}
+            sheetDate={sheetDate}
+            errors={errors}
+          />
         );
       default:
         return null;

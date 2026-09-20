@@ -9,6 +9,9 @@ import "./styles/RespCVNeuro.css";
 // helper form (Helper 4) uses for its pH/sodium/potassium/calcium
 // readings lists, reused here for sepsis screens.
 import "./styles/MinimalMonitoring.css";
+// .link-button / .link-button-danger — same "Force refill" button styling
+// used across Form H's auto-fill domains.
+import "./styles/FormComponents.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
@@ -975,6 +978,16 @@ export default function InfectGIHemaLog() {
   const feedVolumeAutofilledRef = useRef(false);
   feedVolumeAutofilledRef.current = feedVolumeAutofilled;
   const [feedTypeAutofilled, setFeedTypeAutofilled] = useState(false);
+  // Feed Volume (#15, ml/kg/d) — derived from cumulative_feed_volume ÷ an
+  // effective weight (DMS Growth 5.7.A once it's recovered to/past birth
+  // weight, birth weight itself otherwise). Same aggregate-field sync
+  // machinery as cumulative_feed_volume, just with a computed value
+  // instead of a raw DMS reading.
+  const lastFeedVolumeCalcAutoRef = useRef({ date: null, value: undefined });
+  const [feedVolumeCalcAutofilled, setFeedVolumeCalcAutofilled] = useState(false);
+  const feedVolumeCalcAutofilledRef = useRef(false);
+  feedVolumeCalcAutofilledRef.current = feedVolumeCalcAutofilled;
+  const [birthWeightGrams, setBirthWeightGrams] = useState(null);
   const [hemaTransfusionAutofilled, setHemaTransfusionAutofilled] = useState({
     prbc: false, platelet: false, ffpCryo: false,
   });
@@ -1018,6 +1031,17 @@ export default function InfectGIHemaLog() {
       const vol = sumGiAFeedVolumeValues(entryValues);
       setGiData((p) => {
         if (p.npo === true) return p;
+        // DMS shows a real EF (enteral feed) reading for this day — #10/#12
+        // should reflect that instead of staying hidden behind an
+        // unanswered NPO toggle while the feed volume autofills silently
+        // underneath. Fill-if-blank only: never overrides an explicit
+        // nurse answer either way.
+        const npoPatch = (vol != null && p.npo == null) ? { npo: false } : {};
+        const npoIsNo = npoPatch.npo === false || p.npo === false;
+        const enteralPatch = (npoIsNo && p.enteral_feeds_received == null)
+          ? { enteral_feeds_received: true } : {};
+        const hasNpoOrEnteralPatch = Object.keys(npoPatch).length || Object.keys(enteralPatch).length;
+
         const last = lastFeedVolumeAutoRef.current;
         const stillMatchesLastAutoFill =
           last.date === recordDate &&
@@ -1036,7 +1060,9 @@ export default function InfectGIHemaLog() {
           if (sync.autofilled && !feedVolumeAutofilledRef.current) {
             setFeedVolumeAutofilled(true);
           }
-          return p;
+          if (!hasNpoOrEnteralPatch) return p;
+          setIsEditing(true);
+          return { ...p, ...npoPatch, ...enteralPatch };
         }
         if (vol != null) {
           lastFeedVolumeAutoRef.current = { date: recordDate, value: vol };
@@ -1045,7 +1071,10 @@ export default function InfectGIHemaLog() {
         }
         setFeedVolumeAutofilled(sync.autofilled);
         setIsEditing(true);
-        return { ...p, cumulative_feed_volume: sync.nextValue === "" ? null : sync.nextValue };
+        return {
+          ...p, ...npoPatch, ...enteralPatch,
+          cumulative_feed_volume: sync.nextValue === "" ? null : sync.nextValue,
+        };
       });
     } catch (_) { /* Helper 5 optional */ }
   };
@@ -1071,6 +1100,75 @@ export default function InfectGIHemaLog() {
         return { ...p, feed_type: types };
       });
     } catch (_) { /* Helper 5 optional */ }
+  };
+
+  /** #15 Feed Volume (ml/kg/d) = #14 Cumulative Feed Volume ÷ an effective
+   *  weight. Effective weight is DMS's most recent Growth (5.7.A) reading
+   *  as of this NICU day IF it has recovered to/past birth weight —
+   *  physiological weight loss in the first days is normal and expected,
+   *  so calculations stay anchored to birth weight until the baby has
+   *  regained it, per standing PI instruction. Falls back to whichever of
+   *  the two is actually available if only one is. Same aggregate-field
+   *  sync discipline as cumulative_feed_volume: fill-if-blank on a
+   *  manually-typed value, but keeps recalculating while the field still
+   *  holds this function's own prior computed value. */
+  const applyFeedVolumeCalcFromWeight = async (recordDate = activeDayDate, { force = false } = {}) => {
+    if (!enrollmentId || !recordDate) return;
+    if (isFutureActiveDay) return;
+    if (isSubmitted && !isOverrideActiveDay) return;
+    try {
+      const res = await api.get(`/minimal-monitoring/${enrollmentId}/latest-weight-kg/${recordDate}`);
+      if (activeDayDateRef.current !== recordDate) return;
+      const dmsWeightKg = typeof res?.data?.weight_kg === "number" ? res.data.weight_kg : null;
+      const birthWeightKg = birthWeightGrams != null ? birthWeightGrams / 1000 : null;
+      const effectiveWeightKg =
+        (dmsWeightKg != null && birthWeightKg != null)
+          ? (dmsWeightKg >= birthWeightKg ? dmsWeightKg : birthWeightKg)
+          : (birthWeightKg ?? dmsWeightKg);
+      setGiData((p) => {
+        if (!(effectiveWeightKg > 0)) return p;
+        // ans() check first: Number(null)/Number("") are both 0 (finite),
+        // which would otherwise calculate a fake "0 ml/kg/d" for a day
+        // with no cumulative feed volume answered at all yet.
+        const cumVol = ans(p.cumulative_feed_volume) ? Number(p.cumulative_feed_volume) : NaN;
+        const calc = Number.isFinite(cumVol)
+          ? Math.round((cumVol / effectiveWeightKg) * 10) / 10
+          : null;
+
+        const last = lastFeedVolumeCalcAutoRef.current;
+        const stillMatchesLastAutoFill =
+          last.date === recordDate &&
+          last.value !== undefined &&
+          String(p.feed_volume) === String(last.value);
+        const sync = mmlSyncAggregateFieldFromMml({
+          current: p.feed_volume,
+          blockedByNotDone: !!p.feed_volume_status,
+          wasAutofilled: feedVolumeCalcAutofilledRef.current,
+          stillMatchesLastAuto: stillMatchesLastAutoFill,
+          mmlValue: calc == null ? null : String(calc),
+          // Force refill: overwrite an already-answered value on purpose
+          // (e.g. a stale/wrong number from before a bug fix, or a DMS
+          // weight corrected after this already calculated once) — still
+          // respects an explicit "Not Recorded / Not Done" status either
+          // way, same as every other force-refill in this codebase.
+          force,
+        });
+        if (!sync.changed) {
+          if (sync.autofilled && !feedVolumeCalcAutofilledRef.current) {
+            setFeedVolumeCalcAutofilled(true);
+          }
+          return p;
+        }
+        if (calc != null) {
+          lastFeedVolumeCalcAutoRef.current = { date: recordDate, value: calc };
+        } else {
+          lastFeedVolumeCalcAutoRef.current = { date: recordDate, value: undefined };
+        }
+        setFeedVolumeCalcAutofilled(sync.autofilled);
+        setIsEditing(true);
+        return { ...p, feed_volume: sync.nextValue === "" ? null : sync.nextValue };
+      });
+    } catch (_) { /* DMS weight optional */ }
   };
 
   const applyTransfusionFlagsFromMml = async (recordDate = activeDayDate) => {
@@ -1115,6 +1213,9 @@ export default function InfectGIHemaLog() {
   const applyMmlAutofillFromHelper5 = async (recordDate = activeDayDate) => {
     await applyFeedVolumeFromMml(recordDate);
     await applyFeedTypeFromMml(recordDate);
+    // Must run after applyFeedVolumeFromMml — the ml/kg/d calc divides
+    // whatever cumulative_feed_volume that call just settled on.
+    await applyFeedVolumeCalcFromWeight(recordDate);
     await applyTransfusionFlagsFromMml(recordDate);
   };
 
@@ -1207,6 +1308,7 @@ export default function InfectGIHemaLog() {
   const setGi   = (k, v) => {
     if (!isFieldEditable) return;
     if (k === "cumulative_feed_volume") setFeedVolumeAutofilled(false);
+    if (k === "feed_volume") setFeedVolumeCalcAutofilled(false);
     setGiData(p => ({ ...p, [k]: v }));
   };
   const setHema = (k, v) => isFieldEditable && setHemaData(p => ({ ...p, [k]: v }));
@@ -1246,6 +1348,9 @@ export default function InfectGIHemaLog() {
         const b = res?.data || {};
         if (b.date_of_birth) {
           setDay1Date(normalizeHelperDob(b.date_of_birth));
+        }
+        if (b.birth_weight != null && b.birth_weight !== "") {
+          setBirthWeightGrams(Number(b.birth_weight));
         }
 
         // Load gestation with NBS correction check (same logic as FiO2 form)
@@ -1356,6 +1461,8 @@ export default function InfectGIHemaLog() {
       setLoading(true);
       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
       setFeedVolumeAutofilled(false);
+      lastFeedVolumeCalcAutoRef.current = { date: null, value: undefined };
+      setFeedVolumeCalcAutofilled(false);
       setFeedTypeAutofilled(false);
       setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
       try {
@@ -1467,7 +1574,14 @@ export default function InfectGIHemaLog() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("portal-mml-saved", onMmlSaved);
     };
-  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay]);
+    // birthWeightGrams: birth-resuscitation loads in a separate effect and
+    // can resolve after this one's first tick already ran with it still
+    // null -- without it in the deps, applyFeedVolumeCalcFromWeight's
+    // closure stays stuck on that stale null for the rest of this effect's
+    // lifetime (interval/focus/visibility ticks all reuse the same
+    // closure), so the ml/kg/d calc would never actually fire until
+    // something else in this list happened to change first.
+  }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay, birthWeightGrams]);
 
   const resetFormState = () => {
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
@@ -1498,6 +1612,13 @@ export default function InfectGIHemaLog() {
       ...infDataFlat,
       sepsis_screens_json: JSON.stringify(screensForSave),
       ...giData,
+      // NPO=No logically implies enteral feeds were given — #12 is fill-if-
+      // blank auto-Yes at entry time (see the NPO toggle's onChange), but
+      // this is the actual safety net for persistence regardless of how
+      // npo became false (manual toggle or the DMS EF-data autofill below).
+      enteral_feeds_received: giData.npo === false
+        ? (giData.enteral_feeds_received ?? true)
+        : giData.enteral_feeds_received,
       feed_type: giData.feed_type.join(","), // Convert array to comma-separated string
       ...hemaData,
       submission_status: STATUS.DRAFT,
@@ -2293,10 +2414,19 @@ export default function InfectGIHemaLog() {
                     if (v !== false) {
                       lastFeedVolumeAutoRef.current = { date: null, value: undefined };
                       setFeedVolumeAutofilled(false);
+                      lastFeedVolumeCalcAutoRef.current = { date: null, value: undefined };
+                      setFeedVolumeCalcAutofilled(false);
                       setFeedTypeAutofilled(false);
       setHemaTransfusionAutofilled({ prbc: false, platelet: false, ffpCryo: false });
                       setGiData(p => ({ ...p, men: null, enteral_feeds_received: null,
                         feed_type: [], cumulative_feed_volume: null, feed_volume: null }));
+                    } else {
+                      // NPO=No is a direct clinical statement that enteral feeds
+                      // ARE being given — #12 asking again is redundant, so it's
+                      // fill-if-blank auto-answered here rather than left for the
+                      // nurse to re-confirm. Still fully editable/overridable.
+                      setGiData(p => (p.enteral_feeds_received == null
+                        ? { ...p, enteral_feeds_received: true } : p));
                     }
                   }} disabled={!isFieldEditable} />
               </div>
@@ -2306,11 +2436,12 @@ export default function InfectGIHemaLog() {
                   <div className="rcn-subsection-title">11-15. If NPO = No</div>
                   <div className="rcn-yn-list">
                     <YNRow label="11. MEN (Minimal Enteral Nutrition)" value={giData.men} onChange={v => setGi("men", v)} disabled={!isFieldEditable} />
-                    <YNRow label="12. Enteral Feeds Received" value={giData.enteral_feeds_received}
+                    <YNRow label={<>12. Enteral Feeds Received{npoNo && <span style={{fontSize:11,fontWeight:500,color:"#94A3B8"}}> (implied by NPO = No)</span>}</>}
+                      value={npoNo ? true : giData.enteral_feeds_received}
                       onChange={v => {
                         setGi("enteral_feeds_received", v);
                         if (v !== true) setGiData(p => ({ ...p, feed_type: [] }));
-                      }} disabled={!isFieldEditable} />
+                      }} disabled={!isFieldEditable || npoNo} />
                   </div>
 
                   {enteralYes && (
@@ -2337,8 +2468,27 @@ export default function InfectGIHemaLog() {
                       status={giData.cumulative_feed_volume_status} onStatusChange={v => setGi("cumulative_feed_volume_status", v)}
                       autofilled={!!feedVolumeAutofilled} />
                     <NumRow label="15. Feed Volume (ml/kg/d)" value={giData.feed_volume} onChange={v => setGi("feed_volume", v)} disabled={!isFieldEditable} unit="ml/kg/d" placeholder="0" error={feedVolumeError} width={220}
-                      status={giData.feed_volume_status} onStatusChange={v => setGi("feed_volume_status", v)} />
+                      status={giData.feed_volume_status} onStatusChange={v => setGi("feed_volume_status", v)}
+                      autofilled={!!feedVolumeCalcAutofilled} />
                   </div>
+                  {isFieldEditable && (
+                    <div className="field-hint field-hint-auto" style={{marginTop:4}}>
+                      <button type="button" className="link-button link-button-danger"
+                        onClick={() => {
+                          if (!window.confirm(
+                            "Recalculate Feed Volume (ml/kg/d) from the latest Cumulative Feed " +
+                            "Volume and weight, overwriting whatever is currently in the field " +
+                            "(including a manually-typed value)?\n\nUse this if the number looks " +
+                            "wrong — e.g. it was calculated before a weight was corrected, or " +
+                            "before a bug fix. If there's no weight or feed volume to calculate " +
+                            "from, this will clear the field rather than guess."
+                          )) return;
+                          applyFeedVolumeCalcFromWeight(activeDayDate, { force: true });
+                        }}>
+                        Force refill Feed Volume (overwrite existing answer)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

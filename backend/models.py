@@ -2115,6 +2115,9 @@ class MinimalMonitoringDayLog(Base):
     # met_a (Glucose) and cv_a (Vitals) Scheduled Flowsheets.
     glucose_frequency_hours = Column(Integer, nullable=True)
     vitals_frequency_hours = Column(Integer, nullable=True)
+    # growth_a (Weight) Scheduled Flowsheet — same pattern, but its own
+    # cadence menu is 12h/24h (once- or twice-daily), not hourly.
+    weight_frequency_hours = Column(Integer, nullable=True)
 
     imaging_date = Column(String, nullable=True)
     ventriculomegaly_severity = Column(String, nullable=True)

@@ -1253,3 +1253,8 @@ MINIMAL_MONITORING_GLUCOSE_VITALS_FREQUENCY_PATCHES = [
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS glucose_frequency_hours INTEGER",
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS vitals_frequency_hours INTEGER",
 ]
+
+# growth_a (Weight) Scheduled Flowsheet cadence.
+MINIMAL_MONITORING_WEIGHT_FREQUENCY_PATCHES = [
+    "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS weight_frequency_hours INTEGER",
+]

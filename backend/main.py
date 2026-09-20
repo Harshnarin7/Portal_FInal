@@ -7116,6 +7116,69 @@ def get_minimal_monitoring_helper1_resp_autofill(
     return _mml_helper1_resp_autofill(db, enrollment_id, on_date)
 
 
+@app.get("/minimal-monitoring/{enrollment_id}/latest-weight-kg/{as_of_date}")
+def get_minimal_monitoring_latest_weight_kg(
+    enrollment_id: str,
+    as_of_date: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Most recent DMS 5.7.A Weight (growth_a) reading on or before
+    as_of_date, scanning every day's entries_json admission-wide -- weight
+    is logged on a 12h/24h cadence, not necessarily every single NICU day,
+    so "today's own row" alone isn't enough (same reasoning as Form H's
+    admission-wide lowest-vital/highest-value prefills, just parameterized
+    by a caller-supplied cutoff date here instead of scanning to the
+    present). Used by Helper 4's ml/kg/day feed-volume calculation, which
+    needs "the baby's weight as of this NICU day," not "as of today."
+
+    DMS itself stores the entered value as GRAMS (`weight_g` in
+    entries_json -- matches how weight is actually charted at the
+    bedside, e.g. "1250", not a decimal-kg entry), converted to kg here
+    before returning, so every downstream consumer of this endpoint
+    keeps working in kg without needing to know DMS's own storage unit.
+    """
+    require_enrollment_access(enrollment_id, db, current_user)
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", as_of_date or ""):
+        raise HTTPException(status_code=400, detail="as_of_date must be YYYY-MM-DD")
+    rows = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(MinimalMonitoringDayLog.enrollment_id == enrollment_id)
+        .all()
+    )
+    best_key = None
+    best_value = None
+    for row in rows:
+        if not row.entries_json:
+            continue
+        try:
+            parsed = json.loads(row.entries_json) if isinstance(row.entries_json, str) else row.entries_json
+        except (TypeError, ValueError):
+            continue
+        block = (parsed or {}).get("growth_a")
+        if not isinstance(block, list):
+            continue
+        for entry in block:
+            if not isinstance(entry, dict):
+                continue
+            raw_date = entry.get("date") or row.record_date
+            entry_date = str(raw_date)[:10] if raw_date else None
+            if not entry_date or entry_date > as_of_date:
+                continue
+            raw_val = entry.get("weight_g")
+            if raw_val in (None, ""):
+                continue
+            try:
+                val = float(raw_val) / 1000.0
+            except (TypeError, ValueError):
+                continue
+            key = (entry_date, entry.get("time") or "")
+            if best_key is None or key > best_key:
+                best_key = key
+                best_value = val
+    return {"weight_kg": best_value, "date": best_key[0] if best_key else None}
+
+
 @app.get("/minimal-monitoring/{enrollment_id}/on/{on_date}", response_model=MinimalMonitoringDayOut)
 def get_minimal_monitoring_on_date(
     enrollment_id: str,
