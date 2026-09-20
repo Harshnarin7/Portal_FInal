@@ -140,24 +140,25 @@ const FIELD_LABELS = {
   mgso4_date: "MgSO₄ date of administration",
   medical_disorders: "Any known medical disorder (29)",
   other_medical_disorder: "Other medical disorder — specify",
-  hdp: "HDP",
+  hdp: "Hypertensive Disorders of Pregnancy (HDP)",
   hdp_type: "HDP type",
-  gdm: "GDM",
+  gdm: "Gestational Diabetes Mellitus (GDM)",
   gdm_rx: "GDM treatment (Rx)",
-  liquor: "Liquor",
-  fgr: "FGR",
+  liquor: "Liquor abnormalities",
+  fgr: "Fetal Growth Restriction (FGR)",
   fgr_centile: "FGR centile",
-  doppler: "Doppler",
-  doppler_other: "Doppler — specify",
+  doppler: "Antenatal Doppler Abnormalities",
+  doppler_other: "Antenatal Doppler Abnormalities — specify",
   placental_abnormality: "Placental abnormality",
   placental_type: "Placental abnormality type",
   placental_other: "Placental abnormality — specify",
   retroplacental_collection: "Retroplacental collection",
   isoimmunization: "Isoimmunization",
-  aph: "APH",
+  isoimmunization_type: "Isoimmunization type",
+  aph: "Antepartum hemorrhage (APH)",
   aph_type: "APH type",
   aph_other: "APH — specify",
-  pprom: "pPROM",
+  pprom: "Preterm premature rupture of membranes (pPROM)",
   pprom_duration: "pPROM duration (hrs)",
   preterm_labor: "Preterm Labor",
   maternal_fever: "Maternal Fever",
@@ -460,7 +461,7 @@ export default function FormC() {
     placental_abnormality: "", placental_type: "", placental_other: "",
     retroplacental_collection: "",
     aph: "", aph_type: "", aph_other: "",
-    isoimmunization: "",
+    isoimmunization: "", isoimmunization_type: "",
     // C5 Evidence of Infection
     pprom: "", pprom_duration: "", preterm_labor: "", triple_i: "",
     maternal_fever: "", fetal_tachycardia: "", maternal_tlc_high: "",
@@ -507,7 +508,7 @@ export default function FormC() {
     placental_abnormality: "", placental_type: "", placental_other: "",
     retroplacental_collection: "",
     aph: "", aph_type: "", aph_other: "",
-    isoimmunization: "",
+    isoimmunization: "", isoimmunization_type: "",
     pprom: "", pprom_duration: "", preterm_labor: "", triple_i: "",
     maternal_fever: "", fetal_tachycardia: "", maternal_tlc_high: "",
     foul_smelling_liquor: "", maternal_uti: "", maternal_diarrhea: "",
@@ -752,7 +753,7 @@ export default function FormC() {
             abortions: formCData.abortions ?? "", live: formCData.live ?? "",
             still: formCData.still ?? "", booked: formCData.booked ?? "",
             anc_visits: formCData.anc_visits ?? "",
-            multiple: formCData.multiple ?? "No",
+            multiple: (formCData.multiple === "Quad" ? "Quadruplets" : formCData.multiple) ?? "No",
             conception: formCData.conception ?? "",
             artificial_type: formCData.artificial_type ?? "",
             artificial_other: formCData.artificial_other ?? "",
@@ -837,7 +838,11 @@ export default function FormC() {
             hdp: formCData.hdp ?? "", hdp_type: formCData.hdp_type ?? "",
             gdm: formCData.gdm ?? "",
             gdm_rx: formCData.gdm_rx ? formCData.gdm_rx.split(", ").map(s => s.trim()) : [],
-            liquor: formCData.liquor ?? "", fgr: formCData.fgr ?? "",
+            liquor: ({
+              "Absent/Oligo": "Absent/Oligohydramnios",
+              "Poly": "Polyhydramnios",
+            })[formCData.liquor] ?? formCData.liquor ?? "",
+            fgr: formCData.fgr ?? "",
             fgr_centile: formCData.fgr_centile ?? "",
             doppler: formCData.doppler ?? "", doppler_other: formCData.doppler_other ?? "",
             placental_abnormality: formCData.placental_abnormality ?? "",
@@ -854,6 +859,7 @@ export default function FormC() {
             })[formCData.aph_type] ?? formCData.aph_type ?? "",
             aph_other: formCData.aph_other ?? "",
             isoimmunization: formCData.isoimmunization ?? "",
+            isoimmunization_type: formCData.isoimmunization_type ?? "",
             pprom: formCData.pprom ?? "", pprom_duration: formCData.pprom_duration ?? "",
             preterm_labor: formCData.preterm_labor ?? "",
             triple_i: formCData.triple_i ?? "",
@@ -980,6 +986,7 @@ export default function FormC() {
       case "placental_other": return ((d.placental_type==="Others"||d.placental_type==="Other")&&!value?.trim()) ? "Required" : "";
       case "retroplacental_collection": return value ? "" : "Required";
       case "isoimmunization": return value ? "" : "Required";
+      case "isoimmunization_type": return (d.isoimmunization==="Yes"&&!value) ? "Required" : "";
       case "aph": return value ? "" : "Required";
       case "aph_type": return (d.aph==="Yes"&&!value) ? "Required" : "";
       case "aph_other": return (d.aph_type==="Other"&&!value?.trim()) ? "Required" : "";
@@ -1251,6 +1258,7 @@ export default function FormC() {
     }
     if (!data.retroplacental_collection) e.retroplacental_collection = "Required";
     if (!data.isoimmunization) e.isoimmunization = "Required";
+    if (data.isoimmunization==="Yes" && !data.isoimmunization_type) e.isoimmunization_type = "Required";
     if (!data.aph) e.aph = "Required";
     if (data.aph==="Yes") {
       if (!data.aph_type) e.aph_type = "Required";
@@ -1371,6 +1379,7 @@ export default function FormC() {
     retroplacental_collection: formData.retroplacental_collection||null,
     aph: formData.aph||null, aph_type: formData.aph_type||null, aph_other: formData.aph_other||null,
     isoimmunization: formData.isoimmunization||null,
+    isoimmunization_type: formData.isoimmunization==="Yes" ? (formData.isoimmunization_type||null) : null,
     pprom: formData.pprom||null, pprom_duration: formData.pprom_duration||null,
     preterm_labor: formData.preterm_labor||null, triple_i: formData.triple_i||null,
     maternal_fever: formData.maternal_fever||null, fetal_tachycardia: formData.fetal_tachycardia||null,
@@ -1462,7 +1471,7 @@ export default function FormC() {
     c3: ["gravida","parity","abortions","live","still","anc_visits","conception","artificial_type","artificial_other","multiple","multiple_other"].filter(f => touched[f]&&errors[f]).length,
     c4: ["antenatal_steroids","steroid_drug","steroid_beta_doses","steroid_dexa_doses","lddi_known","lddi_hours","steroid_beta_lddi_known","steroid_beta_lddi_hours","steroid_dexa_lddi_known","steroid_dexa_lddi_hours","antenatal_mgso4","mgso4_date"].filter(f => touched[f]&&errors[f]).length,
     c5: ["medical_disorders","other_medical_disorder"].filter(f => touched[f]&&errors[f]).length,
-    c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
+    c6: ["hdp","hdp_type","gdm","gdm_rx","liquor","fgr","fgr_centile","doppler","doppler_other","placental_abnormality","placental_type","placental_other","retroplacental_collection","isoimmunization","isoimmunization_type","aph","aph_type","aph_other"].filter(f => touched[f]&&errors[f]).length,
     c7: ["pprom","pprom_duration","preterm_labor","maternal_fever","fetal_tachycardia","maternal_tlc_high","maternal_tachycardia","maternal_abdominal_tenderness","foul_smelling_liquor","maternal_uti","maternal_diarrhea"].filter(f => touched[f]&&errors[f]).length,
     c8: ["msl","non_reactive_nst","reduced_fm","fetal_bradycardia","fetal_tachycardia_intrapartum","prolonged_labor","cord_accident","cord_accident_type","uterotonic","uterotonic_timing"].filter(f => touched[f]&&errors[f]).length,
   };
@@ -1662,8 +1671,8 @@ export default function FormC() {
                     {name:"gravida",  label:"6. Gravida",      min:1, max:15, logic:"Checked so Gravida = Parity + Abortions + 1"},
                     {name:"parity",   label:"7. Parity",       min:0, max:15, logic:"Must satisfy Gravida = Parity + Abortions + 1"},
                     {name:"abortions",label:"8. Abortions",    min:0, max:15, logic:"Abortions cannot exceed Gravida − 1; Parity + Abortions must equal Gravida − 1"},
-                    {name:"live",     label:"9. Live",  min:0, max:15, logic:"Live cannot exceed Parity"},
-                    {name:"still",    label:"10. Still",min:0, max:10, logic:"Live + Still cannot exceed Parity"},
+                    {name:"live",     label:"9. Live Births",  min:0, max:15, logic:"Live cannot exceed Parity"},
+                    {name:"still",    label:"10. Still Births",min:0, max:10, logic:"Live + Still cannot exceed Parity"},
                   ].map(({name,label,min,max,logic}) => (
                     <div className="form-group" key={name}>
                       <label>{label}<span className="required">*</span> <FieldLogicBadge type="validated" title={logic} /></label>
@@ -1729,7 +1738,7 @@ export default function FormC() {
                     <div className="form-group">
                       <label>14. If yes<span className="required">*</span></label>
                       <Toggle name="multiple" value={formData.multiple}
-                        options={["Twin","Triplet","Quad","Other"]}
+                        options={["Twin","Triplet","Quadruplets","Other"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("multiple")}/>
                       {formData.multiple==="Other" && (
                         <input name="multiple_other" value={formData.multiple_other||""}
@@ -2158,10 +2167,9 @@ export default function FormC() {
 
                 {/* 30–31: HDP */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">HDP (Hypertensive Disorders of Pregnancy)</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>30. HDP<span className="required">*</span></label>
+                      <label>30. Hypertensive Disorders of Pregnancy (HDP)<span className="required">*</span></label>
                       <Toggle name="hdp" value={formData.hdp} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("hdp")}/>
                     </div>
@@ -2178,10 +2186,9 @@ export default function FormC() {
 
                 {/* 32–33: GDM */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">GDM / Liquor</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>32. GDM<span className="required">*</span></label>
+                      <label>32. Gestational Diabetes Mellitus (GDM)<span className="required">*</span></label>
                       <Toggle name="gdm" value={formData.gdm} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("gdm")}/>
                     </div>
@@ -2202,11 +2209,15 @@ export default function FormC() {
                       {E("gdm_rx")&&<div className="field-error">{E("gdm_rx")}</div>}
                     </div>
                   )}
-                  <div className="form-grid-2" style={{marginTop:12}}>
+                </div>
+
+                {/* 34: Liquor abnormalities (moved out of the GDM block) */}
+                <div className="obstetric-subcard">
+                  <div className="form-grid-2">
                     <div className="form-group">
-                      <label>34. Liquor<span className="required">*</span></label>
+                      <label>34. Liquor abnormalities<span className="required">*</span></label>
                       <Toggle name="liquor" value={formData.liquor}
-                        options={["Normal","Absent/Oligo","Poly","Not known"]}
+                        options={["Normal","Absent/Oligohydramnios","Polyhydramnios","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("liquor")}/>
                     </div>
                     <div/>
@@ -2215,10 +2226,9 @@ export default function FormC() {
 
                 {/* 35–36: FGR */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">FGR</div>
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label>35. FGR<span className="required">*</span></label>
+                      <label>35. Fetal Growth Restriction (FGR)<span className="required">*</span></label>
                       <Toggle name="fgr" value={formData.fgr} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("fgr")}/>
                     </div>
@@ -2237,9 +2247,8 @@ export default function FormC() {
 
                 {/* 37: Doppler */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">Doppler</div>
                   <div className="form-group">
-                    <label>37. Doppler<span className="required">*</span></label>
+                    <label>37. Antenatal Doppler Abnormalities<span className="required">*</span></label>
                     <Toggle name="doppler" value={formData.doppler}
                       options={["Normal","AEDF","REDF","Not done","Not known"]}
                       onChange={handleToggle} disabled={!isFieldEditable} error={E("doppler")}/>
@@ -2248,7 +2257,6 @@ export default function FormC() {
 
                 {/* 38–40: Placental */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">Placental Abnormalities</div>
                   <div className="form-grid-2">
                     <div className="form-group">
                       <label>38. Placental abnormality<span className="required">*</span></label>
@@ -2289,10 +2297,9 @@ export default function FormC() {
 
                 {/* 41–42: APH */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">APH</div>
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>41. APH<span className="required">*</span></label>
+                      <label>41. Antepartum hemorrhage (APH)<span className="required">*</span></label>
                       <Toggle name="aph" value={formData.aph} options={["Yes","No","Not known"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("aph")}/>
                     </div>
@@ -2320,7 +2327,6 @@ export default function FormC() {
 
                 {/* 43: Isoimmunization */}
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">Isoimmunization</div>
                   <div className="form-grid-2">
                     <div className="form-group">
                       <label>43. Isoimmunization<span className="required">*</span></label>
@@ -2328,7 +2334,14 @@ export default function FormC() {
                         options={["Yes","No"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("isoimmunization")}/>
                     </div>
-                    <div/>
+                    {formData.isoimmunization==="Yes" && (
+                      <div className="form-group">
+                        <label>If yes, Type<span className="required">*</span></label>
+                        <Toggle name="isoimmunization_type" value={formData.isoimmunization_type}
+                          options={["Rh","ABO","Minor blood group"]}
+                          onChange={handleToggle} disabled={!isFieldEditable} error={E("isoimmunization_type")}/>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2344,7 +2357,7 @@ export default function FormC() {
                 <div className="c5-inf-table">
                   <div className={`c5-inf-row c5-inf-row--${c5InfectionTone(formData.pprom)}`}>
                     <span className="c5-inf-num">44</span>
-                    <label className="c5-inf-label">pPROM<span className="required">*</span> <FieldLogicBadge type="conditional" title="Yes reveals 45. Duration (hrs)" /></label>
+                    <label className="c5-inf-label">Preterm premature rupture of membranes (pPROM)<span className="required">*</span> <FieldLogicBadge type="conditional" title="Yes reveals 45. Duration (hrs)" /></label>
                     <div className="c5-inf-pills">
                       <Toggle name="pprom" value={formData.pprom} options={["Yes","No"]}
                         onChange={handleToggle} disabled={!isFieldEditable} error={E("pprom")}
@@ -2365,7 +2378,7 @@ export default function FormC() {
                   )}
                   {[
                     { num: "46", name: "preterm_labor", label: "Preterm Labor", options: ["Yes","No"] },
-                    { num: "47", name: "maternal_fever", label: "Maternal Fever (≥39℃ or 38–39℃ ×2)", options: ["Yes","No"] },
+                    { num: "47", name: "maternal_fever", label: "Maternal Fever (≥39℃ or 38–39℃ on 2 occasions)", options: ["Yes","No"] },
                     { num: "48", name: "fetal_tachycardia", label: <>Baseline Fetal Tachycardia (&gt;160 bpm)</>, options: ["Yes","No"] },
                     { num: "49", name: "maternal_tlc_high", label: <>Maternal TLC &gt;15000/mm³</>, options: ["Yes","No","Not done"] },
                     { num: "50", name: "maternal_tachycardia", label: "Maternal Tachycardia", options: ["Yes","No"] },
@@ -2451,7 +2464,7 @@ export default function FormC() {
                 </div>
 
                 <div className="obstetric-subcard">
-                  <div className="obstetric-subcard__title">Cord</div>
+                  <div className="obstetric-subcard__title">Umbilical cord</div>
                   <div className="form-grid-2">
                     <div className="form-group">
                       <label>60. Cord Accident<span className="required">*</span></label>
