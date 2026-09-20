@@ -9,6 +9,9 @@ import "./styles/RespCVNeuro.css";
 // helper form (Helper 4) uses for its pH/sodium/potassium/calcium
 // readings lists, reused here for sepsis screens.
 import "./styles/MinimalMonitoring.css";
+// .link-button / .link-button-danger — same "Force refill" button styling
+// used across Form H's auto-fill domains.
+import "./styles/FormComponents.css";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { useAuth } from "./context/AuthContext";
@@ -1109,7 +1112,7 @@ export default function InfectGIHemaLog() {
    *  sync discipline as cumulative_feed_volume: fill-if-blank on a
    *  manually-typed value, but keeps recalculating while the field still
    *  holds this function's own prior computed value. */
-  const applyFeedVolumeCalcFromWeight = async (recordDate = activeDayDate) => {
+  const applyFeedVolumeCalcFromWeight = async (recordDate = activeDayDate, { force = false } = {}) => {
     if (!enrollmentId || !recordDate) return;
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
@@ -1143,6 +1146,12 @@ export default function InfectGIHemaLog() {
           wasAutofilled: feedVolumeCalcAutofilledRef.current,
           stillMatchesLastAuto: stillMatchesLastAutoFill,
           mmlValue: calc == null ? null : String(calc),
+          // Force refill: overwrite an already-answered value on purpose
+          // (e.g. a stale/wrong number from before a bug fix, or a DMS
+          // weight corrected after this already calculated once) — still
+          // respects an explicit "Not Recorded / Not Done" status either
+          // way, same as every other force-refill in this codebase.
+          force,
         });
         if (!sync.changed) {
           if (sync.autofilled && !feedVolumeCalcAutofilledRef.current) {
@@ -2462,6 +2471,24 @@ export default function InfectGIHemaLog() {
                       status={giData.feed_volume_status} onStatusChange={v => setGi("feed_volume_status", v)}
                       autofilled={!!feedVolumeCalcAutofilled} />
                   </div>
+                  {isFieldEditable && (
+                    <div className="field-hint field-hint-auto" style={{marginTop:4}}>
+                      <button type="button" className="link-button link-button-danger"
+                        onClick={() => {
+                          if (!window.confirm(
+                            "Recalculate Feed Volume (ml/kg/d) from the latest Cumulative Feed " +
+                            "Volume and weight, overwriting whatever is currently in the field " +
+                            "(including a manually-typed value)?\n\nUse this if the number looks " +
+                            "wrong — e.g. it was calculated before a weight was corrected, or " +
+                            "before a bug fix. If there's no weight or feed volume to calculate " +
+                            "from, this will clear the field rather than guess."
+                          )) return;
+                          applyFeedVolumeCalcFromWeight(activeDayDate, { force: true });
+                        }}>
+                        Force refill Feed Volume (overwrite existing answer)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
