@@ -779,6 +779,14 @@
   background: #D97706;
   cursor: pointer;
 }
+.rcn-day-badge--ok {
+  background: #059669;
+  cursor: default;
+}
+.rcn-day-badge--locked {
+  background: #0F4C81;
+  cursor: default;
+}
 .rcn-day-badge--alert {
   background: #DC2626;
 }
@@ -792,10 +800,10 @@
   white-space: nowrap;
 }
 .rcn-day--active .rcn-day-label { color: #fff; }
-.rcn-day--complete .rcn-day-label,
-.rcn-day--submitted .rcn-day-label,
 .rcn-day--draft .rcn-day-label,
 .rcn-day--partial .rcn-day-label { color: #B45309; }
+.rcn-day--complete .rcn-day-label { color: #047857; }
+.rcn-day--submitted .rcn-day-label { color: #0F4C81; }
 .rcn-day--late .rcn-day-label,
 .rcn-day--missed .rcn-day-label { color: #991B1B; }
 .rcn-day--future .rcn-day-label { color: #94A3B8; }
@@ -818,10 +826,10 @@
   letter-spacing: -0.01em;
 }
 .rcn-day--active .rcn-day-date { color: rgba(255,255,255,0.9); }
-.rcn-day--complete .rcn-day-date,
-.rcn-day--submitted .rcn-day-date,
 .rcn-day--draft .rcn-day-date,
 .rcn-day--partial .rcn-day-date { color: #92400E; }
+.rcn-day--complete .rcn-day-date { color: #065F46; }
+.rcn-day--submitted .rcn-day-date { color: #1E3A8A; }
 .rcn-day--late .rcn-day-date,
 .rcn-day--missed .rcn-day-date { color: #7F1D1D; }
 .rcn-day--future .rcn-day-date { color: #94A3B8; }
@@ -1779,13 +1787,21 @@
 ══════════════════════════════════════════════════════ */
 
 /* ── Day pill status variants ──────────────────────────────── */
-.rcn-day--complete,
-.rcn-day--submitted,
 .rcn-day--draft,
 .rcn-day--partial {
   background: #FFF8E7;
   border-color: #E8B84A;
   box-shadow: 0 1px 2px rgba(217, 119, 6, 0.08);
+}
+.rcn-day--complete {
+  background: #ECFDF5;
+  border-color: #34D399;
+  box-shadow: 0 1px 2px rgba(5, 150, 105, 0.08);
+}
+.rcn-day--submitted {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+  box-shadow: 0 1px 2px rgba(15, 76, 129, 0.08);
 }
 .rcn-day--late,
 .rcn-day--missed {
@@ -2192,10 +2208,10 @@
 }
 
 /* ── Day pill status color overrides ──────────────────────── */
-.rcn-day--complete,
-.rcn-day--submitted,
 .rcn-day--draft,
 .rcn-day--partial { border-color: #E8B84A !important; }
+.rcn-day--complete { border-color: #34D399 !important; }
+.rcn-day--submitted { border-color: #93C5FD !important; }
 .rcn-day--late      { border-color: #F0A0A0 !important; }
 .rcn-day--active,
 .rcn-day--active.rcn-day--complete,

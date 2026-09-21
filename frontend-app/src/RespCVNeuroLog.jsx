@@ -22,6 +22,7 @@ import {
   HELPER_SESSION_KEY_VS6_1,
 } from "./utils/helperSession";
 import { expectedUpdatedAtConfig, isStaleWrite, STALE_WRITE_MESSAGE } from "./utils/staleWrite";
+import { helperDayDisplayStatus, helperDaySaveStatus } from "./utils/helperDayStatus";
 import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
 import {
@@ -1619,7 +1620,10 @@ export default function RespCVNeuroLog() {
         const newStatuses = {};
         const newMeta     = {};
         summaries.forEach(s => {
-          newStatuses[s.nicu_day] = s.submission_status || STATUS.DRAFT;
+          newStatuses[s.nicu_day] = helperDayDisplayStatus(
+            s.submission_status || STATUS.DRAFT,
+            s.completion_pct || 0,
+          );
           newMeta[s.nicu_day]     = { pct: s.completion_pct || 0, savedAt: s.saved_at };
         });
         setDayStatuses(newStatuses);
@@ -1763,7 +1767,10 @@ export default function RespCVNeuroLog() {
             non_ivh_ich:        d.non_ivh_ich        ?? null,
             meningitis_suspected: d.meningitis_suspected ?? null,
           });
-          setDayStatuses(prev => ({ ...prev, [activeDay]: st }));
+          setDayStatuses(prev => ({
+            ...prev,
+            [activeDay]: helperDayDisplayStatus(st, d.completion_pct),
+          }));
           setSavedAt(d.saved_at || null);
           setSavedBy(d.saved_by || "");
           setSubmittedAt(d.submitted_at || null);
@@ -2110,7 +2117,7 @@ export default function RespCVNeuroLog() {
       ...cvData,
       vasoactive_drugs:    vasoactiveDrugs.join(", "),
       ...neuroData,
-      submission_status:   STATUS.DRAFT,
+      submission_status:   helperDaySaveStatus(completionPct),
       saved_at:            now,
       saved_by:            user?.name || "Nurse",
     };
@@ -2472,7 +2479,10 @@ export default function RespCVNeuroLog() {
               const isDischarge = dischargeDay && d > dischargeDay;
               const isFuture    = todayNicuDay != null && d > todayNicuDay;
               const isLocked    = isDischarge || isFuture;
-              const st          = dayStatuses[d] || STATUS.EMPTY;
+              const st = helperDayDisplayStatus(
+                dayStatuses[d] || STATUS.EMPTY,
+                d === activeDay ? completionPct : (dayMeta[d]?.pct || 0),
+              );
               const isMissed    = !isDischarge && missedDays.includes(d);
               const cfg         = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
               const meta        = dayMeta[d] || {};
@@ -2514,24 +2524,26 @@ export default function RespCVNeuroLog() {
                   {!isActive && !isFuture && !isDischarge && (isMissed || st === STATUS.LATE) && (
                     <span className="rcn-day-badge rcn-day-badge--alert" aria-hidden="true">!</span>
                   )}
-                  {!isActive && !isFuture && !isDischarge && !(isMissed || st === STATUS.LATE) && (
-                    st === STATUS.COMPLETE || st === STATUS.SUBMITTED || st === STATUS.DRAFT || st === STATUS.PARTIAL
-                  ) && (
-                    showMissingBadge ? (
-                      <button
-                        type="button"
-                        className="rcn-day-badge rcn-day-badge--list"
-                        onClick={(e) => handleToggleMissing(d, e)}
-                        title={`Day ${d} — see what's still missing`}
-                        aria-label={`See missing fields for Day ${d}`}
-                      >
-                        <ListChecks size={10} strokeWidth={2.5} />
-                      </button>
-                    ) : (
-                      <span className="rcn-day-badge rcn-day-badge--list" aria-hidden="true">
-                        <ListChecks size={10} strokeWidth={2.5} />
-                      </span>
-                    )
+                  {!isActive && !isFuture && !isDischarge && !(isMissed || st === STATUS.LATE) && showMissingBadge && (
+                    <button
+                      type="button"
+                      className="rcn-day-badge rcn-day-badge--list"
+                      onClick={(e) => handleToggleMissing(d, e)}
+                      title={`Day ${d} — see what's still missing`}
+                      aria-label={`See missing fields for Day ${d}`}
+                    >
+                      <ListChecks size={10} strokeWidth={2.5} />
+                    </button>
+                  )}
+                  {!isActive && !isFuture && !isDischarge && !isMissed && st === STATUS.COMPLETE && (
+                    <span className="rcn-day-badge rcn-day-badge--ok" title={`Day ${d} — 100% complete`} aria-hidden="true">
+                      <Check size={10} strokeWidth={3} />
+                    </span>
+                  )}
+                  {!isActive && !isFuture && !isDischarge && !isMissed && st === STATUS.SUBMITTED && (
+                    <span className="rcn-day-badge rcn-day-badge--locked" title={`Day ${d} — submitted`} aria-hidden="true">
+                      <Lock size={9} strokeWidth={2.5} />
+                    </span>
                   )}
                 </div>
               );
@@ -3484,7 +3496,10 @@ export default function RespCVNeuroLog() {
                       <tr>
                         <th className="rcn-table-view-field-header">Field</th>
                         {tableViewRows.map(({ day }) => {
-                          const st  = dayStatuses[day] || STATUS.EMPTY;
+                          const st  = helperDayDisplayStatus(
+                            dayStatuses[day] || STATUS.EMPTY,
+                            dayMeta[day]?.pct || 0,
+                          );
                           const cfg = DAY_STATUS_CONFIG[st] || DAY_STATUS_CONFIG[STATUS.EMPTY];
                           return (
                             <th key={day} className="rcn-table-view-day-header">
