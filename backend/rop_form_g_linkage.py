@@ -1,4 +1,13 @@
-"""Link Helper Form 4 (metab day log) ROP detection to Form G screening entries."""
+"""Link Helper 5 (metab_renal_vasc_eye_day_logs) ROP detection to Form G
+screening entries.
+
+NOTE ON NAMING: this module was originally written when
+MetabRenalVascEyeLog.jsx was "Helper Form 4" -- it's Helper 5 now (see
+mml_helper5_autofill.py's own naming-drift note for the 2026-09-19
+sidebar renumbering this refers to). Comments below have been updated;
+if this file is ever touched again and still says "Helper 4" anywhere,
+that's stale, not current.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +18,29 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from models import BirthResuscitation, ROPScreening
+
+
+def calculate_dol_and_pma(
+    dob: Optional[date],
+    screening_date: Optional[date],
+    ga_weeks: Optional[int],
+    ga_days: Optional[int],
+) -> tuple[Any, str]:
+    """Mirrors FormG.jsx's own calculateDOLandPMA exactly, so an
+    auto-created screening row (from the Helper 5 linkage below) shows
+    the same DOL/PMA a nurse would get by typing the date in by hand --
+    previously left blank, the one thing this auto-created row couldn't
+    do for itself despite Form G already knowing how."""
+    if not dob or not screening_date:
+        return "", ""
+    dol = (screening_date - dob).days
+    weeks = ga_weeks or 0
+    days = ga_days or 0
+    ga_birth_days = weeks * 7 + days
+    pma_days = ga_birth_days + dol
+    pma_weeks = pma_days // 7
+    pma_remaining_days = pma_days % 7
+    return (dol if dol >= 0 else "", f"{pma_weeks}w {pma_remaining_days}d")
 
 SCREENING_DETAIL_FIELDS = (
     "method",
@@ -110,12 +142,14 @@ def _next_screening_no(screenings: list) -> Optional[int]:
     return None
 
 
-def _empty_screening_entry(screening_no: int, date_str: str, nicu_day: int) -> dict:
+def _empty_screening_entry(
+    screening_no: int, date_str: str, nicu_day: int, dol: Any = "", pma: str = "",
+) -> dict:
     return {
         "screening_no": screening_no,
         "date": date_str,
-        "dol": "",
-        "pma": "",
+        "dol": dol,
+        "pma": pma,
         "method": "",
         "re_stage": "",
         "re_zone": "",
@@ -134,7 +168,7 @@ def maybe_remove_rop_screening_from_metab_log(
     enrollment_id: str,
     nicu_day: int,
 ) -> None:
-    """Remove auto-suggested Form G row when Helper #25 is cleared (mirror of append)."""
+    """Remove auto-suggested Form G row when Helper 5's ROP-detected flag is cleared (mirror of append)."""
     rop = (
         db.query(ROPScreening)
         .filter(ROPScreening.enrollment_id == enrollment_id)
@@ -172,7 +206,7 @@ def maybe_append_rop_screening_from_metab_log(
     nicu_day: int,
     rop_detected: Optional[bool],
 ) -> None:
-    """Append a Form G screening row when metab day log reports ROP detected."""
+    """Append a Form G screening row when the Helper 5 day log reports ROP detected."""
     if rop_detected is not True:
         return
 
@@ -202,7 +236,10 @@ def maybe_append_rop_screening_from_metab_log(
     if next_no is None:
         return
 
-    screenings.append(_empty_screening_entry(next_no, date_str, nicu_day))
+    dol, pma = calculate_dol_and_pma(
+        br.date_of_birth, detected_date, br.gestation_weeks, br.gestation_days,
+    )
+    screenings.append(_empty_screening_entry(next_no, date_str, nicu_day, dol, pma))
 
     if rop:
         rop.screenings = screenings
@@ -227,7 +264,7 @@ def sync_rop_screening_from_metab_log(
     nicu_day: int,
     rop_detected: Optional[bool],
 ) -> None:
-    """Helper Form 4 #25 ↔ Form G: append on Yes, drop empty auto-row on No/clear."""
+    """Helper 5 (day-log ROP-detected flag) ↔ Form G: append on Yes, drop empty auto-row on No/clear."""
     if rop_detected is True:
         maybe_append_rop_screening_from_metab_log(
             db, enrollment_id, nicu_day, True
