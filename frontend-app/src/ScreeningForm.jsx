@@ -23,6 +23,7 @@ import { useAuth } from "./context/AuthContext";
 import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd, normalizeDateTimeLocalString } from "./utils/datetime";
 import { resolveConsentSignatureFromRecord, resolvePiSignatureFromRecord } from "./utils/consentSignature";
 import { sanitizeScreeningCreatePayload } from "./utils/screeningPayload";
+import { printPatientPdf } from "./utils/printPatientPdf";
 
 /* ─── YesNoToggle — animated sliding segment ──────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false, eligibleWhen }) {
@@ -84,6 +85,13 @@ function MultiCheckbox({ options, selected = [], onChange, otherValue = "", onOt
     </div>
   );
 }
+
+/* Study inclusion window: 25 weeks 0 days – 31 weeks 6 days inclusive.
+   Direct GA entry (best_ga_weeks) and eligibility both use this. */
+const GA_MIN_WEEKS = 25;
+const GA_MAX_WEEKS = 31;
+const GA_MIN_TOTAL_DAYS = GA_MIN_WEEKS * 7;
+const GA_MAX_TOTAL_DAYS = GA_MAX_WEEKS * 7 + 6;
 
 /* ─── Blank form state ────────────────────────────────────── */
 const BLANK_FORM = {
@@ -637,8 +645,8 @@ export default function ScreeningForm() {
     if (weeks === null || isNaN(weeks)) return null;
     const t = weeks * 7 + days;
     /* Eligible window: 25w0d – 31w6d inclusive */
-    if (t < 25 * 7) return "low";
-    if (t > 31 * 7 + 6) return "high";
+    if (t < GA_MIN_TOTAL_DAYS) return "low";
+    if (t > GA_MAX_TOTAL_DAYS) return "high";
     return "eligible";
   };
   const eligibilityStatus     = getEligibilityStatus();
@@ -788,7 +796,9 @@ export default function ScreeningForm() {
     /* GA range validation */
     if (name === "best_ga_weeks") {
       const n = parseInt(value);
-      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be between 10 and 45 weeks" : "";
+      newErrors.best_ga_weeks = value && (n < GA_MIN_WEEKS || n > GA_MAX_WEEKS)
+        ? "Must be 25 weeks 0 days to 31 weeks 6 days"
+        : "";
       setErrors(newErrors);
     }
     if (name === "best_ga_days") {
@@ -817,7 +827,9 @@ export default function ScreeningForm() {
     const newErrors = { ...errors };
     if (name === "best_ga_weeks") {
       const n = parseInt(value);
-      newErrors.best_ga_weeks = value && (n < 10 || n > 45) ? "Must be between 10 and 45 weeks" : "";
+      newErrors.best_ga_weeks = value && (n < GA_MIN_WEEKS || n > GA_MAX_WEEKS)
+        ? "Must be 25 weeks 0 days to 31 weeks 6 days"
+        : "";
     }
     if (name === "best_ga_days") {
       const n = parseInt(value);
@@ -861,6 +873,11 @@ export default function ScreeningForm() {
     if (formData.gestation_known === "Yes") {
       if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0)
                                          add("Best estimate GA — weeks (A1)",      "best_ga_weeks");
+      else {
+        const n = parseInt(formData.best_ga_weeks, 10);
+        if (Number.isFinite(n) && (n < GA_MIN_WEEKS || n > GA_MAX_WEEKS))
+          add("Best estimate GA — weeks must be 25w0d–31w6d (A1)", "best_ga_weeks");
+      }
       if (formData.best_ga_days === "")  add("Best estimate GA — days (A1)",       "best_ga_days");
       if (!formData.gestation_method)    add("Method of gestation assessment (A1)","gestation_method");
       if (formData.gestation_method === "LMP" && !formData.lmp_date) add("LMP date (A1)", "lmp_date");
@@ -1351,7 +1368,7 @@ export default function ScreeningForm() {
                 <p className="form-main-subtitle">Eligibility Assessment · Fill for pregnant women 25 weeks 0 days to 31 weeks 6 days at admission</p>
               </div>
               <div className="form-header-meta-area">
-                {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
+                {isSaved && <button type="button" className="btn-print-form" onClick={() => printPatientPdf(formData.screening_id)}>🖨️ Print</button>}
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
@@ -1403,7 +1420,7 @@ export default function ScreeningForm() {
                     <div className="form-group">
                       <label>2. Best estimate gestational age — Weeks<span className="required">*</span></label>
                       <input type="number" name="best_ga_weeks" value={formData.best_ga_weeks}
-                        onChange={handleChange} min="10" max="45" placeholder="weeks"
+                        onChange={handleChange} min={GA_MIN_WEEKS} max={GA_MAX_WEEKS} placeholder="25–31 weeks"
                         disabled={!isFieldEditable}
                         className={errors.best_ga_weeks ? "input-error" : ""}/>
                       {errors.best_ga_weeks && <div className="field-error">{errors.best_ga_weeks}</div>}

@@ -17,6 +17,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import useFormSession from "./hooks/useFormSession";
 import { Home, User, Heart, Activity, Shield, AlertTriangle, Zap, Pencil } from "lucide-react";
 import FieldLogicBadge, { FieldLogicLegend } from "./components/FieldLogicBadge";
+import { printPatientPdf } from "./utils/printPatientPdf";
 
 const STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
@@ -1524,7 +1525,7 @@ export default function FormC() {
                 <p className="form-main-subtitle">Fill for randomized subjects only</p>
               </div>
               <div className="form-header-meta-area">
-                {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
+                {isSaved && <button type="button" className="btn-print-form" onClick={() => printPatientPdf(screeningIdForBack)}>🖨️ Print</button>}
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing?" editing-active":""}`}

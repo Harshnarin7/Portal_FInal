@@ -107,8 +107,8 @@ function EditScreening() {
     // Validation for gestation weeks/days
     if (name === "gestation_weeks") {
       const num = Number(value);
-      if (num < 20 || num > 50) {
-        setGestationError("Value must be between 20 and 50 weeks");
+      if (num < 25 || num > 31) {
+        setGestationError("Must be 25 weeks 0 days to 31 weeks 6 days");
       } else {
         setGestationError("");
       }
@@ -139,8 +139,8 @@ function EditScreening() {
     // Clamp numeric ranges
     let gestWeeks = Number(formData.gestation_weeks);
     let gestDays = Number(formData.gestation_days);
-    if (gestWeeks < 20) gestWeeks = 20;
-    if (gestWeeks > 50) gestWeeks = 50;
+    if (gestWeeks < 25) gestWeeks = 25;
+    if (gestWeeks > 31) gestWeeks = 31;
     if (gestDays < 0) gestDays = 0;
     if (gestDays > 6) gestDays = 6;
 
@@ -290,8 +290,8 @@ function EditScreening() {
               name="gestation_weeks"
               value={formData.gestation_weeks}
               onChange={handleChange}
-              min={20}
-              max={50}
+              min={25}
+              max={31}
             />
             {gestationError && <p className="error-text fancy-error">{gestationError}</p>}
           </div>

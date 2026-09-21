@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, Save, RefreshCw } from "lucide-react";
 import { calendarDateForNicuDay } from "./utils/datetime";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { parseRespAEntries, buildFio2AucRowsFromRespA } from "./utils/mmlRespASync";
+import { printPatientPdf } from "./utils/printPatientPdf";
 import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
@@ -194,7 +195,7 @@ export default function Fio2AUCForm() {
 
   /*  Patient identification  */
   const [patient, setPatient] = useState({
-    enrollment_id: "", dob: "", gestation: "", gestation_source: "", mother_name: "", maternal_uid: ""
+    enrollment_id: "", screening_id: "", dob: "", gestation: "", gestation_source: "", mother_name: "", maternal_uid: ""
   });
   // Raw ISO DOB (separate from `patient.dob`'s DD-MM-YYYY display string) —
   // needed to convert a NICU day number into the calendar date DMS is keyed
@@ -275,6 +276,7 @@ export default function Fio2AUCForm() {
       setPatient(p => ({
         ...p,
         enrollment_id: b?.enrollment_id || enrollmentId,
+        screening_id:  b?.screening_id || p.screening_id || "",
         dob:           formatDateDisplay(b?.date_of_birth) || p.dob,
         gestation:     g || p.gestation,
         gestation_source: gestSource,
@@ -794,7 +796,7 @@ export default function Fio2AUCForm() {
     const prevExpanded = days.map(d => d.expanded);
     setDays(prev => prev.map(d => ({ ...d, expanded: true })));
     setTimeout(() => {
-      window.print();
+      printPatientPdf(patient.screening_id);
       setDays(prev => prev.map((d, i) => ({ ...d, expanded: prevExpanded[i] })));
     }, 50);
   };

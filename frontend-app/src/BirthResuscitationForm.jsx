@@ -10,6 +10,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import NotesBox from "./components/NotesBox";
 import PrintSummaryB from "./components/PrintSummaryB";
+import { printPatientPdf } from "./utils/printPatientPdf";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly, normalizeClockTimeHms } from "./utils/datetime";
@@ -1728,7 +1729,7 @@ export default function BirthResuscitationForm() {
               </div>
               <div className="form-header-meta-area">
                 {isSaved && (
-                  <button type="button" className="btn-print-form" onClick={()=>window.print()}>
+                  <button type="button" className="btn-print-form" onClick={() => printPatientPdf(formData.screening_id)}>
                     <Ic d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" s={13}/> Print
                   </button>
                 )}

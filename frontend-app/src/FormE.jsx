@@ -13,6 +13,7 @@ import OfflineBanner from "./components/OfflineBanner";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { toDateOnlyValue, parseDateOnly, toDateTimeLocalValue } from "./utils/datetime";
 import { designationForCompletedBy } from "./utils/completedByDesignation";
+import { printPatientPdf } from "./utils/printPatientPdf";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Thermometer, Wind, CheckSquare, Truck,
@@ -512,6 +513,7 @@ export default function FormE() {
   const [isFormELoaded, setIsFormELoaded] = useState(false);
   const [roster, setRoster] = useState([]);
   const [rosterReady, setRosterReady] = useState(false);
+  const [pdfScreeningId, setPdfScreeningId] = useState("");
   const [isBirthLoaded, setIsBirthLoaded] = useState(false);
   const [hasFormERecord, setHasFormERecord] = useState(false);
   const isFieldEditable = !isSaved || isEditing;
@@ -637,6 +639,7 @@ export default function FormE() {
     setErrors({});
     setTouched({});
     setFormData(emptyFormE());
+    setPdfScreeningId("");
     resetInitialRender();
 
     /* ── Phase 1: identification from Form B (DOB/TOB drive age calc) ── */
@@ -652,6 +655,7 @@ export default function FormE() {
             screeningId = ownScreening.data?.screening_id;
           } catch (_) {}
         }
+        if (screeningId) setPdfScreeningId(screeningId);
         if (screeningId) {
           try {
             const piiRes = await api.get(`/pii/screening/${screeningId}`);
@@ -1111,7 +1115,7 @@ export default function FormE() {
                 <p className="form-main-subtitle">Fill only if enrolled subject required NICU admission</p>
               </div>
               <div className="form-header-meta-area">
-                {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
+                {isSaved && <button type="button" className="btn-print-form" onClick={() => printPatientPdf(pdfScreeningId)}>🖨️ Print</button>}
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}

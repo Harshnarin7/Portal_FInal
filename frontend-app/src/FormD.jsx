@@ -13,6 +13,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { designationForCompletedBy } from "./utils/completedByDesignation";
+import { printPatientPdf } from "./utils/printPatientPdf";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home,
@@ -349,6 +350,7 @@ export default function FormD() {
   const [isOnline,       setIsOnline]       = useState(navigator.onLine);
   const [roster, setRoster] = useState([]);
   const [rosterReady, setRosterReady] = useState(false);
+  const [pdfScreeningId, setPdfScreeningId] = useState("");
   const autoSaveTimer  = useRef(null);
   const firstErrRef = useRef(null);
 
@@ -511,6 +513,7 @@ export default function FormD() {
     setTouched({});
     setSubmitErrors([]);
     setFormData(emptyFormD());
+    setPdfScreeningId("");
     lastNonNbsMethodRef.current = "USG";
     formBGrowthRef.current = { growth_status: "", sga_centile: "" };
     lastAutoGrowthRef.current = null;
@@ -534,6 +537,7 @@ export default function FormD() {
             screeningId = ownScreening.data?.screening_id;
           } catch (_) {}
         }
+        if (screeningId) setPdfScreeningId(screeningId);
         let siteName = "";
         if (screeningId) {
           try {
@@ -1060,7 +1064,7 @@ export default function FormD() {
                 <p className="form-main-subtitle">Fill for randomized subjects</p>
               </div>
               <div className="form-header-meta-area">
-                {isSaved && <button type="button" className="btn-print-form" onClick={() => window.print()}>🖨️ Print</button>}
+                {isSaved && <button type="button" className="btn-print-form" onClick={() => printPatientPdf(pdfScreeningId)}>🖨️ Print</button>}
                 {isSaved && (
                   <button type="button"
                     className={`btn-edit-form-header${isEditing ? " editing-active" : ""}`}
