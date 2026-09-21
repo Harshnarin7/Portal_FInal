@@ -7,6 +7,7 @@ import "./styles/FormK.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { fallbackCompletedByDesignation as getDesignation } from "./utils/completedByDesignation";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -267,15 +268,6 @@ function calcPma(dob, mriDate, gestWeeks, gestDays) {
   const ga = (Number(gestWeeks) || 0) * 7 + (Number(gestDays) || 0);
   const total = ga + postnatal;
   return { weeks: Math.floor(total / 7), days: total % 7 };
-}
-
-function getDesignation(name) {
-  if (!name) return "";
-  const n = name.replace(/^Dr\.\s*/i, "").trim();
-  if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
-  return "Project Nurse III";
 }
 
 export default function FormK() {

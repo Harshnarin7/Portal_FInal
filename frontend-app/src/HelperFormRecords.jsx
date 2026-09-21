@@ -1,8 +1,8 @@
-// src/HelperFormRecords.jsx — PORTAL Trial Helper Form Records (Forms 1, 3 & 4)
+// src/HelperFormRecords.jsx — PORTAL Trial Helper Form Records (Helpers 2, 4 & 5)
 // Cross-patient daily-log work queue: today's work first, historical data
 // reachable without cluttering it. Mirrors ViewEntries.jsx's page shell.
-// A form switcher lets the same page/queue serve Helper Form 1 (Resp/CV/Neuro),
-// Helper Form 3 (Infect/GI/Hema), and Helper Form 4 (Metab/Renal/Vasc/Eye) —
+// A form switcher lets the same page/queue serve Helper 2 (Resp/CV/Neuro),
+// Helper 4 (Infect/GI/Hema), and Helper 5 (Metab/Renal/Vasc/Eye) —
 // each backed by its own /records + /records/latest-update API pair.
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";

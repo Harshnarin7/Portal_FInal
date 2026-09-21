@@ -11,6 +11,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
+import { designationForCompletedBy } from "./utils/completedByDesignation";
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS
@@ -24,16 +25,6 @@ const TREATMENT_TYPES = [
   { key: "Vitrectomy", label: "Vitrectomy" },
   { key: "Combination", label: "Combination" },
 ];
-
-const NURSES = [
-  "Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
-  "Tanvi Saini", "Yashvi Jolly", "Mannat Guliani", "Shalini Dhiman",
-];
-const getDesignation = (name) => {
-  if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  return name ? "Project Nurse III" : "";
-};
 
 const emptyScreening = (i) => ({
   screening_no: i + 1,
@@ -237,6 +228,21 @@ export default function FormG() {
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [ropReviewAlerts, setRopReviewAlerts] = useState([]);
   const [ropConsistency, setRopConsistency] = useState({ unreviewed_discrepancies: [] });
+  const [roster, setRoster] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/users/roster")
+      .then((res) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data.filter((r) => r && r.full_name) : [];
+        setRoster(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setRoster([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -412,8 +418,18 @@ export default function FormG() {
 
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
-    setFormData((prev) => ({ ...prev, completed_by: name, designation: getDesignation(name) }));
+    setFormData((prev) => ({
+      ...prev,
+      completed_by: name,
+      designation: designationForCompletedBy(name, roster),
+    }));
   };
+
+  const nurses = roster.map((r) => r.full_name);
+  const completedByOptions =
+    formData.completed_by && !nurses.includes(formData.completed_by)
+      ? [...nurses, formData.completed_by]
+      : nurses;
 
   /* ================= AUTO PMA-AT-TREATMENT (per eye) ================= */
   useEffect(() => {
@@ -936,7 +952,7 @@ export default function FormG() {
                 <label className="rop-label">Completed By <span className="rop-req">*</span></label>
                 <select className="rop-select" name="completed_by" value={formData.completed_by || ""} onChange={handleCompletedByChange} required>
                   <option value="">Select…</option>
-                  {NURSES.map((n) => <option key={n} value={n}>{n}</option>)}
+                  {completedByOptions.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <div className="rop-field">

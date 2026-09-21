@@ -157,7 +157,7 @@ const asInteger = v => v === "" || v === null || v === undefined ? null : parseI
 
 const SEVERE_DESAT_EXCEEDS_MSG = "Severe desaturations can't exceed total desaturation episodes";
 
-/** Same soft ranges as Helper 1 (RespCVNeuroLog) blood gas fields #8–#10. */
+/** Same soft ranges as Helper 2 (RespCVNeuroLog) blood gas fields #8–#10. */
 function mmlValidatePh(value) {
   if (value === "" || value == null) return null;
   const num = Number(value);
@@ -401,26 +401,10 @@ function entriesForPersist(entries) {
   return out;
 }
 
-/** On explicit Save: turn filled draft rows into saved readings (new blank draft appended). */
-function commitFilledDraftRows(entries, sheetDateYmd) {
-  const next = { ...entries };
-  let changed = false;
-  Object.keys(next).forEach(blockKey => {
-    const list = [...(next[blockKey] || [])];
-    if (list.length === 0) return;
-    const draftIdx = list.length - 1;
-    if (!hasEntryData(list[draftIdx])) return;
-    const template = emptyEntries()[blockKey]?.[0];
-    if (!template) return;
-    const fieldDefaults = { ...template };
-    delete fieldDefaults.id;
-    delete fieldDefaults.date;
-    delete fieldDefaults.time;
-    list.push(freshEntry(fieldDefaults, sheetDateYmd));
-    next[blockKey] = list;
-    changed = true;
-  });
-  return changed ? next : entries;
+/** Save used to append a blank draft (parked the filled row in history).
+ *  Keep the filled row on the form; "Log another reading" still appends. */
+function commitFilledDraftRows(entries, _sheetDateYmd) {
+  return entries;
 }
 
 /** After load: every block ends with an empty draft row for new readings. */
@@ -1446,7 +1430,7 @@ function EntryBlock({
     || tableFieldsForBlock(blockKey).some(f => fieldErr(idx, f.key));
   const draftIdx = entries.length - 1;
   const draft = entries[draftIdx] || {};
-  /** Saved readings only — the open draft appears after Save or "Log another reading". */
+  /** Prior readings. The last row stays in the form; Save keeps it there. */
   const tableRows = entries
     .map((entry, idx) => ({ entry, idx, isDraft: false }))
     .filter(({ entry, idx }) => hasEntryData(entry) && idx !== draftIdx);
@@ -1472,7 +1456,7 @@ function EntryBlock({
       <div className="mml-entry mml-entry--draft">
         <div className="mml-entry-head">
           <div className="mml-entry-meta">
-            <span className="mml-draft-badge">New reading</span>
+            <span className="mml-draft-badge">{hasEntryData(draft) ? "Current reading" : "New reading"}</span>
             <label className="mml-meta-field">
               <span className="mml-meta-label">
                 <span>Date</span>
@@ -2054,6 +2038,9 @@ export default function MinimalMonitoringLog() {
       sheetDateRef.current = savedDate;
       rememberMmlSheetDate(enrollmentId, savedDate);
       dirtyRef.current = false;
+      if (res?.data) {
+        setEntries(ensureTrailingDraftRows(hydrateEntries(res.data), savedDate));
+      }
       // Keep the sidebar tick in sync with the *current* state, not just
       // whether it was ever true — a reading added then deleted before the
       // next save must un-tick the helper, not leave it stuck complete.
@@ -2061,8 +2048,8 @@ export default function MinimalMonitoringLog() {
       if (progress.done > 0) markFormCompleted("minimal_monitoring");
       else unmarkFormCompleted("minimal_monitoring");
       if (!silent) {
-        setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)})`);
-        setTimeout(() => setMessage(""), 3000);
+        setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)}). This reading stays on the form — use Log another reading to start a new one.`);
+        setTimeout(() => setMessage(""), 5000);
       }
       markMmlRespDirtyForHelper(enrollmentId, savedDate);
       window.dispatchEvent(
@@ -2245,12 +2232,19 @@ export default function MinimalMonitoringLog() {
                   <PillMulti options={["NC", "HFNC", "CPAP", "NIPPV", "SIMV", "A/C", "PSV", "HFOV"]}
                     value={e.respiratory_modes || []}
                     onChange={(v) => {
+                      const prevMode = getMapCpapMode(e.respiratory_modes || []);
+                      const nextMode = getMapCpapMode(v);
                       setEntryField("resp_a", i, "respiratory_modes", v);
-                      const mode = getMapCpapMode(v);
-                      if (mode === "NA") {
+                      if (prevMode === "CPAP" && nextMode === "BOTH") {
+                        setEntryField("resp_a", i, "max_map_cpap_secondary", e.max_map_cpap || "");
+                        setEntryField("resp_a", i, "max_map_cpap", "");
+                      } else if (prevMode === "BOTH" && nextMode === "CPAP") {
+                        setEntryField("resp_a", i, "max_map_cpap", e.max_map_cpap_secondary || "");
+                        setEntryField("resp_a", i, "max_map_cpap_secondary", "");
+                      } else if (nextMode === "NA") {
                         setEntryField("resp_a", i, "max_map_cpap", "");
                         setEntryField("resp_a", i, "max_map_cpap_secondary", "");
-                      } else if (mode !== "BOTH") {
+                      } else if (nextMode !== "BOTH") {
                         setEntryField("resp_a", i, "max_map_cpap_secondary", "");
                       }
                     }}
@@ -2546,7 +2540,7 @@ export default function MinimalMonitoringLog() {
         <div className="rcn-patient-header">
           <div className="rcn-patient-header-title">
             <div className="rcn-patient-header-badge">DAILY MONITORING SHEET (DMS)</div>
-            <h2 className="rcn-patient-header-form-name">Minimal Monitoring</h2>
+            <h2 className="rcn-patient-header-form-name">Daily Monitoring Sheet</h2>
             <p className="rcn-patient-header-subtitle">
               Same-day scratchpad — jot spot values as they occur, then copy into the CRF helpers
             </p>

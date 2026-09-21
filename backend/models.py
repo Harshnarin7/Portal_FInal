@@ -1964,7 +1964,7 @@ class MetabRenalVascEyeDayLog(Base):
     lowest_glucose         = Column(String,  nullable=True)  # mg/dL, if <45     #1
     hypoglycemia_episodes  = Column(String,  nullable=True)  # count             #2
     hypoglycemia_rx        = Column(Boolean, nullable=True)                      # 3
-    highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >180    #4
+    highest_glucose        = Column(String,  nullable=True)  # mg/dL, if >125    #4
     insulin                = Column(Boolean, nullable=True)  # Hyperglycemia Rx  #5
     metabolic_acidosis     = Column(Boolean, nullable=True)  # pH<7.2            #6 (derived from ph_readings_json)
     metabolic_acidosis_status = Column(String, nullable=True)  # "Not Recorded / Not Done" (blood gas not done)

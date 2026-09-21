@@ -7,6 +7,7 @@ import "./styles/FormComponents.css";
 import "./styles/FormH.css";
 import { usePatient } from "./context/PatientContext";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
+import { designationForCompletedBy } from "./utils/completedByDesignation";
 import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -4898,7 +4899,7 @@ const completedByOptions = formData.completed_by && !nurses.includes(formData.co
   ? [...nurses, formData.completed_by]
   : nurses;
 
-const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
+const getDesignation = (name) => designationForCompletedBy(name, roster);
 
 const handleCompletedByChange = (e) => {
   const name = e.target.value;

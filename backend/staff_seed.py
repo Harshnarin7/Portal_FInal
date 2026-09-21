@@ -37,7 +37,7 @@ DEFAULT_SITE_STAFF: dict[str, list[str]] = {
         "S. Keerthana",
         "Dr. Sobhana",
     ],
-    "AFMC": ["Mannat Guliani", "Shalini Dhiman"],  # no staff listed in source PDF yet
+    "AFMC": [],  # no staff listed in source PDF yet; Mannat is PGIMER-only
     "GMCH-A": [
         "Ankita Balu Kasbe",
         "Nandini Ratan Borde",

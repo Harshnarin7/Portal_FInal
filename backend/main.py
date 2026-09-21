@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
+﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -45,6 +45,11 @@ from mml_resp_a_autofill import (
 from mml_helper5_autofill import (
     compute_helper5_day_autofill,
     overlay_helper5_day_from_mml,
+)
+from concurrent_writes import (
+    assert_fresh_write,
+    merge_fio2_logs,
+    merge_mml_entries_json,
 )
 from models import (
     Screening, BirthResuscitation, MaternalDetails, PostnatalDay1,
@@ -539,9 +544,10 @@ def list_site_roster(
     """Site-scoped "Completed by" names + designations.
 
     Any authenticated user (not superadmin-only). Returns active accounts
-    with a full_name at the caller's site. Users with no site_name follow
-    the NULL = global convention and see every site's named staff.
-    Superadmin accounts are never listed as completers.
+    with a full_name at the caller's site. Callers with no site_name
+    (nodal scientist / some admins) see every site's named staff.
+    Superadmin accounts are never listed as completers. The nodal
+    scientist (site_name NULL) appears on PGIMER's list only.
     """
     query = (
         db.query(User)
@@ -553,15 +559,17 @@ def list_site_roster(
         )
     )
     if current_user.site_name:
-        # Own site only — plus nodal/global accounts (site_name IS NULL)
-        # so PGIMER still sees Mannat Guliani the way the hardcoded list did.
-        # Other sites' named staff are never included.
-        query = query.filter(
-            or_(
-                User.site_name == current_user.site_name,
-                User.site_name.is_(None),
+        # Own site only. Mannat Guliani (nodal, site_name NULL) is listed
+        # at PGIMER only — not at GMCH-A / GMCH / AMC / IOG / AFMC.
+        if current_user.site_name == "PGIMER":
+            query = query.filter(
+                or_(
+                    User.site_name == "PGIMER",
+                    User.site_name.is_(None),
+                )
             )
-        )
+        else:
+            query = query.filter(User.site_name == current_user.site_name)
     query = query.order_by(User.full_name)
     return [{"full_name": u.full_name, "designation": u.designation} for u in query.all()]
 
@@ -2190,8 +2198,8 @@ def get_metabolic_prefill(
     Helper 5's storage convention exactly) and a corrected hyperglycemia
     cutoff of >125 mg/dL — NOT the CRF document's currently-written >180,
     which the PI has confirmed is a documentation error being corrected
-    separately; Helper 5's own existing >180-filtered data is untouched
-    by this change and still folds into the same combined pool.
+    separately. Helper 5 uses the same >125 cutoff so a day log and Form H
+    flag the same reading.
 
     ALP peak / lowest total Ca / lowest phosphorus (#113-115, osteopenia
     lab values) are new here — Helper 5 has never had a source for these
@@ -2408,7 +2416,7 @@ def get_renal_prefill(
 
 
 # Product label as stored in Minimal Monitoring 5.6.A `heme_a.transfusion_products`
-# → Form H *_number key prefix / Helper 3 boolean column.
+# → Form H *_number key prefix / Helper 4 boolean column.
 _MML_HEME_PRODUCTS = (
     ("PRBC", "prbc", "prbc_transfusion"),
     ("Platelets", "platelet", "platelet_transfusion"),
@@ -2467,9 +2475,10 @@ def _sum_minimal_monitoring_transfusions(db, enrollment_id):
     """Sums 5.6.A `heme_a.transfusion_count` across every Minimal
     Monitoring day row for this enrollment, per product.
 
-    A single entry's count is added in full to every selected product
-    (PRBC / Platelets / FFP/Cryo) — the data shape does not split one
-    count across products. Rows with no entries_json contribute nothing:
+    A single entry's count is split evenly across the selected products
+    (PRBC / Platelets / FFP/Cryo). One product with count 2 contributes 2
+    to that product; PRBC + platelets with count 2 contributes 1 each.
+    Rows with no entries_json contribute nothing:
     MinimalMonitoringDayLog has only combined `transfusion_products` /
     `transfusion_count` columns, not per-product legacy fields to fall
     back to (unlike fluid_bolus_given)."""
@@ -2490,10 +2499,15 @@ def _sum_minimal_monitoring_transfusions(db, enrollment_id):
             if count is None:
                 continue
             products = _mml_product_list(entry.get("transfusion_products"))
-            for label, key, _field in _MML_HEME_PRODUCTS:
-                if label in products:
-                    totals[key] += count
-                    found[key] = True
+            selected = [
+                key for label, key, _field in _MML_HEME_PRODUCTS if label in products
+            ]
+            if not selected:
+                continue
+            share = count / len(selected)
+            for key in selected:
+                totals[key] += share
+                found[key] = True
     return (
         _format_mml_count(totals["prbc"], found["prbc"]),
         _format_mml_count(totals["platelet"], found["platelet"]),
@@ -2504,15 +2518,15 @@ def _sum_minimal_monitoring_transfusions(db, enrollment_id):
 def _sync_helper3_transfusions_from_minimal_monitoring(
     db, enrollment_id, record_date, entries_json
 ):
-    """After a Minimal Monitoring save, set Helper 3's same-calendar-day
+    """After a Daily Monitoring Sheet save, set Helper 4's same-calendar-day
     transfusion Yes/No fields to True when 5.6.A selected those products.
 
     Only ever sets True (or creates a sparse day row). Never writes
-    False/None. If Helper 3 already has an explicit False, leave it —
+    False/None. If Helper 4 already has an explicit False, leave it —
     that disagreement is intentionally not auto-resolved here (same class
     of conflict as the CV/Metabolic/ROP stale flags); a future
     InfectGIHemaLog.jsx task can surface it as a stale-style warning.
-    Submitted/locked Helper 3 days are skipped unless a superadmin
+    Submitted/locked Helper 4 days are skipped unless a superadmin
     override is currently active."""
     present = set()
     for entry in _mml_heme_a_entries(entries_json):
@@ -2572,7 +2586,7 @@ def _sync_helper3_transfusions_from_minimal_monitoring(
         if current is True:
             continue
         if current is False:
-            # Explicit Helper 3 "No" vs Minimal Monitoring product on the
+            # Explicit Helper 4 "No" vs Daily Monitoring Sheet product on the
             # same day — do not silently flip to True. Intentionally not
             # auto-resolved; a future InfectGIHemaLog.jsx task can surface
             # this as a stale-style warning on fields 28-30.
@@ -2604,9 +2618,9 @@ def get_heme_prefill(
       as Metabolic's hypoglycemia_rx_duration.
     - prbc_number / platelet_number / ffp_number: summed
       transfusion_count values from Minimal Monitoring 5.6.A (`heme_a`
-      in entries_json) across every MM day row. An entry's count is added
-      in full to each selected product. None when no matching numeric
-      entries exist (not a day-count of Helper 3 booleans).
+      in entries_json) across every MM day row. An entry's count is split
+      evenly across the selected products. None when no matching numeric
+      entries exist (not a day-count of Helper 4 booleans).
     - jaundice_onset: earliest NICU day jaundice was true, converted to a
       calendar date via NICUAdmission.day1_date — same pattern as Renal's
       aki_date, only returned when day1_date has been set.
@@ -3644,7 +3658,7 @@ def get_resp_prefill(
       dedicated design pass rather than being folded in here.
     - oxygen_exposure ("Integrated Oxygen Exposure"): this appears to
       correspond to FiO2 AUC data captured in a completely different
-      helper form (fio2_auc_logs / Helper 1), outside the 3 day-log
+      helper form (fio2_auc_logs / Helper 3), outside the 3 day-log
       tables this whole auto-fill project has used — not pulled in here.
     - pneumothorax_side: no laterality in the day log.
     - rx_sildenafil/rx_ino/rx_miliri/rx_vaso/rx_other(_text): no
@@ -4654,10 +4668,12 @@ def create_fio2_auc(
     if not record:
         record = FiO2AUC(enrollment_id=data.enrollment_id)
         db.add(record)
+        record.fio2_logs = data.fio2_logs
+    else:
+        record.fio2_logs = merge_fio2_logs(record.fio2_logs, data.fio2_logs)
     record.total_auc = data.total_auc
     record.mean_daily_fio2 = data.mean_daily_fio2
     record.excess_o2_auc = data.excess_o2_auc
-    record.fio2_logs = data.fio2_logs
     db.commit()
     db.refresh(record)
     return record
@@ -4694,10 +4710,12 @@ def update_fio2_auc(
     if not record:
         record = FiO2AUC(enrollment_id=enrollment_id)
         db.add(record)
+        record.fio2_logs = data.fio2_logs
+    else:
+        record.fio2_logs = merge_fio2_logs(record.fio2_logs, data.fio2_logs)
     record.total_auc       = data.total_auc
     record.mean_daily_fio2 = data.mean_daily_fio2
     record.excess_o2_auc   = data.excess_o2_auc
-    record.fio2_logs       = data.fio2_logs
     db.commit()
     db.refresh(record)
     return record
@@ -6074,7 +6092,7 @@ def get_resp_cv_neuro_day(
 
 
 def _mml_helper1_resp_b_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
-    """5.2.B blood gas aggregates for Helper 1 #8–#10 on a calendar date."""
+    """5.2.B blood gas aggregates for Helper 2 #8–#10 on a calendar date."""
     on_row = (
         db.query(MinimalMonitoringDayLog)
         .filter(
@@ -6102,7 +6120,7 @@ def _mml_helper1_resp_b_autofill(db: Session, enrollment_id: str, calendar_ymd: 
 
 
 def _mml_helper1_resp_c_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
-    """5.2.C episode sums for Helper 1 #13–#15 on a calendar date."""
+    """5.2.C episode sums for Helper 2 #13–#15 on a calendar date."""
     on_row = (
         db.query(MinimalMonitoringDayLog)
         .filter(
@@ -6130,7 +6148,7 @@ def _mml_helper1_resp_c_autofill(db: Session, enrollment_id: str, calendar_ymd: 
 
 
 def _mml_helper1_resp_autofill(db: Session, enrollment_id: str, calendar_ymd: str) -> dict:
-    """5.2.A aggregates for Helper 1 #3–#5 on a calendar date."""
+    """5.2.A aggregates for Helper 2 #3–#5 on a calendar date."""
     on_row = (
         db.query(MinimalMonitoringDayLog)
         .filter(
@@ -6197,6 +6215,7 @@ def _mml_helper1_list_field_autofill(
 @app.post("/resp-cv-neuro/")
 def create_resp_cv_neuro_day(
     data:         RespCVNeuroDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db:           Session = Depends(get_db),
     current_user: User    = Depends(get_current_user),
 ):
@@ -6212,6 +6231,7 @@ def create_resp_cv_neuro_day(
         .first()
     )
     if existing:
+        assert_fresh_write(existing.updated_at, expected_updated_at)
         # Update instead of creating duplicate
         for key, value in data.model_dump(exclude_unset=True).items():
             if hasattr(existing, key):
@@ -6233,6 +6253,7 @@ def update_resp_cv_neuro_day(
     enrollment_id: str,
     nicu_day:      int,
     data:          RespCVNeuroDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db:            Session = Depends(get_db),
     current_user:  User    = Depends(get_current_user),
 ):
@@ -6254,6 +6275,8 @@ def update_resp_cv_neuro_day(
     override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
     if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
+
+    assert_fresh_write(record.updated_at, expected_updated_at)
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
@@ -6611,6 +6634,7 @@ def get_infect_gi_hema_day(
 @app.post("/infect-gi-hema/")
 def create_infect_gi_hema_day(
     data:         InfectGIHemaDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db:           Session = Depends(get_db),
     current_user: User    = Depends(get_current_user),
 ):
@@ -6625,6 +6649,7 @@ def create_infect_gi_hema_day(
         .first()
     )
     if existing:
+        assert_fresh_write(existing.updated_at, expected_updated_at)
         for key, value in data.model_dump(exclude_unset=True).items():
             if hasattr(existing, key):
                 setattr(existing, key, value)
@@ -6645,6 +6670,7 @@ def update_infect_gi_hema_day(
     enrollment_id: str,
     nicu_day:      int,
     data:          InfectGIHemaDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db:            Session = Depends(get_db),
     current_user:  User    = Depends(get_current_user),
 ):
@@ -6664,6 +6690,8 @@ def update_infect_gi_hema_day(
     override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
     if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
+
+    assert_fresh_write(record.updated_at, expected_updated_at)
 
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id", "nicu_day"):
@@ -6744,7 +6772,7 @@ def _metab_completion_pct(r) -> int:
         if v is None or v == "" or v in ("Not Tested", "Not High", "Not Low", "Result Awaited", "Not Recorded / Not Done"):
             return False
         try:
-            return float(v) > 180
+            return float(v) > 125
         except (TypeError, ValueError):
             return False
 
@@ -6912,6 +6940,7 @@ def get_metab_renal_vasc_eye_day(
 @app.post("/metab-renal-vasc-eye/")
 def create_metab_renal_vasc_eye_day(
     data: MetabRenalVascEyeDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -6921,6 +6950,7 @@ def create_metab_renal_vasc_eye_day(
         MetabRenalVascEyeDayLog.nicu_day      == data.nicu_day,
     ).first()
     if existing:
+        assert_fresh_write(existing.updated_at, expected_updated_at)
         for key, value in data.model_dump(exclude_unset=True).items():
             if hasattr(existing, key): setattr(existing, key, value)
         sync_rop_screening_from_metab_log(
@@ -6940,6 +6970,7 @@ def create_metab_renal_vasc_eye_day(
 def update_metab_renal_vasc_eye_day(
     enrollment_id: str, nicu_day: int,
     data: MetabRenalVascEyeDayCreate,
+    expected_updated_at: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -6955,6 +6986,7 @@ def update_metab_renal_vasc_eye_day(
     override_active = record.override_unlocked_until and record.override_unlocked_until > datetime.utcnow()
     if record.submission_status == "submitted" and not override_active:
         raise HTTPException(status_code=403, detail="Day is submitted and locked")
+    assert_fresh_write(record.updated_at, expected_updated_at)
     for key, value in data.model_dump(exclude_unset=True).items():
         if hasattr(record, key) and key not in ("enrollment_id","nicu_day"):
             setattr(record, key, value)
@@ -7109,7 +7141,7 @@ def get_minimal_monitoring_helper1_resp_autofill(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Daily 5.2.A union/maxima for Helper 1 respiratory #3–#5 (calendar date)."""
+    """Daily 5.2.A union/maxima for Helper 2 respiratory #3–#5 (calendar date)."""
     require_enrollment_access(enrollment_id, db, current_user)
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", on_date or ""):
         raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
@@ -7229,6 +7261,10 @@ def _upsert_minimal_monitoring_for_date(
         .first()
     )
     if record:
+        if "entries_json" in payload:
+            payload["entries_json"] = merge_mml_entries_json(
+                record.entries_json, payload.get("entries_json"),
+            )
         for key, value in payload.items():
             if key == "enrollment_id":
                 continue

@@ -8,6 +8,7 @@ import "./styles/FormY.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { fallbackCompletedByDesignation as getDesignation } from "./utils/completedByDesignation";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
@@ -248,15 +249,6 @@ function buildPayload(data) {
     investigator_date: emptyToNull(data.investigator_date),
     site: emptyToNull(data.site),
   };
-}
-
-function getDesignation(name) {
-  if (!name) return "";
-  const n = name.replace(/^Dr\.\s*/i, "").trim();
-  if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
-  return "Project Nurse III";
 }
 
 function DateField({ value, onChange, disabled = false }) {

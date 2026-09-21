@@ -22,6 +22,7 @@ import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { mmlSyncAggregateFieldFromMml } from "./utils/mmlHelperSync";
 import { rememberActiveDay, HELPER_SESSION_KEY_INFECT_GI_HEMA } from "./utils/helperSession";
+import { expectedUpdatedAtConfig, isStaleWrite, STALE_WRITE_MESSAGE } from "./utils/staleWrite";
 import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
@@ -827,6 +828,8 @@ export default function InfectGIHemaLog() {
   const [dayMeta, setDayMeta]             = useState({});
   const [dischargeDay, setDischargeDay]   = useState(null);
   const [isSaved, setIsSaved]             = useState(false);
+  const [dayReloadNonce, setDayReloadNonce] = useState(0);
+  const loadedUpdatedAtRef = useRef(null);
   const [isEditing, setIsEditing]         = useState(false);
   const [message, setMessage]             = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -1076,7 +1079,7 @@ export default function InfectGIHemaLog() {
           cumulative_feed_volume: sync.nextValue === "" ? null : sync.nextValue,
         };
       });
-    } catch (_) { /* Helper 5 optional */ }
+    } catch (_) { /* DMS optional */ }
   };
 
   /** Fill-if-blank only (no *_status sidecar exists for feed_type, and
@@ -1099,7 +1102,7 @@ export default function InfectGIHemaLog() {
         setIsEditing(true);
         return { ...p, feed_type: types };
       });
-    } catch (_) { /* Helper 5 optional */ }
+    } catch (_) { /* DMS optional */ }
   };
 
   /** #15 Feed Volume (ml/kg/d) = #14 Cumulative Feed Volume ÷ an effective
@@ -1207,7 +1210,7 @@ export default function InfectGIHemaLog() {
         setHemaTransfusionAutofilled(afNext);
         setIsEditing(true);
       }
-    } catch (_) { /* Helper 5 optional */ }
+    } catch (_) { /* DMS optional */ }
   };
 
   const applyMmlAutofillFromHelper5 = async (recordDate = activeDayDate) => {
@@ -1523,6 +1526,7 @@ export default function InfectGIHemaLog() {
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
+          loadedUpdatedAtRef.current = d.updated_at || null;
           setIsSaved(true);
           const overrideStillActive =
             !!d.override_unlocked_until && parseUtcTimestamp(d.override_unlocked_until) > new Date();
@@ -1547,7 +1551,7 @@ export default function InfectGIHemaLog() {
     };
     loadDay();
     return () => { cancelled = true; };
-  }, [enrollmentId, activeDay, day1Date]);
+  }, [enrollmentId, activeDay, day1Date, dayReloadNonce]);
 
   useEffect(() => {
     if (!enrollmentId || !activeDayDate || loading) return;
@@ -1584,6 +1588,7 @@ export default function InfectGIHemaLog() {
   }, [enrollmentId, activeDay, activeDayDate, loading, isSubmitted, isOverrideActiveDay, isFutureActiveDay, birthWeightGrams]);
 
   const resetFormState = () => {
+    loadedUpdatedAtRef.current = null;
     setInfData({ sepsis_suspected: null, blood_culture_sent: null, blood_culture_positive: null,
       blood_culture_status: null,
       antibiotics: null, lp_done: null, meningitis: null, meningitis_type: null,
@@ -1645,14 +1650,16 @@ export default function InfectGIHemaLog() {
     const now = new Date().toISOString();
     const payload = { ...getPayload(), saved_at: now };
     try {
-      isSaved
-        ? await api.put(`/infect-gi-hema/${enrollmentId}/${activeDay}`, payload)
-        : await api.post("/infect-gi-hema/", payload);
+      const staleCfg = expectedUpdatedAtConfig(loadedUpdatedAtRef.current);
+      const res = isSaved
+        ? await api.put(`/infect-gi-hema/${enrollmentId}/${activeDay}`, payload, staleCfg)
+        : await api.post("/infect-gi-hema/", payload, staleCfg);
       // Keep the sidebar tick in sync with the *current* state, not just
       // whether it was ever true — data added then deleted before the
       // next save must un-tick the helper, not leave it stuck complete.
       if (completionPct > 0) markFormCompleted("infect_gi_hema");
       else unmarkFormCompleted("infect_gi_hema");
+      loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
@@ -1664,8 +1671,15 @@ export default function InfectGIHemaLog() {
       setMessage("✅ Day " + activeDay + " saved successfully");
       setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);
+      return true;
     } catch (err) {
+      if (isStaleWrite(err)) {
+        setMessage(STALE_WRITE_MESSAGE);
+        setDayReloadNonce(n => n + 1);
+        return false;
+      }
       setMessage("❌ Error saving — please try again");
+      return false;
     }
   };
 
@@ -1673,7 +1687,8 @@ export default function InfectGIHemaLog() {
     if (d === activeDay) return;
     if (isFieldEditable && completionPct > 0) {
       try {
-        await handleSave();
+        const ok = await handleSave();
+        if (ok === false) return;
       } catch (err) {
         console.error("Save before day change failed:", err);
         return;

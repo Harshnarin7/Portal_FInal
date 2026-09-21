@@ -599,8 +599,8 @@ def detect_metab_renal_vasc_eye_candidates(logs, day1_date=None):
         out.append(_episode(
             "hyperglycemia", grade, days,
             f"Highest glucose {worst:g} mg/dL across {len(hyper)} day(s). "
-            "Note: this day log only captures a glucose reading above 180 mg/dL, "
-            "not the document's 150 mg/dL threshold — values 151-180 would not appear here."
+            "Note: Helper 5 stores a glucose reading above 125 mg/dL "
+            "(PI-confirmed cutoff; CRF text >180 was a documentation error)."
         ))
 
     # --- Hypothermia / Hyperthermia (Thermoregulation) ---

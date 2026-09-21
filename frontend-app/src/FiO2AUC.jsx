@@ -201,14 +201,14 @@ export default function Fio2AUCForm() {
   // by, same as RespCVNeuroLog's own day1Date usage.
   const [day1Date, setDay1Date] = useState("");
 
-  /*  Per-day state — built from Helper 1 Supplemental O₂=Yes days (not a fixed 1–7) */
+  /*  Per-day state — built from Helper 2 Supplemental O₂=Yes days (not a fixed 1–7) */
   const [days, setDays] = useState([]);
   const [daysLoading, setDaysLoading] = useState(false);
   const [helper2Refreshing, setHelper2Refreshing] = useState(false);
   const [dmsPrefillingDay, setDmsPrefillingDay] = useState(null);
-  // Persistent (not auto-dismissed) — set whenever the Helper 1 sync fetch
+  // Persistent (not auto-dismissed) — set whenever the Helper 2 sync fetch
   // itself fails, so a real load failure is never visually identical to
-  // "Helper 1 legitimately has no Supplemental O₂ days yet".
+  // "Helper 2 legitimately has no Supplemental O₂ days yet".
   const [helper2SyncError, setHelper2SyncError] = useState(null);
 
   /*  UI state  */
@@ -286,8 +286,8 @@ export default function Fio2AUCForm() {
   }, [enrollmentId]);
 
   /**
-   * Build day-cards from Helper 1 Supplemental O₂=Yes days, unioned with any days
-   * that already have saved/local FiO2 data (so Helper 1 corrections never
+   * Build day-cards from Helper 2 Supplemental O₂=Yes days, unioned with any days
+   * that already have saved/local FiO2 data (so Helper 2 corrections never
    * silently drop entered AUC values). No 7-day cap.
    */
   const syncDaysFromHelper2 = useCallback(async ({ preserveLocal = true, showToast = false } = {}) => {
@@ -318,7 +318,7 @@ export default function Fio2AUCForm() {
       // Keep server logs for merge-on-save so days not currently shown aren't wiped.
       lastServerLogsRef.current = logs.map(l => ({ ...l }));
 
-      // Union Helper 1 Supplemental O₂=Yes days with any day that already has FiO₂
+      // Union Helper 2 Supplemental O₂=Yes days with any day that already has FiO₂
       const dayNumsSet = new Set(oxygenDays);
       for (const l of logs) {
         const entries = Array.isArray(l?.entries) ? l.entries : [];
@@ -362,7 +362,7 @@ export default function Fio2AUCForm() {
         setTimeout(() => setMessage(""), 3500);
       }
     } catch (err) {
-      console.log("Error syncing FiO2 days from Helper 1", err);
+      console.log("Error syncing FiO2 days from Helper 2", err);
       // Persistent banner — shown regardless of showToast, so a failed
       // background load on page mount doesn't masquerade as "no
       // Supplemental O₂ days yet". Stays up until a retry succeeds.
@@ -380,7 +380,7 @@ export default function Fio2AUCForm() {
     }
   }, [enrollmentId]);
 
-  /*  Initial load: Helper 1 Supplemental O₂ days + saved FiO2 AUC  */
+  /*  Initial load: Helper 2 Supplemental O₂ days + saved FiO2 AUC  */
   useEffect(() => {
     syncDaysFromHelper2({ preserveLocal: false, showToast: false });
   }, [syncDaysFromHelper2]);
@@ -950,7 +950,7 @@ export default function Fio2AUCForm() {
             const done  = Math.abs(h1 - 12) < 0.01 && Math.abs(h2 - 12) < 0.01
               && windowHasFio2(d.w1) && windowHasFio2(d.w2);
 
-            // Listed days are Helper 1 Supplemental O₂ = Yes (union saved FiO₂).
+            // Listed days are Helper 2 Supplemental O₂ = Yes (union saved FiO₂).
             // Each is independently editable — do not lock Day N until Day N−1 is complete.
             const isLocked = false;
 

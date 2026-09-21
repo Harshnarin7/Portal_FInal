@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 PRESSURE_MODES = frozenset({"NIPPV", "SIMV", "AC", "A/C", "PSV", "HFOV"})
 LOW_FLOW_MODES = frozenset({"NC", "HFNC"})
+INVASIVE_ETT_MODES = frozenset({"SIMV", "AC", "PSV", "HFOV"})
 
 
 def _normalize_ymd(raw: Any) -> Optional[str]:
@@ -258,6 +259,9 @@ def overlay_resp_cv_day_from_autofill(record, autofill: Dict[str, Any]) -> None:
     if modes:
         record.support_modes = ", ".join(modes)
         record.respiratory_support = True
+        norm_modes = {("AC" if m == "A/C" else m) for m in modes}
+        if norm_modes & INVASIVE_ETT_MODES:
+            record.endotracheal_intubation = True
 
     def set_float_field(field: str, val: Any, blocked: bool) -> None:
         if blocked or val is None or val == "":
@@ -416,7 +420,7 @@ def autofill_resp_c_from_mml_rows(
 
 
 def overlay_resp_cv_episodes_from_mml(record, episode_autofill: Dict[str, Any]) -> None:
-    """In-memory overlay on GET — MML 5.2.C daily sums for Helper 1 #13–#15."""
+    """In-memory overlay on GET — DMS 5.2.C daily sums for Helper 2 #13–#15."""
     if not episode_autofill.get("has_rows"):
         return
 
@@ -547,7 +551,7 @@ def _range_not_recorded(val: Any) -> bool:
 
 
 def overlay_resp_cv_blood_gas_from_mml(record, blood_gas: Dict[str, Any]) -> None:
-    """In-memory overlay on GET — MML 5.2.B for Helper 1 #8–#10."""
+    """In-memory overlay on GET — DMS 5.2.B for Helper 2 #8–#10."""
     if not blood_gas.get("has_rows"):
         return
     if not _range_not_recorded(getattr(record, "lowest_ph", None)):
@@ -566,8 +570,8 @@ def overlay_resp_cv_blood_gas_from_mml(record, blood_gas: Dict[str, Any]) -> Non
 
 # ── Generic "presence of a list-type field means an event occurred" overlay ──
 # Covers 5.1.C (Vasoactive Drugs), 5.1.D (PDA Medical Rx), 5.2.D (Postnatal
-# Steroids) — three MML blocks that were captured but had zero downstream
-# consumer (2026-09 Helper 2-5 field audit). Unlike resp_a/b/c above, Helper 1's
+# Steroids) — three DMS blocks that were captured but had zero downstream
+# consumer (2026-09 Helper 2-5 field audit). Unlike resp_a/b/c above, Helper 2's
 # own target fields for these three are plain booleans with no `*_status`
 # escape hatch, so — matching how respiratory_support/support_modes already
 # behave in overlay_resp_cv_day_from_autofill — MML wins outright whenever it
@@ -635,12 +639,12 @@ def autofill_list_field_from_mml_rows(
 ) -> Dict[str, Any]:
     """Merge one MML block's list-type field across one or more MML day rows
     for a helper calendar date — same shape as autofill_from_mml_rows etc.
-    `value_map` translates DMS's own option wording into Helper 1's, for
+    `value_map` translates DMS's own option wording into Helper 2's, for
     blocks where the two forms independently picked different terms for the
-    same thing (e.g. DMS's "Epinephrine"/"Norepinephrine" vs Helper 1's own
+    same thing (e.g. DMS's "Epinephrine"/"Norepinephrine" vs Helper 2's own
     "Adrenaline"/"Noradrenaline" pills) — without it, a token that only
     matches on one side would silently fail every downstream exact-string
-    check that reads Helper 1's own vocabulary (its own pill "on" state,
+    check that reads Helper 2's own vocabulary (its own pill "on" state,
     and Form H's inotrope_adr/inotrope_nadr detection)."""
     merged: List[str] = []
     seen_ids = set()
@@ -664,7 +668,7 @@ def overlay_boolean_presence_from_mml(
     """In-memory overlay on GET — sets `bool_field` True (and, if given,
     joins `values` into `list_field`) whenever MML has a qualifying entry.
     No blocking/override mechanism: `bool_field` has no `*_status` sidecar
-    on Helper 1's schema, same as respiratory_support/support_modes above."""
+    on Helper 2's schema, same as respiratory_support/support_modes above."""
     if not autofill.get("has_rows"):
         return
     setattr(record, bool_field, True)

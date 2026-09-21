@@ -12,6 +12,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import OfflineBanner from "./components/OfflineBanner";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { toDateOnlyValue, parseDateOnly, toDateTimeLocalValue } from "./utils/datetime";
+import { designationForCompletedBy } from "./utils/completedByDesignation";
 import {
   ArrowLeft, ArrowRight, Save, Home,
   User, Thermometer, Wind, CheckSquare, Truck,
@@ -1078,7 +1079,7 @@ export default function FormE() {
   const completedByOptions = formData.completed_by && !nurses.includes(formData.completed_by)
     ? [...nurses, formData.completed_by]
     : nurses;
-  const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
+  const getDesignation = (name) => designationForCompletedBy(name, roster);
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
     setFormData(prev => ({ ...prev, completed_by: name, designation: getDesignation(name) }));

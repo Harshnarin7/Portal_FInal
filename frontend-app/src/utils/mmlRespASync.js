@@ -36,7 +36,7 @@ function modesList(row) {
     .filter(Boolean);
 }
 
-/** Helper 1 pills use `AC`; MML 5.2.A uses `A/C`. */
+/** Helper 2 pills use `AC`; DMS 5.2.A uses `A/C`. */
 export function normalizeHelperSupportModes(modes) {
   const out = new Set();
   for (const m of modes || []) {
@@ -112,8 +112,8 @@ export function parseRespAEntries(payload, recordDate = null) {
 }
 
 /**
- * Daily maxima for Helper 1 #3–#5 from hourly 5.2.A readings.
- * CPAP/MAP field mapping matches Helper 1 (primary = MAP or single value).
+ * Daily maxima for Helper 2 #3–#5 from hourly 5.2.A readings.
+ * CPAP/MAP field mapping matches Helper 2 (primary = MAP or single value).
  */
 export function computeRespAAutofillFromMml(rows, fmtNum) {
   const cpapVals = [];
@@ -263,4 +263,59 @@ export function buildFio2AucRowsFromRespA(respARows) {
     }));
 
   return { w1: toRows(w1), w2: toRows(w2) };
+}
+
+/** DMS 5.1.C uses Epinephrine/Norepinephrine; Helper 2 pills use Adrenaline/Noradrenaline. */
+export const VASOACTIVE_DRUG_NAME_ALIASES = {
+  Epinephrine: "Adrenaline",
+  Norepinephrine: "Noradrenaline",
+};
+
+function listFieldValues(row, listKey) {
+  const v = row?.[listKey];
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  return String(v || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Distinct values of a list-type DMS block for one helper calendar date. */
+export function parseMmlListField(payload, recordDate, blockKey, listKey, valueMap) {
+  const seen = [];
+  const push = (raw) => {
+    const mapped = valueMap?.[raw] || raw;
+    if (mapped && !seen.includes(mapped)) seen.push(mapped);
+  };
+  const sheetDate = payload?.record_date
+    ? normalizeYmd(payload.record_date)
+    : normalizeYmd(recordDate);
+  const effectiveDate = normalizeYmd(recordDate) || sheetDate;
+  const sheetIsHelperDay = sheetMatchesHelperDay(payload, effectiveDate);
+
+  let entries = payload?.entries_json;
+  if (typeof entries === "string") {
+    try { entries = JSON.parse(entries); } catch (_) { entries = null; }
+  }
+  const list = entries?.[blockKey];
+  if (Array.isArray(list) && list.length) {
+    for (const row of list) {
+      if (!rowOnHelperDay(row, effectiveDate, sheetDate, sheetIsHelperDay)) continue;
+      listFieldValues(row, listKey).forEach(push);
+    }
+  }
+  if (!seen.length && entries == null && payload) {
+    listFieldValues(payload, listKey).forEach(push);
+  }
+  return { hasRows: seen.length > 0, values: seen };
+}
+
+export function mergeMmlListFieldAutofill(parts) {
+  const seen = [];
+  let hasRows = false;
+  for (const part of parts || []) {
+    if (!part) continue;
+    if (part.hasRows) hasRows = true;
+    for (const v of part.values || []) {
+      if (v && !seen.includes(v)) seen.push(v);
+    }
+  }
+  return { hasRows: hasRows || seen.length > 0, values: seen };
 }

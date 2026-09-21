@@ -81,19 +81,60 @@ KNOWN_STAFF_EMAILS: dict[str, str] = {
     "shalini.pgimer": "portaloxygen@gmail.com",
 }
 
-# Designations previously hardcoded in Form D/E/H getDesignation(). Applied
-# to matching users.full_name so the PGIMER "Completed by" dropdown stays
-# identical after those arrays are removed. "Dr. …" aliases cover the
-# seeded site-scientist display names.
+# Named overrides (PGIMER nodal titles). Everyone else is filled from role
+# via designation_for_account() so Completion Details autofill works at
+# GMCH / GMCH-A / AMC / IOG the same way it does at PGIMER.
+DESIGNATION_NURSE = "Project Nurse III"
+DESIGNATION_SITE_SCIENTIST = "Project Research Scientist II (Medical)"
+DESIGNATION_PROJECT_SCIENTIST = "Project Research Scientist III (Medical)"
+
 PILOT_COMPLETED_BY_DESIGNATIONS: dict[str, str] = {
-    "Mannat Guliani": "Project Research Scientist III (Medical)",
-    "Dr. Mannat Guliani": "Project Research Scientist III (Medical)",
+    "Mannat Guliani": DESIGNATION_PROJECT_SCIENTIST,
+    "Dr. Mannat Guliani": DESIGNATION_PROJECT_SCIENTIST,
     "Shalini Dhiman": "Project Research Scientist III (Non-Medical)",
     "Dr. Shalini Dhiman": "Project Research Scientist III (Non-Medical)",
-    "Geetika": "Project Nurse III",
-    "Navkiran Kaur": "Project Nurse III",
-    "Priyanka Thakur": "Project Nurse III",
-    "Seemran Kaur": "Project Nurse III",
-    "Tanvi Saini": "Project Nurse III",
-    "Yashvi Jolly": "Project Nurse III",
+    "Geetika": DESIGNATION_NURSE,
+    "Navkiran Kaur": DESIGNATION_NURSE,
+    "Priyanka Thakur": DESIGNATION_NURSE,
+    "Seemran Kaur": DESIGNATION_NURSE,
+    "Tanvi Saini": DESIGNATION_NURSE,
+    "Yashvi Jolly": DESIGNATION_NURSE,
 }
+
+
+def _name_without_dr(full_name: str | None) -> str:
+    raw = (full_name or "").strip()
+    if raw.lower().startswith("dr."):
+        return raw[3:].strip()
+    return raw
+
+
+def designation_for_account(
+    full_name: str | None,
+    role: str | None,
+    site_name: str | None = None,
+) -> str:
+    """Completed-by designation for a login account.
+
+    PGIMER named titles stay as they were. Other-site scientists are
+    Project Research Scientist II (Medical); nurses match Tanvi / Yashvi
+    Jolly (Project Nurse III).
+    """
+    raw = (full_name or "").strip()
+    if not raw:
+        return DESIGNATION_NURSE if (role or "") == "nurse" else ""
+    named = PILOT_COMPLETED_BY_DESIGNATIONS.get(raw) or PILOT_COMPLETED_BY_DESIGNATIONS.get(
+        _name_without_dr(raw)
+    )
+    if named:
+        return named
+    r = (role or "").strip().lower()
+    if r == "project_scientist":
+        return DESIGNATION_PROJECT_SCIENTIST
+    if r in ("site_scientist", "site_pi"):
+        return DESIGNATION_SITE_SCIENTIST
+    if r == "nurse":
+        return DESIGNATION_NURSE
+    if raw.lower().startswith("dr."):
+        return DESIGNATION_SITE_SCIENTIST
+    return DESIGNATION_NURSE

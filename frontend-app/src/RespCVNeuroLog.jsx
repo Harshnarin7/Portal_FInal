@@ -21,16 +21,20 @@ import {
   clearMmlRespDirtyForHelper,
   HELPER_SESSION_KEY_VS6_1,
 } from "./utils/helperSession";
+import { expectedUpdatedAtConfig, isStaleWrite, STALE_WRITE_MESSAGE } from "./utils/staleWrite";
 import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import { getMapCpapMode, validateMapCpap } from "./utils/mapCpapMode";
 import {
   computeRespAAutofillFromMml,
+  mergeMmlListFieldAutofill,
   modesArraysEqual,
   normalizeHelperSupportModes,
   normalizeYmd,
+  parseMmlListField,
   parseRespAEntries,
   respModesUnionLooksSourced,
   respNumericLooksMmlSourced,
+  VASOACTIVE_DRUG_NAME_ALIASES,
 } from "./utils/mmlRespASync";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
@@ -131,7 +135,7 @@ async function loadMmlFluidBolusForHelperDay(enrollmentId, recordDate) {
   return has;
 }
 
-/** Helper 5 block 5.2.B (resp_b) → Helper 1 #8–#10 blood gas fields. */
+/** DMS block 5.2.B (resp_b) → Helper 2 #8–#10 blood gas fields. */
 function parseRespBBloodGasReadings(payload, recordDate = null) {
   const pushNum = (arr, raw) => {
     if (raw === null || raw === undefined || raw === "") return;
@@ -387,6 +391,7 @@ function respSupportSeedFromDayLog(d) {
   if (!d || !Object.keys(d).length) return null;
   return {
     respiratorySupport: d.respiratory_support ?? null,
+    endotrachealIntubation: d.endotracheal_intubation ?? null,
     supportModes: d.support_modes
       ? d.support_modes.split(",").map((s) => s.trim()).filter(Boolean)
       : [],
@@ -399,7 +404,32 @@ function respSupportSeedFromDayLog(d) {
   };
 }
 
-/** Helper 5 block 5.2.C (resp_c) → Helper 1 #13–#15 daily episode totals. */
+async function loadMmlListFieldForHelperDay(
+  enrollmentId,
+  recordDate,
+  blockKey,
+  listKey,
+  { bustCache = true, valueMap } = {},
+) {
+  const empty = { hasRows: false, values: [] };
+  if (!enrollmentId || !recordDate) return empty;
+  const helperYmd = String(recordDate).slice(0, 10);
+  const cacheQ = bustCache ? `?t=${Date.now()}` : "";
+  const parts = [];
+  try {
+    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`);
+    parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
+  } catch (_) { /* optional */ }
+  try {
+    const res = await api.get(
+      `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
+    );
+    parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
+  } catch (_) { /* optional */ }
+  return mergeMmlListFieldAutofill(parts);
+}
+
+/** DMS block 5.2.C (resp_c) → Helper 2 #13–#15 daily episode totals. */
 function parseRespCEpisodeReadings(payload, recordDate = null) {
   const pushInt = (arr, raw) => {
     if (raw === null || raw === undefined || raw === "") return;
@@ -987,6 +1017,8 @@ export default function RespCVNeuroLog() {
   const [dayMeta, setDayMeta]             = useState({}); // { [day]: { pct, savedAt } }
   const [dischargeDay, setDischargeDay]   = useState(null); // day number when discharged
   const [isSaved, setIsSaved]             = useState(false);
+  const [dayReloadNonce, setDayReloadNonce] = useState(0);
+  const loadedUpdatedAtRef = useRef(null);
   const [isEditing, setIsEditing]         = useState(false);
   const [message, setMessage]             = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -1080,14 +1112,17 @@ export default function RespCVNeuroLog() {
   /* ── Cardiovascular state ── */
   const [cvData, setCvData] = useState({
     pda_suspected: null, echo_done: null, hs_pda: null,
-    shock: null, vasoactive_support: null, fluid_bolus_given: null,
+    pda_medical_rx: null, shock: null, vasoactive_support: null, fluid_bolus_given: null,
   });
   const [vasoactiveDrugs, setVasoactiveDrugs] = useState([]);
   const [bolusAutofilled, setBolusAutofilled] = useState(false);
   const cvStateRef = useRef({});
   const bolusAutofilledRef = useRef(false);
+  const vasoactiveDrugsRef = useRef([]);
+  const respEventsRef = useRef({});
   cvStateRef.current = cvData;
   bolusAutofilledRef.current = bolusAutofilled;
+  vasoactiveDrugsRef.current = vasoactiveDrugs;
   const [bloodGasAutofilled, setBloodGasAutofilled] = useState({
     ph: false,
     pao2: false,
@@ -1115,6 +1150,7 @@ export default function RespCVNeuroLog() {
   const respSupportStateRef = useRef({});
   respSupportStateRef.current = {
     respiratorySupport,
+    endotrachealIntubation,
     supportModes,
     mapCpap,
     mapCpapStatus,
@@ -1123,6 +1159,7 @@ export default function RespCVNeuroLog() {
     maxFio2,
     maxFio2Status,
   };
+  respEventsRef.current = respEvents;
 
   /* ── Neurological state ── */
   const [neuroData, setNeuroData] = useState({
@@ -1160,7 +1197,7 @@ export default function RespCVNeuroLog() {
 
   useDefaultToWorkingNicuDay(todayNicuDay, enrollmentId, activeDay, setActiveDay);
 
-  /** When opening Helper 1 after MML, land on the NICU day that matches the last MML sheet date. */
+  /** When opening Helper 2 after DMS, land on the NICU day that matches the last DMS sheet date. */
   useEffect(() => {
     if (!enrollmentId || !day1Date) return;
     const mmlYmd = readRememberedMmlSheetDate(enrollmentId);
@@ -1221,10 +1258,15 @@ export default function RespCVNeuroLog() {
         : respSupportStateRef.current;
       const af = bloodGasAutofilledRef.current;
       const bustCache = options.forceMmlRespRefresh !== false;
-      const [readings, episodeReadings, respComputed] = await Promise.all([
+      const [readings, episodeReadings, respComputed, vasoMml, pdaMml, steroidMml] = await Promise.all([
         loadMmlBloodGasReadingsForHelperDay(enrollmentId, recordDate, { bustCache }),
         loadMmlEpisodeReadingsForHelperDay(enrollmentId, recordDate, { bustCache }),
         loadMmlRespAAutofillForHelperDay(enrollmentId, recordDate, { bustCache }),
+        loadMmlListFieldForHelperDay(enrollmentId, recordDate, "cv_c", "vasoactive_drugs", {
+          bustCache, valueMap: VASOACTIVE_DRUG_NAME_ALIASES,
+        }),
+        loadMmlListFieldForHelperDay(enrollmentId, recordDate, "cv_d", "pda_agent", { bustCache }),
+        loadMmlListFieldForHelperDay(enrollmentId, recordDate, "resp_d", "postnatal_steroids", { bustCache }),
       ]);
       const computed = computeBloodGasAutofillFromMml(readings);
       const episodeComputed = computeEpisodeAutofillFromMml(episodeReadings);
@@ -1267,7 +1309,7 @@ export default function RespCVNeuroLog() {
         }
       };
 
-      // Helper 1 #8–#10: MML 5.2.B daily min/ranges always win (unless Not Done).
+      // Helper 2 #8–#10: DMS 5.2.B daily min/ranges always win (unless Not Done).
       if (mmlRespBHasBloodGasRows(readings)) {
         const normBg = (v) => (v == null ? "" : String(v).trim());
         if (
@@ -1333,7 +1375,7 @@ export default function RespCVNeuroLog() {
         || episodeReadings.desaturation.length > 0
         || episodeReadings.severeDesat.length > 0;
 
-      // Helper 1 #13–#15: MML 5.2.C daily sums always win (unless Not Done).
+      // Helper 2 #13–#15: DMS 5.2.C daily sums always win (unless Not Done).
       if (hasEpisodeRows) {
         const normEp = (v) => (v == null ? "" : String(v).trim());
         const episodeCountIsReal = (key) => {
@@ -1383,7 +1425,7 @@ export default function RespCVNeuroLog() {
         }
       }
 
-      // Helper 1 #3–#5: MML 5.2.A daily union/max always wins (unless Not Done).
+      // Helper 2 #3–#5: DMS 5.2.A daily union/max always wins (unless Not Done).
       if (respComputed.hasRows) {
         const norm = (v) => (v == null ? "" : String(v).trim());
         const union = respComputed.modesUnion || [];
@@ -1396,6 +1438,10 @@ export default function RespCVNeuroLog() {
         }
         if (resp.respiratorySupport !== true) {
           setRespiratorySupport(true);
+          anyBgChanged = true;
+        }
+        if (union.some((m) => INVASIVE_MODES.includes(m)) && resp.endotrachealIntubation !== true) {
+          setEndotrachealIntubation(true);
           anyBgChanged = true;
         }
         if (
@@ -1456,12 +1502,35 @@ export default function RespCVNeuroLog() {
         anyBgChanged = true;
       }
 
+      if (vasoMml.hasRows) {
+        if (cv.vasoactive_support !== true) {
+          setCvData((p) => ({ ...p, vasoactive_support: true }));
+          anyBgChanged = true;
+        }
+        const mergedDrugs = mergeMmlListFieldAutofill([
+          { hasRows: vasoactiveDrugsRef.current.length > 0, values: vasoactiveDrugsRef.current },
+          vasoMml,
+        ]).values;
+        if (!modesArraysEqual(vasoactiveDrugsRef.current, mergedDrugs)) {
+          setVasoactiveDrugs(mergedDrugs);
+          anyBgChanged = true;
+        }
+      }
+      if (pdaMml.hasRows && cv.pda_medical_rx !== true) {
+        setCvData((p) => ({ ...p, pda_medical_rx: true }));
+        anyBgChanged = true;
+      }
+      if (steroidMml.hasRows && respEventsRef.current.postnatal_steroids !== true) {
+        setRespEvents((p) => ({ ...p, postnatal_steroids: true }));
+        anyBgChanged = true;
+      }
+
       if (anyBgChanged) {
         setBloodGasAutofilled(afNext);
         setIsEditing(true);
       }
     } catch (err) {
-      console.warn("MML autofill (Helper 5)", err);
+      console.warn("DMS autofill (Helper 2)", err);
     }
   };
 
@@ -1700,6 +1769,7 @@ export default function RespCVNeuroLog() {
           setSubmittedAt(d.submitted_at || null);
           setSubmittedBy(d.submitted_by || "");
           setOverrideUntil(d.override_unlocked_until || null);
+          loadedUpdatedAtRef.current = d.updated_at || null;
           setIsSaved(true);
           setIsEditing(st !== STATUS.SUBMITTED || overrideStillActive);
           if (!completedDays.includes(activeDay))
@@ -1734,7 +1804,7 @@ export default function RespCVNeuroLog() {
     };
     loadDay();
     return () => { cancelled = true; };
-  }, [enrollmentId, activeDay, day1Date]);
+  }, [enrollmentId, activeDay, day1Date, dayReloadNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1799,6 +1869,7 @@ export default function RespCVNeuroLog() {
   }, [enrollmentId, activeDay, activeDayDate, day1Date, loading, isFutureActiveDay]);
 
   const resetFormState = () => {
+    loadedUpdatedAtRef.current = null;
     setWeightKg("");
     setSupportModes([]);
     setRespiratorySupport(null); setEndotrachealIntubation(null);
@@ -1960,10 +2031,23 @@ export default function RespCVNeuroLog() {
     if (INVASIVE_MODES.includes(mode) && endotrachealIntubation !== true) return;
     setBloodGasAutofilled((p) => ({ ...p, supportModes: false }));
     setSupportModes(prev => {
+      const prevMode = getMapCpapMode(prev);
       const next = prev.includes(mode) ? prev.filter(m => m !== mode) : [...prev, mode];
       const nextMode = getMapCpapMode(next);
-      if (nextMode === "NA") { setMapCpap(""); setMapCpapStatus(null); }
-      if (nextMode !== "BOTH") setMapCpapSecondary("");
+      if (prevMode === "CPAP" && nextMode === "BOTH") {
+        setMapCpapSecondary(mapCpap);
+        setMapCpapSecondaryStatus(mapCpapStatus);
+        setMapCpap("");
+        setMapCpapStatus(null);
+      } else if (prevMode === "BOTH" && nextMode === "CPAP") {
+        setMapCpap(mapCpapSecondary);
+        setMapCpapStatus(mapCpapSecondaryStatus);
+        setMapCpapSecondary("");
+        setMapCpapSecondaryStatus(null);
+      } else {
+        if (nextMode === "NA") { setMapCpap(""); setMapCpapStatus(null); }
+        if (nextMode !== "BOTH") setMapCpapSecondary("");
+      }
       return next;
     });
   };
@@ -2032,16 +2116,18 @@ export default function RespCVNeuroLog() {
     };
     try {
       let res;
+      const staleCfg = expectedUpdatedAtConfig(loadedUpdatedAtRef.current);
       if (isSaved) {
-        res = await api.put(`/resp-cv-neuro/${enrollmentId}/${activeDay}`, payload);
+        res = await api.put(`/resp-cv-neuro/${enrollmentId}/${activeDay}`, payload, staleCfg);
       } else {
-        res = await api.post("/resp-cv-neuro/", payload);
+        res = await api.post("/resp-cv-neuro/", payload, staleCfg);
       }
       // Keep the sidebar tick in sync with the *current* state, not just
       // whether it was ever true — data added then deleted before the
       // next save must un-tick the helper, not leave it stuck complete.
       if (completionPct > 0) markFormCompleted("vs6_1");
       else unmarkFormCompleted("vs6_1");
+      loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
       setSavedAt(now);
@@ -2063,6 +2149,11 @@ export default function RespCVNeuroLog() {
       return true;
     } catch (err) {
       console.error(err?.response?.data || err);
+      if (isStaleWrite(err)) {
+        setMessage(STALE_WRITE_MESSAGE);
+        setDayReloadNonce(n => n + 1);
+        return false;
+      }
       setMessage("❌ Error saving — please try again");
       return false;
     }

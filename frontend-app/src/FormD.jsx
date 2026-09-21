@@ -12,6 +12,7 @@ import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import { relativeTime, toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { designationForCompletedBy } from "./utils/completedByDesignation";
 import { classifyVeryPretermCentile } from "./data/intergrowthVeryPreterm";
 import {
   ArrowLeft, ArrowRight, Save, Home,
@@ -957,7 +958,7 @@ export default function FormD() {
   const completedByOptions = formData.completed_by && !nurses.includes(formData.completed_by)
     ? [...nurses, formData.completed_by]
     : nurses;
-  const getDesignation = (name) => roster.find(r => r.full_name === name)?.designation || "";
+  const getDesignation = (name) => designationForCompletedBy(name, roster);
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
     touch("completed_by");

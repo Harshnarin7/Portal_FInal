@@ -10,6 +10,7 @@ import {
   Info, Activity, ClipboardList, Brain, CalendarDays
 } from "lucide-react";
 import "./styles/FormF.css";
+import { designationForCompletedBy } from "./utils/completedByDesignation";
 import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
@@ -22,14 +23,6 @@ const GRADES = ["None", "I", "II", "III", "IV"];
 const getGradeNum = g => ({ None: 0, I: 1, II: 2, III: 3, IV: 4 }[g] ?? 0);
 const STATUS = { EMPTY: "empty", DRAFT: "draft", COMPLETE: "complete", SUBMITTED: "submitted" };
 const MAX_SCANS = 10;
-
-const NURSES = ["Geetika", "Navkiran Kaur", "Priyanka Thakur", "Seemran Kaur",
-  "Tanvi Saini", "Yashvi Jolly", "Mannat Guliani", "Shalini Dhiman"];
-const getDesignation = (name) => {
-  if (name === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (name === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  return name ? "Project Nurse III" : "";
-};
 
 // CRF-exact schedules — Scan 6 (36wk) added for lt28
 const SCHEDULES = {
@@ -335,11 +328,36 @@ export default function FormF() {
   const [completion, setCompletion] = useState({
     completedBy: "", designation: "", completionDate: "",
   });
+  const [roster, setRoster] = useState([]);
   const setCompletionField = (k, v) => setCompletion(p => ({ ...p, [k]: v }));
   const handleCompletedByChange = (e) => {
     const name = e.target.value;
-    setCompletion(p => ({ ...p, completedBy: name, designation: getDesignation(name) }));
+    setCompletion(p => ({
+      ...p,
+      completedBy: name,
+      designation: designationForCompletedBy(name, roster),
+    }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/users/roster")
+      .then((res) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data.filter((r) => r && r.full_name) : [];
+        setRoster(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setRoster([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const nurses = roster.map((r) => r.full_name);
+  const completedByOptions =
+    completion.completedBy && !nurses.includes(completion.completedBy)
+      ? [...nurses, completion.completedBy]
+      : nurses;
 
   const isFieldEditable = !isSubmitted && (!isSaved || isEditing);
   // Adding the very first scan shouldn't require an extra "Edit" click —
@@ -955,7 +973,7 @@ export default function FormF() {
                 <select className="cu-input" value={completion.completedBy}
                   onChange={handleCompletedByChange} disabled={!isFieldEditable}>
                   <option value="">Select…</option>
-                  {NURSES.map(n => <option key={n} value={n}>{n}</option>)}
+                  {completedByOptions.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <div className="cu-field">

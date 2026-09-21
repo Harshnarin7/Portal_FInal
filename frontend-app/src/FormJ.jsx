@@ -11,6 +11,7 @@ import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
+import { fallbackCompletedByDesignation as getDesignation } from "./utils/completedByDesignation";
 import {
   Home, Clock, Building2, Skull, Wind, Activity, Brain, Eye, ShieldAlert, Scan,
 } from "lucide-react";
@@ -473,15 +474,6 @@ function SectionCard({ icon: Icon, num, title, children }) {
       <div className="fj-card-body">{children}</div>
     </section>
   );
-}
-
-function getDesignation(name) {
-  if (!name) return "";
-  const n = name.replace(/^Dr\.\s*/i, "").trim();
-  if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
-  return "Project Nurse III";
 }
 
 export default function FormJ() {

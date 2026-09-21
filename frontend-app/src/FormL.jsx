@@ -7,6 +7,7 @@ import "./styles/FormL.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { fallbackCompletedByDesignation as getDesignation } from "./utils/completedByDesignation";
 import { resolveEffectiveGestation } from "./utils/gestation";
 import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
@@ -168,15 +169,6 @@ function buildPayload(data) {
     completion_date: emptyToNull(data.completion_date),
     submission_status: "draft",
   };
-}
-
-function getDesignation(name) {
-  if (!name) return "";
-  const n = name.replace(/^Dr\.\s*/i, "").trim();
-  if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-  if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-  if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
-  return "Project Nurse III";
 }
 
 export default function FormL() {

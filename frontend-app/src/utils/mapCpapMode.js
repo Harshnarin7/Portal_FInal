@@ -3,7 +3,7 @@ const LOW_FLOW_MODES = ["NC", "HFNC"];
 
 /**
  * NC/HFNC only → NA; CPAP only → CPAP; pressure modes → MAP;
- * CPAP + pressure → BOTH (two fields). Matches RespCVNeuroLog / Helper 1.
+ * CPAP + pressure → BOTH (two fields). Matches RespCVNeuroLog / Helper 2.
  */
 export function getMapCpapMode(modes) {
   if (!modes || modes.length === 0) return null;

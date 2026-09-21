@@ -15,6 +15,7 @@ import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { mmlSyncGlucoseFieldFromMml } from "./utils/mmlHelperSync";
 import { rememberActiveDay, HELPER_SESSION_KEY_METAB_RENAL_VASC_EYE } from "./utils/helperSession";
+import { expectedUpdatedAtConfig, isStaleWrite, STALE_WRITE_MESSAGE } from "./utils/staleWrite";
 import { useDefaultToWorkingNicuDay, useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
 import {
   ArrowLeft, ArrowRight, Save, ChevronDown,
@@ -380,7 +381,7 @@ function deriveMetabolicAcidosis(readings) {
 function isNumericHighGlucose(v) {
   if (v == null || v === "" || v === "Not Tested" || v === "Not High" || v === "Not Low") return false;
   const n = Number(v);
-  return Number.isFinite(n) && n > 180;
+  return Number.isFinite(n) && n > 125;
 }
 
 function computeUrineTotal(a, b, c) {
@@ -489,11 +490,12 @@ function SectionCard({ iconEmoji, title, answered, total, children, defaultOpen=
   );
 }
 
-/* ── Helper 5 → Helper 4 glucose autofill ─────────────────────────
-   Form 5 met_a[].glucose → Form 4 fields #1, #2, #4.
-   Boundaries: <45 low, 45–180 normal, >180 high (inclusive normal). */
+/* ── DMS 5.3.A → Helper 5 glucose autofill ─────────────────────────
+   DMS met_a[].glucose → Helper 5 fields #1, #2, #4.
+   Boundaries: <45 low, 45–125 normal, >125 high (inclusive normal).
+   >125 matches Form H / PI-confirmed cutoff (CRF text >180 was a documentation error). */
 const GLUCOSE_LOW_MAX = 45;
-const GLUCOSE_HIGH_MIN = 180;
+const GLUCOSE_HIGH_MIN = 125;
 
 function parseMetAGlucoseReadings(payload) {
   let entries = payload?.entries_json;
@@ -681,6 +683,8 @@ export default function MetabRenalVascEyeLog() {
   const [dayMeta, setDayMeta]             = useState({});
   const [dischargeDay, setDischargeDay]   = useState(null);
   const [isSaved, setIsSaved]             = useState(false);
+  const [dayReloadNonce, setDayReloadNonce] = useState(0);
+  const loadedUpdatedAtRef = useRef(null);
   const [isEditing, setIsEditing]         = useState(false);
   const [message, setMessage]             = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -836,7 +840,7 @@ export default function MetabRenalVascEyeLog() {
   const activeDayDateRef = useRef(activeDayDate);
   activeDayDateRef.current = activeDayDate;
 
-  /** Autofill / "Refresh from Helper 5" only when this NICU day is the
+  /** Autofill / "Refresh from Daily Monitoring Sheet" only when this NICU day is the
    *  server's current MM sheet — GET /today `record_date` from
    *  `_mml_sheet_date()`, never `new Date()` on the browser. A skewed
    *  client clock must not treat a past day as live-today. */
@@ -1324,7 +1328,7 @@ export default function MetabRenalVascEyeLog() {
         });
         const rd = res?.data?.record_date;
         if (!cancelled && rd) setMmlSheetDate(rd);
-      } catch (_) { /* Helper 5 optional */ }
+      } catch (_) { /* DMS optional */ }
     })();
     return () => { cancelled = true; };
   }, [enrollmentId]);
@@ -1426,6 +1430,7 @@ export default function MetabRenalVascEyeLog() {
           setSavedAt(d.saved_at||null); setSavedBy(d.saved_by||"");
           setSubmittedAt(d.submitted_at||null); setSubmittedBy(d.submitted_by||"");
           setOverrideUntil(d.override_unlocked_until || null);
+          loadedUpdatedAtRef.current = d.updated_at || null;
           setIsSaved(true);
           // A reload/revisit during a still-active override window must not
           // silently re-lock the fields — isFieldEditable requires isEditing
@@ -1458,11 +1463,11 @@ export default function MetabRenalVascEyeLog() {
     };
     loadDay();
     return () => { cancelled = true; };
-  }, [enrollmentId, activeDay, day1Date]);
+  }, [enrollmentId, activeDay, day1Date, dayReloadNonce]);
 
-  /* Re-aggregate Helper 5 glucose while today's day is open and editable.
+  /* Re-aggregate DMS glucose while today's day is open and editable.
      Blank or still-auto values update; clinician-typed values are left alone.
-     Manual "Refresh from Helper 5" still force-overwrites. */
+     Manual "Refresh from Daily Monitoring Sheet" still force-overwrites. */
   useEffect(() => {
     if (!enrollmentId || !isActiveDayToday || !isFieldEditable) return;
     const interval = setInterval(() => {
@@ -1486,6 +1491,7 @@ export default function MetabRenalVascEyeLog() {
   }, [enrollmentId, activeDay, isActiveDayToday, isFieldEditable]);
 
   const resetFormState = () => {
+    loadedUpdatedAtRef.current = null;
     setMetabData({
       lowest_glucose:null,hypoglycemia_episodes:null,hypoglycemia_rx:null,highest_glucose:null,
       insulin:null,metabolic_acidosis:null,metabolic_acidosis_status:null,sodium_value:null,potassium_value:null,
@@ -1597,14 +1603,16 @@ export default function MetabRenalVascEyeLog() {
     const now = new Date().toISOString();
     try {
       const payload = buildPayload(now);
-      isSaved
-        ? await api.put(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`, payload)
-        : await api.post("/metab-renal-vasc-eye/", payload);
+      const staleCfg = expectedUpdatedAtConfig(loadedUpdatedAtRef.current);
+      const res = isSaved
+        ? await api.put(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`, payload, staleCfg)
+        : await api.post("/metab-renal-vasc-eye/", payload, staleCfg);
       // Keep the sidebar tick in sync with the *current* state, not just
       // whether it was ever true — data added then deleted before the next
       // save must un-tick the helper, not leave it stuck complete.
       if (completionPct > 0) markFormCompleted("metab_renal_vasc_eye");
       else unmarkFormCompleted("metab_renal_vasc_eye");
+      loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
       setSavedAt(now); setSavedBy(user?.name || user?.username || "Nurse");
@@ -1616,14 +1624,24 @@ export default function MetabRenalVascEyeLog() {
       setMessage("✅ Day " + activeDay + " saved successfully");
       setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);
-    } catch (_) { setMessage("❌ Error saving — please try again"); }
+      return true;
+    } catch (err) {
+      if (isStaleWrite(err)) {
+        setMessage(STALE_WRITE_MESSAGE);
+        setDayReloadNonce(n => n + 1);
+        return false;
+      }
+      setMessage("❌ Error saving — please try again");
+      return false;
+    }
   };
 
   const switchActiveDay = async (d) => {
     if (d === activeDay) return;
     if (isFieldEditable && completionPct > 0) {
       try {
-        await handleSave();
+        const ok = await handleSave();
+        if (ok === false) return;
       } catch (err) {
         console.error("Save before day change failed:", err);
         return;
@@ -2202,7 +2220,7 @@ export default function MetabRenalVascEyeLog() {
                   className="rcn-refresh-helper5"
                   onClick={handleRefreshGlucoseFromHelper5}
                   disabled={!isFieldEditable || glucoseRefreshing}
-                  title="Re-sync glucose #1–#4 from Helper Form 1 for this day's sheet"
+                  title="Re-sync glucose #1–#4 from the Daily Monitoring Sheet for this day"
                 >
                   <RefreshCw size={12} className={glucoseRefreshing ? "rcn-spin" : ""} />
                   {glucoseRefreshing ? "Refreshing…" : "Refresh from Daily Monitoring Sheet"}
@@ -2235,7 +2253,7 @@ export default function MetabRenalVascEyeLog() {
                   </div>
                 )}
                 <GlucoseTextRow
-                  label="4. Highest glucose reading (if >180 mg/dL)"
+                  label="4. Highest glucose reading (if >125 mg/dL)"
                   value={metabData.highest_glucose}
                   onChange={v => setGlucoseField("highest_glucose", v)}
                   disabled={!isFieldEditable}

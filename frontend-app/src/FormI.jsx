@@ -12,6 +12,7 @@ import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { fallbackCompletedByDesignation as getDesignation } from "./utils/completedByDesignation";
 import { resolveEffectiveGestation } from "./utils/gestation";
 import {
   Wind, Skull, CalendarClock, CalendarCheck, CalendarRange, ClipboardList, Home, Clock,
@@ -446,15 +447,6 @@ export default function FormI() {
 
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
-
-  const getDesignation = (name) => {
-    if (!name) return "";
-    const n = name.replace(/^Dr\.\s*/i, "").trim();
-    if (n === "Mannat Guliani") return "Project Research Scientist III (Medical)";
-    if (n === "Shalini Dhiman") return "Project Research Scientist III (Non-Medical)";
-    if (/^Dr\.\s*/i.test(name)) return "Site Research Scientist";
-    return "Project Nurse III";
-  };
 
   const handleAssessedByChange = (e) => {
     const name = e.target.value;

@@ -4,7 +4,7 @@ import { formatIsoDateMedium, openNativeDatePicker } from "../../utils/datetime"
 import { normalizeHelperDob } from "../../hooks/useHelperDobSyncDay1";
 
 /**
- * Helper 1 / 3 / 4 — DOB is the only editable date; Day 1 = DOB (read-only);
+ * Helper 2 / 4 / 5 — DOB is the only editable date; Day 1 = DOB (read-only);
  * active NICU day calendar date is read-only (Day 1 + N − 1).
  */
 export default function HelperDobDay1Panel({

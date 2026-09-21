@@ -17,6 +17,7 @@ STALE_SITE_STAFF: list[tuple[str, str]] = [
     ("GMCH-A", "Nurse B"),           # placeholder, replaced with real roster
     ("AMC", "Nurse A"),              # placeholder, replaced with real roster
     ("AMC", "Nurse B"),              # placeholder, replaced with real roster
+    ("AFMC", "Mannat Guliani"),      # PGIMER-only; AFMC had no PDF roster
 ]
 
 

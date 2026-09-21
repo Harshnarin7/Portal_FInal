@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 
 from auth import hash_password
 from models import User
-from user_seed import DEFAULT_LOGIN_USERS, KNOWN_STAFF_EMAILS, PILOT_COMPLETED_BY_DESIGNATIONS
+from user_seed import (
+    DEFAULT_LOGIN_USERS,
+    KNOWN_STAFF_EMAILS,
+    designation_for_account,
+)
 
 CREDENTIALS_DIR = os.path.join(os.path.dirname(__file__), "credentials")
 
@@ -46,7 +50,7 @@ def seed_login_users(db: Session) -> int:
             role=role,
             site_name=site_name,
             full_name=full_name,
-            designation=PILOT_COMPLETED_BY_DESIGNATIONS.get(full_name),
+            designation=designation_for_account(full_name, role, site_name),
             must_change_password=True,
             is_active=True,
         ))
@@ -69,21 +73,33 @@ def seed_login_users(db: Session) -> int:
 
 
 def backfill_pilot_designations(db: Session) -> int:
-    """Set designation on the 8 hardcoded Form D/E/H names if still null.
+    """Fill users.designation when still blank so Completion Details autofill
+    works at every site, not only the PGIMER named list.
 
-    Schema patches run before login-user seeding on a fresh DB, so new
-    accounts would otherwise come up without a designation. Idempotent.
+    Named PGIMER titles stay as-is. Other-site scientists get Project
+    Research Scientist II (Medical); nurses get Project Nurse III (same as
+    Tanvi Saini / Yashvi Jolly). Does not overwrite a designation already
+    saved in Manage Staff.
     """
     updated = 0
-    for full_name, designation in PILOT_COMPLETED_BY_DESIGNATIONS.items():
-        rows = (
-            db.query(User)
-            .filter(User.full_name == full_name, User.designation.is_(None))
-            .all()
+    rows = (
+        db.query(User)
+        .filter(
+            User.is_active.is_(True),
+            User.full_name.isnot(None),
+            User.full_name != "",
         )
-        for row in rows:
-            row.designation = designation
-            updated += 1
+        .all()
+    )
+    for row in rows:
+        current = (row.designation or "").strip()
+        wanted = designation_for_account(row.full_name, row.role, row.site_name)
+        if not wanted:
+            continue
+        if current:
+            continue
+        row.designation = wanted
+        updated += 1
     if updated:
         db.commit()
     return updated
