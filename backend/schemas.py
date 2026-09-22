@@ -2935,3 +2935,38 @@ class BlenderSummaryOut(BlenderSummaryCreate):
 
     class Config:
         from_attributes = True
+
+
+class BirthLogEntryCreate(BaseModel):
+    site_name: Optional[str] = None
+
+    mother_uid: Optional[str] = None
+    mother_name: Optional[str] = None
+    husband_name: Optional[str] = None
+
+    date_of_birth: Optional[date] = None
+    time_of_birth: Optional[time] = None
+
+    gestation_weeks: Optional[int] = None
+    gestation_days: Optional[int] = None
+
+    mode_of_delivery: Optional[str] = None
+    birth_weight_grams: Optional[float] = None
+
+    resuscitation_required: Optional[bool] = None
+    ppv_required: Optional[bool] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class BirthLogEntryOut(BirthLogEntryCreate):
+    id: int
+    entered_by: Optional[str] = None
+    matched_screening_id: Optional[str] = None
+    matched_enrollment_id: Optional[str] = None
+    match_status: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

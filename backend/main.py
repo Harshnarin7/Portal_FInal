@@ -58,9 +58,9 @@ from models import (
     FiO2AUC, RespCVNeuroLog, RespCVNeuroDayLog, InfectGIHemaLog,InfectGIHemaDayLog,
     MetabRenalVascEyeLog,MetabRenalVascEyeDayLog, MinimalMonitoringDayLog,
     CranialUSGRecord, SAEReport, AdverseEvents,
-    SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII
+    SAEList, User, MRIBrainAssessment, BlenderStudySummary, ParticipantPII, BirthLogEntry
 )
-from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserUpdate, UserOut, UserRosterOut, SitePiContactOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage
+from schemas import ScreeningCreate, ScreeningClinicalOut, ScreeningOut, BirthResuscitationCreate,MetabRenalVascEyeDayCreate, MetabRenalVascEyeDaySubmit, MinimalMonitoringDayCreate, MinimalMonitoringDayOut, BirthResuscitationOut, MaternalDetailsCreate, MaternalDetailsOut, PostnatalDay1Create, PostnatalDay1Out,NICUAdmissionCreate,NICUAdmissionOut,NeonatalMorbiditiesCreate,NeonatalMorbiditiesOut,StudyOutcomesCreate, CranialUSGCreate, CranialUSGSubmit, StudyOutcomesOut,CranialUltrasoundCreate, CranialUltrasoundOut,ROPScreeningCreate, ROPScreeningOut,CompositeOutcomeCreate, CompositeOutcomeOut, ExternalHospitalAssessmentCreate, ExternalHospitalAssessmentOut, FiO2AUCLogCreate, FiO2AUCLogOut, RespCVNeuroLogCreate,RespCVNeuroDayCreate, RespCVNeuroDaySubmit, DischargeUpdate, RespCVNeuroLogOut,InfectGIHemaLogCreate, InfectGIHemaLogOut,MetabRenalVascEyeLogCreate,MetabRenalVascEyeLogOut,SAEReportCreate, SAEReportOut, AdverseEventsCreate, AdverseEventsOut ,SAEListCreate, SAEListOut, UserCreate, UserUpdate, UserOut, UserRosterOut, SitePiContactOut, LoginRequest, LoginResponse, RefreshTokenRequest, TokenRefreshResponse, RespiratoryLogCreate, RespiratoryLogBulkCreate, InfectGIHemaDayCreate, InfectGIHemaDaySubmit,  SteroidDataCreate, FirebaseScreeningImportCreate, MRIBrainCreate, MRIBrainSubmit, MRIBrainOut, BlenderSummaryCreate, BlenderSummarySubmit, BlenderSummaryOut, HelperFormRecordOut, HelperFormRecordsPage, BirthLogEntryCreate, BirthLogEntryOut
 from pydantic import BaseModel
 from typing import Optional, List
 from deps import (
@@ -7691,3 +7691,124 @@ def submit_form_l(
     db.commit()
     db.refresh(record)
     return {"message": "Form L submitted and locked", "status": "submitted"}
+
+
+# ============================================================================
+# LOG OF ALL BIRTHS — completeness cross-check (see birth_log_matching.py)
+# ============================================================================
+from birth_log_matching import match_birth_log_entry
+
+BIRTH_LOG_WRITE_FIELDS = set(BirthLogEntryCreate.model_fields.keys()) - {"site_name"}
+
+
+@app.post("/birth-log/", response_model=BirthLogEntryOut)
+def create_birth_log_entry(
+    data: BirthLogEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    site_name = data.site_name
+    if not is_global(current_user):
+        site_name = current_user.site_name
+    if not site_name:
+        raise HTTPException(status_code=422, detail="site_name is required")
+
+    payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    record = BirthLogEntry(**payload, site_name=site_name, entered_by=current_user.username)
+
+    match = match_birth_log_entry(
+        db, site_name, record.mother_uid, record.mother_name,
+        record.gestation_weeks, record.gestation_days,
+    )
+    record.matched_screening_id = match["matched_screening_id"]
+    record.matched_enrollment_id = match["matched_enrollment_id"]
+    record.match_status = match["match_status"]
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.put("/birth-log/{entry_id}", response_model=BirthLogEntryOut)
+def update_birth_log_entry(
+    entry_id: int,
+    data: BirthLogEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(BirthLogEntry).filter(BirthLogEntry.id == entry_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Birth log entry not found")
+    if not is_global(current_user) and record.site_name != current_user.site_name:
+        raise HTTPException(status_code=403, detail="Not authorized for this site")
+
+    payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    for key, value in payload.items():
+        setattr(record, key, value)
+
+    match = match_birth_log_entry(
+        db, record.site_name, record.mother_uid, record.mother_name,
+        record.gestation_weeks, record.gestation_days,
+    )
+    record.matched_screening_id = match["matched_screening_id"]
+    record.matched_enrollment_id = match["matched_enrollment_id"]
+    record.match_status = match["match_status"]
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.get("/birth-log/", response_model=List[BirthLogEntryOut])
+def list_birth_log_entries(
+    site: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(BirthLogEntry)
+    if not is_global(current_user):
+        query = query.filter(BirthLogEntry.site_name == current_user.site_name)
+    elif site:
+        query = query.filter(BirthLogEntry.site_name == site)
+    records = query.order_by(BirthLogEntry.date_of_birth.desc().nulls_last(), BirthLogEntry.id.desc()).all()
+
+    out = []
+    for r in records:
+        if not can_view_pii_for_site(current_user, r.site_name):
+            r.mother_uid = None
+            r.mother_name = None
+            r.husband_name = None
+        out.append(r)
+    return out
+
+
+@app.get("/birth-log/alerts")
+def get_birth_log_alerts(
+    site: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """GA-eligible (25w0d-31w6d) births with no matching Form A screening —
+    the completeness cross-check the paper 'Log of All Births' CRF exists
+    for, computed automatically instead of relying on a hand-ticked column."""
+    query = db.query(BirthLogEntry).filter(BirthLogEntry.match_status == "in_range_no_match")
+    if not is_global(current_user):
+        query = query.filter(BirthLogEntry.site_name == current_user.site_name)
+    elif site:
+        query = query.filter(BirthLogEntry.site_name == site)
+    records = query.order_by(BirthLogEntry.date_of_birth.desc().nulls_last()).all()
+
+    can_view = lambda r: can_view_pii_for_site(current_user, r.site_name)
+    return [
+        {
+            "id": r.id,
+            "site_name": r.site_name,
+            "mother_uid": r.mother_uid if can_view(r) else None,
+            "mother_name": r.mother_name if can_view(r) else None,
+            "date_of_birth": r.date_of_birth.isoformat() if r.date_of_birth else None,
+            "gestation_weeks": r.gestation_weeks,
+            "gestation_days": r.gestation_days,
+        }
+        for r in records
+    ]

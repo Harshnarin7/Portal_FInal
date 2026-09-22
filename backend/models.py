@@ -2309,3 +2309,47 @@ class BlenderStudySummary(Base):
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+# ==========================================================
+# LOG OF ALL BIRTHS -- protocol-mandated completeness cross-check
+# (paper CRF: "Log of All Births", v1.5, dated 2025-12-15). Filled for
+# EVERY birth at the study hospital, not just enrolled ones, specifically
+# so a GA-eligible (25w0d-31w6d) delivery with no matching Form A screening
+# can be caught -- see birth_log_matching.py for how the match is computed.
+# Identity fields are encrypted at rest like ParticipantPII, since this
+# table can legitimately hold a woman identity with NO clinical record
+# anywhere else in the system (that is the whole point of the cross-check).
+# ==========================================================
+class BirthLogEntry(Base):
+    __tablename__ = "birth_log_all_births"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_name  = Column(String, index=True, nullable=True)
+    entered_by = Column(String, nullable=True)
+
+    mother_uid   = Column(EncryptedString, nullable=True)  # Mother's UHID / CR Number
+    mother_name  = Column(EncryptedString, nullable=True)
+    husband_name = Column(EncryptedString, nullable=True)
+
+    date_of_birth = Column(Date, nullable=True)
+    time_of_birth = Column(Time, nullable=True)
+
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+
+    mode_of_delivery   = Column(String, nullable=True)  # "LSCS" / "NVD" / "Instrumental" / "Other"
+    birth_weight_grams = Column(Float, nullable=True)
+
+    resuscitation_required = Column(Boolean, nullable=True)
+    ppv_required            = Column(Boolean, nullable=True)
+
+    # Auto-computed on save by birth_log_matching.match_birth_log_entry() --
+    # never hand-entered, so it cannot go stale relative to what is actually
+    # on file the way a manually-typed "Y, screening ID ___" column would.
+    matched_screening_id  = Column(String, nullable=True)
+    matched_enrollment_id = Column(String, nullable=True)
+    match_status = Column(String, nullable=True)
+    # "matched" | "in_range_no_match" | "out_of_range" | "ga_unknown"
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

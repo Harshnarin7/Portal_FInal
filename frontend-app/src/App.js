@@ -35,6 +35,7 @@ import SeriousAdverseEventsList from "./SeriousAdverseEventsList";
 
 import ViewEntries from "./ViewEntries";
 import HelperFormRecords from "./HelperFormRecords";
+import LogOfAllBirths from "./LogOfAllBirths";
 import AuditTrail from "./AuditTrail";
 import EditScreening from "./EditScreening";
 import Dashboard from "./Dashboard";
@@ -215,6 +216,7 @@ function AppContent() {
                       <Route path="/trial-monitoring" element={<ProtectedRoute><TrialMonitoringDashboard /></ProtectedRoute>} />
                       <Route path="/entries" element={<ProtectedRoute><ViewEntries /></ProtectedRoute>} />
                       <Route path="/helper-form-records" element={<ProtectedRoute><HelperFormRecords /></ProtectedRoute>} />
+                      <Route path="/log-of-all-births" element={<ProtectedRoute><LogOfAllBirths /></ProtectedRoute>} />
                       <Route path="/audit-trail" element={<ProtectedRoute><AuditTrail /></ProtectedRoute>} />
                       <Route path="/edit/:id" element={<ProtectedRoute><EditScreening /></ProtectedRoute>} />
                       <Route path="/form-a/:screeningId?" element={<ProtectedRoute><FormLayout currentForm="form_a"><ScreeningForm /></FormLayout></ProtectedRoute>} />

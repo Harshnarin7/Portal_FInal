@@ -433,6 +433,12 @@ export default function Sidebar({ currentForm }) {
             <ClipboardList size={14} strokeWidth={2} />
             <span>Helper Form Records</span>
           </NavLink>
+          <NavLink to="/log-of-all-births"
+            onClick={(e) => guardedNavigate(e, '/log-of-all-births')}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <Hospital size={14} strokeWidth={2} />
+            <span>Log of All Births</span>
+          </NavLink>
           {canViewAudit(user) && (
             <NavLink to="/audit-trail"
               onClick={(e) => guardedNavigate(e, '/audit-trail')}
