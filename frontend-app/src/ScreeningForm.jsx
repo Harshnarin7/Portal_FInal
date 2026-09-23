@@ -20,7 +20,7 @@ import {
 import { useFormProgress } from "./context/FormProgressContext";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { useAuth } from "./context/AuthContext";
-import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, normalizeDateTimeLocalString } from "./utils/datetime";
+import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, normalizeDateTimeLocalString } from "./utils/datetime";
 import { resolveConsentSignatureFromRecord, resolvePiSignatureFromRecord } from "./utils/consentSignature";
 import { sanitizeScreeningCreatePayload } from "./utils/screeningPayload";
 import { printPatientPdf } from "./utils/printPatientPdf";
@@ -659,6 +659,27 @@ export default function ScreeningForm() {
     if (!edd || edd === formData.edd_date) return;
     setFormData(p => ({ ...p, edd_date: edd }));
   }, [formData.lmp_date, formData.gestation_method, dataLoaded]); // eslint-disable-line
+
+  /* LMP-implied GA vs. Best Estimate cross-check (2026-09-23) — Best
+     Estimate is always the nurse's/Gestation Log's own direct entry, never
+     derived from LMP automatically, so nothing previously caught an LMP
+     date that doesn't actually correspond to the weeks/days already
+     entered (e.g. a mistyped LMP computing a technically-correct EDD for
+     the WRONG date). Advisory only, mirrors this app's other
+     staleness-warning banners — never blocks Save, since Best Estimate is
+     explicitly a clinical judgment call the nurse can override. */
+  const lmpMismatch = (() => {
+    if (formData.gestation_method !== "LMP" || !formData.lmp_date) return null;
+    if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
+    const anchor = formData.screening_datetime ? new Date(formData.screening_datetime) : new Date();
+    const asOf = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+    const implied = gestAgeFromLmp(formData.lmp_date, asOf);
+    if (!implied) return null;
+    const impliedDays = implied.weeks * 7 + implied.days;
+    const enteredDays = Number(formData.best_ga_weeks) * 7 + Number(formData.best_ga_days || 0);
+    if (Number.isNaN(enteredDays) || Math.abs(impliedDays - enteredDays) <= 3) return null;
+    return implied;
+  })();
 
   const getEligibilityStatus = () => {
     if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
@@ -1433,6 +1454,13 @@ export default function ScreeningForm() {
                         readOnly className="readonly-input" placeholder="—"/>
                     </div>
                     <div/>
+                  </div>
+                )}
+                {lmpMismatch && (
+                  <div className="alert-warning">
+                    ⚠️ This LMP date implies <strong>{lmpMismatch.weeks}w {lmpMismatch.days}d</strong> gestation,
+                    which doesn't match the Best Estimate above ({formData.best_ga_weeks}w {formData.best_ga_days || 0}d) —
+                    please verify the LMP date is correct before saving.
                   </div>
                 )}
 
