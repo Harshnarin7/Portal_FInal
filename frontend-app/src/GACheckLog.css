@@ -94,6 +94,11 @@
   border-color: var(--gac-sky);
   box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
 }
+.gac-field input:disabled {
+  background: #f1f5f9;
+  color: var(--gac-muted);
+  cursor: default;
+}
 .gac-ga-row { display: flex; gap: 8px; }
 .gac-ga-row input { width: 100%; min-width: 0; }
 

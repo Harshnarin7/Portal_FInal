@@ -437,7 +437,7 @@ export default function Sidebar({ currentForm }) {
             onClick={(e) => guardedNavigate(e, '/ga-check')}
             className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
             <Search size={14} strokeWidth={2} />
-            <span>GA Check Log</span>
+            <span>Gestation (Inclusion Criteria) Log</span>
           </NavLink>
           <NavLink to="/log-of-all-births"
             onClick={(e) => guardedNavigate(e, '/log-of-all-births')}

@@ -1,19 +1,22 @@
-// src/GACheckLog.jsx — GA Check Log: near-zero-friction live pre-screening
-// capture (part 1 of the CONSORT-completeness plan; part 2, the digitized
-// Log of All Births, is already built — see LogOfAllBirths.jsx).
+// src/GACheckLog.jsx — Gestation (Inclusion Criteria) Screening Log:
+// near-zero-friction live pre-screening capture (part 1 of the
+// CONSORT-completeness plan; part 2, the digitized Log of All Births, is
+// already built — see LogOfAllBirths.jsx).
 //
 // Logged the instant a nurse checks ANY woman's gestational age at
 // antenatal clinic/delivery-room triage — including the majority who turn
 // out not preterm and would otherwise leave no trace anywhere in the
 // system. This log IS the CONSORT flow's true "Box 1 — Approached for
 // screening" population, computed instead of hand-counted from a pocket
-// diary. When GA<32 weeks is confirmed, the entry can continue straight
-// into Form A with name/UID/GA already carried forward.
+// diary. When gestation <32 weeks is confirmed, the entry can continue
+// straight into Form A with name/UID/gestation already carried forward.
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import { isGlobalUser } from "./utils/roles";
+import { SITE_ORDER } from "./utils/siteNames";
 import {
   Search, AlertTriangle, CheckCircle2, ArrowRight, RefreshCw, X,
 } from "lucide-react";
@@ -22,6 +25,7 @@ import "./GACheckLog.css";
 const GA_SOURCES = ["LMP", "USG", "Unknown"];
 
 const BLANK_FORM = {
+  site_name: "",
   mother_name: "",
   mother_uid: "",
   gestation_weeks: "",
@@ -34,6 +38,12 @@ export const GA_CHECK_SEED_KEY = "ga_check_seed";
 export default function GACheckLog() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  /* Site-locked users (nurse/site_pi/site_scientist/etc.) can only ever
+     log against their own site, same rule ScreeningForm.jsx's
+     isSiteLocked applies to Form A — so the site is auto-picked from
+     the login and shown read-only, never asked for again. Global roles
+     (superadmin) have no home site and must choose one. */
+  const isSiteLocked = !isGlobalUser(user) && !!user?.site;
 
   const [form, setForm] = useState(BLANK_FORM);
   const [saving, setSaving] = useState(false);
@@ -44,6 +54,10 @@ export default function GACheckLog() {
   const [gapEntries, setGapEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    if (isSiteLocked) setForm((p) => (p.site_name ? p : { ...p, site_name: user.site }));
+  }, [isSiteLocked, user]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -60,7 +74,7 @@ export default function GACheckLog() {
         setLoadError(
           err.response?.status === 403
             ? "You don't have access to this log."
-            : "Could not load the GA check log."
+            : "Could not load the screening log."
         );
       })
       .finally(() => setLoading(false));
@@ -83,9 +97,14 @@ export default function GACheckLog() {
       setSaveError("Enter at least the mother's name or UID.");
       return;
     }
+    if (!isSiteLocked && !form.site_name) {
+      setSaveError("Select a site.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     const payload = {
+      site_name: form.site_name || null,
       mother_name: form.mother_name || null,
       mother_uid: form.mother_uid || null,
       gestation_weeks: form.gestation_weeks === "" ? null : Number(form.gestation_weeks),
@@ -95,7 +114,7 @@ export default function GACheckLog() {
     try {
       const res = await api.post("/ga-check/", payload);
       setLastResult(res.data);
-      setForm(BLANK_FORM);
+      setForm((p) => ({ ...BLANK_FORM, site_name: isSiteLocked ? p.site_name : "" }));
       load();
     } catch (err) {
       setSaveError(err.response?.data?.detail || "Save failed.");
@@ -124,13 +143,13 @@ export default function GACheckLog() {
     <div className="gac-page">
       <div className="gac-header">
         <div className="gac-breadcrumb">
-          <Search size={14} /> GA Check Log
+          <Search size={14} /> Gestation (Inclusion Criteria) Screening Log
         </div>
-        <h1 className="gac-title">GA Check Log</h1>
+        <h1 className="gac-title">Gestation (Inclusion Criteria) Screening Log</h1>
         <p className="gac-subtitle">
           Log every woman checked for gestational age at antenatal clinic or delivery-room
           triage — not just the ones who turn out preterm. This is the true "approached for
-          screening" population; when GA&lt;32 weeks is confirmed, continue straight into Form A.
+          screening" population; when gestation is under 32 weeks, continue straight into Form A.
         </p>
       </div>
 
@@ -138,7 +157,7 @@ export default function GACheckLog() {
         <div className="gac-alert-banner">
           <AlertTriangle size={16} />
           <span>
-            <strong>{stats.gap}</strong> GA-eligible check{stats.gap === 1 ? "" : "s"} logged
+            <strong>{stats.gap}</strong> eligible check{stats.gap === 1 ? "" : "s"} logged
             with no Form A ever started — review below.
           </span>
         </div>
@@ -150,12 +169,12 @@ export default function GACheckLog() {
             {lastResult.eligible ? (
               <>
                 <AlertTriangle size={18} />
-                Logged — GA {lastResult.gestation_weeks}w {lastResult.gestation_days ?? 0}d, under 32 weeks. Continue to Form A?
+                Logged — gestation {lastResult.gestation_weeks}w {lastResult.gestation_days ?? 0}d, under 32 weeks. Continue to Form A?
               </>
             ) : (
               <>
                 <CheckCircle2 size={18} />
-                Logged — not eligible for the trial (GA {lastResult.gestation_weeks != null ? `${lastResult.gestation_weeks}w ${lastResult.gestation_days ?? 0}d` : "not captured"}).
+                Logged — not eligible for the trial (gestation {lastResult.gestation_weeks != null ? `${lastResult.gestation_weeks}w ${lastResult.gestation_days ?? 0}d` : "not captured"}).
               </>
             )}
           </div>
@@ -179,7 +198,7 @@ export default function GACheckLog() {
         </div>
         <div className="gac-stat">
           <div className="gac-stat-value">{stats.eligible}</div>
-          <div className="gac-stat-label">GA-eligible (&lt;32wk)</div>
+          <div className="gac-stat-label">Eligible (&lt;32wk)</div>
         </div>
         <div className="gac-stat">
           <div className="gac-stat-value">{stats.continued}</div>
@@ -193,9 +212,20 @@ export default function GACheckLog() {
 
       <form className="gac-card" onSubmit={handleSave}>
         <div className="gac-card-head">
-          <h2>Log a GA check</h2>
+          <h2>Log a gestation check</h2>
         </div>
         <div className="gac-form-grid">
+          <label className="gac-field">
+            <span>Site</span>
+            {isSiteLocked ? (
+              <input value={form.site_name} disabled readOnly />
+            ) : (
+              <select value={form.site_name} onChange={(e) => setField("site_name", e.target.value)}>
+                <option value="">–– Select ––</option>
+                {SITE_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </label>
           <label className="gac-field">
             <span>Mother's Name</span>
             <input value={form.mother_name} onChange={(e) => setField("mother_name", e.target.value)} autoFocus />
@@ -212,7 +242,7 @@ export default function GACheckLog() {
             </div>
           </label>
           <label className="gac-field">
-            <span>GA Source</span>
+            <span>Gestation Source</span>
             <select value={form.ga_source} onChange={(e) => setField("ga_source", e.target.value)}>
               <option value="">–– Select ––</option>
               {GA_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -229,7 +259,7 @@ export default function GACheckLog() {
 
       <div className="gac-card">
         <div className="gac-card-head">
-          <h2>Recent checks {user?.site_name ? `— ${user.site_name}` : ""}</h2>
+          <h2>Recent checks {user?.site ? `— ${user.site}` : ""}</h2>
           <button type="button" className="gac-icon-btn" onClick={load} disabled={loading} title="Refresh">
             <RefreshCw size={14} className={loading ? "gac-spin" : ""} />
           </button>
@@ -240,9 +270,10 @@ export default function GACheckLog() {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Site</th>
                 <th>Name</th>
                 <th>UID</th>
-                <th>GA</th>
+                <th>Gestation</th>
                 <th>Source</th>
                 <th>Outcome</th>
               </tr>
@@ -253,6 +284,7 @@ export default function GACheckLog() {
                 return (
                   <tr key={e.id} className={isGap ? "gac-row--gap" : ""}>
                     <td>{e.check_date || "—"}</td>
+                    <td>{e.site_name || "—"}</td>
                     <td>{e.mother_name || "—"}</td>
                     <td>{e.mother_uid || "—"}</td>
                     <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
@@ -269,14 +301,14 @@ export default function GACheckLog() {
                       ) : e.eligible === false ? (
                         <span className="gac-badge gac-badge--not-eligible">Not eligible</span>
                       ) : (
-                        <span className="gac-badge gac-badge--unknown">GA unknown</span>
+                        <span className="gac-badge gac-badge--unknown">Gestation unknown</span>
                       )}
                     </td>
                   </tr>
                 );
               })}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={6} className="gac-empty">No GA checks logged yet.</td></tr>
+                <tr><td colSpan={7} className="gac-empty">No checks logged yet.</td></tr>
               )}
             </tbody>
           </table>
