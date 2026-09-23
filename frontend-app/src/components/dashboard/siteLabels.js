@@ -40,6 +40,22 @@ export function formatSiteShort(site) {
   return FULL_TO_SHORT[full] || key;
 }
 
+const JUNK_SITES = new Set(["", "draft", "—", "-", "n/a", "na", "null", "undefined"]);
+
+/** Normalize PGIMER / "PGIMER Chandigarh" to one key; drop placeholders like DRAFT. */
+export function canonicalSiteKey(site) {
+  const raw = String(site || "").trim();
+  if (!raw || JUNK_SITES.has(raw.toLowerCase())) return "";
+  if (SITE_SHORT[raw]) return raw;
+  if (FULL_TO_SHORT[raw]) return FULL_TO_SHORT[raw];
+  return raw;
+}
+
+export function isKnownTrialSite(site) {
+  const key = canonicalSiteKey(site);
+  return Boolean(key && (SITE_SHORT[key] || FULL_TO_SHORT[key] || SITE_LABELS[key]));
+}
+
 export const COORDINATING_SITE = "PGIMER Chandigarh";
 export const PARTICIPATING_SITES = [
   "GMCH Chandigarh",

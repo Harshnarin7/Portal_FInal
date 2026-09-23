@@ -345,6 +345,45 @@ def generate_screening_id(site_id: str, db: Session):
     next_number = max_number + 1
     return f"{prefix}{next_number:04d}"
 
+GA_MIN_TOTAL_DAYS = 25 * 7
+GA_MAX_TOTAL_DAYS = 31 * 7 + 6
+GA_WINDOW_REJECT = (
+    "Gestational age is outside the study window (25 weeks 0 days to 31 weeks 6 days). "
+    "A screening ID is not assigned and the record is not saved."
+)
+
+
+def _ga_total_days(weeks, days):
+    if weeks is None:
+        return None
+    try:
+        return int(weeks) * 7 + int(days or 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def ga_in_inclusion_window(weeks, days) -> bool:
+    total = _ga_total_days(weeks, days)
+    return total is not None and GA_MIN_TOTAL_DAYS <= total <= GA_MAX_TOTAL_DAYS
+
+
+def require_ga_in_inclusion_window(data):
+    """Do not persist Form A or issue a screening ID unless GA is 25w0d–31w6d."""
+    known = getattr(data, "gestation_known", None)
+    source = getattr(data, "ga_source", None)
+    if known == "No" and source == "Neither":
+        raise HTTPException(status_code=422, detail=GA_WINDOW_REJECT)
+    weeks = getattr(data, "gestation_weeks", None)
+    days = getattr(data, "gestation_days", None)
+    if weeks is None:
+        raise HTTPException(
+            status_code=422,
+            detail="A screening ID is only assigned after gestational age is known and within 25w0d–31w6d.",
+        )
+    if not ga_in_inclusion_window(weeks, days):
+        raise HTTPException(status_code=422, detail=GA_WINDOW_REJECT)
+
+
 def compute_screening_status(data):
     """Authoritative screening_status for web + mobile (Form A).
 
@@ -836,6 +875,7 @@ def create_screening(
     current_user: User = Depends(get_current_user),
 ):
     ensure_same_site(screening.site_name, current_user)
+    require_ga_in_inclusion_window(screening)
 
     # FIX: derive site_id from site_name server-side rather than trusting
     # the client's own site_id field ? see CANONICAL_SITE_ID_MAP above for
@@ -1062,6 +1102,7 @@ def update_screening(
         # showing "Screen Failure"/"Not Eligible" forever, even once fully
         # and correctly completed as eligible. Recompute on every save.
         entry.screening_status = compute_screening_status(entry)
+        require_ga_in_inclusion_window(entry)
 
         clear_screening_pii_columns(entry)
         stamp_updated(entry, current_user)
@@ -5409,6 +5450,82 @@ def create_sae_list(
     return record
 
 
+def _sae_listing_row_filled(row) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return any(
+        str(row.get(k) or "").strip()
+        for k in (
+            "sae",
+            "definition_no",
+            "start_date",
+            "notification_24h",
+            "end_date",
+            "notify_initial",
+            "notify_10d",
+            "notify_resolution",
+        )
+    )
+
+
+@app.get("/sae-list/summary")
+def sae_list_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Count SAE Listing form rows (not Form Y reports) for View Entries."""
+    q = db.query(SAEList)
+    if not is_global(current_user):
+        site = (current_user.site_name or "").strip()
+        if not site:
+            return {"total": 0, "items": []}
+        site_eids = (
+            db.query(Screening.enrollment_id)
+            .filter(
+                Screening.site_name == site,
+                Screening.is_deleted.isnot(True),
+                Screening.enrollment_id.isnot(None),
+                Screening.enrollment_id != "",
+            )
+        )
+        q = q.filter(SAEList.enrollment_id.in_(site_eids))
+    records = q.all()
+    eids = [r.enrollment_id for r in records if r.enrollment_id]
+    by_eid = {}
+    if eids:
+        for s in (
+            db.query(Screening)
+            .filter(
+                Screening.enrollment_id.in_(eids),
+                Screening.is_deleted.isnot(True),
+            )
+            .all()
+        ):
+            if s.enrollment_id and s.enrollment_id not in by_eid:
+                by_eid[s.enrollment_id] = s
+    items = []
+    for rec in records:
+        rows = rec.rows if isinstance(rec.rows, list) else []
+        scr = by_eid.get(rec.enrollment_id)
+        for r in rows:
+            if not _sae_listing_row_filled(r):
+                continue
+            items.append({
+                "enrollment_id": rec.enrollment_id,
+                "screening_id": scr.screening_id if scr else None,
+                "site_name": scr.site_name if scr else None,
+                "sae": (r.get("sae") or "").strip(),
+                "definition_no": (r.get("definition_no") or "").strip(),
+                "start_date": (r.get("start_date") or "").strip(),
+                "end_date": (r.get("end_date") or "").strip(),
+                "notification_24h": (r.get("notification_24h") or "").strip(),
+                "notify_initial": (r.get("notify_initial") or "").strip(),
+                "notify_10d": (r.get("notify_10d") or "").strip(),
+                "notify_resolution": (r.get("notify_resolution") or "").strip(),
+            })
+    return {"total": len(items), "items": items}
+
+
 @app.get("/sae-list/{enrollment_id}", response_model=Optional[SAEListOut])
 def get_sae_list(
     enrollment_id: str,
@@ -5738,6 +5855,7 @@ def get_enrollment_status(
         "screening_status": screening.screening_status,
         "form_a": True,
         "form_b": form_b,
+        "form_b_started": birth is not None,
         "form_c": form_c,
         "form_d": form_d,
         "form_e": form_e,

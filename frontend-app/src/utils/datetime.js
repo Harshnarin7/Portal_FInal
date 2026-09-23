@@ -354,23 +354,33 @@ export function calendarDaysBetween(a, b) {
 }
 
 /**
- * Naegele: EDD = LMP + 280 days. Returns "YYYY-MM-DD" or "".
+ * Naegele's rule: EDD = LMP + 1 year − 3 months + 7 days
+ * (9 calendar months + 7 days). Not LMP + 280 days — that is 1–2 days
+ * early when the 9-month span has extra 31-day months
+ * (e.g. LMP 15 Mar → EDD 22 Dec, not 20 Dec).
+ * Returns "YYYY-MM-DD" or "".
  * @param {string|null|undefined} lmpDateStr
  */
 export function eddFromLmp(lmpDateStr) {
   const lmp = parseDateOnly(lmpDateStr);
   if (!lmp) return "";
-  const edd = new Date(lmp.getFullYear(), lmp.getMonth(), lmp.getDate());
-  edd.setDate(edd.getDate() + 280);
+  const edd = new Date(
+    lmp.getFullYear() + 1,
+    lmp.getMonth() - 3,
+    lmp.getDate() + 7,
+  );
   return toDateOnlyValue(edd);
 }
 
-/** Inverse of Naegele: LMP = EDD − 280 days. Returns "YYYY-MM-DD" or "". */
+/** Inverse Naegele: LMP = EDD − 1 year + 3 months − 7 days. Returns "YYYY-MM-DD" or "". */
 export function lmpFromEdd(eddDateStr) {
   const edd = parseDateOnly(eddDateStr);
   if (!edd) return "";
-  const lmp = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate());
-  lmp.setDate(lmp.getDate() - 280);
+  const lmp = new Date(
+    edd.getFullYear() - 1,
+    edd.getMonth() + 3,
+    edd.getDate() - 7,
+  );
   return toDateOnlyValue(lmp);
 }
 
@@ -441,19 +451,14 @@ export function gestAgeFromLmp(lmpDateStr, asOf = new Date()) {
 }
 
 /**
- * Gestational age from EDD: GA = 280 − (EDD − today).
+ * Gestational age from EDD: inverse Naegele → LMP, then same LMP arithmetic.
  * @param {string|null|undefined} eddDateStr
  * @param {Date} [asOf]
  */
 export function gestAgeFromEdd(eddDateStr, asOf = new Date()) {
-  const edd = parseDateOnly(String(eddDateStr || "").slice(0, 10));
-  if (!edd) return null;
-  const today = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
-  const daysUntilEdd = calendarDaysBetween(today, edd);
-  const gestDays = 280 - daysUntilEdd;
-  if (Number.isNaN(gestDays)) return null;
-  if (gestDays < 0) return { weeks: 0, days: 0 };
-  return { weeks: Math.floor(gestDays / 7), days: gestDays % 7 };
+  const lmpStr = lmpFromEdd(eddDateStr);
+  if (!lmpStr) return null;
+  return gestAgeFromLmp(lmpStr, asOf);
 }
 
 /**
