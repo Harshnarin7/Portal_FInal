@@ -2956,6 +2956,9 @@ class BirthLogEntryCreate(BaseModel):
     resuscitation_required: Optional[bool] = None
     ppv_required: Optional[bool] = None
 
+    reason_not_approached: Optional[str] = None
+    reason_not_approached_other: Optional[str] = None
+
     model_config = {"extra": "ignore"}
 
 
@@ -2980,9 +2983,11 @@ class GACheckEntryCreate(BaseModel):
 
     check_date: Optional[date] = None
 
+    identification_type: Optional[str] = None
+    ga_source: Optional[str] = None
+    gestation_method: Optional[str] = None
     gestation_weeks: Optional[int] = None
     gestation_days: Optional[int] = None
-    ga_source: Optional[str] = None
 
     model_config = {"extra": "ignore"}
 

@@ -20,7 +20,7 @@ import {
 import { useFormProgress } from "./context/FormProgressContext";
 import { isUsableEnrollmentId } from "./utils/enrollmentId";
 import { useAuth } from "./context/AuthContext";
-import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, gestAgeFromEdd, normalizeDateTimeLocalString } from "./utils/datetime";
+import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyValue, parseDateOnly, eddFromLmp, gestAgeFromLmp, normalizeDateTimeLocalString } from "./utils/datetime";
 import { resolveConsentSignatureFromRecord, resolvePiSignatureFromRecord } from "./utils/consentSignature";
 import { sanitizeScreeningCreatePayload } from "./utils/screeningPayload";
 import { printPatientPdf } from "./utils/printPatientPdf";
@@ -95,31 +95,19 @@ const GA_MAX_TOTAL_DAYS = GA_MAX_WEEKS * 7 + 6;
 const GA_NO_RECORD_MSG =
   "Gestational age is outside the study window (25 weeks 0 days to 31 weeks 6 days). No screening ID is assigned and the record is not saved.";
 
-function classifyGaSnapshot(fd, asOf) {
+/* Snapshot classifier taking an explicit fd -- getEligibilityStatus()
+   further below does the identical calculation but closes over the live
+   formData state, which the autoSave interval callback can't safely use
+   (stale-closure risk, same reason it reads formDataRef.current instead
+   of formData everywhere else). Kept as a separate small function rather
+   than parameterizing getEligibilityStatus so autoSave's usage doesn't
+   depend on where in the component body that one happens to be defined. */
+function classifyGaSnapshot(fd) {
   if (!fd) return null;
-  const asOfDate = asOf instanceof Date && !Number.isNaN(asOf.getTime())
-    ? asOf
-    : (asOf ? new Date(asOf) : new Date());
-  const ref = Number.isNaN(asOfDate.getTime()) ? new Date() : asOfDate;
-  if (fd.gestation_known === "No" && fd.ga_source === "Neither") return "unknown";
-  let weeks = null;
-  let days = 0;
-  if (fd.gestation_known === "Yes") {
-    if (!fd.best_ga_weeks && fd.best_ga_weeks !== 0) return null;
-    weeks = Number(fd.best_ga_weeks);
-    days = Number(fd.best_ga_days || 0);
-  } else if (fd.gestation_known === "No" && fd.ga_source !== "Neither" && fd.edd_date) {
-    const autoGa =
-      fd.ga_source === "LMP" && fd.lmp_date
-        ? gestAgeFromLmp(fd.lmp_date, ref)
-        : gestAgeFromEdd(fd.edd_date, ref);
-    if (!autoGa) return null;
-    weeks = autoGa.weeks;
-    days = autoGa.days;
-  } else {
-    return null;
-  }
-  if (weeks === null || Number.isNaN(weeks)) return null;
+  if (!fd.best_ga_weeks && fd.best_ga_weeks !== 0) return null;
+  const weeks = Number(fd.best_ga_weeks);
+  const days = Number(fd.best_ga_days || 0);
+  if (Number.isNaN(weeks)) return null;
   const t = weeks * 7 + days;
   if (t < GA_MIN_TOTAL_DAYS) return "low";
   if (t > GA_MAX_TOTAL_DAYS) return "high";
@@ -130,11 +118,17 @@ function classifyGaSnapshot(fd, asOf) {
 const BLANK_FORM = {
   screening_id:"", screening_datetime:"",
   site_name:"", site_id:"", screened_by:"",
-  /* A1 Gestation */
-  gestation_known:"", gestation_method:"",
+  /* A1 Gestation — item "1. Gestation known?" removed 2026-09-23: the
+     Gestation (Inclusion Criteria) Screening Log now gates Form A entirely
+     (only a Reliable, in-range gestation check ever reaches here), so
+     Best Estimate weeks/days is unconditionally item 1, pre-filled when
+     seeded from that log. gestation_known/ga_source columns still exist on
+     the backend for historical (pre-2026-09-23) records saved via the old
+     LMP/EDD-calculation path -- new saves always send gestation_known="Yes"
+     and ga_source=null; see buildPayloadFrom(). */
+  gestation_method:"",
   best_ga_weeks:"", best_ga_days:"",
-  ga_source:"", lmp_date:"", edd_date:"",
-  auto_ga_weeks:"", auto_ga_days:"",
+  lmp_date:"", edd_date:"",
   /* A3 Maternal */
   mother_first_name:"", mother_surname:"",
   husband_first_name:"", husband_surname:"",
@@ -330,8 +324,7 @@ export default function ScreeningForm() {
           maternal_uid: seed.mother_uid || "",
           best_ga_weeks: seed.gestation_weeks ?? "",
           best_ga_days: seed.gestation_days ?? "",
-          ga_source: seed.ga_source || "",
-          gestation_known: seed.gestation_weeks !== "" && seed.gestation_weeks != null ? "Yes" : "",
+          gestation_method: seed.gestation_method || "",
         };
         pendingGaCheckIdRef.current = seed.id ?? null;
       }
@@ -391,17 +384,18 @@ export default function ScreeningForm() {
         hospital_admission_number: pii.hospital_admission_number || "",
         mother_contact:            pii.mother_contact || "",
         husband_contact:           pii.husband_contact || "",
-        /* gestation_known/ga_source are now persisted explicitly on the
-           backend (see migrations/0002_gestation_known_column.sql), so
-           reload no longer needs to guess. The fallback heuristic below
-           only matters for rows saved before that column existed and
-           that the migration's best-effort backfill didn't cover — new
-           saves always have d.gestation_known set directly. */
-        gestation_known:    d.gestation_known || (d.gestation_method ? "Yes" : (d.lmp_date || d.expected_delivery_date ? "No" : "")),
-        best_ga_weeks:      d.gestation_method ? (d.gestation_weeks ?? "") : "",
-        best_ga_days:       d.gestation_method ? (d.gestation_days  ?? "") : "",
+        /* Best Estimate weeks/days is now unconditional item 1 (2026-09-23
+           removal of "Gestation known?") — always populated from the
+           saved gestation_weeks/days regardless of whether this record
+           was originally saved via the current direct-entry path or the
+           older LMP/EDD-calculation path (removed from the UI, but
+           historical records still have their computed value sitting in
+           these same two columns). gestation_method stays blank for a
+           historical record that never had one — informational only, no
+           longer required to reopen/view an old record. */
+        best_ga_weeks:      d.gestation_weeks ?? "",
+        best_ga_days:       d.gestation_days  ?? "",
         gestation_method:   d.gestation_method || "",
-        ga_source:          d.ga_source || (d.gestation_method ? "" : d.lmp_date ? "LMP" : d.expected_delivery_date ? "EDD" : ""),
         /* Prefer EDD derived from LMP so a stale expected_delivery_date cannot skew GA. */
         edd_date:           (() => {
           const lmp = d.lmp_date || "";
@@ -410,10 +404,6 @@ export default function ScreeningForm() {
           return d.expected_delivery_date ? String(d.expected_delivery_date).slice(0, 10) : "";
         })(),
         lmp_date:           d.lmp_date ? String(d.lmp_date).slice(0, 10) : "",
-        /* Restore auto-GA for the "gestation not known" path so field 7
-           shows immediately on reload (also recomputed live from LMP/EDD). */
-        auto_ga_weeks:      d.gestation_method ? "" : (d.gestation_weeks ?? ""),
-        auto_ga_days:       d.gestation_method ? "" : (d.gestation_days ?? ""),
         /* A4 exclusion fields — inline ternary avoids const-in-object error.
            (d.exclusion_present != null) means record was saved before → unanswered = "No".
            If never saved → "" so toggles show as unanswered.                              */
@@ -659,66 +649,43 @@ export default function ScreeningForm() {
     setFormData(prev => prev.screened_by ? prev : { ...prev, screened_by: match });
   }, [nurses, isSiteLocked, user, screeningId, formData.screened_by]);
 
-  /* ─── LMP → EDD auto-calc (always overwrite from LMP so EDD cannot go stale) ── */
+  /* ─── LMP → EDD auto-calc (always overwrite from LMP so EDD cannot go stale) ──
+     Only Method === "LMP" can still show/need this since "Gestation known?"
+     and its LMP/EDD-calculation fallback path were removed 2026-09-23. */
   useEffect(() => {
     if (!formData.lmp_date || !dataLoaded) return;
-    const lmpPath =
-      (formData.gestation_known === "Yes" && formData.gestation_method === "LMP") ||
-      (formData.gestation_known === "No" && formData.ga_source === "LMP");
-    if (!lmpPath) return;
+    if (formData.gestation_method !== "LMP") return;
     const edd = eddFromLmp(formData.lmp_date);
     if (!edd || edd === formData.edd_date) return;
     setFormData(p => ({ ...p, edd_date: edd }));
-  }, [formData.lmp_date, formData.gestation_known, formData.gestation_method, formData.ga_source, dataLoaded]); // eslint-disable-line
+  }, [formData.lmp_date, formData.gestation_method, dataLoaded]); // eslint-disable-line
 
-  /* GA helpers — LMP path uses LMP directly; EDD path uses EDD. Never trust a
-     stale expected_delivery_date when LMP is present.
-     Anchored to the actual screening date/time (screening_datetime), not
-     "right now" — otherwise every day this record is reopened after the
-     fact, the displayed GA silently climbs past the true GA-at-screening,
-     drifting out of sync with Form B's DOB-anchored gestation figures
-     (which is exactly what was happening: a case screened weeks ago, then
-     reopened for review, showed today's GA instead of the GA on the day
-     it was actually screened). Falls back to "now" only when no
-     screening_datetime has been set yet (i.e. filling the form live today). */
-  const gaAsOf = formData.screening_datetime ? new Date(formData.screening_datetime) : new Date();
-  const computeAutoGaFromEdd = (eddDateStr) => gestAgeFromEdd(eddDateStr, gaAsOf);
-  const computeAutoGaFromLmp = (lmpDateStr) => gestAgeFromLmp(lmpDateStr, gaAsOf);
-
-  /* Keep auto_ga_* in sync for save/eligibility */
-  useEffect(() => {
-    if (!dataLoaded || formData.gestation_known === "Yes") return;
-    let ga = null;
-    if (formData.ga_source === "LMP" && formData.lmp_date) {
-      ga = computeAutoGaFromLmp(formData.lmp_date);
-    } else if (formData.ga_source === "EDD" && formData.edd_date) {
-      ga = computeAutoGaFromEdd(formData.edd_date);
-    }
-    if (!ga) return;
-    setFormData(p => {
-      if (p.auto_ga_weeks === ga.weeks && p.auto_ga_days === ga.days) return p;
-      return { ...p, auto_ga_weeks: ga.weeks, auto_ga_days: ga.days };
-    });
-  }, [formData.lmp_date, formData.edd_date, formData.ga_source, formData.gestation_known, formData.screening_datetime, dataLoaded]); // eslint-disable-line
-
-  /* ─── Derived flags ── */
-  const derivedAutoGa = (() => {
-    if (formData.gestation_known !== "No" || formData.ga_source === "Neither") return null;
-    if (formData.ga_source === "LMP" && formData.lmp_date) return computeAutoGaFromLmp(formData.lmp_date);
-    if (formData.edd_date) return computeAutoGaFromEdd(formData.edd_date);
-    return null;
+  /* LMP-implied GA vs. Best Estimate cross-check (2026-09-23) — Best
+     Estimate is always the nurse's/Gestation Log's own direct entry, never
+     derived from LMP automatically, so nothing previously caught an LMP
+     date that doesn't actually correspond to the weeks/days already
+     entered (e.g. a mistyped LMP computing a technically-correct EDD for
+     the WRONG date). Advisory only, mirrors this app's other
+     staleness-warning banners — never blocks Save, since Best Estimate is
+     explicitly a clinical judgment call the nurse can override. */
+  const lmpMismatch = (() => {
+    if (formData.gestation_method !== "LMP" || !formData.lmp_date) return null;
+    if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
+    const anchor = formData.screening_datetime ? new Date(formData.screening_datetime) : new Date();
+    const asOf = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+    const implied = gestAgeFromLmp(formData.lmp_date, asOf);
+    if (!implied) return null;
+    const impliedDays = implied.weeks * 7 + implied.days;
+    const enteredDays = Number(formData.best_ga_weeks) * 7 + Number(formData.best_ga_days || 0);
+    if (Number.isNaN(enteredDays) || Math.abs(impliedDays - enteredDays) <= 3) return null;
+    return implied;
   })();
 
   const getEligibilityStatus = () => {
-    let weeks = null, days = 0;
-    if (formData.gestation_known === "Yes") {
-      if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
-      weeks = Number(formData.best_ga_weeks); days = Number(formData.best_ga_days||0);
-    } else if (formData.gestation_known === "No" && formData.ga_source !== "Neither" && formData.edd_date) {
-      if (!derivedAutoGa) return null;
-      weeks = derivedAutoGa.weeks; days = derivedAutoGa.days;
-    }
-    if (weeks === null || isNaN(weeks)) return null;
+    if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0) return null;
+    const weeks = Number(formData.best_ga_weeks);
+    const days = Number(formData.best_ga_days || 0);
+    if (isNaN(weeks)) return null;
     const t = weeks * 7 + days;
     /* Eligible window: 25w0d – 31w6d inclusive */
     if (t < GA_MIN_TOTAL_DAYS) return "low";
@@ -726,20 +693,16 @@ export default function ScreeningForm() {
     return "eligible";
   };
   const eligibilityStatus     = getEligibilityStatus();
-  const gaNotDeterminable     = formData.gestation_known === "No" && formData.ga_source === "Neither";
   const isNotEligible         = eligibilityStatus === "high" || eligibilityStatus === "low";
-  const endParticipation      = gaNotDeterminable || isNotEligible;
+  const endParticipation      = isNotEligible;
 
-  /* Lock Form B+ when GA is outside 25w0d–31w6d (or undeterminable).
+  /* Lock Form B+ when GA is outside 25w0d–31w6d.
      Form A stays available so nurses can correct the record. */
   useEffect(() => {
     if (!dataLoaded) return;
-    if (isNotEligible || gaNotDeterminable) {
+    if (isNotEligible) {
       localStorage.setItem("enrollment_locked", "true");
-      localStorage.setItem(
-        "enrollment_lock_reason",
-        gaNotDeterminable ? "ga_unknown" : "ga_out_of_range"
-      );
+      localStorage.setItem("enrollment_lock_reason", "ga_out_of_range");
       window.dispatchEvent(new Event("storage"));
     } else if (eligibilityStatus === "eligible") {
       /* Eligible + consented: clear stale locks from another patient / GA.
@@ -761,30 +724,22 @@ export default function ScreeningForm() {
         }
       }
     }
-  }, [dataLoaded, isNotEligible, gaNotDeterminable, eligibilityStatus, formData.consent_given]);
+  }, [dataLoaded, isNotEligible, eligibilityStatus, formData.consent_given]);
 
-  const gestationPathComplete = formData.gestation_known === "Yes" ||
-    (formData.gestation_known === "No" && !!formData.edd_date && formData.ga_source !== "Neither");
+  const gestationPathComplete = formData.best_ga_weeks !== "" && formData.best_ga_weeks != null;
   const anyExclusionYes = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
     .some(k => formData[k] === "Yes");
   const allExclusionAnswered = ["exclusion_anomaly","fetal_hydrops","decision_forego_resus","iufd","insufficient_time"]
     .every(k => formData[k] === "Yes" || formData[k] === "No");
-  const displayWeeks = formData.gestation_known === "Yes"
-    ? formData.best_ga_weeks
-    : (derivedAutoGa ? derivedAutoGa.weeks : formData.auto_ga_weeks);
-  const displayDays  = formData.gestation_known === "Yes"
-    ? (formData.best_ga_days === "" || formData.best_ga_days === null || formData.best_ga_days === undefined
-        ? 0
-        : formData.best_ga_days)
-    : (derivedAutoGa ? derivedAutoGa.days : (formData.auto_ga_days === "" || formData.auto_ga_days == null ? 0 : formData.auto_ga_days));
+  const displayWeeks = formData.best_ga_weeks;
+  const displayDays  = formData.best_ga_days === "" || formData.best_ga_days === null || formData.best_ga_days === undefined
+    ? 0
+    : formData.best_ga_days;
   const hasDisplayGa = (() => {
     if (displayWeeks === "" || displayWeeks === null || displayWeeks === undefined) return false;
     const n = Number(displayWeeks);
     return !Number.isNaN(n);
   })();
-  /* GA was typed straight in (field 2) vs derived from LMP/EDD (field 7) —
-     the two cases need different wording in the summary banner below. */
-  const isDirectGaEntry = formData.gestation_known === "Yes";
 
   /* ─── Field-level change handler ── */
   const set = (patch) => setFormData(p => ({ ...p, ...patch }));
@@ -806,8 +761,6 @@ export default function ScreeningForm() {
       return;
     }
     if (name === "site_name")          { set({ site_name:value, site_id:SITE_ID_MAP[value]||"", screened_by:"" }); return; }
-    if (name === "gestation_known")    { set({ gestation_known:value, ga_source:"", lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"", best_ga_weeks:"", best_ga_days:"", gestation_method:"" }); return; }
-    if (name === "ga_source")          { set({ ga_source:value, lmp_date:"", edd_date:"", auto_ga_weeks:"", auto_ga_days:"" }); return; }
     if (name === "gestation_method")   { set({ gestation_method:value, lmp_date:"", edd_date:"" }); return; }
     if (name === "exclusion_anomaly")  { set({ exclusion_anomaly:value, exclusion_anomaly_details: value==="Yes" ? formData.exclusion_anomaly_details : "" }); return; }
     if (name === "fetal_hydrops")      { set({ fetal_hydrops:value, fetal_hydrops_type: value==="Yes" ? formData.fetal_hydrops_type : "" }); return; }
@@ -945,31 +898,21 @@ export default function ScreeningForm() {
     const m = [];
     const add = (label, fieldName) => m.push({ label, fieldName });
 
-    if (!formData.gestation_known)       add("Gestation known? (A1)",              "gestation_known");
-    if (formData.gestation_known === "Yes") {
-      if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0)
-                                         add("Best estimate GA — weeks (A1)",      "best_ga_weeks");
-      else {
-        const n = parseInt(formData.best_ga_weeks, 10);
-        if (Number.isFinite(n) && (n < GA_MIN_WEEKS || n > GA_MAX_WEEKS))
-          add("Best estimate GA — weeks must be 25w0d–31w6d (A1)", "best_ga_weeks");
-      }
-      if (formData.best_ga_days === "")  add("Best estimate GA — days (A1)",       "best_ga_days");
-      if (!formData.gestation_method)    add("Method of gestation assessment (A1)","gestation_method");
-      if (formData.gestation_method === "LMP" && !formData.lmp_date) add("LMP date (A1)", "lmp_date");
+    if (!formData.best_ga_weeks && formData.best_ga_weeks !== 0)
+                                       add("Best estimate GA — weeks (A1)",      "best_ga_weeks");
+    else {
+      const n = parseInt(formData.best_ga_weeks, 10);
+      if (Number.isFinite(n) && (n < GA_MIN_WEEKS || n > GA_MAX_WEEKS))
+        add("Best estimate GA — weeks must be 25w0d–31w6d (A1)", "best_ga_weeks");
     }
-    if (formData.gestation_known === "No") {
-      if (!formData.ga_source)           add("Known source — LMP / EDD / Neither (A1)", "ga_source");
-      if (formData.ga_source === "LMP" && !formData.lmp_date) add("LMP Date (A1)", "lmp_date");
-      if (formData.ga_source === "EDD" && !formData.edd_date) add("EDD (A1)",       "edd_date");
-    }
+    if (formData.best_ga_days === "")  add("Best estimate GA — days (A1)",       "best_ga_days");
+    if (!formData.gestation_method)    add("Method of gestation assessment (A1)","gestation_method");
+    if (formData.gestation_method === "LMP" && !formData.lmp_date) add("LMP date (A1)", "lmp_date");
 
     const elig = getEligibilityStatus();
-    const gaUnknown = formData.gestation_known === "No" && formData.ga_source === "Neither";
     const gaOutOfRange = elig === "high" || elig === "low";
-    const pathComplete = formData.gestation_known === "Yes" ||
-      (formData.gestation_known === "No" && !!formData.edd_date && formData.ga_source !== "Neither");
-    const a2a5Visible = pathComplete && !gaUnknown && !gaOutOfRange;
+    const pathComplete = formData.best_ga_weeks !== "" && formData.best_ga_weeks != null;
+    const a2a5Visible = pathComplete && !gaOutOfRange;
     if (!a2a5Visible) return m;
 
     if (!formData.screening_datetime)    add("Screening Date & Time (A2)",        "screening_datetime");
@@ -1067,9 +1010,6 @@ export default function ScreeningForm() {
   };
 
   /* ─── Shared payload builder (used by saveForm, saveDraft, autoSave) ── */
-  // Gestational age for the "gestation not known" path is recomputed from
-  // fd.edd_date at save time so autosave never writes 0w 0d while waiting
-  // for the EDD→auto_ga_* effect to catch up.
   const buildPayloadFrom = (fd, useDraftFallbacks, exclYes, explicitlySaved = false) => {
     const exclusionParts = [];
     if (fd.exclusion_anomaly     === "Yes") exclusionParts.push("Structural anomaly");
@@ -1078,19 +1018,10 @@ export default function ScreeningForm() {
     if (fd.insufficient_time     === "Yes") exclusionParts.push("Insufficient time");
     if (fd.iufd                  === "Yes") exclusionParts.push("IUFD");
 
-    const autoGa =
-      fd.gestation_known === "No"
-        ? (fd.ga_source === "LMP" && fd.lmp_date
-            ? computeAutoGaFromLmp(fd.lmp_date)
-            : computeAutoGaFromEdd(fd.edd_date))
-        : null;
-
     const eddForSave =
-      fd.gestation_known === "No" && fd.ga_source === "LMP" && fd.lmp_date
+      fd.gestation_method === "LMP" && fd.lmp_date
         ? (eddFromLmp(fd.lmp_date) || (fd.edd_date ? String(fd.edd_date).slice(0, 10) : null))
-        : (fd.gestation_known === "Yes" && fd.gestation_method === "LMP" && fd.lmp_date
-            ? (eddFromLmp(fd.lmp_date) || (fd.edd_date ? String(fd.edd_date).slice(0, 10) : null))
-            : (fd.edd_date ? String(fd.edd_date).slice(0, 10) : null));
+        : (fd.edd_date ? String(fd.edd_date).slice(0, 10) : null);
 
     return {
       screening_id:              fd.screening_id    || undefined,
@@ -1107,19 +1038,18 @@ export default function ScreeningForm() {
       hospital_admission_number: fd.hospital_admission_number ?? "",
       mother_contact:            fd.mother_contact ?? "",
       husband_contact:           fd.husband_contact ?? "",
-      gestation_known:           fd.gestation_known || null,
-      gestation_weeks:
-        fd.gestation_known === "Yes"
-          ? (parseInt(fd.best_ga_weeks) || 0)
-          : (autoGa?.weeks ?? (parseInt(fd.auto_ga_weeks) || 0)),
-      gestation_days:
-        fd.gestation_known === "Yes"
-          ? (parseInt(fd.best_ga_days) || 0)
-          : (autoGa?.days ?? (parseInt(fd.auto_ga_days) || 0)),
+      /* gestation_known/ga_source columns are historical (pre-2026-09-23
+         LMP/EDD-calculation path, removed from the UI) — new saves always
+         write "Yes"/null so any backend logic still keyed on them (e.g.
+         compute_screening_status) keeps treating every new record as a
+         direct-entry one, which it now always is. */
+      gestation_known:           "Yes",
+      gestation_weeks:           parseInt(fd.best_ga_weeks) || 0,
+      gestation_days:            parseInt(fd.best_ga_days) || 0,
       gestation_method:          fd.gestation_method || null,
       lmp_date:                  fd.lmp_date ? String(fd.lmp_date).slice(0, 10) : null,
       expected_delivery_date:    eddForSave,
-      ga_source:                 fd.gestation_known === "No" ? (fd.ga_source || null) : null,
+      ga_source:                 null,
       exclusion_present:         exclYes,
       exclusion_reasons:         exclusionParts.join(", ") || null,
       major_structural_anomalies_if_yes: fd.exclusion_anomaly === "Yes" ? (fd.exclusion_anomaly_details || null) : null,
@@ -1218,8 +1148,8 @@ export default function ScreeningForm() {
     if (!existingId && (!fd.site_name || !hasIdentificationData)) return;
 
     /* Never create or keep writing a row when GA is outside 25w0d–31w6d. */
-    const gaClass = classifyGaSnapshot(fd, fd.screening_datetime || new Date());
-    if (gaClass === "low" || gaClass === "high" || gaClass === "unknown") return;
+    const gaClass = classifyGaSnapshot(fd);
+    if (gaClass === "low" || gaClass === "high") return;
     if (!existingId && gaClass !== "eligible") return;
 
     if (!navigator.onLine) {
@@ -1364,16 +1294,9 @@ export default function ScreeningForm() {
   const handleNext = async () => {
     if (endParticipation) {
       localStorage.setItem("enrollment_locked", "true");
-      localStorage.setItem(
-        "enrollment_lock_reason",
-        gaNotDeterminable ? "ga_unknown" : "ga_out_of_range"
-      );
+      localStorage.setItem("enrollment_lock_reason", "ga_out_of_range");
       window.dispatchEvent(new Event("storage"));
-      setConsentMessage(
-        gaNotDeterminable
-          ? "Gestational age cannot be determined. No screening ID is assigned and the record is not saved."
-          : GA_NO_RECORD_MSG
-      );
+      setConsentMessage(GA_NO_RECORD_MSG);
       setShowConsentModal(true);
       return;
     }
@@ -1471,184 +1394,85 @@ export default function ScreeningForm() {
               </div>
               <div className="form-section-body">
 
-                {/* Row 1: Gestation known? — half width */}
-                <div className="form-grid-2">
+                {/* "1. Gestation known?" removed 2026-09-23 — the Gestation
+                   (Inclusion Criteria) Screening Log now gates Form A
+                   entirely, so Best Estimate is unconditionally item 1,
+                   pre-filled when this record was opened via "Continue to
+                   Form A" from that log. A nurse opening Form A directly
+                   still sees and fills these same fields manually. */}
+                <div className="form-grid-3">
                   <div className="form-group">
-                    <label>1. Gestation in weeks clearly mentioned<span className="required">*</span></label>
-                    <select name="gestation_known" value={formData.gestation_known} onChange={handleChange} disabled={!isFieldEditable}>
+                    <label>1. Best estimate gestational age — Weeks<span className="required">*</span></label>
+                    <input type="number" name="best_ga_weeks" value={formData.best_ga_weeks}
+                      onChange={handleChange} min={GA_MIN_WEEKS} max={GA_MAX_WEEKS} placeholder="25–31 weeks"
+                      disabled={!isFieldEditable}
+                      className={errors.best_ga_weeks ? "input-error" : ""}/>
+                    {errors.best_ga_weeks && <div className="field-error">{errors.best_ga_weeks}</div>}
+                  </div>
+                  <div className="form-group">
+                    <label>Days<span className="required">*</span></label>
+                    <input type="number" name="best_ga_days" value={formData.best_ga_days}
+                      onChange={handleChange} min="0" max="6" placeholder="0–6"
+                      disabled={!isFieldEditable}
+                      className={errors.best_ga_days ? "input-error" : ""}/>
+                    {errors.best_ga_days && <div className="field-error">{errors.best_ga_days}</div>}
+                  </div>
+                  <div className="form-group">
+                    <label>2. Method of gestation assessment<span className="required">*</span></label>
+                    <select name="gestation_method" value={formData.gestation_method} onChange={handleChange} disabled={!isFieldEditable}>
                       <option value="">-- Select --</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
+                      <option value="LMP">LMP</option>
+                      <option value="Early USG">Early USG (&lt;24w)</option>
+                      <option value="Fundal Height">Fundal Height</option>
+                      <option value="Unknown">Method not known</option>
                     </select>
                   </div>
-                  <div/>
                 </div>
 
-                {/* ── Path A: Gestation KNOWN ── */}
-                {formData.gestation_known === "Yes" && (<>
+                {/* LMP date when method = LMP */}
+                {formData.gestation_method === "LMP" && (
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label>2. Best estimate gestational age — Weeks<span className="required">*</span></label>
-                      <input type="number" name="best_ga_weeks" value={formData.best_ga_weeks}
-                        onChange={handleChange} min={GA_MIN_WEEKS} max={GA_MAX_WEEKS} placeholder="25–31 weeks"
-                        disabled={!isFieldEditable}
-                        className={errors.best_ga_weeks ? "input-error" : ""}/>
-                      {errors.best_ga_weeks && <div className="field-error">{errors.best_ga_weeks}</div>}
+                      <label>2. LMP date<span className="required">*</span></label>
+                      <DatePicker
+                        selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
+                        onChange={d => {
+                          if (!d) {
+                            set({ lmp_date: "", edd_date: "" });
+                            return;
+                          }
+                          const lmp = toDateOnlyValue(d);
+                          set({ lmp_date: lmp, edd_date: eddFromLmp(lmp) });
+                        }}
+                        dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
+                        maxDate={today}
+                        readOnly={!isFieldEditable}/>
                     </div>
                     <div className="form-group">
-                      <label>Days<span className="required">*</span></label>
-                      <input type="number" name="best_ga_days" value={formData.best_ga_days}
-                        onChange={handleChange} min="0" max="6" placeholder="0–6"
-                        disabled={!isFieldEditable}
-                        className={errors.best_ga_days ? "input-error" : ""}/>
-                      {errors.best_ga_days && <div className="field-error">{errors.best_ga_days}</div>}
-                    </div>
-                    <div className="form-group">
-                      <label>3. Method of gestation assessment<span className="required">*</span></label>
-                      <select name="gestation_method" value={formData.gestation_method} onChange={handleChange} disabled={!isFieldEditable}>
-                        <option value="">-- Select --</option>
-                        <option value="LMP">LMP</option>
-                        <option value="Early USG">Early USG (&lt;24w)</option>
-                        <option value="Fundal Height">Fundal Height</option>
-                        <option value="Unknown">Method not known</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Q3 LMP date when method = LMP */}
-                  {formData.gestation_method === "LMP" && (
-                    <div className="form-grid-3">
-                      <div className="form-group">
-                        <label>3. LMP date<span className="required">*</span></label>
-                        <DatePicker
-                          selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
-                          onChange={d => {
-                            if (!d) {
-                              set({ lmp_date: "", edd_date: "" });
-                              return;
-                            }
-                            const lmp = toDateOnlyValue(d);
-                            set({ lmp_date: lmp, edd_date: eddFromLmp(lmp) });
-                          }}
-                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
-                          maxDate={today}
-                          readOnly={!isFieldEditable}/>
-                      </div>
-                      <div className="form-group">
-                        <label>EDD <span className="field-note">(auto-calculated from LMP)</span></label>
-                        <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
-                          readOnly className="readonly-input" placeholder="—"/>
-                      </div>
-                      <div/>
-                    </div>
-                  )}
-                </>)}
-
-                {/* ── Path B: Gestation NOT known ── */}
-                {formData.gestation_known === "No" && (<>
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label>4. If No, is any of the following known?<span className="required">*</span></label>
-                      <select name="ga_source" value={formData.ga_source||""} onChange={handleChange} disabled={!isFieldEditable}>
-                        <option value="">-- Select --</option>
-                        <option value="LMP">LMP</option>
-                        <option value="EDD">EDD</option>
-                        <option value="Neither">Neither known</option>
-                      </select>
+                      <label>EDD <span className="field-note">(auto-calculated from LMP)</span></label>
+                      <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
+                        readOnly className="readonly-input" placeholder="—"/>
                     </div>
                     <div/>
                   </div>
-
-                  {formData.ga_source === "LMP" && (
-                    <div className="form-grid-3">
-                      <div className="form-group">
-                        <label>5. If LMP known, LMP<span className="required">*</span></label>
-                        <DatePicker
-                          selected={formData.lmp_date ? parseDateOnly(formData.lmp_date) : null}
-                          onChange={d => {
-                            if (!d) {
-                              set({ lmp_date: "", edd_date: "", auto_ga_weeks: "", auto_ga_days: "" });
-                              return;
-                            }
-                            const lmp = toDateOnlyValue(d);
-                            const edd = eddFromLmp(lmp);
-                            const ga = computeAutoGaFromLmp(lmp);
-                            set({
-                              lmp_date: lmp,
-                              edd_date: edd,
-                              auto_ga_weeks: ga ? ga.weeks : "",
-                              auto_ga_days: ga ? ga.days : "",
-                            });
-                          }}
-                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
-                          maxDate={today}
-                          readOnly={!isFieldEditable}/>
-                      </div>
-                      <div className="form-group">
-                        <label>EDD <span className="field-note">(auto-calculated in app)</span></label>
-                        <input value={formData.edd_date ? formatDateToDDMMYYYY(formData.edd_date) : ""}
-                          readOnly className="readonly-input" placeholder="—"/>
-                      </div>
-                      <div className="form-group">
-                        <label>7. Calculated gestational age <span className="field-note">(auto calculated in app)</span></label>
-                        <input
-                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
-                          readOnly className="readonly-input ga-calculated-input"
-                          placeholder="____ weeks ; ____ days"/>
-                      </div>
-                    </div>
-                  )}
-
-                  {formData.ga_source === "EDD" && (
-                    <div className="form-grid-3">
-                      <div className="form-group">
-                        <label>6. If LMP not known, EDD<span className="required">*</span></label>
-                        <DatePicker
-                          selected={formData.edd_date ? parseDateOnly(formData.edd_date) : null}
-                          onChange={d => {
-                            if (!d) {
-                              set({ edd_date: "", auto_ga_weeks: "", auto_ga_days: "" });
-                              return;
-                            }
-                            const edd = toDateOnlyValue(d);
-                            const ga = computeAutoGaFromEdd(edd);
-                            set({
-                              edd_date: edd,
-                              auto_ga_weeks: ga ? ga.weeks : "",
-                              auto_ga_days: ga ? ga.days : "",
-                            });
-                          }}
-                          dateFormat="dd-MM-yyyy" placeholderText="DD/MM/YY"
-                          readOnly={!isFieldEditable}/>
-                      </div>
-                      <div className="form-group">
-                        <label>7. Calculated gestational age <span className="field-note">(auto calculated in app)</span></label>
-                        <input
-                          value={hasDisplayGa ? `${displayWeeks} weeks ; ${displayDays} days` : ""}
-                          readOnly className="readonly-input ga-calculated-input"
-                          placeholder="____ weeks ; ____ days"/>
-                      </div>
-                      <div/>
-                    </div>
-                  )}
-                </>)}
+                )}
+                {lmpMismatch && (
+                  <div className="alert-warning">
+                    ⚠️ This LMP date implies <strong>{lmpMismatch.weeks}w {lmpMismatch.days}d</strong> gestation,
+                    which doesn't match the Best Estimate above ({formData.best_ga_weeks}w {formData.best_ga_days || 0}d) —
+                    please verify the LMP date is correct before saving.
+                  </div>
+                )}
 
                 {/* GA result banner + alerts — always visible once weeks/days exist */}
-                {hasDisplayGa && !gaNotDeterminable && (
+                {hasDisplayGa && (
                   <div className={`gestation-info-banner ${eligibilityStatus === "eligible" ? "" : "gestation-info-banner--warn"}`}>
                     <Info size={15} className="banner-info-icon"/>
                     <span className="banner-text">
-                      {isDirectGaEntry ? "Gestational age: " : "Calculated gestational age: "}
-                      <strong>{displayWeeks} weeks ; {displayDays} days</strong>
-                      {!isDirectGaEntry && <span className="field-note"> (auto calculated in app)</span>}
+                      Gestational age: <strong>{displayWeeks} weeks ; {displayDays} days</strong>
                       {" — "}
                       participant is <strong>{eligibilityStatus === "eligible" ? "eligible" : "not eligible"}</strong> for the study.
                     </span>
-                  </div>
-                )}
-                {gaNotDeterminable && (
-                  <div className="alert-danger">
-                    ❌ Gestational age cannot be determined. No screening ID is assigned and the record is not saved.
                   </div>
                 )}
                 {eligibilityStatus === "high" && (

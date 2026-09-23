@@ -84,6 +84,21 @@
   gap: 12px 14px;
 }
 
+.lob-reason-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--lob-border); }
+.lob-reason-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--lob-muted); margin-bottom: 8px; }
+.lob-reason-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.lob-reason-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--lob-border); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; cursor: pointer; color: var(--lob-ink);
+}
+.lob-reason-item.checked { background: var(--lob-amber-bg); border-color: var(--lob-amber-border); color: var(--lob-amber); }
+.lob-reason-other-input {
+  margin-top: 8px; width: 100%; max-width: 320px;
+  border: 1px solid var(--lob-border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13.5px; color: var(--lob-ink);
+}
+
 .lob-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--lob-muted); }
 .lob-field span { font-weight: 600; }
 .lob-field input, .lob-field select {
@@ -172,6 +187,7 @@
 }
 .lob-badge--matched { background: var(--lob-green-bg); color: var(--lob-green); }
 .lob-badge--alert { background: var(--lob-amber-bg); color: var(--lob-amber); border: 1px solid var(--lob-amber-border); }
+.lob-badge--danger { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
 .lob-badge--unknown { background: #f1f5f9; color: #475569; }
 .lob-badge--neutral { background: #f1f5f9; color: #64748b; }
 

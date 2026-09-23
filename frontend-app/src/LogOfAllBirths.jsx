@@ -14,7 +14,13 @@ import {
 } from "lucide-react";
 import "./LogOfAllBirths.css";
 
-const MODES_OF_DELIVERY = ["LSCS", "NVD", "Instrumental", "Other"];
+const MODES_OF_DELIVERY = ["Emergency LSCS", "Elective LSCS", "NVD", "Instrumental", "Other"];
+
+// Same vocabulary as ScreeningForm.jsx's own NOT_APPROACHED_REASONS, plus
+// "Insufficient time" -- the PI's own reported scenario (a birth too fast
+// to approach for consent). This is the only place that reason can ever be
+// captured for a birth with no Form A at all.
+const NOT_APPROACHED_REASONS = ["Insufficient time", "Nurse on leave", "Parent not available", "Missed screening", "Other"];
 
 const BLANK_ENTRY = {
   mother_uid: "",
@@ -28,6 +34,8 @@ const BLANK_ENTRY = {
   birth_weight_grams: "",
   resuscitation_required: "",
   ppv_required: "",
+  reason_not_approached_list: [],
+  reason_not_approached_other: "",
 };
 
 function yn(v) {
@@ -49,10 +57,17 @@ function MatchBadge({ status, screeningId }) {
       </span>
     );
   }
+  if (status === "never_checked") {
+    return (
+      <span className="lob-badge lob-badge--danger">
+        <AlertTriangle size={13} /> Never checked — no GA log entry
+      </span>
+    );
+  }
   if (status === "in_range_no_match") {
     return (
       <span className="lob-badge lob-badge--alert">
-        <AlertTriangle size={13} /> In range, no Form A found
+        <AlertTriangle size={13} /> In range, checked but no Form A
       </span>
     );
   }
@@ -98,7 +113,7 @@ export default function LogOfAllBirths() {
   useEffect(() => { load(); }, [load]);
 
   const alertCount = useMemo(
-    () => entries.filter((e) => e.match_status === "in_range_no_match").length,
+    () => entries.filter((e) => e.match_status === "in_range_no_match" || e.match_status === "never_checked").length,
     [entries]
   );
 
@@ -108,6 +123,8 @@ export default function LogOfAllBirths() {
 
   const startEdit = (entry) => {
     setEditingId(entry.id);
+    const reasonList = entry.reason_not_approached
+      ? entry.reason_not_approached.split(",").map((s) => s.trim()).filter(Boolean) : [];
     setForm({
       mother_uid: entry.mother_uid || "",
       mother_name: entry.mother_name || "",
@@ -120,10 +137,19 @@ export default function LogOfAllBirths() {
       birth_weight_grams: entry.birth_weight_grams ?? "",
       resuscitation_required: ynLabel(entry.resuscitation_required),
       ppv_required: ynLabel(entry.ppv_required),
+      reason_not_approached_list: reasonList,
+      reason_not_approached_other: reasonList.includes("Other") ? (entry.reason_not_approached_other || "") : "",
     });
     setSaveError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const toggleReason = (opt) => setForm((p) => {
+    const list = p.reason_not_approached_list.includes(opt)
+      ? p.reason_not_approached_list.filter((x) => x !== opt)
+      : [...p.reason_not_approached_list, opt];
+    return { ...p, reason_not_approached_list: list };
+  });
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -149,6 +175,10 @@ export default function LogOfAllBirths() {
       birth_weight_grams: form.birth_weight_grams === "" ? null : Number(form.birth_weight_grams),
       resuscitation_required: yn(form.resuscitation_required),
       ppv_required: yn(form.ppv_required),
+      reason_not_approached: form.reason_not_approached_list.length > 0
+        ? form.reason_not_approached_list.join(", ") : null,
+      reason_not_approached_other: form.reason_not_approached_list.includes("Other")
+        ? (form.reason_not_approached_other || null) : null,
     };
     try {
       if (editingId) {
@@ -183,7 +213,8 @@ export default function LogOfAllBirths() {
           <AlertTriangle size={16} />
           <span>
             <strong>{alertCount}</strong> GA-eligible birth{alertCount === 1 ? "" : "s"} logged
-            with no matching Form A screening — review below.
+            with no matching Form A screening (checked but not continued, or never checked at
+            all) — review below.
           </span>
         </div>
       )}
@@ -251,6 +282,27 @@ export default function LogOfAllBirths() {
             </select>
           </label>
         </div>
+
+        <div className="lob-reason-section">
+          <span className="lob-reason-label">
+            If no matching Form A is found, reason not approached (optional — most relevant once
+            this entry shows "In range" or "Never checked" below)
+          </span>
+          <div className="lob-reason-group">
+            {NOT_APPROACHED_REASONS.map((opt) => (
+              <label key={opt} className={`lob-reason-item${form.reason_not_approached_list.includes(opt) ? " checked" : ""}`}>
+                <input type="checkbox" checked={form.reason_not_approached_list.includes(opt)} onChange={() => toggleReason(opt)} />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+          {form.reason_not_approached_list.includes("Other") && (
+            <input className="lob-reason-other-input" placeholder="Please specify…"
+              value={form.reason_not_approached_other}
+              onChange={(e) => setField("reason_not_approached_other", e.target.value)} />
+          )}
+        </div>
+
         {saveError && <div className="lob-form-error">{saveError}</div>}
         <div className="lob-form-actions">
           <button type="submit" className="lob-btn lob-btn--primary" disabled={saving}>
@@ -280,12 +332,13 @@ export default function LogOfAllBirths() {
                 <th>Resus.</th>
                 <th>PPV</th>
                 <th>Screening match</th>
+                <th>Reason not approached</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.id} className={e.match_status === "in_range_no_match" ? "lob-row--alert" : ""}>
+                <tr key={e.id} className={e.match_status === "in_range_no_match" || e.match_status === "never_checked" ? "lob-row--alert" : ""}>
                   <td>{e.date_of_birth || "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
                   <td>{e.mother_uid || "—"}</td>
                   <td>{e.mother_name || "—"}</td>
@@ -295,13 +348,14 @@ export default function LogOfAllBirths() {
                   <td>{ynLabel(e.resuscitation_required) || "—"}</td>
                   <td>{ynLabel(e.ppv_required) || "—"}</td>
                   <td><MatchBadge status={e.match_status} screeningId={e.matched_screening_id} /></td>
+                  <td>{e.reason_not_approached || "—"}</td>
                   <td>
                     <button type="button" className="lob-link-btn" onClick={() => startEdit(e)}>Edit</button>
                   </td>
                 </tr>
               ))}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={10} className="lob-empty">No births logged yet.</td></tr>
+                <tr><td colSpan={11} className="lob-empty">No births logged yet.</td></tr>
               )}
             </tbody>
           </table>

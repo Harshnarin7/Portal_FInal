@@ -444,6 +444,15 @@
   font-size: 13px; font-weight: 600; color: #b91c1c; line-height: 1.4;
 }
 
+/* Advisory-only (non-blocking) — e.g. LMP-implied GA not matching the
+   entered Best Estimate. Same shape as .alert-danger, amber not red. */
+.alert-warning {
+  display: flex; align-items: center; gap: 9px;
+  background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+  padding: 12px 14px; margin-top: 14px;
+  font-size: 13px; font-weight: 600; color: #b45309; line-height: 1.4;
+}
+
 /* ─── YES / NO TOGGLE ─────────────────────────────────────── */
 .form-section-body .yes-no-toggle,
 .yes-no-toggle {
