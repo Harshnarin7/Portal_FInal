@@ -20,11 +20,18 @@ from __future__ import annotations
 
 from typing import Optional
 
+RELIABLE_SOURCE = "Reliable"
 
-def classify_eligibility(gestation_weeks: Optional[int]) -> Optional[bool]:
+
+def classify_eligibility(gestation_weeks: Optional[int], ga_source: Optional[str]) -> Optional[bool]:
     """True if gestation_weeks < 32 (the trial's upper GA bound), False if
-    known and >=32, None if GA wasn't captured at all -- mirrors Box 5's
-    own "gestation_weeks IS NOT NULL AND gestation_weeks < 32" condition."""
+    known and >=32, None if GA wasn't captured or the source isn't marked
+    Reliable -- mirrors Box 5's own "gestation_weeks IS NOT NULL AND
+    gestation_weeks < 32" condition, plus the rule that an Unknown/
+    Unreliable source must never be able to trigger Form A regardless of
+    what weeks value happens to be present."""
+    if ga_source != RELIABLE_SOURCE:
+        return None
     if gestation_weeks is None:
         return None
     return int(gestation_weeks) < 32

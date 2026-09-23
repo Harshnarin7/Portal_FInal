@@ -1258,3 +1258,10 @@ MINIMAL_MONITORING_GLUCOSE_VITALS_FREQUENCY_PATCHES = [
 MINIMAL_MONITORING_WEIGHT_FREQUENCY_PATCHES = [
     "ALTER TABLE minimal_monitoring_day_logs ADD COLUMN IF NOT EXISTS weight_frequency_hours INTEGER",
 ]
+
+# GA Check Log — Method of Assessment, only ever populated when
+# ga_source == "Reliable" (see ga_check.py); carries straight into Form A's
+# own "Method of gestation assessment" field on "Continue to Form A".
+GA_CHECK_LOG_METHOD_PATCHES = [
+    "ALTER TABLE ga_check_log ADD COLUMN IF NOT EXISTS gestation_method VARCHAR",
+]

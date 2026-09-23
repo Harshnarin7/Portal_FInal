@@ -2380,9 +2380,14 @@ class GACheckEntry(Base):
 
     check_date = Column(Date, nullable=True)
 
+    ga_source = Column(String, nullable=True)  # "Reliable" | "Unknown/Unreliable"
+    # Only ever populated when ga_source == "Reliable" -- mirrors
+    # ScreeningForm.jsx's own "Method of gestation assessment" values
+    # exactly (LMP / Early USG / Fundal Height) so it carries straight
+    # into Form A on "Continue to Form A" without being re-picked there.
+    gestation_method = Column(String, nullable=True)
     gestation_weeks = Column(Integer, nullable=True)
     gestation_days  = Column(Integer, nullable=True)
-    ga_source = Column(String, nullable=True)  # "LMP" | "USG" | "Unknown"
 
     # Computed on save (ga_check.py::classify_eligibility) from
     # gestation_weeks alone -- same <32-completed-weeks threshold the

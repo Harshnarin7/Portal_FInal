@@ -37,17 +37,13 @@ const E = ({ label, value }) => (
 );
 
 function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
-  const gaW = formData.gestation_known === "Yes"
-    ? formData.best_ga_weeks : formData.auto_ga_weeks;
-  const gaD = formData.gestation_known === "Yes"
-    ? (formData.best_ga_days || 0) : (formData.auto_ga_days || 0);
+  const gaW = formData.best_ga_weeks;
+  const gaD = formData.best_ga_days || 0;
   const gaStr = (gaW != null && gaW !== "")
     ? `${gaW} weeks ${gaD} days` : "—";
 
   /* Same rules as backend compute_screening_status() / ViewEntries badges */
   const outcome = (() => {
-    if (formData.gestation_known === "No" && formData.ga_source === "Neither")
-      return "SCREEN FAILURE";
     const w = Number(gaW), d = Number(gaD);
     if (gaW == null || gaW === "") return "PENDING";
     const t = w * 7 + d;
@@ -194,19 +190,13 @@ function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
           <div className="pr-section">
             <div className="pr-section-hd">Gestation Assessment</div>
             <table className="pr-table"><tbody>
-              <R label="Gestation Known" value={formData.gestation_known} />
-              {formData.gestation_known === "No" && (
-                <R label="GA Source" value={formData.ga_source} />
-              )}
               {formData.lmp_date && (
                 <R label="LMP Date" value={fmtDate(formData.lmp_date)} />
               )}
               <R label="Best Estimate GA" value={gaStr} />
               <R label="EDD" value={formData.edd_date ? fmtDate(formData.edd_date) : null} />
-              {formData.gestation_known === "Yes" && (
-                <R label="Assessment Method"
-                   value={methodLabels[formData.gestation_method] || formData.gestation_method} />
-              )}
+              <R label="Assessment Method"
+                 value={methodLabels[formData.gestation_method] || formData.gestation_method} />
               <R label="GA Eligibility"
                  value={
                    gaW != null && gaW !== ""

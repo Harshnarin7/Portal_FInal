@@ -104,6 +104,14 @@
 
 .gac-form-error { margin-top: 10px; font-size: 12.5px; color: #b91c1c; }
 
+.gac-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--gac-amber); }
+
+.gac-field select:disabled, .gac-field input:disabled:not([readonly]) {
+  background: #f1f5f9;
+  color: var(--gac-muted);
+  cursor: not-allowed;
+}
+
 .gac-form-actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
 
 .gac-btn {

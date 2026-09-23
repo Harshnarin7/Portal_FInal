@@ -7835,11 +7835,18 @@ def create_ga_check_entry(
         raise HTTPException(status_code=422, detail="site_name is required")
 
     payload = {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS}
+    # Belt-and-suspenders: an Unknown/Unreliable source must never carry a
+    # method/weeks/days into storage, even if the client sent one anyway --
+    # never trust a client-only invariant for something that gates Form A.
+    if payload.get("ga_source") != "Reliable":
+        payload["gestation_method"] = None
+        payload["gestation_weeks"] = None
+        payload["gestation_days"] = None
     record = GACheckEntry(
         **payload,
         site_name=site_name,
         entered_by=current_user.username,
-        eligible=classify_eligibility(payload.get("gestation_weeks")),
+        eligible=classify_eligibility(payload.get("gestation_weeks"), payload.get("ga_source")),
     )
     if not record.check_date:
         record.check_date = date.today()

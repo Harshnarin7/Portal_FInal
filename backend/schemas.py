@@ -2980,9 +2980,10 @@ class GACheckEntryCreate(BaseModel):
 
     check_date: Optional[date] = None
 
+    ga_source: Optional[str] = None
+    gestation_method: Optional[str] = None
     gestation_weeks: Optional[int] = None
     gestation_days: Optional[int] = None
-    ga_source: Optional[str] = None
 
     model_config = {"extra": "ignore"}
 
