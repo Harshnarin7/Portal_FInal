@@ -31,6 +31,15 @@ import "./GACheckLog.css";
 const GESTATION_SOURCES = ["Reliable", "Unknown/Unreliable"];
 const RELIABLE_SOURCE = "Reliable";
 
+// How this entry came to exist -- a real-time check (default), or a
+// retrospective note that a woman was missed entirely (e.g. learned from
+// handover or the Log of All Births that someone was never checked).
+// Purely a CONSORT-reporting classification tag; every other field behaves
+// identically regardless of which value this holds.
+const IDENTIFICATION_TYPES = ["Checked at triage", "Missed - identified retrospectively"];
+const DEFAULT_IDENTIFICATION_TYPE = "Checked at triage";
+const MISSED_IDENTIFICATION_TYPE = "Missed - identified retrospectively";
+
 // Mirrors ScreeningForm.jsx's "Method of gestation assessment" options
 // exactly (minus "Unknown" — if the source here isn't reliable, there's no
 // method to record at all) so the value carries straight into Form A.
@@ -43,6 +52,7 @@ const METHOD_LABELS = Object.fromEntries(GESTATION_METHODS.map((m) => [m.value, 
 
 const BLANK_FORM = {
   site_name: "",
+  identification_type: DEFAULT_IDENTIFICATION_TYPE,
   mother_name: "",
   mother_uid: "",
   ga_source: "",
@@ -140,6 +150,7 @@ export default function GACheckLog() {
     setSaveError("");
     const payload = {
       site_name: form.site_name || null,
+      identification_type: form.identification_type || DEFAULT_IDENTIFICATION_TYPE,
       mother_name: form.mother_name || null,
       mother_uid: form.mother_uid || null,
       ga_source: form.ga_source || null,
@@ -275,6 +286,12 @@ export default function GACheckLog() {
             )}
           </label>
           <label className="gac-field">
+            <span>How identified</span>
+            <select value={form.identification_type} onChange={(e) => setField("identification_type", e.target.value)}>
+              {IDENTIFICATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <label className="gac-field">
             <span>Mother's Name</span>
             <input value={form.mother_name} onChange={(e) => setField("mother_name", e.target.value)} autoFocus />
           </label>
@@ -331,6 +348,7 @@ export default function GACheckLog() {
                 <th>Site</th>
                 <th>Name</th>
                 <th>UID</th>
+                <th>How identified</th>
                 <th>Source</th>
                 <th>Method</th>
                 <th>Gestation</th>
@@ -348,6 +366,11 @@ export default function GACheckLog() {
                     <td>{e.site_name || "—"}</td>
                     <td>{e.mother_name || "—"}</td>
                     <td>{e.mother_uid || "—"}</td>
+                    <td>
+                      {e.identification_type === MISSED_IDENTIFICATION_TYPE ? (
+                        <span className="gac-badge gac-badge--gap">Missed — retrospective</span>
+                      ) : "Checked at triage"}
+                    </td>
                     <td>{e.ga_source || "—"}</td>
                     <td>{METHOD_LABELS[e.gestation_method] || e.gestation_method || "—"}</td>
                     <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
@@ -379,7 +402,7 @@ export default function GACheckLog() {
                 );
               })}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={9} className="gac-empty">No checks logged yet.</td></tr>
+                <tr><td colSpan={10} className="gac-empty">No checks logged yet.</td></tr>
               )}
             </tbody>
           </table>

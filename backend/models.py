@@ -2337,11 +2337,22 @@ class BirthLogEntry(Base):
     gestation_weeks = Column(Integer, nullable=True)
     gestation_days  = Column(Integer, nullable=True)
 
-    mode_of_delivery   = Column(String, nullable=True)  # "LSCS" / "NVD" / "Instrumental" / "Other"
+    mode_of_delivery   = Column(String, nullable=True)  # "Emergency LSCS" / "Elective LSCS" / "NVD" / "Instrumental" / "Other"
     birth_weight_grams = Column(Float, nullable=True)
 
     resuscitation_required = Column(Boolean, nullable=True)
     ppv_required            = Column(Boolean, nullable=True)
+
+    # Why a GA-eligible birth was never approached for consent -- the only
+    # place this can be captured at all, since by definition no Form A
+    # exists for these (see reason_not_approached on Screening -- that one
+    # only ever applies once a screening row already exists). Same
+    # vocabulary as Screening's own NOT_APPROACHED_REASONS plus
+    # "Insufficient time", the PI's own reported scenario (a birth too
+    # fast to approach for consent). Comma-joined, same convention as
+    # Screening.reason_not_approached.
+    reason_not_approached = Column(String, nullable=True)
+    reason_not_approached_other = Column(String, nullable=True)
 
     # Auto-computed on save by birth_log_matching.match_birth_log_entry() --
     # never hand-entered, so it cannot go stale relative to what is actually
@@ -2349,7 +2360,7 @@ class BirthLogEntry(Base):
     matched_screening_id  = Column(String, nullable=True)
     matched_enrollment_id = Column(String, nullable=True)
     match_status = Column(String, nullable=True)
-    # "matched" | "in_range_no_match" | "out_of_range" | "ga_unknown"
+    # "matched" | "in_range_no_match" | "never_checked" | "out_of_range" | "ga_unknown"
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -2379,6 +2390,16 @@ class GACheckEntry(Base):
     mother_name = Column(EncryptedString, nullable=True)
 
     check_date = Column(Date, nullable=True)
+
+    # How this entry came to exist: a real-time triage check (default), or
+    # a retrospective note that a woman was missed entirely -- e.g. a
+    # nurse learns from handover/the Log of All Births that someone was
+    # never checked, and logs that fact even though the check itself
+    # never happened. Purely a classification tag for CONSORT reporting;
+    # every other field (gestation, source, method, eligibility) behaves
+    # identically regardless of which value this holds.
+    identification_type = Column(String, nullable=True, default="Checked at triage")
+    # "Checked at triage" | "Missed - identified retrospectively"
 
     ga_source = Column(String, nullable=True)  # "Reliable" | "Unknown/Unreliable"
     # Only ever populated when ga_source == "Reliable" -- mirrors

@@ -1265,3 +1265,18 @@ MINIMAL_MONITORING_WEIGHT_FREQUENCY_PATCHES = [
 GA_CHECK_LOG_METHOD_PATCHES = [
     "ALTER TABLE ga_check_log ADD COLUMN IF NOT EXISTS gestation_method VARCHAR",
 ]
+
+# "Checked at triage" (default) vs "Missed - identified retrospectively" --
+# lets a nurse log a known miss even though the check itself never happened.
+GA_CHECK_LOG_IDENTIFICATION_TYPE_PATCHES = [
+    "ALTER TABLE ga_check_log ADD COLUMN IF NOT EXISTS identification_type VARCHAR",
+]
+
+# Log of All Births — why a GA-eligible birth was never approached for
+# consent (no Form A exists for these, so this is the only place it can
+# be captured at all). Comma-joined, same convention as Screening's own
+# reason_not_approached.
+BIRTH_LOG_REASON_NOT_APPROACHED_PATCHES = [
+    "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS reason_not_approached VARCHAR",
+    "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS reason_not_approached_other VARCHAR",
+]

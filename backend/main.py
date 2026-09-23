@@ -7909,8 +7909,13 @@ def get_birth_log_alerts(
 ):
     """GA-eligible (25w0d-31w6d) births with no matching Form A screening —
     the completeness cross-check the paper 'Log of All Births' CRF exists
-    for, computed automatically instead of relying on a hand-ticked column."""
-    query = db.query(BirthLogEntry).filter(BirthLogEntry.match_status == "in_range_no_match")
+    for, computed automatically instead of relying on a hand-ticked column.
+    Includes both 'in_range_no_match' (checked at triage, never continued
+    into Form A) and the strictly worse 'never_checked' (no Gestation Log
+    entry for her at all) — match_status in the response tells them apart."""
+    query = db.query(BirthLogEntry).filter(
+        BirthLogEntry.match_status.in_(["in_range_no_match", "never_checked"])
+    )
     if not is_global(current_user):
         query = query.filter(BirthLogEntry.site_name == current_user.site_name)
     elif site:
@@ -7922,6 +7927,7 @@ def get_birth_log_alerts(
         {
             "id": r.id,
             "site_name": r.site_name,
+            "match_status": r.match_status,
             "mother_uid": r.mother_uid if can_view(r) else None,
             "mother_name": r.mother_name if can_view(r) else None,
             "date_of_birth": r.date_of_birth.isoformat() if r.date_of_birth else None,
@@ -7960,6 +7966,8 @@ def create_ga_check_entry(
         payload["gestation_method"] = None
         payload["gestation_weeks"] = None
         payload["gestation_days"] = None
+    if not payload.get("identification_type"):
+        payload["identification_type"] = "Checked at triage"
     record = GACheckEntry(
         **payload,
         site_name=site_name,
