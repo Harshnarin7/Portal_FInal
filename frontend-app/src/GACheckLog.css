@@ -207,6 +207,25 @@
 .gac-badge--not-eligible { background: #f1f5f9; color: #64748b; }
 .gac-badge--unknown { background: #f1f5f9; color: #475569; }
 
+/* Persistent per-row action — unlike the transient just-saved banner,
+   this stays clickable for as long as the entry is eligible and
+   uncontinued, including after a page reload. */
+.gac-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--gac-amber);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gac-row-action:hover { background: #92400e; }
+
 @media (max-width: 480px) {
   .gac-page { padding: 8px 12px 56px; }
   .gac-form-grid { grid-template-columns: 1fr 1fr; }

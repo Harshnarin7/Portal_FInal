@@ -123,15 +123,19 @@ export default function GACheckLog() {
     }
   };
 
-  const handleContinue = () => {
-    if (!lastResult) return;
+  /* Shared by the transient just-saved banner AND every row's persistent
+     "Continue to Form A" button below — the banner disappears once this
+     page is left/reloaded (component state, not a timer), but the entry
+     itself stays eligible-and-uncontinued indefinitely, so the action to
+     resume it must not disappear along with the banner. */
+  const continueEntryToFormA = (entry) => {
     localStorage.setItem(GA_CHECK_SEED_KEY, JSON.stringify({
-      id: lastResult.id,
-      mother_name: lastResult.mother_name || "",
-      mother_uid: lastResult.mother_uid || "",
-      gestation_weeks: lastResult.gestation_weeks ?? "",
-      gestation_days: lastResult.gestation_days ?? "",
-      ga_source: lastResult.ga_source || "",
+      id: entry.id,
+      mother_name: entry.mother_name || "",
+      mother_uid: entry.mother_uid || "",
+      gestation_weeks: entry.gestation_weeks ?? "",
+      gestation_days: entry.gestation_days ?? "",
+      ga_source: entry.ga_source || "",
     }));
     setLastResult(null);
     navigate("/form-a");
@@ -180,7 +184,7 @@ export default function GACheckLog() {
           </div>
           <div className="gac-result-actions">
             {lastResult.eligible && (
-              <button type="button" className="gac-btn gac-btn--continue" onClick={handleContinue}>
+              <button type="button" className="gac-btn gac-btn--continue" onClick={() => continueEntryToFormA(lastResult)}>
                 Continue to Form A <ArrowRight size={14} />
               </button>
             )}
@@ -276,6 +280,7 @@ export default function GACheckLog() {
                 <th>Gestation</th>
                 <th>Source</th>
                 <th>Outcome</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -304,11 +309,18 @@ export default function GACheckLog() {
                         <span className="gac-badge gac-badge--unknown">Gestation unknown</span>
                       )}
                     </td>
+                    <td>
+                      {isGap && (
+                        <button type="button" className="gac-row-action" onClick={() => continueEntryToFormA(e)}>
+                          Form A <ArrowRight size={12} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={7} className="gac-empty">No checks logged yet.</td></tr>
+                <tr><td colSpan={8} className="gac-empty">No checks logged yet.</td></tr>
               )}
             </tbody>
           </table>
