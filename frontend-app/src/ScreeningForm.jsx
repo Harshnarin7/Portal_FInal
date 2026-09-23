@@ -245,9 +245,24 @@ export default function ScreeningForm() {
   const autoSaveRef    = useRef(null);
   const offlineQueueRef = useRef(false);
   const creatingScreeningRef = useRef(null);
+  /* Set by the "seed from GA Check Log" block below when this new Form A
+     was continued from a GACheckLog.jsx entry; PATCHed back and cleared
+     the first time this screening is actually saved (see
+     linkPendingGaCheck). Deliberately a ref, not state -- it must not
+     re-trigger the new-screening init effect. */
+  const pendingGaCheckIdRef = useRef(null);
   formDataRef.current = formData;
   screeningIdRef.current = screeningId;
   offlineQueueRef.current = offlineQueue;
+
+  const linkPendingGaCheck = useCallback((sid) => {
+    const gaCheckId = pendingGaCheckIdRef.current;
+    if (!gaCheckId || !sid) return;
+    pendingGaCheckIdRef.current = null;
+    api.patch(`/ga-check/${gaCheckId}/link`, { screening_id: sid }).catch((err) => {
+      console.error("GA check link-back failed:", err.message);
+    });
+  }, []);
 
   /* ─── Load ── */
   useEffect(() => {
@@ -262,7 +277,35 @@ export default function ScreeningForm() {
     // possibly already-saved patient's screening.
     localStorage.removeItem("current_screening_id");
     localStorage.removeItem("current_enrollment_id");
-    setFormData({ ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()) });
+
+    /* A brand-new Form A can carry a seed forward from the GA Check Log
+       (GACheckLog.jsx "Continue to Form A") -- name/UID/GA already
+       captured at triage, no need to retype it. Consumed once: the seed
+       is cleared here so a later, unrelated new Form A never inherits a
+       stale patient's data. The link back to the GA check entry itself
+       (so it stops showing as an uncontinued gap) happens once this
+       screening is actually saved -- see linkPendingGaCheck() below. */
+    let seedFields = {};
+    try {
+      const raw = localStorage.getItem("ga_check_seed");
+      if (raw) {
+        const seed = JSON.parse(raw);
+        const [first = "", ...rest] = (seed.mother_name || "").trim().split(/\s+/);
+        seedFields = {
+          mother_first_name: first,
+          mother_surname: rest.join(" "),
+          maternal_uid: seed.mother_uid || "",
+          best_ga_weeks: seed.gestation_weeks ?? "",
+          best_ga_days: seed.gestation_days ?? "",
+          ga_source: seed.ga_source || "",
+          gestation_known: seed.gestation_weeks !== "" && seed.gestation_weeks != null ? "Yes" : "",
+        };
+        pendingGaCheckIdRef.current = seed.id ?? null;
+      }
+    } catch { /* malformed/absent seed -- ignore, start blank as normal */ }
+    localStorage.removeItem("ga_check_seed");
+
+    setFormData({ ...BLANK_FORM, screening_datetime: toDateTimeLocalValue(new Date()), ...seedFields });
     setIsSaved(false); setIsEditing(false); setDataLoaded(true);
     resetProgress();
   }, [screeningId]); // eslint-disable-line
@@ -1157,6 +1200,7 @@ export default function ScreeningForm() {
       if (newSid) localStorage.setItem("current_screening_id", newSid);
       if (eid) localStorage.setItem("current_enrollment_id", eid);
       window.dispatchEvent(new Event("storage"));
+      linkPendingGaCheck(newSid);
 
       setAutoSaveStatus("saved");
       setLastSaved(new Date());
@@ -1229,6 +1273,7 @@ export default function ScreeningForm() {
       localStorage.setItem("current_screening_id", sid);
       if (eid) localStorage.setItem("current_enrollment_id", eid);
       window.dispatchEvent(new Event("storage"));
+      linkPendingGaCheck(sid);
 
       setMessage("✅ Form A saved successfully");
       setShowSaveSuccess(true);
@@ -1264,6 +1309,7 @@ export default function ScreeningForm() {
       localStorage.setItem("current_screening_id", sid);
       if (eid) localStorage.setItem("current_enrollment_id", eid);
       window.dispatchEvent(new Event("storage"));
+      linkPendingGaCheck(sid);
 
       setShowDraftModal(true);
     } catch (err) {

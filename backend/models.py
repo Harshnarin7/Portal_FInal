@@ -2309,3 +2309,93 @@ class BlenderStudySummary(Base):
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+# ==========================================================
+# LOG OF ALL BIRTHS -- protocol-mandated completeness cross-check
+# (paper CRF: "Log of All Births", v1.5, dated 2025-12-15). Filled for
+# EVERY birth at the study hospital, not just enrolled ones, specifically
+# so a GA-eligible (25w0d-31w6d) delivery with no matching Form A screening
+# can be caught -- see birth_log_matching.py for how the match is computed.
+# Identity fields are encrypted at rest like ParticipantPII, since this
+# table can legitimately hold a woman identity with NO clinical record
+# anywhere else in the system (that is the whole point of the cross-check).
+# ==========================================================
+class BirthLogEntry(Base):
+    __tablename__ = "birth_log_all_births"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_name  = Column(String, index=True, nullable=True)
+    entered_by = Column(String, nullable=True)
+
+    mother_uid   = Column(EncryptedString, nullable=True)  # Mother's UHID / CR Number
+    mother_name  = Column(EncryptedString, nullable=True)
+    husband_name = Column(EncryptedString, nullable=True)
+
+    date_of_birth = Column(Date, nullable=True)
+    time_of_birth = Column(Time, nullable=True)
+
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+
+    mode_of_delivery   = Column(String, nullable=True)  # "LSCS" / "NVD" / "Instrumental" / "Other"
+    birth_weight_grams = Column(Float, nullable=True)
+
+    resuscitation_required = Column(Boolean, nullable=True)
+    ppv_required            = Column(Boolean, nullable=True)
+
+    # Auto-computed on save by birth_log_matching.match_birth_log_entry() --
+    # never hand-entered, so it cannot go stale relative to what is actually
+    # on file the way a manually-typed "Y, screening ID ___" column would.
+    matched_screening_id  = Column(String, nullable=True)
+    matched_enrollment_id = Column(String, nullable=True)
+    match_status = Column(String, nullable=True)
+    # "matched" | "in_range_no_match" | "out_of_range" | "ga_unknown"
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ==========================================================
+# GA CHECK LOG — near-zero-friction live pre-screening capture
+# (part 1 of the CONSORT-completeness plan; part 2, the birth log above,
+# already built). Logged the moment a nurse checks ANY woman's
+# gestational age at antenatal clinic/DR triage, including the majority
+# who turn out not preterm and are otherwise never captured anywhere in
+# the system -- this table IS the true "approached for screening"
+# population Box 1 of the CONSORT flow wants, computed instead of
+# hand-counted from a pocket diary. mother_name/mother_uid are
+# EncryptedString for the same reason as BirthLogEntry: a discarded
+# non-preterm contact can legitimately have no clinical record anywhere
+# else in the system.
+# ==========================================================
+class GACheckEntry(Base):
+    __tablename__ = "ga_check_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_name  = Column(String, index=True, nullable=True)
+    entered_by = Column(String, nullable=True)
+
+    mother_uid  = Column(EncryptedString, nullable=True)
+    mother_name = Column(EncryptedString, nullable=True)
+
+    check_date = Column(Date, nullable=True)
+
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+    ga_source = Column(String, nullable=True)  # "LMP" | "USG" | "Unknown"
+
+    # Computed on save (ga_check.py::classify_eligibility) from
+    # gestation_weeks alone -- same <32-completed-weeks threshold the
+    # CONSORT dashboard's Box 5 SQL already uses. Never hand-set.
+    eligible = Column(Boolean, nullable=True)
+
+    # Set only when the nurse taps "Continue to Form A" and that
+    # screening is actually saved (see PATCH /ga-check/{id}/link) --
+    # links this log entry forward to the screening it produced, closing
+    # the Box1->Box5 loop from this end instead of relying on
+    # birth_log_matching's after-the-fact name/UID match.
+    continued_to_screening = Column(Boolean, default=False, nullable=False)
+    screening_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

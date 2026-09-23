@@ -6,7 +6,7 @@ import {
   FileHeart, HeartPulse, Microscope, TestTube2,
   Activity, Eye, Stethoscope, TrendingUp, BarChart3,
   Building2, Cpu, ShieldAlert, ClipboardList, FileText,
-  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X, History,
+  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X, History, Search,
 } from 'lucide-react';
 import { canViewAudit } from './utils/roles';
 import { useFormProgress } from './context/FormProgressContext';
@@ -432,6 +432,18 @@ export default function Sidebar({ currentForm }) {
             className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
             <ClipboardList size={14} strokeWidth={2} />
             <span>Helper Form Records</span>
+          </NavLink>
+          <NavLink to="/ga-check"
+            onClick={(e) => guardedNavigate(e, '/ga-check')}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <Search size={14} strokeWidth={2} />
+            <span>Gestation (Inclusion Criteria) Log</span>
+          </NavLink>
+          <NavLink to="/log-of-all-births"
+            onClick={(e) => guardedNavigate(e, '/log-of-all-births')}
+            className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
+            <Hospital size={14} strokeWidth={2} />
+            <span>Log of All Births</span>
           </NavLink>
           {canViewAudit(user) && (
             <NavLink to="/audit-trail"
