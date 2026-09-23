@@ -2,7 +2,7 @@ import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
 
 const TAB_LABELS = {
-  overview: "Overview",
+  overview: "Dashboard",
   recruitment: "Recruitment",
   patients: "Patients",
   tasks: "Tasks",
@@ -22,7 +22,7 @@ export default function DashboardShell({
   headerProps,
   children,
 }) {
-  const headerTitle = pageTitle || TAB_LABELS[tab] || "Overview";
+  const headerTitle = pageTitle || TAB_LABELS[tab] || "Dashboard";
   return (
     <div className="ds-root flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-portal-mist text-portal-ink [&_button]:appearance-none [&_button]:cursor-pointer [&_input]:appearance-none">
       <DashboardHeader
@@ -38,7 +38,7 @@ export default function DashboardShell({
           onClose={onSidebarClose}
           isSuperadmin={isSuperadmin}
         />
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 lg:px-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-5 sm:px-6 lg:px-6">
           {children}
         </main>
       </div>

@@ -1,6 +1,7 @@
 // src/ViewEntries.jsx — PORTAL Trial Participant Management
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import DashboardWorkspaceLayout from "./components/dashboard/DashboardWorkspaceLayout";
@@ -8,11 +9,13 @@ import {
   Search, Plus, ChevronLeft, ChevronRight, ChevronDown,
   Eye, Edit, Trash2, ArrowRight, Filter, AlertTriangle,
   RefreshCw, Users, FileText, Activity, ShieldAlert,
-  CheckCircle2, Clock, XCircle, ClipboardList,
+  CheckCircle2, Clock, XCircle, ClipboardList, X,
+  Baby, Hourglass, Ban,
 } from "lucide-react";
 import "./ViewEntries.css";
-import { formatBabyOfLabel } from "./utils/babyName";
+import { formatMotherFirstName, formatParticipantListName } from "./utils/babyName";
 import { resolveConsentSignatureFromRecord } from "./utils/consentSignature";
+import { formatSiteName, formatSiteShort, canonicalSiteKey, isKnownTrialSite } from "./components/dashboard/siteLabels";
 
 /* ─── Form definitions (from formsConfig.js) ────────────────── */
 const FORM_LABELS = [
@@ -51,7 +54,6 @@ const ROUTE_MAP = {
   form_y_sae:          (s, e) => `/form-y-sae/${e}`,
 };
 
-const FILTERS = ["All", "Eligible", "Screen Failure", "Not Eligible", "Pending"];
 const DETAIL_TABS = ["Forms", "Screening Details", "Gestation", "Consent Info", "Audit History"];
 const PER_PAGE = 10;
 
@@ -63,6 +65,30 @@ function statusKey(status) {
   if (s === "screen failure") return "screen_failure";
   if (s === "not eligible")   return "not_eligible";
   return "pending";
+}
+
+function formBHasStarted(enrollStatus) {
+  return !!(enrollStatus?.form_b_started || enrollStatus?.form_b);
+}
+
+function entryIsDelivered(entry, enrollData = {}) {
+  if (!entry?.enrollment_id) return false;
+  return formBHasStarted(enrollData[entry.enrollment_id]);
+}
+
+function entryHasExclusion(entry) {
+  if (entry?.exclusion_present === true) return true;
+  return !!(entry?.exclusion_reasons || "").trim();
+}
+
+function exclusionReasonList(entry) {
+  const raw = (entry?.exclusion_reasons || "").trim();
+  if (raw) return raw.split(",").map(s => s.trim()).filter(Boolean);
+  return entryHasExclusion(entry) ? ["Present (reason not specified)"] : [];
+}
+
+function listNameForEntry(pii, enrollStatus) {
+  return formatParticipantListName(pii, { formBStarted: formBHasStarted(enrollStatus) });
 }
 
 function buildFormProgress(enrollStatus) {
@@ -108,28 +134,310 @@ function getNextAction(entry, enrollStatus) {
   return { label: "Open Form F", variant: "primary", key: "form_f" };
 }
 
-function buildKPIs(entries) {
+function buildKPIs(entries, saeCount = 0, enrollData = {}) {
   return [
-    { label: "Total Screened",  value: entries.length,                                                              icon: <Users size={20}/>,        color: "blue"  },
-    { label: "Eligible",        value: entries.filter(e => e.screening_status === "Eligible").length,               icon: <CheckCircle2 size={20}/>,  color: "green" },
-    { label: "Screen Failures", value: entries.filter(e => e.screening_status === "Screen Failure").length,         icon: <XCircle size={20}/>,       color: "red"   },
-    { label: "Pending",         value: entries.filter(e => !e.screening_status || e.screening_status==="Pending").length, icon: <Clock size={20}/>,    color: "amber" },
-    { label: "Consented",       value: entries.filter(e => e.consent_given === "Yes").length,                       icon: <FileText size={20}/>,      color: "teal"  },
-    { label: "Sites Active",    value: [...new Set(entries.map(e=>e.site_name).filter(Boolean))].length,            icon: <Activity size={20}/>,      color: "purple"},
-    { label: "SAE / Safety",    value: 0,                                                                           icon: <ShieldAlert size={20}/>,   color: "red"   },
+    { key: "total",          label: "Total Screened",  value: entries.length,                                                              icon: <Users size={20}/>,        color: "blue"  },
+    { key: "eligible",       label: "Eligible",        value: entries.filter(e => e.screening_status === "Eligible").length,               icon: <CheckCircle2 size={20}/>,  color: "green" },
+    { key: "screen_failure", label: "Screen Failures", value: entries.filter(e => e.screening_status === "Screen Failure").length,         icon: <XCircle size={20}/>,       color: "red"   },
+    { key: "pending",        label: "Pending",         value: entries.filter(e => !e.screening_status || e.screening_status==="Pending").length, icon: <Clock size={20}/>,    color: "amber" },
+    { key: "consented",      label: "Consented",       value: entries.filter(e => e.consent_given === "Yes").length,                       icon: <FileText size={20}/>,      color: "teal"  },
+    { key: "delivered",      label: "Delivered",       value: entries.filter(e => entryIsDelivered(e, enrollData)).length,                 icon: <Baby size={20}/>,          color: "teal"  },
+    { key: "undelivered",    label: "Undelivered",     value: entries.filter(e => !entryIsDelivered(e, enrollData)).length,                icon: <Hourglass size={20}/>,     color: "amber" },
+    { key: "exclusion",      label: "Exclusion Present", value: entries.filter(entryHasExclusion).length,                                 icon: <Ban size={20}/>,           color: "red"   },
+    { key: "sites",          label: "Sites Active",    value: [...new Set(entries.map(e=>e.site_name).filter(Boolean))].length,            icon: <Activity size={20}/>,      color: "purple"},
+    { key: "sae",            label: "SAE / Safety",    value: saeCount,                                                                    icon: <ShieldAlert size={20}/>,   color: "red"   },
   ];
 }
 
+function recordsForKpi(key, entries, saeItems, enrollData = {}) {
+  if (key === "eligible") {
+    return { kind: "participants", rows: entries.filter(e => e.screening_status === "Eligible") };
+  }
+  if (key === "screen_failure") {
+    return { kind: "participants", rows: entries.filter(e => e.screening_status === "Screen Failure") };
+  }
+  if (key === "pending") {
+    return { kind: "participants", rows: entries.filter(e => !e.screening_status || e.screening_status === "Pending") };
+  }
+  if (key === "consented") {
+    return { kind: "participants", rows: entries.filter(e => e.consent_given === "Yes") };
+  }
+  if (key === "delivered") {
+    return { kind: "participants", rows: entries.filter(e => entryIsDelivered(e, enrollData)) };
+  }
+  if (key === "undelivered") {
+    return { kind: "participants", rows: entries.filter(e => !entryIsDelivered(e, enrollData)) };
+  }
+  if (key === "exclusion") {
+    return { kind: "exclusions", rows: entries.filter(entryHasExclusion) };
+  }
+  if (key === "sites") {
+    const bySite = new Map();
+    entries.forEach(e => {
+      const site = (e.site_name || "").trim();
+      if (!site) return;
+      if (!bySite.has(site)) bySite.set(site, []);
+      bySite.get(site).push(e);
+    });
+    return {
+      kind: "sites",
+      rows: [...bySite.entries()].map(([site, list]) => ({
+        site,
+        count: list.length,
+        eligible: list.filter(e => e.screening_status === "Eligible").length,
+        failures: list.filter(e => e.screening_status === "Screen Failure").length,
+        pending: list.filter(e => !e.screening_status || e.screening_status === "Pending").length,
+        consented: list.filter(e => e.consent_given === "Yes").length,
+      })),
+    };
+  }
+  if (key === "sae") {
+    return { kind: "sae", rows: Array.isArray(saeItems) ? saeItems : [] };
+  }
+  return { kind: "participants", rows: entries };
+}
+
+function formatGa(entry) {
+  return entry?.gestation_weeks != null
+    ? `${entry.gestation_weeks}w ${entry.gestation_days ?? 0}d`
+    : "—";
+}
+
 /* ─── Sub-components ─────────────────────────────────────────── */
-function KPICard({ label, value, icon, color }) {
+function KPICard({ label, value, icon, color, onClick }) {
   return (
-    <div className={`kpi-card kpi-card--${color}`}>
+    <button
+      type="button"
+      className={`kpi-card kpi-card--btn kpi-card--${color}`}
+      onClick={onClick}
+      aria-haspopup="dialog"
+      aria-label={`View ${label} records (${value})`}
+    >
       <div className={`kpi-icon kpi-icon--${color}`}>{icon}</div>
       <div className="kpi-body">
         <p className="kpi-value">{value}</p>
         <p className="kpi-label">{label}</p>
       </div>
-    </div>
+    </button>
+  );
+}
+
+function KpiRecordsModal({
+  title,
+  count,
+  kind,
+  rows,
+  piiByScreening,
+  enrollData,
+  onClose,
+  onOpenParticipant,
+  onOpenSae,
+}) {
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const needle = q.trim().toLowerCase();
+  const visible = !needle ? rows : rows.filter((row) => {
+    if (kind === "sites") {
+      return formatSiteName(row.site).toLowerCase().includes(needle)
+        || String(row.site).toLowerCase().includes(needle);
+    }
+    if (kind === "sae") {
+      const name = listNameForEntry(piiByScreening[row.screening_id], row.enrollment_id ? enrollData[row.enrollment_id] : null);
+      return [
+        row.enrollment_id, row.screening_id, row.site_name, row.sae,
+        row.definition_no, row.start_date, row.end_date, name,
+      ].some(v => String(v || "").toLowerCase().includes(needle));
+    }
+    const name = listNameForEntry(piiByScreening[row.screening_id], row.enrollment_id ? enrollData[row.enrollment_id] : null);
+    const exclusions = exclusionReasonList(row).join(" ");
+    return [
+      row.screening_id, row.enrollment_id, row.site_name, row.screening_status,
+      row.consent_given, name, exclusions,
+    ].some(v => String(v || "").toLowerCase().includes(needle));
+  });
+
+  return createPortal(
+    <div className="kpi-modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="kpi-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kpi-modal-title"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="kpi-modal-header">
+          <div>
+            <h2 id="kpi-modal-title" className="kpi-modal-title">{title}</h2>
+            <p className="kpi-modal-count">{count} record{count === 1 ? "" : "s"}</p>
+          </div>
+          <button type="button" className="kpi-modal-close" onClick={onClose} aria-label="Close">
+            <X size={18}/>
+          </button>
+        </div>
+        <div className="kpi-modal-search-wrap">
+          <Search size={15} className="kpi-modal-search-icon"/>
+          <input
+            className="kpi-modal-search"
+            placeholder="Search this list…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="kpi-modal-table-wrap">
+          {visible.length === 0 ? (
+            <div className="kpi-modal-empty">No records in this list.</div>
+          ) : kind === "sites" ? (
+            <table className="kpi-modal-table">
+              <thead>
+                <tr>
+                  <th>Site</th>
+                  <th>Participants</th>
+                  <th>Eligible</th>
+                  <th>Screen Failures</th>
+                  <th>Pending</th>
+                  <th>Consented</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(row => (
+                  <tr key={row.site}>
+                    <td className="kpi-modal-id">{formatSiteName(row.site)}</td>
+                    <td>{row.count}</td>
+                    <td>{row.eligible}</td>
+                    <td>{row.failures}</td>
+                    <td>{row.pending}</td>
+                    <td>{row.consented}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : kind === "sae" ? (
+            <table className="kpi-modal-table">
+              <thead>
+                <tr>
+                  <th>Enrollment ID</th>
+                  <th>Screening ID</th>
+                  <th>Name</th>
+                  <th>Site</th>
+                  <th>SAE</th>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((row, i) => {
+                  const name = listNameForEntry(
+                    piiByScreening[row.screening_id],
+                    row.enrollment_id ? enrollData[row.enrollment_id] : null,
+                  );
+                  return (
+                    <tr
+                      key={`${row.enrollment_id}-${row.sae}-${row.start_date}-${i}`}
+                      className="kpi-modal-row"
+                      onClick={() => row.enrollment_id && onOpenSae(row)}
+                    >
+                      <td className="kpi-modal-id">{row.enrollment_id || "—"}</td>
+                      <td>{row.screening_id || "—"}</td>
+                      <td>{name || "—"}</td>
+                      <td>{formatSiteName(row.site_name)}</td>
+                      <td>{row.sae || row.definition_no || "—"}</td>
+                      <td>{row.start_date || "—"}</td>
+                      <td>{row.end_date || "—"}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="kpi-modal-open"
+                          onClick={e => { e.stopPropagation(); onOpenSae(row); }}
+                          disabled={!row.enrollment_id}
+                        >
+                          Open listing
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <table className="kpi-modal-table">
+              <thead>
+                <tr>
+                  <th>Screening ID</th>
+                  <th>Name</th>
+                  <th>Enrollment ID</th>
+                  <th>Site</th>
+                  <th>Gestation</th>
+                  <th>Status</th>
+                  <th>Consent</th>
+                  {kind === "exclusions" && <th>Exclusion</th>}
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(row => {
+                  const sk = statusKey(row.screening_status);
+                  const name = listNameForEntry(
+                    piiByScreening[row.screening_id],
+                    row.enrollment_id ? enrollData[row.enrollment_id] : null,
+                  );
+                  return (
+                    <tr
+                      key={row.id || row.screening_id}
+                      className="kpi-modal-row"
+                      onClick={() => onOpenParticipant(row)}
+                    >
+                      <td className="kpi-modal-id">{row.screening_id || "—"}</td>
+                      <td>{name || "—"}</td>
+                      <td>{row.enrollment_id || "—"}</td>
+                      <td>{formatSiteName(row.site_name)}</td>
+                      <td>{formatGa(row)}</td>
+                      <td><Badge sk={sk} label={row.screening_status || "Pending"}/></td>
+                      <td>
+                        <span className={`consent-pill consent-pill--${(row.consent_given||"").toLowerCase()==="yes"?"yes":"no"}`}>
+                          {row.consent_given || "—"}
+                        </span>
+                      </td>
+                      {kind === "exclusions" && (
+                        <td>
+                          <div className="kpi-excl-list">
+                            {exclusionReasonList(row).map(reason => (
+                              <span key={reason} className="kpi-excl-pill">{reason}</span>
+                            ))}
+                          </div>
+                        </td>
+                      )}
+                      <td>
+                        <button
+                          type="button"
+                          className="kpi-modal-open"
+                          onClick={e => { e.stopPropagation(); onOpenParticipant(row); }}
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -242,7 +550,7 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
         {tab === "Screening Details" && (
           <div className="exp-grid">
             <Field label="Screening ID"    value={entry.screening_id} />
-            <Field label="Baby name"       value={babyName} />
+            <Field label="Name"            value={babyName} />
             <Field label="Enrollment ID"   value={entry.enrollment_id} />
             <Field label="Site"            value={entry.site_name} />
             <Field label="Screened By"     value={entry.screened_by} />
@@ -317,9 +625,12 @@ export default function ViewEntries() {
   const [entries,    setEntries]    = useState([]);
   const [enrollData, setEnrollData] = useState({});
   const [piiByScreening, setPiiByScreening] = useState({});
+  const [saeCount,   setSaeCount]   = useState(0);
+  const [saeItems,   setSaeItems]   = useState([]);
+  const [kpiModal,   setKpiModal]   = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState("");
-  const [filter,     setFilter]     = useState("All");
+  const [siteFilter, setSiteFilter] = useState("");
   const [expanded,   setExpanded]   = useState(null);
   const [page,       setPage]       = useState(1);
 
@@ -330,6 +641,14 @@ export default function ViewEntries() {
       const res = await api.get("/screenings/?limit=200");
       const list = Array.isArray(res.data) ? res.data : [];
       setEntries(list);
+      try {
+        const saeRes = await api.get("/sae-list/summary");
+        setSaeCount(Number(saeRes.data?.total) || 0);
+        setSaeItems(Array.isArray(saeRes.data?.items) ? saeRes.data.items : []);
+      } catch {
+        setSaeCount(0);
+        setSaeItems([]);
+      }
       const sids = list.map(e => e.screening_id).filter(Boolean);
       if (sids.length) {
         try {
@@ -352,7 +671,7 @@ export default function ViewEntries() {
 
   useEffect(() => {
     entries
-      .filter(e => e.enrollment_id && e.screening_status === "Eligible")
+      .filter(e => e.enrollment_id)
       .forEach(async e => {
         if (enrollData[e.enrollment_id]) return;
         try {
@@ -398,8 +717,10 @@ export default function ViewEntries() {
   /* ── Filter ── */
   const filtered = useMemo(() => entries.filter(e => {
     const q = search.toLowerCase();
-    const baby = formatBabyOfLabel(piiByScreening[e.screening_id]);
-    const mother = piiByScreening[e.screening_id]?.mother_first_name || "";
+    const pii = piiByScreening[e.screening_id];
+    const enr = e.enrollment_id ? enrollData[e.enrollment_id] : null;
+    const baby = listNameForEntry(pii, enr);
+    const mother = formatMotherFirstName(pii);
     const matchQ = !q ||
       (e.screening_id  || "").toLowerCase().includes(q) ||
       (e.enrollment_id || "").toLowerCase().includes(q) ||
@@ -407,31 +728,24 @@ export default function ViewEntries() {
       (e.screened_by   || "").toLowerCase().includes(q) ||
       baby.toLowerCase().includes(q) ||
       String(mother).toLowerCase().includes(q);
-    const matchF =
-      filter === "All" ||
-      (filter === "Eligible"       && e.screening_status === "Eligible") ||
-      (filter === "Screen Failure" && e.screening_status === "Screen Failure") ||
-      (filter === "Not Eligible"   && e.screening_status === "Not Eligible") ||
-      (filter === "Pending"        && (!e.screening_status || e.screening_status === "Pending"));
-    return matchQ && matchF;
-  }), [entries, search, filter, piiByScreening]);
+    const matchSite = !siteFilter || canonicalSiteKey(e.site_name) === siteFilter;
+    return matchQ && matchSite;
+  }), [entries, search, siteFilter, piiByScreening, enrollData]);
+
+  const siteOptions = useMemo(() => {
+    const seen = new Map();
+    entries.forEach(e => {
+      const key = canonicalSiteKey(e.site_name);
+      if (!key || !isKnownTrialSite(key)) return;
+      if (!seen.has(key)) seen.set(key, formatSiteName(key));
+    });
+    return [...seen.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }, [entries]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const kpis  = buildKPIs(entries);
-
-  // Helper to determine the specific class for an active filter
-  const getActiveFilterClass = (f) => {
-    if (filter !== f) return "";
-    switch (f) {
-      case "All":            return " ve-filter--active-all";
-      case "Eligible":       return " ve-filter--active-eligible";
-      case "Screen Failure": return " ve-filter--active-failure";
-      case "Not Eligible":   return " ve-filter--active-not-eligible";
-      case "Pending":        return " ve-filter--active-pending";
-      default:               return "";
-    }
-  };
+  const kpis  = buildKPIs(entries, saeCount, enrollData);
+  const kpiModalRecords = kpiModal ? recordsForKpi(kpiModal.key, entries, saeItems, enrollData) : null;
 
   const layoutProps = {
     pageTitle: "All Participants",
@@ -484,7 +798,13 @@ export default function ViewEntries() {
 
       {/* ── KPI strip ── */}
       <div className="ve-kpis">
-        {kpis.map(k => <KPICard key={k.label} {...k} />)}
+        {kpis.map(k => (
+          <KPICard
+            key={k.key}
+            {...k}
+            onClick={() => setKpiModal({ key: k.key, label: k.label, value: k.value })}
+          />
+        ))}
       </div>
 
       {/* ── Controls (Unified single horizontal row without Consent dropdown) ── */}
@@ -493,24 +813,30 @@ export default function ViewEntries() {
           <Search size={16} className="ve-search-icon"/>
           <input
             className="ve-search"
-            placeholder="Search baby name, enrollment ID…"
+            placeholder="Search name, enrollment ID…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
         
         <div className="ve-filters">
-          {FILTERS.map(f => (
-            <button
-              key={f}
-              className={`ve-filter${getActiveFilterClass(f)}`}
-              onClick={() => { setFilter(f); setPage(1); }}
+          <label className={`ve-site-dd${siteFilter ? " ve-filter--dd-active" : ""}`}>
+            <span className="ve-site-dd-label">
+              {siteFilter ? formatSiteName(siteFilter) : "Site"}
+            </span>
+            <select
+              className="ve-site-select"
+              value={siteFilter}
+              onChange={e => { setSiteFilter(e.target.value); setPage(1); }}
+              aria-label="Filter by site"
             >
-              {f}
-            </button>
-          ))}
-          <div className="ve-filter-sep"/>
-          <button className="ve-filter ve-filter--dd">Site <ChevronDown size={13}/></button>
+              <option value="">All sites</option>
+              {siteOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="ve-site-dd-icon" aria-hidden="true"/>
+          </label>
         </div>
       </div>
 
@@ -521,7 +847,7 @@ export default function ViewEntries() {
             <thead>
               <tr className="ve-thead-row">
                 <th className="ve-th ve-th--sticky">Screening ID</th>
-                <th className="ve-th">Baby name</th>
+                <th className="ve-th">Name</th>
                 <th className="ve-th">Enrollment ID</th>
                 <th className="ve-th">Site</th>
                 <th className="ve-th ve-th--center">Gestation</th>
@@ -561,10 +887,10 @@ export default function ViewEntries() {
                     >
                       <td className="ve-td ve-td--sticky ve-td--id">{entry.screening_id}</td>
                       <td className="ve-td ve-td--baby">
-                        {formatBabyOfLabel(piiByScreening[entry.screening_id]) || "—"}
+                        {listNameForEntry(piiByScreening[entry.screening_id], enr) || "—"}
                       </td>
                       <td className="ve-td ve-td--md">{entry.enrollment_id || "—"}</td>
-                      <td className="ve-td ve-td--md">{entry.site_name || "—"}</td>
+                      <td className="ve-td ve-td--md" title={formatSiteName(entry.site_name)}>{formatSiteShort(entry.site_name)}</td>
                       <td className="ve-td ve-td--center ve-td--bold">{ga}</td>
 
                       {/* Form dots — completed dots open that form for review */}
@@ -627,13 +953,13 @@ export default function ViewEntries() {
                             title="View completed forms"
                             onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}
                           >
-                            <Eye size={18}/>
+                            <Eye size={15}/>
                           </button>
                           <button className="icon-btn" title="Edit screening" onClick={() => handleEdit(entry)}>
-                            <Edit size={18}/>
+                            <Edit size={15}/>
                           </button>
                           <button className="icon-btn icon-btn--del" title="Delete" onClick={() => handleDelete(entry.id, entry.screening_id)}>
-                            <Trash2 size={18}/>
+                            <Trash2 size={15}/>
                           </button>
                         </div>
                       </td>
@@ -645,7 +971,7 @@ export default function ViewEntries() {
                           <ExpandedPanel
                             entry={entry}
                             forms={forms}
-                            babyName={formatBabyOfLabel(piiByScreening[entry.screening_id])}
+                            babyName={listNameForEntry(piiByScreening[entry.screening_id], enr)}
                             onEdit={() => handleEdit(entry)}
                             onDelete={() => handleDelete(entry.id, entry.screening_id)}
                             onViewForm={(formKey) => openForm(entry, formKey)}
@@ -695,6 +1021,28 @@ export default function ViewEntries() {
       </div>
 
     </div>
+    {kpiModal && kpiModalRecords && (
+      <KpiRecordsModal
+        title={kpiModal.label}
+        count={kpiModalRecords.rows.length}
+        kind={kpiModalRecords.kind}
+        rows={kpiModalRecords.rows}
+        piiByScreening={piiByScreening}
+        enrollData={enrollData}
+        onClose={() => setKpiModal(null)}
+        onOpenParticipant={(entry) => {
+          setKpiModal(null);
+          handleEdit(entry);
+        }}
+        onOpenSae={(row) => {
+          setKpiModal(null);
+          if (row.screening_id) localStorage.setItem("current_screening_id", row.screening_id);
+          if (row.enrollment_id) localStorage.setItem("current_enrollment_id", row.enrollment_id);
+          window.dispatchEvent(new Event("storage"));
+          navigate(`/sae-list/${row.enrollment_id}`);
+        }}
+      />
+    )}
     </DashboardWorkspaceLayout>
   );
 }

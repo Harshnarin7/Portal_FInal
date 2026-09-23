@@ -15,7 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 import { formatSiteName } from "./siteLabels";
 
 const ITEMS = [
-  { id: "overview", label: "Overview", Icon: LayoutDashboard },
+  { id: "overview", label: "Dashboard", Icon: LayoutDashboard },
   { id: "recruitment", label: "Recruitment", Icon: Target },
   { id: "patients", label: "Patients", Icon: Users },
   { id: "tasks", label: "Tasks", Icon: ClipboardList },

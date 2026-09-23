@@ -92,6 +92,27 @@ const GA_MIN_WEEKS = 25;
 const GA_MAX_WEEKS = 31;
 const GA_MIN_TOTAL_DAYS = GA_MIN_WEEKS * 7;
 const GA_MAX_TOTAL_DAYS = GA_MAX_WEEKS * 7 + 6;
+const GA_NO_RECORD_MSG =
+  "Gestational age is outside the study window (25 weeks 0 days to 31 weeks 6 days). No screening ID is assigned and the record is not saved.";
+
+/* Snapshot classifier taking an explicit fd -- getEligibilityStatus()
+   further below does the identical calculation but closes over the live
+   formData state, which the autoSave interval callback can't safely use
+   (stale-closure risk, same reason it reads formDataRef.current instead
+   of formData everywhere else). Kept as a separate small function rather
+   than parameterizing getEligibilityStatus so autoSave's usage doesn't
+   depend on where in the component body that one happens to be defined. */
+function classifyGaSnapshot(fd) {
+  if (!fd) return null;
+  if (!fd.best_ga_weeks && fd.best_ga_weeks !== 0) return null;
+  const weeks = Number(fd.best_ga_weeks);
+  const days = Number(fd.best_ga_days || 0);
+  if (Number.isNaN(weeks)) return null;
+  const t = weeks * 7 + days;
+  if (t < GA_MIN_TOTAL_DAYS) return "low";
+  if (t > GA_MAX_TOTAL_DAYS) return "high";
+  return "eligible";
+}
 
 /* ─── Blank form state ────────────────────────────────────── */
 const BLANK_FORM = {
@@ -1105,6 +1126,11 @@ export default function ScreeningForm() {
     ].some(k => (fd[k] || "").toString().trim() !== "");
     if (!existingId && (!fd.site_name || !hasIdentificationData)) return;
 
+    /* Never create or keep writing a row when GA is outside 25w0d–31w6d. */
+    const gaClass = classifyGaSnapshot(fd);
+    if (gaClass === "low" || gaClass === "high") return;
+    if (!existingId && gaClass !== "eligible") return;
+
     if (!navigator.onLine) {
       setOfflineQueue(true);
       return;
@@ -1151,6 +1177,11 @@ export default function ScreeningForm() {
 
   /* ─── Save ── */
   const saveForm = async () => {
+    if (endParticipation) {
+      setMessage(`❌ ${GA_NO_RECORD_MSG}`);
+      return false;
+    }
+
     const missing = validate();
     if (missing.length > 0) {
       setMissingFields(missing);
@@ -1159,29 +1190,6 @@ export default function ScreeningForm() {
     }
 
     const payload = buildPayloadFrom(formData, false, anyExclusionYes, true);
-    /* Out-of-range / undeterminable GA hides A2–A5; backend still requires
-       site + screened_by + names to create the screening row. Fill from the
-       locked login when those fields were never shown. */
-    if (endParticipation) {
-      if (!payload.site_name && user?.site) {
-        payload.site_name = user.site;
-        payload.site_id = SITE_ID_MAP[user.site] || payload.site_id;
-      }
-      if (payload.site_name && !payload.site_id) {
-        payload.site_id = SITE_ID_MAP[payload.site_name] || "";
-      }
-      if (!payload.screened_by) {
-        payload.screened_by = (user?.full_name || "").trim() || "N/A";
-      }
-      if (!payload.mother_first_name) payload.mother_first_name = "";
-      if (!payload.husband_first_name) payload.husband_first_name = "";
-      if (payload.exclusion_present == null) payload.exclusion_present = false;
-      if (!payload.site_name) {
-        setMissingFields([{ label: "Site (A2)", fieldName: "site_name" }]);
-        setShowMissingModal(true);
-        return;
-      }
-    }
 
     try {
       const storedId = localStorage.getItem("current_screening_id");
@@ -1217,6 +1225,10 @@ export default function ScreeningForm() {
 
   /* ─── Save Draft — no validation, saves whatever is filled ── */
   const saveDraft = async () => {
+    if (endParticipation) {
+      setMessage(`❌ ${GA_NO_RECORD_MSG}`);
+      return;
+    }
     const payload = buildPayload(true);
 
     try {
@@ -1263,9 +1275,7 @@ export default function ScreeningForm() {
       localStorage.setItem("enrollment_locked", "true");
       localStorage.setItem("enrollment_lock_reason", "ga_out_of_range");
       window.dispatchEvent(new Event("storage"));
-      setConsentMessage(
-        "Gestational age is outside the eligibility window (25w0d–31w6d) — other forms stay locked. End participation."
-      );
+      setConsentMessage(GA_NO_RECORD_MSG);
       setShowConsentModal(true);
       return;
     }
@@ -1439,12 +1449,12 @@ export default function ScreeningForm() {
                 )}
                 {eligibilityStatus === "high" && (
                   <div className="alert-danger">
-                    ❌ If ≥32 weeks – cannot proceed. Gestational age is outside the eligibility window (25 weeks 0 days to 31 weeks 6 days).
+                    ❌ If ≥32 weeks – cannot proceed. Gestational age is outside 25w0d–31w6d. No screening ID is assigned and the record is not saved.
                   </div>
                 )}
                 {eligibilityStatus === "low"  && (
                   <div className="alert-danger">
-                    ❌ Gestational age &lt;25 weeks — outside eligibility window (25w0d–31w6d). Cannot proceed.
+                    ❌ Gestational age &lt;25 weeks — outside 25w0d–31w6d. No screening ID is assigned and the record is not saved.
                   </div>
                 )}
 
@@ -2000,10 +2010,22 @@ export default function ScreeningForm() {
         <button type="button" className="btn btn-secondary" onClick={handlePrevious}>
           <ArrowLeft size={15}/> Dashboard
         </button>
-        <button type="button" className="btn btn-save" onClick={saveForm}>
+        <button
+          type="button"
+          className="btn btn-save"
+          onClick={saveForm}
+          disabled={endParticipation}
+          title={endParticipation ? GA_NO_RECORD_MSG : undefined}
+        >
           <Save size={15}/> Save
         </button>
-        <button type="button" className="btn btn-draft" onClick={saveDraft}>
+        <button
+          type="button"
+          className="btn btn-draft"
+          onClick={saveDraft}
+          disabled={endParticipation}
+          title={endParticipation ? GA_NO_RECORD_MSG : undefined}
+        >
           <Save size={15}/> Save for Later
         </button>
 

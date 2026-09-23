@@ -25,3 +25,20 @@ export function formatBabyOfLabel(pii) {
   if (first) return `B/o ${first}`;
   return "";
 }
+
+/** Mother's first name only (no B/o). */
+export function formatMotherFirstName(pii) {
+  return usableName(pii?.mother_first_name);
+}
+
+/**
+ * View Entries name column:
+ * Form A only → mother's first name
+ * Form B started (draft or saved) → "B/o {mother first name}"
+ */
+export function formatParticipantListName(pii, { formBStarted } = {}) {
+  const mother = formatMotherFirstName(pii);
+  if (!mother) return "";
+  if (formBStarted) return `B/o ${mother}`;
+  return mother;
+}

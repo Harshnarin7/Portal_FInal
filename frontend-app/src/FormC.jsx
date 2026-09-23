@@ -884,7 +884,7 @@ export default function FormC() {
             uterotonic_timing: formCData.uterotonic_timing ?? "",
           } : {}),
           // LMP/EDD are labeled "(auto from Form A)". Prefer Form A's stored
-          // dates, fill the missing one with Naegele (LMP±280), otherwise
+          // dates, fill the missing one with Naegele (9 months + 7 days), otherwise
           // reconstruct both from screening GA + screening date (USG path
           // never stores LMP/EDD on Form A). Form C's own saved values are
           // a last-resort fallback only.
