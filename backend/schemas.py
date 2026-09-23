@@ -2970,3 +2970,35 @@ class BirthLogEntryOut(BirthLogEntryCreate):
 
     class Config:
         from_attributes = True
+
+
+class GACheckEntryCreate(BaseModel):
+    site_name: Optional[str] = None
+
+    mother_uid: Optional[str] = None
+    mother_name: Optional[str] = None
+
+    check_date: Optional[date] = None
+
+    gestation_weeks: Optional[int] = None
+    gestation_days: Optional[int] = None
+    ga_source: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class GACheckEntryOut(GACheckEntryCreate):
+    id: int
+    entered_by: Optional[str] = None
+    eligible: Optional[bool] = None
+    continued_to_screening: bool = False
+    screening_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class GACheckLinkRequest(BaseModel):
+    screening_id: str

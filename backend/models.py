@@ -2353,3 +2353,49 @@ class BirthLogEntry(Base):
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ==========================================================
+# GA CHECK LOG — near-zero-friction live pre-screening capture
+# (part 1 of the CONSORT-completeness plan; part 2, the birth log above,
+# already built). Logged the moment a nurse checks ANY woman's
+# gestational age at antenatal clinic/DR triage, including the majority
+# who turn out not preterm and are otherwise never captured anywhere in
+# the system -- this table IS the true "approached for screening"
+# population Box 1 of the CONSORT flow wants, computed instead of
+# hand-counted from a pocket diary. mother_name/mother_uid are
+# EncryptedString for the same reason as BirthLogEntry: a discarded
+# non-preterm contact can legitimately have no clinical record anywhere
+# else in the system.
+# ==========================================================
+class GACheckEntry(Base):
+    __tablename__ = "ga_check_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_name  = Column(String, index=True, nullable=True)
+    entered_by = Column(String, nullable=True)
+
+    mother_uid  = Column(EncryptedString, nullable=True)
+    mother_name = Column(EncryptedString, nullable=True)
+
+    check_date = Column(Date, nullable=True)
+
+    gestation_weeks = Column(Integer, nullable=True)
+    gestation_days  = Column(Integer, nullable=True)
+    ga_source = Column(String, nullable=True)  # "LMP" | "USG" | "Unknown"
+
+    # Computed on save (ga_check.py::classify_eligibility) from
+    # gestation_weeks alone -- same <32-completed-weeks threshold the
+    # CONSORT dashboard's Box 5 SQL already uses. Never hand-set.
+    eligible = Column(Boolean, nullable=True)
+
+    # Set only when the nurse taps "Continue to Form A" and that
+    # screening is actually saved (see PATCH /ga-check/{id}/link) --
+    # links this log entry forward to the screening it produced, closing
+    # the Box1->Box5 loop from this end instead of relying on
+    # birth_log_matching's after-the-fact name/UID match.
+    continued_to_screening = Column(Boolean, default=False, nullable=False)
+    screening_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

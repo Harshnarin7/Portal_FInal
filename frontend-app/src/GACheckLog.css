@@ -1,0 +1,209 @@
+/* GA Check Log — near-zero-friction live pre-screening capture */
+
+.gac-page {
+  --gac-ink: #0b1c30;
+  --gac-muted: #4a5568;
+  --gac-border: #dce4f0;
+  --gac-surface: #ffffff;
+  --gac-sky: #0284c7;
+  --gac-amber: #b45309;
+  --gac-amber-bg: #fffbeb;
+  --gac-amber-border: #fcd34d;
+  --gac-green: #166534;
+  --gac-green-bg: #dcfce7;
+  --gac-font: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 8px 56px;
+  color: var(--gac-ink);
+  font-family: var(--gac-font);
+}
+
+.gac-header { margin-bottom: 16px; }
+
+.gac-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gac-sky);
+  margin-bottom: 6px;
+}
+
+.gac-title { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
+
+.gac-subtitle {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--gac-muted);
+  max-width: 68ch;
+  line-height: 1.45;
+}
+
+.gac-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--gac-amber-bg);
+  border: 1px solid var(--gac-amber-border);
+  color: var(--gac-amber);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  margin-bottom: 16px;
+}
+
+.gac-card {
+  background: var(--gac-surface);
+  border: 1px solid var(--gac-border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.gac-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.gac-card-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+
+.gac-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px 14px;
+}
+
+.gac-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--gac-muted); }
+.gac-field span { font-weight: 600; }
+.gac-field input, .gac-field select {
+  border: 1px solid var(--gac-border);
+  border-radius: 8px;
+  padding: 10px 10px;
+  font-size: 14px;
+  color: var(--gac-ink);
+  background: #fff;
+}
+.gac-field input:focus, .gac-field select:focus {
+  outline: none;
+  border-color: var(--gac-sky);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+.gac-ga-row { display: flex; gap: 8px; }
+.gac-ga-row input { width: 100%; min-width: 0; }
+
+.gac-form-error { margin-top: 10px; font-size: 12.5px; color: #b91c1c; }
+
+.gac-form-actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+.gac-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.gac-btn:disabled { opacity: 0.6; cursor: default; }
+.gac-btn--primary { background: var(--gac-sky); color: #fff; }
+.gac-btn--primary:hover:not(:disabled) { background: #026a9e; }
+
+.gac-link-btn {
+  background: none;
+  border: none;
+  color: var(--gac-sky);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.gac-icon-btn {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--gac-border);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.gac-icon-btn:disabled { opacity: 0.6; cursor: default; }
+.gac-spin { animation: gac-spin 0.9s linear infinite; }
+@keyframes gac-spin { to { transform: rotate(360deg); } }
+
+/* ── Result panel — shown immediately after logging, before the form
+   resets, so the nurse's next action (continue vs. next patient) is one
+   tap away without hunting through the table below. ── */
+.gac-result {
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.gac-result--eligible { background: var(--gac-amber-bg); border: 1px solid var(--gac-amber-border); }
+.gac-result--not-eligible { background: var(--gac-green-bg); border: 1px solid #86efac; }
+.gac-result-text { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; }
+.gac-result--eligible .gac-result-text { color: var(--gac-amber); }
+.gac-result--not-eligible .gac-result-text { color: var(--gac-green); }
+.gac-result-actions { display: flex; gap: 8px; }
+
+.gac-btn--continue { background: var(--gac-amber); color: #fff; }
+.gac-btn--continue:hover:not(:disabled) { background: #92400e; }
+.gac-btn--dismiss { background: #fff; color: var(--gac-muted); border: 1px solid var(--gac-border); }
+
+.gac-stats-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.gac-stat {
+  flex: 1 1 140px;
+  background: var(--gac-surface);
+  border: 1px solid var(--gac-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.gac-stat-value { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.gac-stat-label { font-size: 11.5px; color: var(--gac-muted); margin-top: 2px; }
+.gac-stat--gap .gac-stat-value { color: var(--gac-amber); }
+
+.gac-table-wrap { overflow-x: auto; }
+.gac-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.gac-table th, .gac-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--gac-border);
+  white-space: nowrap;
+}
+.gac-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gac-muted); font-weight: 700; }
+.gac-row--gap { background: #fffaf0; }
+.gac-empty { color: var(--gac-muted); text-align: center !important; padding: 24px !important; }
+
+.gac-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.gac-badge--continued { background: var(--gac-green-bg); color: var(--gac-green); }
+.gac-badge--gap { background: var(--gac-amber-bg); color: var(--gac-amber); border: 1px solid var(--gac-amber-border); }
+.gac-badge--not-eligible { background: #f1f5f9; color: #64748b; }
+.gac-badge--unknown { background: #f1f5f9; color: #475569; }
+
+@media (max-width: 480px) {
+  .gac-page { padding: 8px 12px 56px; }
+  .gac-form-grid { grid-template-columns: 1fr 1fr; }
+  .gac-result { flex-direction: column; align-items: stretch; }
+}
