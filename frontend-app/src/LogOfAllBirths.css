@@ -87,7 +87,11 @@
   gap: 14px 16px;
 }
 
+.lob-add-reason-toggle { margin-top: 14px; display: inline-block; }
+
 .lob-reason-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--lob-border); }
+.lob-reason-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.lob-reason-head .lob-reason-label { margin-bottom: 0; }
 .lob-reason-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--lob-muted); margin-bottom: 8px; }
 .lob-reason-group { display: flex; flex-wrap: wrap; gap: 8px; }
 .lob-reason-item {
@@ -182,6 +186,8 @@
 .lob-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--lob-muted); font-weight: 700; }
 .lob-row--alert { background: #fffaf0; }
 .lob-empty { color: var(--lob-muted); text-align: center !important; padding: 24px !important; }
+
+.lob-badge-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
 
 .lob-badge {
   display: inline-flex;

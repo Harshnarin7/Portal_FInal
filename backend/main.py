@@ -7868,6 +7868,7 @@ def create_birth_log_entry(
     record.matched_screening_id = match["matched_screening_id"]
     record.matched_enrollment_id = match["matched_enrollment_id"]
     record.match_status = match["match_status"]
+    record.ga_log_missing = match["ga_log_missing"]
 
     db.add(record)
     db.commit()
@@ -7899,6 +7900,7 @@ def update_birth_log_entry(
     record.matched_screening_id = match["matched_screening_id"]
     record.matched_enrollment_id = match["matched_enrollment_id"]
     record.match_status = match["match_status"]
+    record.ga_log_missing = match["ga_log_missing"]
 
     db.commit()
     db.refresh(record)
@@ -7934,14 +7936,16 @@ def get_birth_log_alerts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """GA-eligible (25w0d-31w6d) births with no matching Form A screening —
-    the completeness cross-check the paper 'Log of All Births' CRF exists
-    for, computed automatically instead of relying on a hand-ticked column.
-    Includes both 'in_range_no_match' (checked at triage, never continued
-    into Form A) and the strictly worse 'never_checked' (no Gestation Log
-    entry for her at all) — match_status in the response tells them apart."""
+    """GA-eligible (25w0d-31w6d) births needing attention — the
+    completeness cross-check the paper 'Log of All Births' CRF exists
+    for, computed automatically instead of relying on a hand-ticked
+    column. Includes any entry with EITHER badge condition: Form A
+    missing (match_status='in_range_no_match') OR no Gestation Log entry
+    at all (ga_log_missing=True, which can also be true on an otherwise-
+    matched entry — see birth_log_matching.py's module docstring)."""
     query = db.query(BirthLogEntry).filter(
-        BirthLogEntry.match_status.in_(["in_range_no_match", "never_checked"])
+        (BirthLogEntry.match_status == "in_range_no_match")
+        | (BirthLogEntry.ga_log_missing.is_(True))
     )
     if not is_global(current_user):
         query = query.filter(BirthLogEntry.site_name == current_user.site_name)
@@ -7955,6 +7959,7 @@ def get_birth_log_alerts(
             "id": r.id,
             "site_name": r.site_name,
             "match_status": r.match_status,
+            "ga_log_missing": r.ga_log_missing,
             "mother_uid": r.mother_uid if can_view(r) else None,
             "mother_name": r.mother_name if can_view(r) else None,
             "date_of_birth": r.date_of_birth.isoformat() if r.date_of_birth else None,

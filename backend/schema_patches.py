@@ -1288,3 +1288,9 @@ BIRTH_LOG_REASON_NOT_APPROACHED_PATCHES = [
     "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS reason_not_approached VARCHAR",
     "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS reason_not_approached_other VARCHAR",
 ]
+
+# Independent of match_status -- whether a Gestation Log entry exists at
+# all, regardless of Form A status (2026-09-24 two-badge redesign).
+BIRTH_LOG_GA_LOG_MISSING_PATCHES = [
+    "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS ga_log_missing BOOLEAN",
+]

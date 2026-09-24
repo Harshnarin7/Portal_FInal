@@ -2360,7 +2360,20 @@ class BirthLogEntry(Base):
     matched_screening_id  = Column(String, nullable=True)
     matched_enrollment_id = Column(String, nullable=True)
     match_status = Column(String, nullable=True)
-    # "matched" | "in_range_no_match" | "never_checked" | "out_of_range" | "ga_unknown"
+    # "matched" | "in_range_no_match" | "out_of_range" | "ga_unknown"
+
+    # Independent of match_status (2026-09-24 redesign, PI-directed): a
+    # woman can have a matched Form A record AND still have no Gestation
+    # Log entry at all (a direct/orphan Form A entry that bypassed the
+    # log) -- flagged regardless of Form A status, per the PI's explicit
+    # decision, since it's real data-quality information on its own (is
+    # staff actually using the intended triage workflow?), not just a
+    # symptom of a missing Form A. Only ever set (True/False, not left
+    # NULL) when match_status is "matched" or "in_range_no_match" --
+    # left NULL for out_of_range/ga_unknown, where checking Gestation Log
+    # status doesn't make sense (this log is preterm-triage-only, not
+    # every birth's own GA check).
+    ga_log_missing = Column(Boolean, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
