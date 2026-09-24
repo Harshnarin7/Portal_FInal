@@ -13,7 +13,7 @@
   --lob-green-bg: #dcfce7;
   --lob-font: "Inter", "Segoe UI", system-ui, sans-serif;
 
-  max-width: 1180px;
+  max-width: none;
   margin: 0 auto;
   padding: 8px 8px 56px;
   color: var(--lob-ink);
@@ -38,15 +38,17 @@
   margin: 0;
   font-size: 26px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
+  overflow: visible;
 }
 
 .lob-subtitle {
   margin: 6px 0 0;
   font-size: 13.5px;
   color: var(--lob-muted);
-  max-width: 68ch;
+  max-width: none;
   line-height: 1.45;
+  overflow: visible;
 }
 
 .lob-alert-banner {
@@ -68,6 +70,7 @@
   border-radius: 14px;
   padding: 18px 20px;
   margin-bottom: 16px;
+  overflow: visible;
 }
 
 .lob-card-head {
@@ -80,8 +83,8 @@
 
 .lob-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 16px;
 }
 
 .lob-reason-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--lob-border); }
@@ -91,6 +94,7 @@
   display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--lob-border); border-radius: 8px;
   padding: 6px 10px; font-size: 13px; cursor: pointer; color: var(--lob-ink);
+  white-space: normal; overflow: visible;
 }
 .lob-reason-item.checked { background: var(--lob-amber-bg); border-color: var(--lob-amber-border); color: var(--lob-amber); }
 .lob-reason-other-input {
@@ -99,8 +103,8 @@
   padding: 8px 10px; font-size: 13.5px; color: var(--lob-ink);
 }
 
-.lob-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--lob-muted); }
-.lob-field span { font-weight: 600; }
+.lob-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--lob-muted); min-width: 0; overflow: visible; }
+.lob-field span { font-weight: 600; letter-spacing: 0; line-height: 1.35; white-space: normal; overflow: visible; }
 .lob-field input, .lob-field select {
   border: 1px solid var(--lob-border);
   border-radius: 8px;
@@ -164,15 +168,18 @@
 .lob-spin { animation: lob-spin 0.9s linear infinite; }
 @keyframes lob-spin { to { transform: rotate(360deg); } }
 
-.lob-table-wrap { overflow-x: auto; }
-.lob-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lob-table-wrap { overflow: visible; width: 100%; }
+.lob-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
 .lob-table th, .lob-table td {
   text-align: left;
   padding: 9px 10px;
   border-bottom: 1px solid var(--lob-border);
-  white-space: nowrap;
+  white-space: normal;
+  overflow: visible;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
 }
-.lob-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--lob-muted); font-weight: 700; }
+.lob-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--lob-muted); font-weight: 700; }
 .lob-row--alert { background: #fffaf0; }
 .lob-empty { color: var(--lob-muted); text-align: center !important; padding: 24px !important; }
 
@@ -182,8 +189,12 @@
   gap: 5px;
   font-size: 12px;
   font-weight: 700;
-  padding: 3px 9px;
+  padding: 4px 9px;
   border-radius: 999px;
+  white-space: normal;
+  overflow: visible;
+  max-width: none;
+  line-height: 1.3;
 }
 .lob-badge--matched { background: var(--lob-green-bg); color: var(--lob-green); }
 .lob-badge--alert { background: var(--lob-amber-bg); color: var(--lob-amber); border: 1px solid var(--lob-amber-border); }

@@ -984,6 +984,18 @@ def create_screening(
                 screening_id=screening_id,
                 new_values=row_snapshot(db_screening),
             )
+            if getattr(screening, "explicitly_saved", None) is True:
+                record_audit(
+                    db,
+                    user_id=current_user.id,
+                    username=current_user.full_name or current_user.username,
+                    action="SAVE",
+                    table_name="screenings",
+                    record_id=db_screening.id,
+                    enrollment_id=enrollment_id,
+                    screening_id=screening_id,
+                    new_values={"form": "Form A — Screening", "explicitly_saved": True},
+                )
             db.commit()
             db.refresh(db_screening)
             return db_screening
@@ -1119,6 +1131,18 @@ def update_screening(
             old_values=old_snapshot,
             new_values=row_snapshot(entry),
         )
+        if update_data.get("explicitly_saved") is True:
+            record_audit(
+                db,
+                user_id=current_user.id,
+                username=current_user.full_name or current_user.username,
+                action="SAVE",
+                table_name="screenings",
+                record_id=entry.id,
+                enrollment_id=entry.enrollment_id,
+                screening_id=screening_id,
+                new_values={"form": "Form A — Screening", "explicitly_saved": True},
+            )
         if not entry.screening_id:
             raise HTTPException(status_code=400, detail="Screening ID lost")
 
@@ -5857,8 +5881,11 @@ def get_enrollment_status(
         "form_b": form_b,
         "form_b_started": birth is not None,
         "form_c": form_c,
+        "form_c_started": maternal is not None,
         "form_d": form_d,
+        "form_d_started": postnatal is not None,
         "form_e": form_e,
+        "form_e_started": nicu is not None,
         "no_ppv": no_ppv,
         "next_form": next_form,
     }

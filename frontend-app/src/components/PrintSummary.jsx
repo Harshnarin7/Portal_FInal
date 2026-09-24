@@ -74,173 +74,95 @@ function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
   return (
     <div className="pr-root">
 
-      {/* HEADER */}
-      <div className="pr-header">
-        <div className="pr-header-left">
-          <div className="pr-study-title">PORTAL Trial</div>
-          <div className="pr-study-full">
-            Providing initial Oxygen for delivery Room resuscitATion of
-            preteRm infants using targeted Low oxygen versus air
-          </div>
-          <div className="pr-study-meta">
-            ICMR Funded · Multi-site RCT · PGIMER Chandigarh
-          </div>
+      <div className="pr-compact-header">
+        <div>
+          <div className="pr-compact-title">PORTAL Trial</div>
+          <div className="pr-compact-sub">Form A — Screening</div>
         </div>
-        <div className="pr-header-right">
-          <div className="pr-doc-label">Screening Summary — Form A</div>
-          <table className="pr-meta-table">
-            <tbody>
-              <tr>
-                <td className="pr-meta-key">Screening ID</td>
-                <td className="pr-meta-val pr-meta-id">
-                  {formData.screening_id || "Not assigned"}
-                </td>
-              </tr>
-              <tr>
-                <td className="pr-meta-key">Site</td>
-                <td className="pr-meta-val">{v(formData.site_name)}</td>
-              </tr>
-              <tr>
-                <td className="pr-meta-key">Print Date</td>
-                <td className="pr-meta-val">{today}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="pr-compact-id">
+          <span>Screening ID</span>
+          <strong>{formData.screening_id || "Not assigned"}</strong>
         </div>
+        <div className={`pr-compact-pill pr-outcome-${outcomeKey}`}>{outcome}</div>
       </div>
 
-      <div className="pr-rule" />
+      <div className="pr-compact-body">
+        <div className="pr-compact-sec">A1 INCLUSION</div>
+        <table className="pr-table"><tbody>
+          <R label="Best estimate of gestational age" value={gaStr} />
+          <R label="Method of gestation assessment" value={methodLabels[formData.gestation_method] || formData.gestation_method} />
+          {formData.lmp_date && <R label="LMP date" value={fmtDate(formData.lmp_date)} />}
+          <R label="EDD" value={formData.edd_date ? fmtDate(formData.edd_date) : null} />
+        </tbody></table>
 
-      {/* OUTCOME */}
-      <div className={`pr-outcome pr-outcome-${outcomeKey}`}>
-        <span className="pr-outcome-label">Screening Outcome</span>
-        <span className="pr-outcome-value">{outcome}</span>
-      </div>
+        <div className="pr-compact-sec">A2 IDENTIFICATION</div>
+        <table className="pr-table"><tbody>
+          <R label="Site" value={formData.site_name} />
+          <R label="Site ID" value={formData.site_id} />
+          <R label="Screening date and time" value={fmtDT(formData.screening_datetime)} />
+          <R label="Screened by" value={formData.screened_by} />
+        </tbody></table>
 
-      {/* BODY */}
-      <div className="pr-body">
+        <div className="pr-compact-sec">A3 MATERNAL</div>
+        <table className="pr-table"><tbody>
+          <R label="Mother first name" value={formData.mother_first_name} />
+          <R label="Mother surname" value={formData.mother_surname} />
+          <R label="Husband first name" value={formData.husband_first_name} />
+          <R label="Husband surname" value={formData.husband_surname} />
+          <R label="Maternal UID" value={formData.maternal_uid} />
+          <R label="Hospital admission number" value={formData.hospital_admission_number} />
+          <R label="Mother mobile number" value={formData.mother_contact} />
+          <R label="Husband mobile number" value={formData.husband_contact} />
+        </tbody></table>
 
-        {/* LEFT COL */}
-        <div className="pr-col">
-          <div className="pr-section">
-            <div className="pr-section-hd">Maternal Information</div>
-            <table className="pr-table"><tbody>
-              <R label="Mother's Name"
-                 value={[formData.mother_first_name, formData.mother_surname]
-                   .filter(Boolean).join(" ") || null} />
-              <R label="Husband's Name"
-                 value={[formData.husband_first_name, formData.husband_surname]
-                   .filter(Boolean).join(" ") || null} />
-              <R label="Maternal UID (CR No.)"   value={formData.maternal_uid} />
-              <R label="Hospital Admission No."  value={formData.hospital_admission_number} />
-              <R label="Mother Contact"          value={formData.mother_contact} />
-              <R label="Husband Contact"         value={formData.husband_contact} />
-            </tbody></table>
-          </div>
+        <div className="pr-compact-sec">A4 EXCLUSION</div>
+        <table className="pr-table"><tbody>
+          <E label="Major structural anomaly / genetic abnormality" value={formData.exclusion_anomaly} />
+          {formData.exclusion_anomaly === "Yes" && formData.exclusion_anomaly_details && (
+            <R label="If yes, specify" value={formData.exclusion_anomaly_details} />
+          )}
+          <E label="Fetal hydrops" value={formData.fetal_hydrops} />
+          {formData.fetal_hydrops === "Yes" && formData.fetal_hydrops_type && (
+            <R label="If yes" value={formData.fetal_hydrops_type} />
+          )}
+          <E label="Decision to forego resuscitation" value={formData.decision_forego_resus} />
+          {formData.decision_forego_resus === "Yes" && formData.decision_forego_resus_reason && (
+            <R label="If yes" value={formData.decision_forego_resus_reason} />
+          )}
+          <E label="Insufficient time for consent" value={formData.insufficient_time} />
+          {formData.insufficient_time === "Yes" && formData.insufficient_time_reason && (
+            <R label="If yes, specify" value={formData.insufficient_time_reason} />
+          )}
+          <E label="IUFD" value={formData.iufd} />
+        </tbody></table>
 
-          <div className="pr-section">
-            <div className="pr-section-hd">Screening Information</div>
-            <table className="pr-table"><tbody>
-              <R label="Site"                  value={formData.site_name} />
-              <R label="Site ID"               value={formData.site_id} />
-              <R label="Screened By"           value={formData.screened_by} />
-              <R label="Screening Date & Time" value={fmtDT(formData.screening_datetime)} />
-            </tbody></table>
-          </div>
-
-          <div className="pr-section">
-            <div className="pr-section-hd">Consent Information</div>
-            <table className="pr-table"><tbody>
-              <R label="Consent Status"    value={formData.consent_given} />
-              <R label="Consent Taken By" value={formData.consent_taken_by} />
-              <R label="Relationship"     value={formData.relationship_to_participant} />
-              {formData.consent_given === "No" && (
-                <R label="Refusal Reason" value={formData.reason_for_consent_refusal} />
-              )}
-              {formData.consent_given === "Not approached" && (
-                <R label="Not Approached Reason" value={formData.reason_not_approached} />
-              )}
-              {formData.consent_given === "Yes" && formData.consent_datetime && (
-                <R label="Consent Date & Time" value={fmtDT(formData.consent_datetime)} />
-              )}
-              <R label="Video PIS Shown" value={formData.video_pis_shown} />
-              {formData.consent_signature_image && (
-                <tr>
-                  <td className="pr-td-label">ICF Signature</td>
-                  <td className="pr-td-value">
-                    <img
-                      src={formData.consent_signature_image}
-                      alt="ICF signature captured on tablet"
-                      className="pr-signature-img"
-                    />
-                    {formData.consent_signature_captured_at && (
-                      <div className="pr-signature-caption">
-                        Signed {fmtDT(formData.consent_signature_captured_at)}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              )}
-            </tbody></table>
-          </div>
-        </div>
-
-        {/* RIGHT COL */}
-        <div className="pr-col">
-          <div className="pr-section">
-            <div className="pr-section-hd">Gestation Assessment</div>
-            <table className="pr-table"><tbody>
-              {formData.lmp_date && (
-                <R label="LMP Date" value={fmtDate(formData.lmp_date)} />
-              )}
-              <R label="Best Estimate GA" value={gaStr} />
-              <R label="EDD" value={formData.edd_date ? fmtDate(formData.edd_date) : null} />
-              <R label="Assessment Method"
-                 value={methodLabels[formData.gestation_method] || formData.gestation_method} />
-              <R label="GA Eligibility"
-                 value={
-                   gaW != null && gaW !== ""
-                     ? (Number(gaW) * 7 + Number(gaD) >= 25 * 7 &&
-                        Number(gaW) * 7 + Number(gaD) <= 31 * 7 + 6
-                       ? "Within range (25w 0d – 31w 6d)"
-                       : "Outside range (25w 0d – 31w 6d)")
-                     : "Not calculated"
-                 } />
-            </tbody></table>
-          </div>
-
-          <div className="pr-section">
-            <div className="pr-section-hd">Exclusion Criteria</div>
-            <table className="pr-exc-table">
-              <thead>
-                <tr>
-                  <th className="pr-exc-th-label">Criterion</th>
-                  <th className="pr-exc-th-yn">Present</th>
-                </tr>
-              </thead>
-              <tbody>
-                <E label="Major Structural Anomaly / Genetic" value={formData.exclusion_anomaly} />
-                {formData.exclusion_anomaly === "Yes" && formData.exclusion_anomaly_details && (
-                  <tr><td className="pr-exc-detail" colSpan={2}>↳ {formData.exclusion_anomaly_details}</td></tr>
+        <div className="pr-compact-sec">A5 CONSENT</div>
+        <table className="pr-table"><tbody>
+          <R label="Consent" value={formData.consent_given} />
+          <R label="Consent taken by" value={formData.consent_taken_by} />
+          <R label="Relationship" value={formData.relationship_to_participant} />
+          {formData.consent_given === "No" && (
+            <R label="Refusal reason" value={formData.reason_for_consent_refusal} />
+          )}
+          {formData.consent_given === "Not approached" && (
+            <R label="Not approached reason" value={formData.reason_not_approached} />
+          )}
+          {formData.consent_datetime && (
+            <R label="Consent date and time" value={fmtDT(formData.consent_datetime)} />
+          )}
+          <R label="Video PIS shown" value={formData.video_pis_shown} />
+          {formData.consent_signature_image && (
+            <tr>
+              <td className="pr-td-label">Consent signature</td>
+              <td className="pr-td-value">
+                <img src={formData.consent_signature_image} alt="Consent signature" className="pr-signature-img" />
+                {formData.consent_signature_captured_at && (
+                  <div className="pr-signature-caption">Signed {fmtDT(formData.consent_signature_captured_at)}</div>
                 )}
-                <E label="Fetal Hydrops" value={formData.fetal_hydrops} />
-                {formData.fetal_hydrops === "Yes" && formData.fetal_hydrops_type && (
-                  <tr><td className="pr-exc-detail" colSpan={2}>↳ Type: {formData.fetal_hydrops_type}</td></tr>
-                )}
-                <E label="Decision to Forego Resuscitation" value={formData.decision_forego_resus} />
-                {formData.decision_forego_resus === "Yes" && formData.decision_forego_resus_reason && (
-                  <tr><td className="pr-exc-detail" colSpan={2}>↳ Reason: {formData.decision_forego_resus_reason}</td></tr>
-                )}
-                <E label="Insufficient Time for Consent" value={formData.insufficient_time} />
-                {formData.insufficient_time === "Yes" && formData.insufficient_time_reason && (
-                  <tr><td className="pr-exc-detail" colSpan={2}>↳ {formData.insufficient_time_reason}</td></tr>
-                )}
-                <E label="Intrauterine Fetal Death (IUFD)" value={formData.iufd} />
-              </tbody>
-            </table>
-          </div>
-        </div>
-
+              </td>
+            </tr>
+          )}
+        </tbody></table>
       </div>
 
       {/* SIGNATURE — a blank gap is left above each line for the actual

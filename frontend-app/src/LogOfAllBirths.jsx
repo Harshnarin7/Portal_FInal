@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import { formatDateToDDMMYYYY } from "./utils/datetime";
 import {
   ClipboardList, Plus, AlertTriangle, CheckCircle2, HelpCircle, Circle, RefreshCw,
 } from "lucide-react";
@@ -344,7 +345,7 @@ export default function LogOfAllBirths() {
             <tbody>
               {entries.map((e) => (
                 <tr key={e.id} className={e.match_status === "in_range_no_match" || e.match_status === "never_checked" ? "lob-row--alert" : ""}>
-                  <td>{e.date_of_birth || "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
+                  <td>{e.date_of_birth ? formatDateToDDMMYYYY(e.date_of_birth) : "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
                   <td>{e.mother_uid || "—"}</td>
                   <td>{e.mother_name || "—"}</td>
                   <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>

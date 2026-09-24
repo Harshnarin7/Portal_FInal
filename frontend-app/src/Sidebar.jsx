@@ -6,9 +6,8 @@ import {
   FileHeart, HeartPulse, Microscope, TestTube2,
   Activity, Eye, Stethoscope, TrendingUp, BarChart3,
   Building2, Cpu, ShieldAlert, ClipboardList, FileText,
-  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X, History, Search,
+  LayoutDashboard, LogOut, Check, Lock, ChevronRight, Menu, X, Search,
 } from 'lucide-react';
-import { canViewAudit } from './utils/roles';
 import { useFormProgress } from './context/FormProgressContext';
 import { useActiveFormSessionRegistry } from './context/ActiveFormSessionContext';
 import { useAuth } from './context/AuthContext';
@@ -445,14 +444,6 @@ export default function Sidebar({ currentForm }) {
             <Hospital size={14} strokeWidth={2} />
             <span>Log of All Births</span>
           </NavLink>
-          {canViewAudit(user) && (
-            <NavLink to="/audit-trail"
-              onClick={(e) => guardedNavigate(e, '/audit-trail')}
-              className={({ isActive }) => `sidebar-dash-link${isActive ? ' active' : ''}`}>
-              <History size={14} strokeWidth={2} />
-              <span>Audit Trail</span>
-            </NavLink>
-          )}
           <div className="sidebar-sep" />
 
           {!isProgressLoaded ? (
