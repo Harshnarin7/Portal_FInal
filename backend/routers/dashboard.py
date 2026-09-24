@@ -11,24 +11,45 @@ Instead we derive ineligibility directly from `exclusion_present` and
 `compute_screening_status()` itself is built from. See Harsh's decision on
 this (July 2026) before changing it.
 
-**Box 1-4 rearranged 2026-09-24** (PI-directed CONSORT redesign, see
-project_portal_aws memory for the full 5-point design discussion). Two
-terms that used to be synonymous are now deliberately different
-populations:
+**Box 1-4 rearranged 2026-09-24, corrected again same day** (PI-directed
+CONSORT redesign; see project_portal_aws memory for the full design
+discussion, including the live math-bug report that produced the second
+pass below). Two terms that used to be synonymous are now deliberately
+different populations:
 - Box 1 "Approached for Screening" = every `ga_check_log` (GACheckEntry)
-  row — the Gestation (Inclusion Criteria) Screening Log's own total,
-  literal, not corrected for the "never_checked" gap (see below).
+  row + every `screenings` (Form A) row with NO matching Gestation Log
+  entry at all ("orphan" screenings — a direct/legacy Form A entry that
+  bypassed the log; she was still unquestionably approached, just never
+  logged upstream). **Must** include the orphan count, or Approached
+  can end up SMALLER than Screened, which is nonsensical (Approached is
+  a logical precondition of Screened — reported live 2026-09-24 as
+  "Screened for eligibility > Approached", the exact symptom of leaving
+  orphans out).
 - Box 3 "Screened for Eligibility" = every `screenings` (Form A) row —
   can ONLY ever be reached from a Gestation Log entry that was Reliable
   and <32 weeks (or a direct Form A entry bypassing the log entirely).
 
+Proof this guarantees Approached >= Screened: let G = ga_check_log row
+count, L = ga_check_log rows with `continued_to_screening=TRUE` (i.e.
+already produced a screenings row), O = orphan screenings (no matching
+log entry). Box 1 = G + O. Box 3 = L + O (every screening is either
+linked-from-a-log-entry or an orphan, mutually exclusive). Box 1 - Box 3
+= G - L, which is always >= 0 since L is by construction a subset of G's
+own rows.
+
 Box 2 "Not Screened" is deliberately NOT `Box1 - Box3` — it also counts
 births known only from `birth_log_all_births` with no matching Gestation
 Log entry at all ("never_checked"), a population Box 1's own total does
-not include (explicit PI decision: Box 1 stays the literal Gestation Log
-count, accepting that top-level Approached/Screened/Not-Screened
-arithmetic will not perfectly balance as a result — see the "not_screened
-mismatch" footnote emitted below).
+not include (explicit PI decision, unchanged from the first pass — see
+the footnote emitted below). Box 2 also deliberately EXCLUDES one
+`ga_check_log` outcome that the naive `G - L` split would otherwise
+include: a Reliable, <32-week entry that simply hasn't had Form A
+completed yet. That's a temporal/administrative gap, not a terminal
+"not screened" outcome (she could become Box 3 the instant Form A is
+saved) — surfaced only as a footnote count and as the live "Eligible, no
+Form A yet" action item GACheckLog.jsx already has, never as a Box 2
+row. (Second PI decision, 2026-09-24: this bucket was in the first pass
+and removed here after the PI pointed out it isn't a stable outcome.)
 
 IUFD moved from a Form A post-screening exclusion (Box 4b) to a
 pre-screening Box 2 outcome, captured going forward via
@@ -37,6 +58,19 @@ pre-screening Box 2 outcome, captured going forward via
 already produced a real Form A row, so they still count under Box 3;
 their legacy IUFD text is surfaced as a small separate Box 4b sub-reason
 rather than silently dropped or double-counted).
+
+Box 4a "Did not meet inclusion criteria" (GA out of window discovered on
+a filled Form A) stays under Box 4, NOT Box 2, even though it looks like
+the same real-world event as Box 2's own "gestation >=32 weeks" —
+because a `screenings` row exists for this population, she was, by
+definition, screened; moving her to "Not Screened" would double-count
+the same person into two boxes meant to be mutually exclusive. The PI
+confirmed (2026-09-24) this bucket is expected to be legacy/near-zero
+going forward — she's excluded from ever reaching Form A at the
+Gestation Log stage now, and Harsh's own `require_ga_in_inclusion_window()`
+backend guard hard-rejects any new Form A save outside the window as a
+second line of defense — so the label makes that explicit rather than
+implying it's a normal ongoing exclusion reason.
 
 "Insufficient time" is now two differently-labeled events depending on
 stage: pre-Form-A ("No time to approach to screen", from
@@ -169,6 +203,25 @@ NEVER_CHECKED_REASON_QUERY = text("""
     WHERE match_status = 'never_checked'
       AND reason_not_approached IS NOT NULL AND reason_not_approached != ''
     GROUP BY site_name, reason_not_approached
+""")
+
+# Box 1 correction (2026-09-24, live PI-reported bug): a Form A record can
+# exist with NO corresponding ga_check_log entry at all -- either a nurse
+# opened Form A directly, bypassing the Gestation Log, or (more likely)
+# a legacy pre-Gestation-Log record. Every one of these women was
+# unquestionably "approached for screening" (that's a logical
+# precondition of Form A existing at all), so Box 1 must include them --
+# otherwise Approached (Box 1) can end up SMALLER than Screened (Box 3),
+# which is nonsensical. Approached = ga_check_log total + this "orphan"
+# count, guaranteeing Approached >= Screened always (see module docstring
+# for the proof).
+ORPHAN_SCREENINGS_QUERY = text("""
+    SELECT s.site_name AS site_name, COUNT(*) AS n
+    FROM screenings s
+    WHERE s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND NOT EXISTS (SELECT 1 FROM ga_check_log g WHERE g.screening_id = s.screening_id)
+    GROUP BY s.site_name
 """)
 
 SCREENING_QUERY = text(f"""
@@ -404,11 +457,13 @@ def _compute_ga_check_boxes(db: Session):
     sub-reasons -- sourced from the Gestation (Inclusion Criteria)
     Screening Log itself, plus the "never_checked" sub-reason sourced from
     the Log of All Births (births with no matching Gestation Log entry at
-    all). See module docstring for why Box 1's own total deliberately does
-    NOT include never_checked."""
+    all), plus the "orphan screenings" count (Form A records with no
+    matching Gestation Log entry -- see ORPHAN_SCREENINGS_QUERY) that Box
+    1's own total must include to guarantee Approached >= Screened."""
     ga_counts_by_site = {site: _blank_ga_check_counts() for site in ALL_SITES}
     never_checked_by_site = {site: 0 for site in ALL_SITES}
     never_checked_reasons_by_site = {site: {} for site in ALL_SITES}
+    orphan_screenings_by_site = {site: 0 for site in ALL_SITES}
 
     for row in db.execute(GA_CHECK_QUERY).mappings():
         site = row["site_name"]
@@ -427,7 +482,12 @@ def _compute_ga_check_boxes(db: Session):
         never_checked_reasons_by_site.setdefault(site, {})
         never_checked_reasons_by_site[site][row["reason"]] = int(row["n"] or 0)
 
-    return ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site
+    for row in db.execute(ORPHAN_SCREENINGS_QUERY).mappings():
+        site = row["site_name"]
+        orphan_screenings_by_site.setdefault(site, 0)
+        orphan_screenings_by_site[site] = int(row["n"] or 0)
+
+    return ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site
 
 
 def _compute_followup_boxes(db: Session):
@@ -493,6 +553,7 @@ def _row(box, label, per_site: dict, sites: list, sub_rows=None):
 
 
 def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site,
+                 orphan_screenings_by_site,
                  counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site,
                  followup_boxes, followup_ltfu_reasons, sites: list):
     def m(box_key):
@@ -507,8 +568,24 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
     box7_vigorous = m("box7_vigorous")
 
     box2_missed, box2_iufd = gm("box2_missed"), gm("box2_iufd")
+    # NOT part of Box 2 -- see module docstring / PI decision 2026-09-24:
+    # a woman who was found eligible but simply hasn't had Form A
+    # completed yet is mid-process, not a terminal "not screened" outcome
+    # (she could become Box 3 the moment Form A is saved). Kept out of
+    # every Box 2 total/sub-row; surfaced only as a footnote, and as the
+    # live "Eligible, no Form A yet" action item GACheckLog.jsx already has.
     box2_eligible_gap = gm("box2_eligible_gap")
     box2_not_candidate_older, box2_not_candidate_unreliable = gm("box2_not_candidate_older"), gm("box2_not_candidate_unreliable")
+
+    # Box 1 correction -- see ORPHAN_SCREENINGS_QUERY: every Form A record
+    # with no matching Gestation Log entry was still unquestionably
+    # "approached for screening" (that's a logical precondition of a
+    # screenings row existing at all), so Box 1 must count them too.
+    # Guarantees Approached (Box 1) >= Screened (Box 3) always -- see the
+    # module docstring for the arithmetic proof.
+    box1_ga_check_total = gm("box1")
+    box1_orphan_screenings = {s: orphan_screenings_by_site.get(s, 0) for s in ALL_SITES}
+    box1_total = {s: box1_ga_check_total.get(s, 0) + box1_orphan_screenings.get(s, 0) for s in ALL_SITES}
 
     # Box 2's "never checked" sub-row, with its own reason breakdown
     # (Log of All Births' reason_not_approached, incl. the renamed
@@ -522,7 +599,7 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
 
     box2_total = {
         s: box2_never_checked_total.get(s, 0) + box2_missed.get(s, 0) + box2_iufd.get(s, 0)
-           + box2_eligible_gap.get(s, 0) + box2_not_candidate_older.get(s, 0) + box2_not_candidate_unreliable.get(s, 0)
+           + box2_not_candidate_older.get(s, 0) + box2_not_candidate_unreliable.get(s, 0)
         for s in ALL_SITES
     }
 
@@ -544,13 +621,15 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
     box7_sub_rows.append(_row(None, "Vigorous, no PPV needed", box7_vigorous, sites))
 
     rows = [
-        _row(1, "Approached for screening", gm("box1"), sites),
+        _row(1, "Approached for screening", box1_total, sites, sub_rows=[
+            _row(None, "Gestation (Inclusion Criteria) Screening Log entries", box1_ga_check_total, sites),
+            _row(None, "Form A filled directly (no Gestation Log entry \u2014 legacy/bypass)", box1_orphan_screenings, sites),
+        ]),
         _row(2, "Not screened", box2_total, sites, sub_rows=[
             _row(None, "Never checked (known only from Log of All Births)", box2_never_checked_total, sites,
                  sub_rows=never_checked_sub_rows),
             _row(None, "Missed - identified retrospectively", box2_missed, sites),
             _row(None, "IUFD at screening", box2_iufd, sites),
-            _row(None, "Eligible but Form A not yet completed", box2_eligible_gap, sites),
             _row(None, "Checked, gestation \u226532 weeks (reliable source)", box2_not_candidate_older, sites),
             _row(None, "Checked, gestation source unreliable/unknown", box2_not_candidate_unreliable, sites),
         ]),
@@ -558,7 +637,9 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
         _row(4, "Excluded after screening (ineligible)",
              {s: counts_by_site.get(s, _blank_screening_counts())["box4a"] + counts_by_site.get(s, _blank_screening_counts())["box4b"] for s in ALL_SITES},
              sites, sub_rows=[
-                 _row(None, "Did not meet inclusion criteria (GA outside 25+0\u201331+6 weeks)", m("box4a"), sites),
+                 _row(None, "GA outside inclusion window or unknown at Form A stage "
+                            "(legacy \u2014 the current Gestation Log + Form A validation "
+                            "no longer allow a new record to reach this state)", m("box4a"), sites),
                  _row(None, "Met exclusion criteria", m("box4b"), sites, sub_rows=[
                      _row(None, "Antenatally suspected or confirmed major structural anomaly", box4b_anomaly, sites),
                      _row(None, "Fetal hydrops", box4b_hydrops, sites),
@@ -598,7 +679,7 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
             sub_rows.append(sub_row)
         rows.append(_row(box_num, followup_labels[box_num], per_site_total, sites, sub_rows=sub_rows))
 
-    return rows
+    return rows, _sum_sites(box2_eligible_gap, sites)
 
 
 def _flatten_for_csv(rows, sites, depth=0):
@@ -627,11 +708,11 @@ def get_consort_flow(
 
     sites = _dashboard_sites(current_user, site)
 
-    ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site = _compute_ga_check_boxes(db)
+    ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site = _compute_ga_check_boxes(db)
     counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site = _compute_screening_boxes(db)
     followup_boxes, followup_ltfu_reasons = _compute_followup_boxes(db)
-    rows = _build_rows(
-        ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site,
+    rows, eligible_gap_total = _build_rows(
+        ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site,
         counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site,
         followup_boxes, followup_ltfu_reasons, sites,
     )
@@ -651,19 +732,27 @@ def get_consort_flow(
             headers={"Content-Disposition": "attachment; filename=consort_flow.csv"},
         )
 
+    footnotes = [
+        "Sub-categories are not mutually exclusive.",
+        "\"Approached for Screening\" (Box 1) = every Gestation (Inclusion Criteria) "
+        "Screening Log entry + every Form A record with no matching Gestation Log "
+        "entry at all (a direct/legacy entry -- she was unquestionably approached, "
+        "just never logged upstream). This guarantees Approached >= Screened (Box 3) "
+        "always.",
+    ]
+    if eligible_gap_total > 0:
+        footnotes.append(
+            f"{eligible_gap_total} Gestation Log entr{'y is' if eligible_gap_total == 1 else 'ies are'} "
+            "eligible (Reliable source, <32 weeks) but Form A has not been completed yet -- "
+            "still mid-process, so not counted in either \"Screened for Eligibility\" or "
+            "\"Not Screened\" above. See the Gestation Log's own \"Eligible, no Form A yet\" list."
+        )
+
     return {
         "generated_at": generated_at,
         "sites": sites,
         "rows": rows,
-        "footnotes": [
-            "Sub-categories are not mutually exclusive.",
-            "\"Approached for Screening\" (Box 1) is the Gestation (Inclusion Criteria) "
-            "Screening Log's own total. \"Not Screened\" (Box 2) additionally includes "
-            "births known only from the Log of All Births with no matching Gestation "
-            "Log entry at all (\"never checked\") -- a population Box 1's total does "
-            "not include, by design, so Approached + Not-Screened arithmetic will not "
-            "perfectly reconcile against Box 1 alone.",
-        ],
+        "footnotes": footnotes,
     }
 
 
