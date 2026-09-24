@@ -137,6 +137,7 @@
 .tmd-row td {
   padding: 7px 10px;
   border-bottom: 1px solid #e8f1f8;
+  vertical-align: top;
 }
 
 .tmd-row:nth-child(even) td {
@@ -150,7 +151,23 @@
 .tmd-label-cell {
   text-align: left;
   color: var(--tmd-ink);
+  /* Long sub-reason labels (e.g. Box 2/4b's) used to force the whole
+     table wider and wider with white-space:nowrap, pushing the numeric
+     columns off-screen. Wrap instead, capped so a row still reads as one
+     unit rather than stretching indefinitely. */
+  white-space: normal;
+  max-width: 380px;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-height: 1.35;
+}
+.tmd-table thead th.tmd-label-cell {
   white-space: nowrap;
+  max-width: none;
+}
+
+.tmd-label-text {
+  display: inline;
 }
 
 .tmd-num {
@@ -201,6 +218,70 @@
   color: #64748b;
 }
 
+/* ── "i" info tooltip — where a row's number comes from, shown on hover
+   (and on keyboard focus / tap, since mobile has no hover) ── */
+.tmd-info-wrap {
+  position: relative;
+  display: inline-block;
+  margin-left: 5px;
+  vertical-align: super;
+}
+
+.tmd-info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid #7dd3fc;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 9px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  cursor: help;
+  font-family: inherit;
+}
+.tmd-info-icon:hover,
+.tmd-info-icon:focus-visible {
+  background: #0369a1;
+  color: #fff;
+  outline: none;
+}
+
+.tmd-info-tip {
+  position: absolute;
+  left: 50%;
+  top: 130%;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: 260px;
+  max-width: min(70vw, 260px);
+  background: #0f172a;
+  color: #f0f9ff;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.tmd-info-wrap:hover .tmd-info-tip,
+.tmd-info-wrap:focus-within .tmd-info-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* ── Section tabs ── */
 .tmd-section-tabs {
   display: flex;
@@ -239,4 +320,12 @@
   background: linear-gradient(180deg, #14a8a7 0%, #0e7c7b 100%);
   border-color: #0a6362;
   color: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .tmd-root { padding: 14px; }
+  .tmd-topbar { flex-direction: column; align-items: stretch; }
+  .tmd-topbar-actions { align-items: stretch; }
+  .tmd-card { padding: 12px; }
+  .tmd-label-cell { max-width: 220px; }
 }

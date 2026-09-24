@@ -540,7 +540,12 @@ def _sum_sites(per_site: dict, sites: list) -> int:
     return sum(per_site.get(s, 0) for s in sites)
 
 
-def _row(box, label, per_site: dict, sites: list, sub_rows=None):
+def _row(box, label, per_site: dict, sites: list, sub_rows=None, source=None):
+    """`source` is a short, plain-language sentence naming exactly where
+    this row's number comes from -- shown as an "i" info icon in the UI
+    (TrialMonitoringDashboard.jsx's Row component) so a PI/monitor reading
+    the flow diagram can hover any row and see its derivation without
+    needing to ask or read this file."""
     r = {
         "box": box,
         "label": label,
@@ -549,6 +554,8 @@ def _row(box, label, per_site: dict, sites: list, sub_rows=None):
     }
     if sub_rows:
         r["sub_rows"] = sub_rows
+    if source:
+        r["source"] = source
     return r
 
 
@@ -592,7 +599,8 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
     # "No time to approach to screen").
     never_checked_reasons = sorted({r for site in never_checked_reasons_by_site.values() for r in site})
     never_checked_sub_rows = [
-        _row(None, reason, {s: never_checked_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites)
+        _row(None, reason, {s: never_checked_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+             source="Log of All Births \u2192 \"Reason not approached\" field on a never-checked birth.")
         for reason in never_checked_reasons
     ] or None
     box2_never_checked_total = {s: never_checked_by_site.get(s, 0) for s in ALL_SITES}
@@ -608,76 +616,139 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
     box6_sub_rows = []
     for reason in all_reasons:
         per_site = {s: refusal_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}
-        box6_sub_rows.append(_row(None, reason, per_site, sites))
+        box6_sub_rows.append(_row(None, reason, per_site, sites,
+            source="Form A item 28 \u2014 \"Reason for consent refusal\" field."))
 
     # Box 7 sub-rows: Form B's own enrollment_reason_not_randomized values,
     # plus the separately-derived "Vigorous, no PPV needed" bucket (never
     # a text value in that column -- see NOT_RANDOMISED_REASON_QUERY).
     not_randomised_reasons = sorted({r for site in not_randomised_reasons_by_site.values() for r in site})
     box7_sub_rows = [
-        _row(None, reason, {s: not_randomised_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites)
+        _row(None, reason, {s: not_randomised_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+             source="Form B item 28 \u2014 \"Reason Not Randomized\" dropdown.")
         for reason in not_randomised_reasons
     ]
-    box7_sub_rows.append(_row(None, "Vigorous, no PPV needed", box7_vigorous, sites))
+    box7_sub_rows.append(_row(None, "Vigorous, no PPV needed", box7_vigorous, sites,
+        source="Form B \u2014 \"Ventilation required (PPV)\" answered No (vigorous at birth). "
+               "Never appears in the Reason Not Randomized dropdown itself, so counted separately."))
 
     rows = [
-        _row(1, "Approached for screening", box1_total, sites, sub_rows=[
-            _row(None, "Gestation (Inclusion Criteria) Screening Log entries", box1_ga_check_total, sites),
-            _row(None, "Form A filled directly (no Gestation Log entry \u2014 legacy/bypass)", box1_orphan_screenings, sites),
+        _row(1, "Approached for screening", box1_total, sites,
+             source="Every Gestation (Inclusion Criteria) Screening Log entry, plus every Form A "
+                    "record with no matching Gestation Log entry at all (see the 2 rows below).",
+             sub_rows=[
+            _row(None, "Gestation (Inclusion Criteria) Screening Log entries", box1_ga_check_total, sites,
+                 source="Count of every row in the Gestation Screening Log, any outcome."),
+            _row(None, "Form A filled directly (no Gestation Log entry \u2014 legacy/bypass)", box1_orphan_screenings, sites,
+                 source="Form A records with no linked Gestation Log entry \u2014 a direct Form A "
+                        "entry that bypassed the log, or a record from before the log existed."),
         ]),
-        _row(2, "Not screened", box2_total, sites, sub_rows=[
+        _row(2, "Not screened", box2_total, sites,
+             source="Sum of the 5 reasons below a Gestation Log entry never became a Form A. Does "
+                    "NOT include the \"eligible, Form A not yet completed\" gap \u2014 see the footnote "
+                    "for that count.",
+             sub_rows=[
             _row(None, "Never checked (known only from Log of All Births)", box2_never_checked_total, sites,
+                 source="Log of All Births entries with NO matching Gestation Log entry at all \u2014 "
+                        "nobody ever checked this woman's gestation before she delivered.",
                  sub_rows=never_checked_sub_rows),
-            _row(None, "Missed - identified retrospectively", box2_missed, sites),
-            _row(None, "IUFD at screening", box2_iufd, sites),
-            _row(None, "Checked, gestation \u226532 weeks (reliable source)", box2_not_candidate_older, sites),
-            _row(None, "Checked, gestation source unreliable/unknown", box2_not_candidate_unreliable, sites),
+            _row(None, "Missed - identified retrospectively", box2_missed, sites,
+                 source="Gestation Log entries manually tagged \"Missed - identified retrospectively\" "
+                        "(a nurse logging a known miss after the fact)."),
+            _row(None, "IUFD at screening", box2_iufd, sites,
+                 source="Gestation Log entries with \"Found to be IUFD\" ticked."),
+            _row(None, "Checked, gestation \u226532 weeks (reliable source)", box2_not_candidate_older, sites,
+                 source="Gestation Log entries with source = Reliable and gestation \u226532 weeks."),
+            _row(None, "Checked, gestation source unreliable/unknown", box2_not_candidate_unreliable, sites,
+                 source="Gestation Log entries with source = Unknown/Unreliable (weeks were never "
+                        "entered for these, by design)."),
         ]),
-        _row(3, "Screened for eligibility", m("box3"), sites),
+        _row(3, "Screened for eligibility", m("box3"), sites,
+             source="Plain count of every Form A record \u2014 no filtering."),
         _row(4, "Excluded after screening (ineligible)",
              {s: counts_by_site.get(s, _blank_screening_counts())["box4a"] + counts_by_site.get(s, _blank_screening_counts())["box4b"] for s in ALL_SITES},
-             sites, sub_rows=[
+             sites,
+             source="Form A records that were screened but are not eligible (4a) or have an A4 "
+                    "exclusion criterion (4b) \u2014 see the 2 rows below.",
+             sub_rows=[
                  _row(None, "GA outside inclusion window or unknown at Form A stage "
                             "(legacy \u2014 the current Gestation Log + Form A validation "
-                            "no longer allow a new record to reach this state)", m("box4a"), sites),
-                 _row(None, "Met exclusion criteria", m("box4b"), sites, sub_rows=[
-                     _row(None, "Antenatally suspected or confirmed major structural anomaly", box4b_anomaly, sites),
-                     _row(None, "Fetal hydrops", box4b_hydrops, sites),
-                     _row(None, "Parental request / neonatologist decision to forego resuscitation", box4b_forgo_resus, sites),
-                     _row(None, "No time to approach for consent", box4b_insufficient_time, sites),
-                     _row(None, "IUFD (identified during screening \u2014 legacy, rare)", box4b_iufd_legacy, sites),
+                            "no longer allow a new record to reach this state)", m("box4a"), sites,
+                      source="Form A records with no exclusion ticked but gestation unknown or "
+                             "outside 25+0\u201331+6 weeks. Should be zero/near-zero for any record "
+                             "created after 2026-09-24 \u2014 Form A itself now refuses to save "
+                             "outside this window."),
+                 _row(None, "Met exclusion criteria", m("box4b"), sites,
+                      source="Form A records where any A4 exclusion question was answered Yes \u2014 "
+                             "see the 5 rows below (not mutually exclusive, one record can have more "
+                             "than one).",
+                      sub_rows=[
+                     _row(None, "Antenatally suspected or confirmed major structural anomaly", box4b_anomaly, sites,
+                          source="Form A A4 \u2014 \"Structural anomaly\" answered Yes."),
+                     _row(None, "Fetal hydrops", box4b_hydrops, sites,
+                          source="Form A A4 \u2014 \"Fetal hydrops\" answered Yes."),
+                     _row(None, "Parental request / neonatologist decision to forego resuscitation", box4b_forgo_resus, sites,
+                          source="Form A A4 \u2014 \"Forego resuscitation\" answered Yes."),
+                     _row(None, "No time to approach for consent", box4b_insufficient_time, sites,
+                          source="Form A A4 \u2014 \"Insufficient time (for consent)\" answered Yes. "
+                                 "Gestation was already confirmed in-window; distinct from Box 2's "
+                                 "pre-Form-A \"No time to approach to screen.\""),
+                     _row(None, "IUFD (identified during screening \u2014 legacy, rare)", box4b_iufd_legacy, sites,
+                          source="Form A A4 \u2014 \"IUFD\" answered Yes. Legacy path: IUFD is now "
+                                 "caught upstream at the Gestation Log stage (Box 2) instead, before "
+                                 "Form A is ever opened."),
                  ]),
              ]),
-        _row(5, "Eligible", m("box5"), sites),
-        _row(6, "Refused consent", m("box6"), sites, sub_rows=box6_sub_rows or None),
-        _row(7, "Consented but not randomised", m("box7"), sites, sub_rows=box7_sub_rows or None),
-        _row(8, "Randomised", m("box8"), sites),
+        _row(5, "Eligible", m("box5"), sites,
+             source="Form A records with no A4 exclusion ticked and gestation confirmed "
+                    "25+0\u201331+6 weeks."),
+        _row(6, "Refused consent", m("box6"), sites,
+             source="Eligible Form A records where consent was refused or never given, and no "
+                    "Form B record exists at all.",
+             sub_rows=box6_sub_rows or None),
+        _row(7, "Consented but not randomised", m("box7"), sites,
+             source="Form A records with consent = Yes, where Form B either doesn't exist yet or "
+                    "has randomised \u2260 Yes.",
+             sub_rows=box7_sub_rows or None),
+        _row(8, "Randomised", m("box8"), sites,
+             source="Form B records with \"Randomised\" answered Yes."),
     ]
 
     followup_labels = {9: "Status at 36 weeks PMA", 10: "Status at 40 weeks PMA", 11: "Status at 44 weeks PMA"}
+    followup_source = (
+        "Randomised (Form B) babies only. Expected date = date of birth + (target PMA − "
+        "gestation at birth). \"Died\"/\"Assessed\" come from Form I's own outcome/assessment-date "
+        "fields; \"Lost to follow-up\" = expected date has passed by more than {grace} days with no "
+        "assessment or death recorded; \"Awaiting\" = expected date not yet reached."
+    ).format(grace=GRACE_DAYS)
     state_labels = [
-        ("died", "Died", None),
-        ("assessed", "Assessed", None),
-        ("ltfu", "Lost to follow-up", "ltfu"),
-        ("awaiting", "Awaiting assessment", "awaiting"),
+        ("died", "Died", None, "Form I — death recorded before this PMA checkpoint."),
+        ("assessed", "Assessed", None, "Form I — assessment completed at this PMA checkpoint."),
+        ("ltfu", "Lost to follow-up", "ltfu",
+         f"Expected assessment date passed by more than {GRACE_DAYS} days with neither an "
+         "assessment nor a death recorded in Form I."),
+        ("awaiting", "Awaiting assessment", "awaiting",
+         "Expected assessment date for this PMA checkpoint has not been reached yet."),
     ]
     for box_num in (9, 10, 11):
         per_site_total = {s: sum(followup_boxes[box_num].get(s, {}).values()) for s in ALL_SITES}
         sub_rows = []
-        for state_key, state_label, row_type in state_labels:
+        for state_key, state_label, row_type, state_source in state_labels:
             per_site_state = {s: followup_boxes[box_num].get(s, {}).get(state_key, 0) for s in ALL_SITES}
-            sub_row = _row(None, state_label, per_site_state, sites)
+            sub_row = _row(None, state_label, per_site_state, sites, source=state_source)
             sub_row["row_type"] = row_type or state_key
             if state_key == "ltfu":
                 reasons_at_sites = followup_ltfu_reasons[box_num]
                 distinct = sorted({r for site in reasons_at_sites.values() for r in site})
                 if distinct:
                     sub_row["ltfu_reasons"] = [
-                        _row(None, reason, {s: reasons_at_sites.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites)
+                        _row(None, reason, {s: reasons_at_sites.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+                             source="Form I — \"Reason for loss to follow-up\" field.")
                         for reason in distinct
                     ]
             sub_rows.append(sub_row)
-        rows.append(_row(box_num, followup_labels[box_num], per_site_total, sites, sub_rows=sub_rows))
+        rows.append(_row(box_num, followup_labels[box_num], per_site_total, sites, sub_rows=sub_rows,
+                          source=followup_source))
 
     return rows, _sum_sites(box2_eligible_gap, sites)
 

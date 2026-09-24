@@ -22,6 +22,19 @@ const ROW_TYPE_CLASS = {
   died: "tmd-row-died",
 };
 
+/* "i" info icon showing a row's `source` (where its number comes from) on
+   hover — a <button> so it's also reachable by keyboard focus and by tap
+   on touch devices (mobile has no :hover), not just mouse hover. */
+function InfoTip({ text }) {
+  if (!text) return null;
+  return (
+    <span className="tmd-info-wrap">
+      <button type="button" className="tmd-info-icon" aria-label="Where this number comes from">i</button>
+      <span className="tmd-info-tip" role="tooltip">{text}</span>
+    </span>
+  );
+}
+
 function Row({ row, sites, depth = 0 }) {
   const rowClass = ROW_TYPE_CLASS[row.row_type] || "";
   return (
@@ -29,7 +42,8 @@ function Row({ row, sites, depth = 0 }) {
       <tr className={`tmd-row tmd-depth-${depth} ${rowClass}`}>
         <td className="tmd-label-cell" style={{ paddingLeft: 14 + depth * 18 }}>
           {depth > 0 && <span className="tmd-dash">—</span>}
-          {row.label}
+          <span className="tmd-label-text">{row.label}</span>
+          <InfoTip text={row.source} />
         </td>
         <td className="tmd-num tmd-overall">{row.overall}</td>
         {sites.map((site) => (
