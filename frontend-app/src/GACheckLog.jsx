@@ -55,6 +55,7 @@ const BLANK_FORM = {
   identification_type: DEFAULT_IDENTIFICATION_TYPE,
   mother_name: "",
   mother_uid: "",
+  found_iufd: false,
   ga_source: "",
   gestation_method: "",
   gestation_weeks: "",
@@ -83,7 +84,7 @@ export default function GACheckLog() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  const isReliable = form.ga_source === RELIABLE_SOURCE;
+  const isReliable = !form.found_iufd && form.ga_source === RELIABLE_SOURCE;
 
   useEffect(() => {
     if (isSiteLocked) setForm((p) => (p.site_name ? p : { ...p, site_name: user.site }));
@@ -132,6 +133,18 @@ export default function GACheckLog() {
     }));
   };
 
+  const setFoundIufd = (checked) => {
+    // Found-IUFD dulls (and clears) Source/Method/weeks/days too — there
+    // is no gestation-eligibility question left to ask once a woman is
+    // found to be IUFD. A stray value from before the toggle must never
+    // linger and get submitted alongside it.
+    setForm((p) => ({
+      ...p,
+      found_iufd: checked,
+      ...(checked ? { ga_source: "", gestation_method: "", gestation_weeks: "", gestation_days: "" } : {}),
+    }));
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.mother_name && !form.mother_uid) {
@@ -142,7 +155,7 @@ export default function GACheckLog() {
       setSaveError("Select a site.");
       return;
     }
-    if (!form.ga_source) {
+    if (!form.found_iufd && !form.ga_source) {
       setSaveError("Select a gestation source.");
       return;
     }
@@ -153,10 +166,12 @@ export default function GACheckLog() {
       identification_type: form.identification_type || DEFAULT_IDENTIFICATION_TYPE,
       mother_name: form.mother_name || null,
       mother_uid: form.mother_uid || null,
-      ga_source: form.ga_source || null,
-      // Belt-and-suspenders: never send weeks/days/method for an
-      // unreliable source even if something upstream left them set —
-      // the backend enforces this too, but the UI shouldn't rely on that.
+      found_iufd: !!form.found_iufd,
+      // Belt-and-suspenders: never send a source/weeks/days/method
+      // alongside found_iufd, or weeks/days/method for an unreliable
+      // source, even if something upstream left them set — the backend
+      // enforces both too, but the UI shouldn't rely on that.
+      ga_source: form.found_iufd ? null : (form.ga_source || null),
       gestation_method: isReliable ? (form.gestation_method || null) : null,
       gestation_weeks: isReliable && form.gestation_weeks !== "" ? Number(form.gestation_weeks) : null,
       gestation_days: isReliable && form.gestation_days !== "" ? Number(form.gestation_days) : null,
@@ -229,11 +244,13 @@ export default function GACheckLog() {
             ) : (
               <>
                 <CheckCircle2 size={18} />
-                Logged — not eligible for the trial ({lastResult.ga_source && lastResult.ga_source !== RELIABLE_SOURCE
-                  ? "gestation source unreliable"
-                  : lastResult.gestation_weeks != null
-                    ? `gestation ${lastResult.gestation_weeks}w ${lastResult.gestation_days ?? 0}d`
-                    : "gestation not captured"}).
+                Logged — not eligible for the trial ({lastResult.found_iufd
+                  ? "found to be IUFD"
+                  : lastResult.ga_source && lastResult.ga_source !== RELIABLE_SOURCE
+                    ? "gestation source unreliable"
+                    : lastResult.gestation_weeks != null
+                      ? `gestation ${lastResult.gestation_weeks}w ${lastResult.gestation_days ?? 0}d`
+                      : "gestation not captured"}).
               </>
             )}
           </div>
@@ -301,7 +318,7 @@ export default function GACheckLog() {
           </label>
           <label className="gac-field">
             <span>Gestation Source</span>
-            <select value={form.ga_source} onChange={(e) => setSource(e.target.value)}>
+            <select value={form.ga_source} onChange={(e) => setSource(e.target.value)} disabled={form.found_iufd}>
               <option value="">–– Select ––</option>
               {GESTATION_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -320,8 +337,18 @@ export default function GACheckLog() {
               <input type="number" min="0" max="6" placeholder="days" value={form.gestation_days} onChange={(e) => setField("gestation_days", e.target.value)} disabled={!isReliable} />
             </div>
           </label>
+          <label className="gac-field gac-field--iufd">
+            <span>&nbsp;</span>
+            <span className="gac-checkbox-row">
+              <input type="checkbox" checked={form.found_iufd} onChange={(e) => setFoundIufd(e.target.checked)} />
+              <span>Found to be IUFD</span>
+            </span>
+          </label>
         </div>
-        {form.ga_source && !isReliable && (
+        {form.found_iufd && (
+          <p className="gac-hint">Found to be IUFD — this entry will be logged but can never trigger Form A.</p>
+        )}
+        {!form.found_iufd && form.ga_source && !isReliable && (
           <p className="gac-hint">Source is Unknown/Unreliable — this entry will be logged but can never trigger Form A.</p>
         )}
         {saveError && <div className="gac-form-error">{saveError}</div>}
@@ -371,11 +398,13 @@ export default function GACheckLog() {
                         <span className="gac-badge gac-badge--gap">Missed — retrospective</span>
                       ) : "Checked at triage"}
                     </td>
-                    <td>{e.ga_source || "—"}</td>
+                    <td>{e.found_iufd ? "—" : (e.ga_source || "—")}</td>
                     <td>{METHOD_LABELS[e.gestation_method] || e.gestation_method || "—"}</td>
                     <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
                     <td>
-                      {e.continued_to_screening ? (
+                      {e.found_iufd ? (
+                        <span className="gac-badge gac-badge--not-eligible">IUFD</span>
+                      ) : e.continued_to_screening ? (
                         <span className="gac-badge gac-badge--continued">
                           <CheckCircle2 size={13} /> Form A started{e.screening_id ? ` — ${e.screening_id}` : ""}
                         </span>

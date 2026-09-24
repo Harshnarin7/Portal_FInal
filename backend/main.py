@@ -7966,13 +7966,20 @@ def create_ga_check_entry(
         payload["gestation_method"] = None
         payload["gestation_weeks"] = None
         payload["gestation_days"] = None
+    # Found-IUFD dulls everything else too -- there is no gestation-
+    # eligibility question left once a woman is found to be IUFD.
+    if payload.get("found_iufd"):
+        payload["ga_source"] = None
+        payload["gestation_method"] = None
+        payload["gestation_weeks"] = None
+        payload["gestation_days"] = None
     if not payload.get("identification_type"):
         payload["identification_type"] = "Checked at triage"
     record = GACheckEntry(
         **payload,
         site_name=site_name,
         entered_by=current_user.username,
-        eligible=classify_eligibility(payload.get("gestation_weeks"), payload.get("ga_source")),
+        eligible=None if payload.get("found_iufd") else classify_eligibility(payload.get("gestation_weeks"), payload.get("ga_source")),
     )
     if not record.check_date:
         record.check_date = date.today()

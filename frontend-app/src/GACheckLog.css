@@ -102,6 +102,18 @@
 .gac-ga-row { display: flex; gap: 8px; }
 .gac-ga-row input { width: 100%; min-width: 0; }
 
+.gac-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gac-ink);
+}
+.gac-checkbox-row input { width: auto; }
+
 .gac-form-error { margin-top: 10px; font-size: 12.5px; color: #b91c1c; }
 
 .gac-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--gac-amber); }

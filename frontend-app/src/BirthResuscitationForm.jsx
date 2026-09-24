@@ -2185,6 +2185,7 @@ export default function BirthResuscitationForm() {
                             <option value="Missed delivery">Missed delivery</option>
                             <option value="Multiple deliveries">Multiple deliveries</option>
                             <option value="Consent withdrawn">Consent withdrawn</option>
+                            <option value="Blender malfunction">Blender malfunction</option>
                             <option value="Other">Other</option>
                           </select>
                           {formData.enrollment_reason_not_randomized==="Other" && (

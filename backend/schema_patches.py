@@ -1272,6 +1272,14 @@ GA_CHECK_LOG_IDENTIFICATION_TYPE_PATCHES = [
     "ALTER TABLE ga_check_log ADD COLUMN IF NOT EXISTS identification_type VARCHAR",
 ]
 
+# Found to be IUFD at this check -- moves IUFD from a Form A post-screening
+# exclusion to a pre-screening "Not Screened" outcome (2026-09-24 CONSORT
+# flow rearrangement). Dulls source/method/weeks/days/eligible like an
+# Unknown/Unreliable source does.
+GA_CHECK_LOG_FOUND_IUFD_PATCHES = [
+    "ALTER TABLE ga_check_log ADD COLUMN IF NOT EXISTS found_iufd BOOLEAN",
+]
+
 # Log of All Births — why a GA-eligible birth was never approached for
 # consent (no Form A exists for these, so this is the only place it can
 # be captured at all). Comma-joined, same convention as Screening's own

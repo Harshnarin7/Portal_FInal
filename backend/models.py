@@ -2401,6 +2401,16 @@ class GACheckEntry(Base):
     identification_type = Column(String, nullable=True, default="Checked at triage")
     # "Checked at triage" | "Missed - identified retrospectively"
 
+    # Found to be IUFD at this check (2026-09-24, CONSORT flow rearrangement)
+    # -- a distinct terminal outcome, not a Source value. Like an
+    # Unknown/Unreliable source, this dulls (nulls) ga_source/method/weeks/
+    # days/eligible -- there is no gestation-eligibility question left to
+    # ask once a woman is found to be IUFD. Belongs at "Approached for
+    # Screening -> Not Screened" in the CONSORT flow, not as a Form-A
+    # exclusion criterion (Screening.iufd stays on Form A for the rare edge
+    # case of an IUFD discovered only after Form A was already opened).
+    found_iufd = Column(Boolean, nullable=True, default=False)
+
     ga_source = Column(String, nullable=True)  # "Reliable" | "Unknown/Unreliable"
     # Only ever populated when ga_source == "Reliable" -- mirrors
     # ScreeningForm.jsx's own "Method of gestation assessment" values
