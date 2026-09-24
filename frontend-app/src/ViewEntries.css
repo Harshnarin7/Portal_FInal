@@ -332,7 +332,7 @@ button.kpi-card--btn:focus-visible {
   min-width: 0;
   box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
-.ve-table-scroll { overflow-x: hidden; max-width: 100%; min-width: 0; }
+.ve-table-scroll { overflow: visible; max-width: 100%; min-width: 0; }
 
 /* Global table selection blocks to prevent standard elements from showing text cursor selections */
 .ve-table,
@@ -382,14 +382,14 @@ button.kpi-card--btn:focus-visible {
   border: none;
   font-family: var(--ve-font);
   transition: opacity 0.15s, transform 0.1s;
-  white-space: nowrap;
+  white-space: normal;
 }
 .act-btn-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
   min-width: 0;
   flex: 1;
   text-align: left;
+  line-height: 1.2;
 }
 .act-btn svg { flex-shrink: 0; }
 .act-btn:hover  { opacity: 0.9 !important; }
@@ -402,9 +402,9 @@ button.kpi-card--btn:focus-visible {
   font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
   text-transform: uppercase; color: var(--ve-muted);
   border-bottom: 1px solid var(--ve-border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.25;
   cursor: default !important;
 }
 .ve-th:first-child { padding-left: 12px; }
@@ -438,8 +438,8 @@ button.kpi-card--btn:focus-visible {
   padding: 10px 6px; font-size: 12.5px;
   vertical-align: middle; background: var(--ve-surface);
   transition: background 0.1s;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  overflow-wrap: anywhere;
 }
 .ve-td:first-child { padding-left: 12px; }
 .ve-td:last-child  { padding-right: 10px; }
@@ -447,8 +447,8 @@ button.kpi-card--btn:focus-visible {
   position: sticky; left: 0; z-index: 5;
   background: var(--ve-surface);
 }
-.ve-td--id     { font-weight: 700; color: var(--ve-primary); font-size: 12.5px; white-space: nowrap; }
-.ve-td--baby   { font-weight: 700; color: var(--ve-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ve-td--id     { font-weight: 700; color: var(--ve-primary); font-size: 12.5px; }
+.ve-td--baby   { font-weight: 700; color: var(--ve-text); }
 .ve-td--md     { font-weight: 500; }
 .ve-td--center { text-align: center; }
 .ve-td--bold   { font-weight: 700; }
