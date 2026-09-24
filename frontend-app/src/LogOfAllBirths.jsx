@@ -18,10 +18,15 @@ import "./LogOfAllBirths.css";
 const MODES_OF_DELIVERY = ["Emergency LSCS", "Elective LSCS", "NVD", "Instrumental", "Other"];
 
 // Same vocabulary as ScreeningForm.jsx's own NOT_APPROACHED_REASONS, plus
-// "Insufficient time" -- the PI's own reported scenario (a birth too fast
-// to approach for consent). This is the only place that reason can ever be
-// captured for a birth with no Form A at all.
-const NOT_APPROACHED_REASONS = ["Insufficient time", "Nurse on leave", "Parent not available", "Missed screening", "Other"];
+// "No time to approach to screen" -- the PI's own reported scenario (a
+// birth too fast to even check gestational age on). This is the only
+// place that reason can ever be captured for a birth with no Form A at
+// all. Named "...to screen" (not "...for consent") to distinguish it in
+// the CONSORT flow from Screening.insufficient_time, which is the SAME
+// real-world event class at a later stage -- GA already confirmed
+// in-window on Form A, but consent itself couldn't be obtained in time
+// (see routers/dashboard.py's box4b "No time to approach for consent").
+const NOT_APPROACHED_REASONS = ["No time to approach to screen", "Nurse on leave", "Parent not available", "Missed screening", "Other"];
 
 const BLANK_ENTRY = {
   mother_uid: "",

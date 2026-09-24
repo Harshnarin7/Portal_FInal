@@ -11,6 +11,88 @@ Instead we derive ineligibility directly from `exclusion_present` and
 `compute_screening_status()` itself is built from. See Harsh's decision on
 this (July 2026) before changing it.
 
+**Box 1-4 rearranged 2026-09-24, corrected again same day** (PI-directed
+CONSORT redesign; see project_portal_aws memory for the full design
+discussion, including the live math-bug report that produced the second
+pass below). Two terms that used to be synonymous are now deliberately
+different populations:
+- Box 1 "Approached for Screening" = every `ga_check_log` (GACheckEntry)
+  row + every `screenings` (Form A) row with NO matching Gestation Log
+  entry at all ("orphan" screenings — a direct/legacy Form A entry that
+  bypassed the log; she was still unquestionably approached, just never
+  logged upstream). **Must** include the orphan count, or Approached
+  can end up SMALLER than Screened, which is nonsensical (Approached is
+  a logical precondition of Screened — reported live 2026-09-24 as
+  "Screened for eligibility > Approached", the exact symptom of leaving
+  orphans out).
+- Box 3 "Screened for Eligibility" = every `screenings` (Form A) row —
+  can ONLY ever be reached from a Gestation Log entry that was Reliable
+  and <32 weeks (or a direct Form A entry bypassing the log entirely).
+
+Proof this guarantees Approached >= Screened: let G = ga_check_log row
+count, L = ga_check_log rows with `continued_to_screening=TRUE` (i.e.
+already produced a screenings row), O = orphan screenings (no matching
+log entry). Box 1 = G + O. Box 3 = L + O (every screening is either
+linked-from-a-log-entry or an orphan, mutually exclusive). Box 1 - Box 3
+= G - L, which is always >= 0 since L is by construction a subset of G's
+own rows.
+
+Box 2 "Not Screened" is deliberately NOT `Box1 - Box3` — it also counts
+births known only from `birth_log_all_births` with no matching Gestation
+Log entry at all ("never_checked"), a population Box 1's own total does
+not include (explicit PI decision, unchanged from the first pass — see
+the footnote emitted below). Box 2 also deliberately EXCLUDES one
+`ga_check_log` outcome that the naive `G - L` split would otherwise
+include: a Reliable, <32-week entry that simply hasn't had Form A
+completed yet. That's a temporal/administrative gap, not a terminal
+"not screened" outcome (she could become Box 3 the instant Form A is
+saved) — surfaced only as a footnote count and as the live "Eligible, no
+Form A yet" action item GACheckLog.jsx already has, never as a Box 2
+row. (Second PI decision, 2026-09-24: this bucket was in the first pass
+and removed here after the PI pointed out it isn't a stable outcome.)
+
+IUFD moved from a Form A post-screening exclusion (Box 4b) to a
+pre-screening Box 2 outcome, captured going forward via
+`GACheckEntry.found_iufd` — historical Form A records with
+`exclusion_reasons LIKE '%IUFD%'` are NOT retroactively reclassified (they
+already produced a real Form A row, so they still count under Box 3;
+their legacy IUFD text is surfaced as a small separate Box 4b sub-reason
+rather than silently dropped or double-counted).
+
+Box 4a "Did not meet inclusion criteria" (GA out of window discovered on
+a filled Form A) stays under Box 4, NOT Box 2, even though it looks like
+the same real-world event as Box 2's own "gestation >=32 weeks" —
+because a `screenings` row exists for this population, she was, by
+definition, screened; moving her to "Not Screened" would double-count
+the same person into two boxes meant to be mutually exclusive. The PI
+confirmed (2026-09-24) this bucket is expected to be legacy/near-zero
+going forward — she's excluded from ever reaching Form A at the
+Gestation Log stage now, and Harsh's own `require_ga_in_inclusion_window()`
+backend guard hard-rejects any new Form A save outside the window as a
+second line of defense — so the label makes that explicit rather than
+implying it's a normal ongoing exclusion reason.
+
+"Insufficient time" is now two differently-labeled events depending on
+stage: pre-Form-A ("No time to approach to screen", from
+`birth_log_all_births.reason_not_approached`, under Box 2's never-checked
+sub-reason) vs. post-Form-A ("No time to approach for consent", from
+`Screening.insufficient_time` via `exclusion_reasons`, under Box 4b) — the
+same real-world event class, different point in the pathway.
+
+"Forego resuscitation" moved from a pre-screening barrier (old Box 2) to
+a Box 4b post-screening exclusion — it's answered ON Form A (item within
+A4), meaning Form A genuinely was filled before this exclusion applied,
+which is the post-screening case by definition.
+
+Box 7 "Consented — Not randomised" sub-reasons are now a dynamic
+breakdown of Form B's own `enrollment_reason_not_randomized` dropdown
+(same pattern Box 6 already uses for `reason_for_consent_refusal`) plus a
+separate "Vigorous, no PPV needed" bucket auto-derived from
+`required_resuscitation = FALSE` — a population `applyInitialStepsNotRequired()`
+in BirthResuscitationForm.jsx has always explicitly blanked
+`enrollment_reason_not_randomized` for, so it could never appear in a
+text-value breakdown and needs this separate query.
+
 Depends on Issue #1 fixes (reason_for_consent_refusal, enrollment_id
 writeback, ltfu_reason_36/40/44) — all three are implemented alongside this
 endpoint.
@@ -33,7 +115,7 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 from deps import get_current_user, is_superadmin, is_global
-from models import AdverseEvents, SAEReport, Screening, User
+from models import AdverseEvents, SAEReport, Screening, User, GACheckEntry, BirthLogEntry
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -57,14 +139,6 @@ def _dashboard_sites(user: User, site: str | None = None) -> list[str]:
     return []
 GRACE_DAYS = 28
 
-# Pre-screening barriers (Box 2). A record with any of these exclusion_reasons
-# is NOT ineligible — it never reached formal eligibility assessment.
-_BARRIER_SQL = (
-    "(COALESCE(s.exclusion_reasons, '') LIKE '%Insufficient time%' "
-    "OR COALESCE(s.exclusion_reasons, '') LIKE '%Forego resuscitation%' "
-    "OR COALESCE(s.exclusion_reasons, '') LIKE '%IUFD%')"
-)
-
 # Eligible GA window: 25w0d – 31w6d inclusive (matches Form A / compute_screening_status).
 _GA_DAYS_SQL = "(COALESCE(s.gestation_weeks, 0) * 7 + COALESCE(s.gestation_days, 0))"
 _GA_IN_WINDOW_SQL = (
@@ -76,69 +150,144 @@ _GA_OUT_OR_UNKNOWN_SQL = (
     f"OR {_GA_DAYS_SQL} > 31 * 7 + 6)"
 )
 
+# Box 1 + Box 2's ga_check_log-sourced sub-reasons, mutually exclusive via
+# CASE precedence: continued_to_screening rows are excluded from every
+# Box-2 bucket (they produced a real Form A row, already counted in Box 3
+# separately); identification_type='Missed...' takes precedence over
+# found_iufd/eligible so a retroactively-logged miss is never
+# double-classified as also being an eligibility-gap case.
+GA_CHECK_QUERY = text("""
+    SELECT
+        site_name,
+        COUNT(*) AS box1,
+        SUM(CASE WHEN continued_to_screening = FALSE
+                 AND identification_type = 'Missed - identified retrospectively'
+            THEN 1 ELSE 0 END) AS box2_missed,
+        SUM(CASE WHEN continued_to_screening = FALSE
+                 AND identification_type IS DISTINCT FROM 'Missed - identified retrospectively'
+                 AND found_iufd = TRUE
+            THEN 1 ELSE 0 END) AS box2_iufd,
+        SUM(CASE WHEN continued_to_screening = FALSE
+                 AND identification_type IS DISTINCT FROM 'Missed - identified retrospectively'
+                 AND found_iufd IS NOT TRUE
+                 AND eligible = TRUE
+            THEN 1 ELSE 0 END) AS box2_eligible_gap,
+        SUM(CASE WHEN continued_to_screening = FALSE
+                 AND identification_type IS DISTINCT FROM 'Missed - identified retrospectively'
+                 AND found_iufd IS NOT TRUE
+                 AND eligible = FALSE
+            THEN 1 ELSE 0 END) AS box2_not_candidate_older,
+        SUM(CASE WHEN continued_to_screening = FALSE
+                 AND identification_type IS DISTINCT FROM 'Missed - identified retrospectively'
+                 AND found_iufd IS NOT TRUE
+                 AND eligible IS NULL
+            THEN 1 ELSE 0 END) AS box2_not_candidate_unreliable
+    FROM ga_check_log
+    GROUP BY site_name
+""")
+
+# Box 2's other sub-reason: births known only from the Log of All Births,
+# with NO matching Gestation Log entry at all (never even checked) -- see
+# birth_log_matching.py's match_birth_log_entry(). Deliberately NOT part
+# of Box 1's own total (see module docstring).
+NEVER_CHECKED_QUERY = text("""
+    SELECT site_name, COUNT(*) AS n
+    FROM birth_log_all_births
+    WHERE match_status = 'never_checked'
+    GROUP BY site_name
+""")
+
+NEVER_CHECKED_REASON_QUERY = text("""
+    SELECT site_name, reason_not_approached AS reason, COUNT(*) AS n
+    FROM birth_log_all_births
+    WHERE match_status = 'never_checked'
+      AND reason_not_approached IS NOT NULL AND reason_not_approached != ''
+    GROUP BY site_name, reason_not_approached
+""")
+
+# Box 1 correction (2026-09-24, live PI-reported bug): a Form A record can
+# exist with NO corresponding ga_check_log entry at all -- either a nurse
+# opened Form A directly, bypassing the Gestation Log, or (more likely)
+# a legacy pre-Gestation-Log record. Every one of these women was
+# unquestionably "approached for screening" (that's a logical
+# precondition of Form A existing at all), so Box 1 must include them --
+# otherwise Approached (Box 1) can end up SMALLER than Screened (Box 3),
+# which is nonsensical. Approached = ga_check_log total + this "orphan"
+# count, guaranteeing Approached >= Screened always (see module docstring
+# for the proof).
+ORPHAN_SCREENINGS_QUERY = text("""
+    SELECT s.site_name AS site_name, COUNT(*) AS n
+    FROM screenings s
+    WHERE s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND NOT EXISTS (SELECT 1 FROM ga_check_log g WHERE g.screening_id = s.screening_id)
+    GROUP BY s.site_name
+""")
+
 SCREENING_QUERY = text(f"""
     SELECT
         s.site_name AS site_name,
 
-        COUNT(*) AS box1,
+        -- Box 3: screened for eligibility = every Form A record, full
+        -- stop -- can only ever be reached from a Gestation Log entry
+        -- that was Reliable and <32 weeks (or a direct Form A entry
+        -- bypassing the log).
+        COUNT(*) AS box3,
 
-        SUM(CASE WHEN {_BARRIER_SQL} THEN 1 ELSE 0 END) AS box2,
-        SUM(CASE WHEN s.exclusion_reasons LIKE '%Insufficient time%' THEN 1 ELSE 0 END) AS box2a,
-        SUM(CASE WHEN s.exclusion_reasons LIKE '%Forego resuscitation%' THEN 1 ELSE 0 END) AS box2b,
-        SUM(CASE WHEN s.exclusion_reasons LIKE '%IUFD%' THEN 1 ELSE 0 END) AS box2c,
-
-        -- Box 4a: screened, not a barrier case, no exclusion flag, but GA
-        -- unknown or outside the 25w0d–31w6d inclusion window.
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND COALESCE(s.exclusion_present, FALSE) = FALSE
+        -- Box 4a: screened, no exclusion flag, but GA unknown or outside
+        -- the 25w0d–31w6d inclusion window.
+        SUM(CASE WHEN COALESCE(s.exclusion_present, FALSE) = FALSE
                  AND {_GA_OUT_OR_UNKNOWN_SQL}
             THEN 1 ELSE 0 END) AS box4a,
 
-        -- Box 4b: screened, not a barrier case, exclusion flag present
-        -- (within "screened", the only remaining exclusion reasons are
-        -- structural anomaly / fetal hydrops, since insufficient time /
-        -- forego resus / IUFD were already pulled out by Box 2).
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND s.exclusion_present = TRUE
-            THEN 1 ELSE 0 END) AS box4b,
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND s.exclusion_present = TRUE
+        -- Box 4b: screened, exclusion flag present. Structural anomaly /
+        -- fetal hydrops / forego-resuscitation / insufficient-time-for-
+        -- consent are the "Met exclusion criteria" sub-reasons; the IUFD
+        -- line here is legacy-only (pre-2026-09-24 records where IUFD was
+        -- still a Form A exclusion, not a Gestation Log outcome).
+        SUM(CASE WHEN s.exclusion_present = TRUE THEN 1 ELSE 0 END) AS box4b,
+        SUM(CASE WHEN s.exclusion_present = TRUE
                  AND s.exclusion_reasons LIKE '%Structural anomaly%'
             THEN 1 ELSE 0 END) AS box4b_anomaly,
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND s.exclusion_present = TRUE
+        SUM(CASE WHEN s.exclusion_present = TRUE
                  AND s.exclusion_reasons LIKE '%Fetal hydrops%'
             THEN 1 ELSE 0 END) AS box4b_hydrops,
+        SUM(CASE WHEN s.exclusion_present = TRUE
+                 AND s.exclusion_reasons LIKE '%Forego resuscitation%'
+            THEN 1 ELSE 0 END) AS box4b_forgo_resus,
+        SUM(CASE WHEN s.exclusion_present = TRUE
+                 AND s.exclusion_reasons LIKE '%Insufficient time%'
+            THEN 1 ELSE 0 END) AS box4b_insufficient_time,
+        SUM(CASE WHEN s.exclusion_present = TRUE
+                 AND s.exclusion_reasons LIKE '%IUFD%'
+            THEN 1 ELSE 0 END) AS box4b_iufd_legacy,
 
-        -- Box 5: screened, not a barrier case, no exclusion flag, GA known
-        -- and within the inclusion window.
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND COALESCE(s.exclusion_present, FALSE) = FALSE
+        -- Box 5: screened, no exclusion flag, GA known and within window.
+        SUM(CASE WHEN COALESCE(s.exclusion_present, FALSE) = FALSE
                  AND {_GA_IN_WINDOW_SQL}
             THEN 1 ELSE 0 END) AS box5,
 
         -- Box 6: eligible (= Box 5 condition), consent not given/refused,
         -- and no Form B record exists at all.
-        SUM(CASE WHEN NOT {_BARRIER_SQL}
-                 AND COALESCE(s.exclusion_present, FALSE) = FALSE
+        SUM(CASE WHEN COALESCE(s.exclusion_present, FALSE) = FALSE
                  AND {_GA_IN_WINDOW_SQL}
                  AND (s.consent_given IS NULL OR s.consent_given != 'Yes')
                  AND br.enrollment_id IS NULL
             THEN 1 ELSE 0 END) AS box6,
 
-        -- Box 7: consented but never randomised.
+        -- Box 7: consented but never randomised. "Vigorous, no PPV
+        -- needed" is auto-derived (required_resuscitation explicitly
+        -- FALSE) since applyInitialStepsNotRequired() in
+        -- BirthResuscitationForm.jsx always blanks
+        -- enrollment_reason_not_randomized for this population -- it
+        -- could never appear in the dynamic reason breakdown below.
         SUM(CASE WHEN s.consent_given = 'Yes'
                  AND COALESCE(br.randomised, FALSE) = FALSE
             THEN 1 ELSE 0 END) AS box7,
         SUM(CASE WHEN s.consent_given = 'Yes'
                  AND COALESCE(br.randomised, FALSE) = FALSE
-                 AND br.resus_failure = TRUE
-            THEN 1 ELSE 0 END) AS box7_resus_failure,
-        SUM(CASE WHEN s.consent_given = 'Yes'
-                 AND COALESCE(br.randomised, FALSE) = FALSE
-                 AND br.reason_exit_trial_gas IS NOT NULL
-                 AND br.reason_exit_trial_gas != ''
-            THEN 1 ELSE 0 END) AS box7_exit_gas,
+                 AND br.required_resuscitation = FALSE
+            THEN 1 ELSE 0 END) AS box7_vigorous,
 
         -- Box 8: randomised. Denominator for Boxes 9-11.
         SUM(CASE WHEN br.randomised = TRUE THEN 1 ELSE 0 END) AS box8
@@ -148,6 +297,28 @@ SCREENING_QUERY = text(f"""
     WHERE s.is_deleted = FALSE
       AND s.site_name IS NOT NULL AND s.site_name != ''
     GROUP BY s.site_name
+""")
+
+# Box 7's dynamic sub-reason breakdown -- Form B's own
+# enrollment_reason_not_randomized values (GA≥32/consent withdrawn/blender
+# malfunction/etc.), same pattern Box 6 already uses for
+# reason_for_consent_refusal. Excludes required_resuscitation=FALSE rows
+# (the separate "Vigorous, no PPV needed" bucket above) so a stray
+# leftover text value there is never double-counted.
+NOT_RANDOMISED_REASON_QUERY = text("""
+    SELECT s.site_name AS site_name,
+           br.enrollment_reason_not_randomized AS reason,
+           COUNT(*) AS n
+    FROM birth_resuscitation br
+    JOIN screenings s ON s.screening_id = br.screening_id
+    WHERE s.consent_given = 'Yes'
+      AND COALESCE(br.randomised, FALSE) = FALSE
+      AND br.required_resuscitation IS DISTINCT FROM FALSE
+      AND s.is_deleted = FALSE
+      AND s.site_name IS NOT NULL AND s.site_name != ''
+      AND br.enrollment_reason_not_randomized IS NOT NULL
+      AND br.enrollment_reason_not_randomized != ''
+    GROUP BY s.site_name, br.enrollment_reason_not_randomized
 """)
 
 FOLLOWUP_QUERY = text("""
@@ -220,22 +391,31 @@ def _zero_site_dict():
 
 def _blank_screening_counts():
     return {
-        "box1": 0, "box2": 0, "box2a": 0, "box2b": 0, "box2c": 0,
+        "box3": 0,
         "box4a": 0, "box4b": 0, "box4b_anomaly": 0, "box4b_hydrops": 0,
-        "box5": 0, "box6": 0, "box7": 0, "box7_resus_failure": 0,
-        "box7_exit_gas": 0, "box8": 0,
+        "box4b_forgo_resus": 0, "box4b_insufficient_time": 0, "box4b_iufd_legacy": 0,
+        "box5": 0, "box6": 0, "box7": 0, "box7_vigorous": 0, "box8": 0,
+    }
+
+
+def _blank_ga_check_counts():
+    return {
+        "box1": 0, "box2_missed": 0, "box2_iufd": 0, "box2_eligible_gap": 0,
+        "box2_not_candidate_older": 0, "box2_not_candidate_unreliable": 0,
     }
 
 
 def _compute_screening_boxes(db: Session):
     counts_by_site = {site: _blank_screening_counts() for site in ALL_SITES}
     refusal_reasons_by_site = {site: {} for site in ALL_SITES}
+    not_randomised_reasons_by_site = {site: {} for site in ALL_SITES}
 
     for row in db.execute(SCREENING_QUERY).mappings():
         site = row["site_name"]
         if site not in counts_by_site:
             counts_by_site[site] = _blank_screening_counts()
             refusal_reasons_by_site[site] = {}
+            not_randomised_reasons_by_site[site] = {}
         for key in _blank_screening_counts():
             counts_by_site[site][key] = int(row[key] or 0)
 
@@ -250,7 +430,6 @@ def _compute_screening_boxes(db: Session):
         LEFT JOIN birth_resuscitation br ON br.screening_id = s.screening_id
         WHERE s.is_deleted = FALSE
           AND s.site_name IS NOT NULL AND s.site_name != ''
-          AND NOT {_BARRIER_SQL}
           AND COALESCE(s.exclusion_present, FALSE) = FALSE
           AND {_GA_IN_WINDOW_SQL}
           AND (s.consent_given IS NULL OR s.consent_given != 'Yes')
@@ -264,7 +443,51 @@ def _compute_screening_boxes(db: Session):
         refusal_reasons_by_site.setdefault(site, {})
         refusal_reasons_by_site[site][row["reason"]] = int(row["n"] or 0)
 
-    return counts_by_site, refusal_reasons_by_site
+    # Box 7 sub-reason breakdown: Form B's own enrollment_reason_not_randomized.
+    for row in db.execute(NOT_RANDOMISED_REASON_QUERY).mappings():
+        site = row["site_name"]
+        not_randomised_reasons_by_site.setdefault(site, {})
+        not_randomised_reasons_by_site[site][row["reason"]] = int(row["n"] or 0)
+
+    return counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site
+
+
+def _compute_ga_check_boxes(db: Session):
+    """Box 1 (Approached for Screening) + most of Box 2 (Not Screened)'s
+    sub-reasons -- sourced from the Gestation (Inclusion Criteria)
+    Screening Log itself, plus the "never_checked" sub-reason sourced from
+    the Log of All Births (births with no matching Gestation Log entry at
+    all), plus the "orphan screenings" count (Form A records with no
+    matching Gestation Log entry -- see ORPHAN_SCREENINGS_QUERY) that Box
+    1's own total must include to guarantee Approached >= Screened."""
+    ga_counts_by_site = {site: _blank_ga_check_counts() for site in ALL_SITES}
+    never_checked_by_site = {site: 0 for site in ALL_SITES}
+    never_checked_reasons_by_site = {site: {} for site in ALL_SITES}
+    orphan_screenings_by_site = {site: 0 for site in ALL_SITES}
+
+    for row in db.execute(GA_CHECK_QUERY).mappings():
+        site = row["site_name"]
+        if site not in ga_counts_by_site:
+            ga_counts_by_site[site] = _blank_ga_check_counts()
+        for key in _blank_ga_check_counts():
+            ga_counts_by_site[site][key] = int(row[key] or 0)
+
+    for row in db.execute(NEVER_CHECKED_QUERY).mappings():
+        site = row["site_name"]
+        never_checked_by_site.setdefault(site, 0)
+        never_checked_by_site[site] = int(row["n"] or 0)
+
+    for row in db.execute(NEVER_CHECKED_REASON_QUERY).mappings():
+        site = row["site_name"]
+        never_checked_reasons_by_site.setdefault(site, {})
+        never_checked_reasons_by_site[site][row["reason"]] = int(row["n"] or 0)
+
+    for row in db.execute(ORPHAN_SCREENINGS_QUERY).mappings():
+        site = row["site_name"]
+        orphan_screenings_by_site.setdefault(site, 0)
+        orphan_screenings_by_site[site] = int(row["n"] or 0)
+
+    return ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site
 
 
 def _compute_followup_boxes(db: Session):
@@ -317,7 +540,12 @@ def _sum_sites(per_site: dict, sites: list) -> int:
     return sum(per_site.get(s, 0) for s in sites)
 
 
-def _row(box, label, per_site: dict, sites: list, sub_rows=None):
+def _row(box, label, per_site: dict, sites: list, sub_rows=None, source=None):
+    """`source` is a short, plain-language sentence naming exactly where
+    this row's number comes from -- shown as an "i" info icon in the UI
+    (TrialMonitoringDashboard.jsx's Row component) so a PI/monitor reading
+    the flow diagram can hover any row and see its derivation without
+    needing to ask or read this file."""
     r = {
         "box": box,
         "label": label,
@@ -326,78 +554,206 @@ def _row(box, label, per_site: dict, sites: list, sub_rows=None):
     }
     if sub_rows:
         r["sub_rows"] = sub_rows
+    if source:
+        r["source"] = source
     return r
 
 
-def _build_rows(counts_by_site, refusal_reasons_by_site, followup_boxes, followup_ltfu_reasons, sites: list):
+def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site,
+                 orphan_screenings_by_site,
+                 counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site,
+                 followup_boxes, followup_ltfu_reasons, sites: list):
     def m(box_key):
         return {s: counts_by_site.get(s, _blank_screening_counts())[box_key] for s in ALL_SITES}
 
-    box2a, box2b, box2c = m("box2a"), m("box2b"), m("box2c")
+    def gm(box_key):
+        return {s: ga_counts_by_site.get(s, _blank_ga_check_counts())[box_key] for s in ALL_SITES}
+
     box4b_anomaly, box4b_hydrops = m("box4b_anomaly"), m("box4b_hydrops")
-    box7_resus, box7_exit = m("box7_resus_failure"), m("box7_exit_gas")
+    box4b_forgo_resus, box4b_insufficient_time = m("box4b_forgo_resus"), m("box4b_insufficient_time")
+    box4b_iufd_legacy = m("box4b_iufd_legacy")
+    box7_vigorous = m("box7_vigorous")
+
+    box2_missed, box2_iufd = gm("box2_missed"), gm("box2_iufd")
+    # NOT part of Box 2 -- see module docstring / PI decision 2026-09-24:
+    # a woman who was found eligible but simply hasn't had Form A
+    # completed yet is mid-process, not a terminal "not screened" outcome
+    # (she could become Box 3 the moment Form A is saved). Kept out of
+    # every Box 2 total/sub-row; surfaced only as a footnote, and as the
+    # live "Eligible, no Form A yet" action item GACheckLog.jsx already has.
+    box2_eligible_gap = gm("box2_eligible_gap")
+    box2_not_candidate_older, box2_not_candidate_unreliable = gm("box2_not_candidate_older"), gm("box2_not_candidate_unreliable")
+
+    # Box 1 correction -- see ORPHAN_SCREENINGS_QUERY: every Form A record
+    # with no matching Gestation Log entry was still unquestionably
+    # "approached for screening" (that's a logical precondition of a
+    # screenings row existing at all), so Box 1 must count them too.
+    # Guarantees Approached (Box 1) >= Screened (Box 3) always -- see the
+    # module docstring for the arithmetic proof.
+    box1_ga_check_total = gm("box1")
+    box1_orphan_screenings = {s: orphan_screenings_by_site.get(s, 0) for s in ALL_SITES}
+    box1_total = {s: box1_ga_check_total.get(s, 0) + box1_orphan_screenings.get(s, 0) for s in ALL_SITES}
+
+    # Box 2's "never checked" sub-row, with its own reason breakdown
+    # (Log of All Births' reason_not_approached, incl. the renamed
+    # "No time to approach to screen").
+    never_checked_reasons = sorted({r for site in never_checked_reasons_by_site.values() for r in site})
+    never_checked_sub_rows = [
+        _row(None, reason, {s: never_checked_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+             source="Log of All Births \u2192 \"Reason not approached\" field on a never-checked birth.")
+        for reason in never_checked_reasons
+    ] or None
+    box2_never_checked_total = {s: never_checked_by_site.get(s, 0) for s in ALL_SITES}
+
+    box2_total = {
+        s: box2_never_checked_total.get(s, 0) + box2_missed.get(s, 0) + box2_iufd.get(s, 0)
+           + box2_not_candidate_older.get(s, 0) + box2_not_candidate_unreliable.get(s, 0)
+        for s in ALL_SITES
+    }
 
     # Box 6 sub-rows: one per distinct refusal-reason string seen at any site.
     all_reasons = sorted({r for site in refusal_reasons_by_site.values() for r in site})
     box6_sub_rows = []
     for reason in all_reasons:
         per_site = {s: refusal_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}
-        box6_sub_rows.append(_row(None, reason, per_site, sites))
+        box6_sub_rows.append(_row(None, reason, per_site, sites,
+            source="Form A item 28 \u2014 \"Reason for consent refusal\" field."))
+
+    # Box 7 sub-rows: Form B's own enrollment_reason_not_randomized values,
+    # plus the separately-derived "Vigorous, no PPV needed" bucket (never
+    # a text value in that column -- see NOT_RANDOMISED_REASON_QUERY).
+    not_randomised_reasons = sorted({r for site in not_randomised_reasons_by_site.values() for r in site})
+    box7_sub_rows = [
+        _row(None, reason, {s: not_randomised_reasons_by_site.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+             source="Form B item 28 \u2014 \"Reason Not Randomized\" dropdown.")
+        for reason in not_randomised_reasons
+    ]
+    box7_sub_rows.append(_row(None, "Vigorous, no PPV needed", box7_vigorous, sites,
+        source="Form B \u2014 \"Ventilation required (PPV)\" answered No (vigorous at birth). "
+               "Never appears in the Reason Not Randomized dropdown itself, so counted separately."))
 
     rows = [
-        _row(1, "Approached for screening", m("box1"), sites),
-        _row(2, "Not screened", m("box2"), sites, sub_rows=[
-            _row(None, "Insufficient time", box2a, sites),
-            _row(None, "Decision to forego resuscitation", box2b, sites),
-            _row(None, "IUFD at presentation", box2c, sites),
+        _row(1, "Approached for screening", box1_total, sites,
+             source="Every Gestation (Inclusion Criteria) Screening Log entry, plus every Form A "
+                    "record with no matching Gestation Log entry at all (see the 2 rows below).",
+             sub_rows=[
+            _row(None, "Gestation (Inclusion Criteria) Screening Log entries", box1_ga_check_total, sites,
+                 source="Count of every row in the Gestation Screening Log, any outcome."),
+            _row(None, "Form A filled directly (no Gestation Log entry \u2014 legacy/bypass)", box1_orphan_screenings, sites,
+                 source="Form A records with no linked Gestation Log entry \u2014 a direct Form A "
+                        "entry that bypassed the log, or a record from before the log existed."),
         ]),
-        _row(3, "Screened for eligibility",
-             {s: counts_by_site.get(s, _blank_screening_counts())["box1"] - counts_by_site.get(s, _blank_screening_counts())["box2"] for s in ALL_SITES},
-             sites),
+        _row(2, "Not approached/Not screened for eligibility", box2_total, sites,
+             source="Sum of the 5 reasons below a Gestation Log entry never became a Form A. Does "
+                    "NOT include the \"eligible, Form A not yet completed\" gap \u2014 see the footnote "
+                    "for that count.",
+             sub_rows=[
+            _row(None, "Never checked (known only from Log of All Births)", box2_never_checked_total, sites,
+                 source="Log of All Births entries with NO matching Gestation Log entry at all \u2014 "
+                        "nobody ever checked this woman's gestation before she delivered.",
+                 sub_rows=never_checked_sub_rows),
+            _row(None, "Missed - identified retrospectively", box2_missed, sites,
+                 source="Gestation Log entries manually tagged \"Missed - identified retrospectively\" "
+                        "(a nurse logging a known miss after the fact)."),
+            _row(None, "IUFD at screening", box2_iufd, sites,
+                 source="Gestation Log entries with \"Found to be IUFD\" ticked."),
+            _row(None, "Checked, gestation \u226532 weeks (reliable source)", box2_not_candidate_older, sites,
+                 source="Gestation Log entries with source = Reliable and gestation \u226532 weeks."),
+            _row(None, "Checked, gestation source unreliable/unknown", box2_not_candidate_unreliable, sites,
+                 source="Gestation Log entries with source = Unknown/Unreliable (weeks were never "
+                        "entered for these, by design)."),
+        ]),
+        _row(3, "Screened for eligibility", m("box3"), sites,
+             source="Plain count of every Form A record \u2014 no filtering."),
         _row(4, "Excluded after screening (ineligible)",
              {s: counts_by_site.get(s, _blank_screening_counts())["box4a"] + counts_by_site.get(s, _blank_screening_counts())["box4b"] for s in ALL_SITES},
-             sites, sub_rows=[
-                 _row(None, "Did not meet inclusion criteria (GA outside 25+0\u201331+6 weeks)", m("box4a"), sites),
-                 _row(None, "Met inclusion criteria but had exclusion criteria", m("box4b"), sites, sub_rows=[
-                     _row(None, "Structural anomaly", box4b_anomaly, sites),
-                     _row(None, "Fetal hydrops", box4b_hydrops, sites),
+             sites,
+             source="Form A records that were screened but are not eligible (4a) or have an A4 "
+                    "exclusion criterion (4b) \u2014 see the 2 rows below.",
+             sub_rows=[
+                 _row(None, "GA outside inclusion window or unknown, recorded on Form A itself",
+                      m("box4a"), sites,
+                      source="Form A records with no exclusion ticked but gestation unknown or "
+                             "outside 25+0\u201331+6 weeks AT THE TIME FORM A WAS COMPLETED. "
+                             "Rare/legacy now that Form A itself refuses to save outside this "
+                             "window \u2014 NOT the same as a woman whose gestation was confirmed "
+                             "<32 weeks at consent but crossed 32 weeks because delivery was "
+                             "delayed: that is a real, ongoing event checked on Form B at the "
+                             "delivery table, and is tracked under Box 7's \"GA \u226532 weeks\" "
+                             "reason instead."),
+                 _row(None, "Met exclusion criteria", m("box4b"), sites,
+                      source="Form A records where any A4 exclusion question was answered Yes \u2014 "
+                             "see the 5 rows below (not mutually exclusive, one record can have more "
+                             "than one).",
+                      sub_rows=[
+                     _row(None, "Antenatally suspected or confirmed major structural anomaly", box4b_anomaly, sites,
+                          source="Form A A4 \u2014 \"Structural anomaly\" answered Yes."),
+                     _row(None, "Fetal hydrops", box4b_hydrops, sites,
+                          source="Form A A4 \u2014 \"Fetal hydrops\" answered Yes."),
+                     _row(None, "Parental request / neonatologist decision to forego resuscitation", box4b_forgo_resus, sites,
+                          source="Form A A4 \u2014 \"Forego resuscitation\" answered Yes."),
+                     _row(None, "No time to approach for consent", box4b_insufficient_time, sites,
+                          source="Form A A4 \u2014 \"Insufficient time (for consent)\" answered Yes. "
+                                 "Gestation was already confirmed in-window; distinct from Box 2's "
+                                 "pre-Form-A \"No time to approach to screen.\""),
+                     _row(None, "IUFD (identified during screening \u2014 legacy, rare)", box4b_iufd_legacy, sites,
+                          source="Form A A4 \u2014 \"IUFD\" answered Yes. Legacy path: IUFD is now "
+                                 "caught upstream at the Gestation Log stage (Box 2) instead, before "
+                                 "Form A is ever opened."),
                  ]),
              ]),
-        _row(5, "Eligible", m("box5"), sites),
-        _row(6, "Refused consent", m("box6"), sites, sub_rows=box6_sub_rows or None),
-        _row(7, "Consented but not randomised", m("box7"), sites, sub_rows=[
-            _row(None, "Resuscitation failure", box7_resus, sites),
-            _row(None, "Exited trial gas", box7_exit, sites),
-        ]),
-        _row(8, "Randomised", m("box8"), sites),
+        _row(5, "Eligible", m("box5"), sites,
+             source="Form A records with no A4 exclusion ticked and gestation confirmed "
+                    "25+0\u201331+6 weeks."),
+        _row(6, "Refused consent", m("box6"), sites,
+             source="Eligible Form A records where consent was refused or never given, and no "
+                    "Form B record exists at all.",
+             sub_rows=box6_sub_rows or None),
+        _row(7, "Consented but not randomised", m("box7"), sites,
+             source="Form A records with consent = Yes, where Form B either doesn't exist yet or "
+                    "has randomised \u2260 Yes.",
+             sub_rows=box7_sub_rows or None),
+        _row(8, "Randomised", m("box8"), sites,
+             source="Form B records with \"Randomised\" answered Yes."),
     ]
 
     followup_labels = {9: "Status at 36 weeks PMA", 10: "Status at 40 weeks PMA", 11: "Status at 44 weeks PMA"}
+    followup_source = (
+        "Randomised (Form B) babies only. Expected date = date of birth + (target PMA − "
+        "gestation at birth). \"Died\"/\"Assessed\" come from Form I's own outcome/assessment-date "
+        "fields; \"Lost to follow-up\" = expected date has passed by more than {grace} days with no "
+        "assessment or death recorded; \"Awaiting\" = expected date not yet reached."
+    ).format(grace=GRACE_DAYS)
     state_labels = [
-        ("died", "Died", None),
-        ("assessed", "Assessed", None),
-        ("ltfu", "Lost to follow-up", "ltfu"),
-        ("awaiting", "Awaiting assessment", "awaiting"),
+        ("died", "Died", None, "Form I — death recorded before this PMA checkpoint."),
+        ("assessed", "Assessed", None, "Form I — assessment completed at this PMA checkpoint."),
+        ("ltfu", "Lost to follow-up", "ltfu",
+         f"Expected assessment date passed by more than {GRACE_DAYS} days with neither an "
+         "assessment nor a death recorded in Form I."),
+        ("awaiting", "Awaiting assessment", "awaiting",
+         "Expected assessment date for this PMA checkpoint has not been reached yet."),
     ]
     for box_num in (9, 10, 11):
         per_site_total = {s: sum(followup_boxes[box_num].get(s, {}).values()) for s in ALL_SITES}
         sub_rows = []
-        for state_key, state_label, row_type in state_labels:
+        for state_key, state_label, row_type, state_source in state_labels:
             per_site_state = {s: followup_boxes[box_num].get(s, {}).get(state_key, 0) for s in ALL_SITES}
-            sub_row = _row(None, state_label, per_site_state, sites)
+            sub_row = _row(None, state_label, per_site_state, sites, source=state_source)
             sub_row["row_type"] = row_type or state_key
             if state_key == "ltfu":
                 reasons_at_sites = followup_ltfu_reasons[box_num]
                 distinct = sorted({r for site in reasons_at_sites.values() for r in site})
                 if distinct:
                     sub_row["ltfu_reasons"] = [
-                        _row(None, reason, {s: reasons_at_sites.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites)
+                        _row(None, reason, {s: reasons_at_sites.get(s, {}).get(reason, 0) for s in ALL_SITES}, sites,
+                             source="Form I — \"Reason for loss to follow-up\" field.")
                         for reason in distinct
                     ]
             sub_rows.append(sub_row)
-        rows.append(_row(box_num, followup_labels[box_num], per_site_total, sites, sub_rows=sub_rows))
+        rows.append(_row(box_num, followup_labels[box_num], per_site_total, sites, sub_rows=sub_rows,
+                          source=followup_source))
 
-    return rows
+    return rows, _sum_sites(box2_eligible_gap, sites)
 
 
 def _flatten_for_csv(rows, sites, depth=0):
@@ -426,9 +782,14 @@ def get_consort_flow(
 
     sites = _dashboard_sites(current_user, site)
 
-    counts_by_site, refusal_reasons_by_site = _compute_screening_boxes(db)
+    ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site = _compute_ga_check_boxes(db)
+    counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site = _compute_screening_boxes(db)
     followup_boxes, followup_ltfu_reasons = _compute_followup_boxes(db)
-    rows = _build_rows(counts_by_site, refusal_reasons_by_site, followup_boxes, followup_ltfu_reasons, sites)
+    rows, eligible_gap_total = _build_rows(
+        ga_counts_by_site, never_checked_by_site, never_checked_reasons_by_site, orphan_screenings_by_site,
+        counts_by_site, refusal_reasons_by_site, not_randomised_reasons_by_site,
+        followup_boxes, followup_ltfu_reasons, sites,
+    )
 
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -445,13 +806,27 @@ def get_consort_flow(
             headers={"Content-Disposition": "attachment; filename=consort_flow.csv"},
         )
 
+    footnotes = [
+        "Sub-categories are not mutually exclusive.",
+        "\"Approached for Screening\" (Box 1) = every Gestation (Inclusion Criteria) "
+        "Screening Log entry + every Form A record with no matching Gestation Log "
+        "entry at all (a direct/legacy entry -- she was unquestionably approached, "
+        "just never logged upstream). This guarantees Approached >= Screened (Box 3) "
+        "always.",
+    ]
+    if eligible_gap_total > 0:
+        footnotes.append(
+            f"{eligible_gap_total} Gestation Log entr{'y is' if eligible_gap_total == 1 else 'ies are'} "
+            "eligible (Reliable source, <32 weeks) but Form A has not been completed yet -- "
+            "still mid-process, so not counted in either \"Screened for Eligibility\" or "
+            "\"Not Screened\" above. See the Gestation Log's own \"Eligible, no Form A yet\" list."
+        )
+
     return {
         "generated_at": generated_at,
         "sites": sites,
         "rows": rows,
-        "footnotes": [
-            "Sub-categories are not mutually exclusive.",
-        ],
+        "footnotes": footnotes,
     }
 
 

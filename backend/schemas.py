@@ -2984,6 +2984,7 @@ class GACheckEntryCreate(BaseModel):
     check_date: Optional[date] = None
 
     identification_type: Optional[str] = None
+    found_iufd: Optional[bool] = None
     ga_source: Optional[str] = None
     gestation_method: Optional[str] = None
     gestation_weeks: Optional[int] = None
