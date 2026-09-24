@@ -9,9 +9,11 @@ import {
   Plus,
   List,
   Activity,
+  History,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { canViewAudit } from "../../utils/roles";
 import { formatSiteName } from "./siteLabels";
 
 const ITEMS = [
@@ -124,6 +126,15 @@ export default function DashboardSidebar({
               <Activity size={14} aria-hidden="true" /> Trial Monitoring
             </NavLink>
           </>
+        )}
+        {canViewAudit(user) && (
+          <NavLink
+            to="/audit-trail"
+            onClick={onClose}
+            className={workspaceNavClass}
+          >
+            <History size={14} aria-hidden="true" /> Audit Trail
+          </NavLink>
         )}
       </div>
     </div>

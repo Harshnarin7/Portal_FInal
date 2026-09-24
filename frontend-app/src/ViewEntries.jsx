@@ -10,12 +10,13 @@ import {
   Eye, Edit, Trash2, ArrowRight, Filter, AlertTriangle,
   RefreshCw, Users, FileText, Activity, ShieldAlert,
   CheckCircle2, Clock, XCircle, ClipboardList, X,
-  Baby, Hourglass, Ban,
+  History, Baby, Hourglass, Ban,
 } from "lucide-react";
 import "./ViewEntries.css";
 import { formatMotherFirstName, formatParticipantListName } from "./utils/babyName";
 import { resolveConsentSignatureFromRecord } from "./utils/consentSignature";
 import { formatSiteName, formatSiteShort, canonicalSiteKey, isKnownTrialSite } from "./components/dashboard/siteLabels";
+import { formatDateTimeDisplay24 } from "./utils/datetime";
 
 /* ─── Form definitions (from formsConfig.js) ────────────────── */
 const FORM_LABELS = [
@@ -91,31 +92,63 @@ function listNameForEntry(pii, enrollStatus) {
   return formatParticipantListName(pii, { formBStarted: formBHasStarted(enrollStatus) });
 }
 
+function formAIsComplete(entry) {
+  if (entry.gestation_weeks == null || entry.gestation_weeks === "") return false;
+  if (!entry.gestation_method) return false;
+  if (!entry.screened_by) return false;
+  if (!entry.site_name) return false;
+  if (!entry.screening_datetime) return false;
+  const status = entry.screening_status || "";
+  if (status === "Not Eligible" || status === "Screen Failure") return true;
+  const consent = (entry.consent_given || "").trim();
+  if (!consent) return false;
+  if (consent === "Yes" || consent === "Trial run") {
+    return !!(entry.consent_taken_by && entry.relationship_to_participant);
+  }
+  if (consent === "No") return !!entry.reason_for_consent_refusal;
+  if (consent === "Not approached") return !!entry.reason_not_approached;
+  return false;
+}
+
+function laterFormStatus(complete, started) {
+  if (complete) return "completed";
+  if (started) return "in_progress";
+  return "locked";
+}
+
 function buildFormProgress(enrollStatus) {
-  // Always count Form A when this row exists in the screening log.
   if (!enrollStatus) return { form_a: true };
   return {
     form_a: true,
     form_b: !!enrollStatus.form_b,
+    form_b_started: !!enrollStatus.form_b_started,
     form_c: !!enrollStatus.form_c,
+    form_c_started: !!enrollStatus.form_c_started,
     form_d: !!enrollStatus.form_d,
+    form_d_started: !!enrollStatus.form_d_started,
     form_e: !!enrollStatus.form_e,
+    form_e_started: !!enrollStatus.form_e_started,
   };
 }
 
 /** Dots shown in the table (core forms A–J). */
 const VISIBLE_FORMS = FORM_LABELS.slice(0, 10);
 
-function computeForms(formProg) {
-  return VISIBLE_FORMS.map(f => ({
-    ...f,
-    status: formProg[f.key] === true ? "completed" : "locked",
-  }));
+function computeForms(formProg, entry) {
+  return VISIBLE_FORMS.map(f => {
+    let status = "locked";
+    if (f.key === "form_a") {
+      status = formAIsComplete(entry) ? "completed" : "in_progress";
+    } else if (f.key === "form_b" || f.key === "form_c" || f.key === "form_d" || f.key === "form_e") {
+      status = laterFormStatus(formProg[f.key] === true, formProg[`${f.key}_started`] === true);
+    }
+    return { ...f, status };
+  });
 }
 
-function computeCompletion(formProg) {
-  const done = VISIBLE_FORMS.filter(f => formProg[f.key] === true).length;
-  return { done, total: VISIBLE_FORMS.length };
+function computeCompletion(forms) {
+  const done = forms.filter(f => f.status === "completed").length;
+  return { done, total: forms.length };
 }
 
 function getNextAction(entry, enrollStatus) {
@@ -472,8 +505,10 @@ function ActionBtn({ label, variant, onClick }) {
 }
 
 /* ─── Expanded detail panel ──────────────────────────────────── */
-function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName }) {
-  const [tab, setTab] = useState("Forms");
+function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName, initialTab }) {
+  const [tab, setTab] = useState(initialTab || "Forms");
+  const [saves, setSaves] = useState(null);
+  const [savesError, setSavesError] = useState("");
   const consentSig = resolveConsentSignatureFromRecord(entry);
   const ga = entry.gestation_weeks != null
     ? `${entry.gestation_weeks}w ${entry.gestation_days ?? 0}d`
@@ -485,6 +520,27 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
       <p className="exp-field-value">{value || "—"}</p>
     </div>
   );
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab, entry.id]);
+
+  useEffect(() => {
+    if (tab !== "Audit History") return;
+    let cancelled = false;
+    setSaves(null);
+    setSavesError("");
+    api.get("/audit/patient", { params: { screening_id: entry.screening_id } })
+      .then(res => { if (!cancelled) setSaves(Array.isArray(res.data) ? res.data : []); })
+      .catch(err => {
+        if (cancelled) return;
+        setSaves([]);
+        setSavesError(err.response?.status === 403
+          ? "You don't have access to this patient's audit trail."
+          : "Could not load this patient's save history.");
+      });
+    return () => { cancelled = true; };
+  }, [tab, entry.screening_id]);
 
   const completedForms = (forms || []).filter(f => f.status === "completed");
 
@@ -520,22 +576,29 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
               <ul className="exp-forms-list">
                 {(forms || []).map(f => {
                   const done = f.status === "completed";
+                  const partial = f.status === "in_progress";
+                  const dot = done ? "done" : partial ? "partial" : "locked";
+                  const statusText = done
+                    ? "Completed"
+                    : partial
+                      ? "Required fields missing"
+                      : "Not started";
                   return (
                     <li key={f.key} className={`exp-form-row${done ? " exp-form-row--done" : ""}`}>
-                      <span className={`exp-form-dot exp-form-dot--${done ? "done" : "locked"}`}>
+                      <span className={`exp-form-dot exp-form-dot--${dot}`}>
                         {f.short}
                       </span>
                       <div className="exp-form-meta">
                         <p className="exp-form-name">Form {f.short} · {f.label}</p>
-                        <p className="exp-form-status">{done ? "Completed" : "Not started"}</p>
+                        <p className="exp-form-status">{statusText}</p>
                       </div>
-                      {done ? (
+                      {(done || partial) ? (
                         <button
                           type="button"
                           className="exp-form-view"
                           onClick={() => onViewForm(f.key)}
                         >
-                          <Eye size={14}/> View
+                          <Eye size={14}/> {done ? "View" : "Open"}
                         </button>
                       ) : (
                         <span className="exp-form-view exp-form-view--disabled">—</span>
@@ -597,20 +660,31 @@ function ExpandedPanel({ entry, forms, onEdit, onDelete, onViewForm, babyName })
         )}
         {tab === "Audit History" && (
           <div className="exp-audit">
-            {[
-              entry.created_at  && { event: "Record Created",   time: new Date(entry.created_at).toLocaleString("en-IN"),  by: entry.screened_by },
-              entry.updated_at  && { event: "Last Updated",     time: new Date(entry.updated_at).toLocaleString("en-IN"),  by: entry.updated_by },
-              entry.consent_datetime && { event: "Consent Recorded", time: new Date(entry.consent_datetime).toLocaleString("en-IN"), by: entry.consent_taken_by },
-            ].filter(Boolean).map((log, i) => (
-              <div key={i} className="audit-row">
-                <div className="audit-dot" />
-                <div className="audit-content">
-                  <p className="audit-event">{log.event}</p>
-                  <p className="audit-meta">{log.time}{log.by ? ` · ${log.by}` : ""}</p>
+            <p className="exp-forms-hint">
+              Each card is one Save click. The name is the logged-in user, and the time is when Save was clicked.
+            </p>
+            {saves == null && !savesError && <p className="exp-empty">Loading save history…</p>}
+            {savesError && <p className="exp-empty">{savesError}</p>}
+            {saves && saves.length === 0 && !savesError && (
+              <p className="exp-empty">No Save clicks recorded for this patient yet.</p>
+            )}
+            {(saves || []).map(log => {
+              const who = (log.saved_by && log.saved_by !== "—") ? log.saved_by : "Name not on account";
+              const initial = who.trim().charAt(0).toUpperCase() || "?";
+              return (
+                <div key={log.id + (log.saved_at || "")} className="audit-card">
+                  <div className="audit-avatar" aria-hidden="true">{initial}</div>
+                  <div className="audit-card-main">
+                    <p className="audit-event">{log.form}</p>
+                    <p className="audit-meta">Saved by <strong>{who}</strong></p>
+                  </div>
+                  <div className="audit-when">
+                    <span className="audit-when-label">Saved</span>
+                    <span className="audit-when-time">{formatDateTimeDisplay24(log.saved_at)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {!entry.created_at && <p className="exp-empty">No audit records available.</p>}
+              );
+            })}
           </div>
         )}
       </div>
@@ -632,6 +706,7 @@ export default function ViewEntries() {
   const [search,     setSearch]     = useState("");
   const [siteFilter, setSiteFilter] = useState("");
   const [expanded,   setExpanded]   = useState(null);
+  const [detailTab,  setDetailTab]  = useState("Forms");
   const [page,       setPage]       = useState(1);
 
   /* ── Fetch ── */
@@ -842,6 +917,11 @@ export default function ViewEntries() {
 
       {/* ── Table card ── */}
       <div className="ve-card">
+        <div className="ve-progress-legend" aria-label="Form progress key">
+          <span className="ve-legend-item"><span className="pdot pdot--completed">A</span> Complete — all required fields</span>
+          <span className="ve-legend-item"><span className="pdot pdot--in_progress">A</span> Incomplete — required fields missing</span>
+          <span className="ve-legend-item"><span className="pdot pdot--locked">A</span> Not started</span>
+        </div>
         <div className="ve-table-scroll">
           <table className="ve-table">
             <thead>
@@ -871,8 +951,8 @@ export default function ViewEntries() {
                 const sk        = statusKey(entry.screening_status);
                 const enr       = entry.enrollment_id ? enrollData[entry.enrollment_id] : null;
                 const formProg  = buildFormProgress(enr);
-                const forms     = computeForms(formProg);
-                const comp      = computeCompletion(formProg);
+                const forms     = computeForms(formProg, entry);
+                const comp      = computeCompletion(forms);
                 const pct       = Math.round((comp.done / comp.total) * 100);
                 const action    = getNextAction(entry, enr);
                 const ga        = entry.gestation_weeks != null
@@ -883,7 +963,10 @@ export default function ViewEntries() {
                   <React.Fragment key={entry.id}>
                     <tr
                       className={`ve-row${expanded === entry.id ? " ve-row--open" : ""}`}
-                      onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}
+                      onClick={() => {
+                        setDetailTab("Forms");
+                        setExpanded(p => p === entry.id ? null : entry.id);
+                      }}
                     >
                       <td className="ve-td ve-td--sticky ve-td--id">{entry.screening_id}</td>
                       <td className="ve-td ve-td--baby">
@@ -896,23 +979,23 @@ export default function ViewEntries() {
                       {/* Form dots — completed dots open that form for review */}
                       <td className="ve-td ve-td--dots" onClick={e => e.stopPropagation()}>
                         <div className="ve-dots">
-                          {forms.map((f, i) => (
+                          {forms.map((f, i) => {
+                            const openable = f.status === "completed" || f.status === "in_progress";
+                            const title = f.status === "completed"
+                              ? `View Form ${f.short}: ${f.label} (complete)`
+                              : f.status === "in_progress"
+                                ? `Form ${f.short}: ${f.label} — required fields still missing`
+                                : `${f.label} (not started)`;
+                            return (
                             <ProgressDot
                               key={i}
                               label={f.short}
                               status={f.status}
-                              title={
-                                f.status === "completed"
-                                  ? `View Form ${f.short}: ${f.label}`
-                                  : `${f.label} (not started)`
-                              }
-                              onClick={
-                                f.status === "completed"
-                                  ? () => openForm(entry, f.key)
-                                  : undefined
-                              }
+                              title={title}
+                              onClick={openable ? () => openForm(entry, f.key) : undefined}
                             />
-                          ))}
+                            );
+                          })}
                         </div>
                       </td>
 
@@ -951,9 +1034,22 @@ export default function ViewEntries() {
                           <button
                             className="icon-btn"
                             title="View completed forms"
-                            onClick={() => setExpanded(p => p === entry.id ? null : entry.id)}
+                            onClick={() => {
+                              setDetailTab("Forms");
+                              setExpanded(p => p === entry.id ? null : entry.id);
+                            }}
                           >
                             <Eye size={15}/>
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Audit trail — who saved this patient"
+                            onClick={() => {
+                              setDetailTab("Audit History");
+                              setExpanded(entry.id);
+                            }}
+                          >
+                            <History size={15}/>
                           </button>
                           <button className="icon-btn" title="Edit screening" onClick={() => handleEdit(entry)}>
                             <Edit size={15}/>
@@ -972,6 +1068,7 @@ export default function ViewEntries() {
                             entry={entry}
                             forms={forms}
                             babyName={listNameForEntry(piiByScreening[entry.screening_id], enr)}
+                            initialTab={detailTab}
                             onEdit={() => handleEdit(entry)}
                             onDelete={() => handleDelete(entry.id, entry.screening_id)}
                             onViewForm={(formKey) => openForm(entry, formKey)}

@@ -118,3 +118,111 @@ def list_audit_logs(
             )
         )
     return out
+
+
+_FORM_LABELS = {
+    "screenings": "Form A — Screening",
+    "birth_resuscitation": "Form B — Birth & Resuscitation",
+    "maternal_details": "Form C — Maternal Details",
+    "postnatal_day1": "Form D — Postnatal Day 1",
+    "nicu_admission": "Form E — NICU Admission",
+}
+
+
+def _is_explicit_save(log: AuditLog) -> bool:
+    if (log.action or "").upper() == "SAVE":
+        return True
+    new_values = log.new_values or {}
+    old_values = log.old_values or {}
+    return new_values.get("explicitly_saved") is True and old_values.get("explicitly_saved") is not True
+
+
+@router.get("/patient")
+def patient_save_history(
+    screening_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Saves for one participant. Any user who can open that screening may read it.
+    Only explicit Save clicks are returned — not background autosave."""
+    screening = (
+        db.query(Screening)
+        .filter(Screening.screening_id == screening_id, Screening.is_deleted.isnot(True))
+        .first()
+    )
+    if not screening:
+        raise HTTPException(status_code=404, detail="Screening not found")
+    if not is_global(current_user) and (screening.site_name or "") != (current_user.site_name or ""):
+        raise HTTPException(status_code=403, detail="Not authorized for this site")
+
+    filters = [AuditLog.screening_id == screening_id]
+    if screening.enrollment_id:
+        filters.append(AuditLog.enrollment_id == screening.enrollment_id)
+    logs = (
+        db.query(AuditLog)
+        .filter(or_(*filters))
+        .order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    saves = [log for log in logs if _is_explicit_save(log)]
+    # A new Save click also writes UPDATE. Keep the SAVE row and drop the twin UPDATE.
+    save_marks = {
+        (log.user_id, log.screening_id, log.created_at.replace(microsecond=0) if log.created_at else None)
+        for log in saves
+        if (log.action or "").upper() == "SAVE"
+    }
+    deduped = []
+    for log in saves:
+        stamp = log.created_at.replace(microsecond=0) if log.created_at else None
+        if (log.action or "").upper() != "SAVE" and (log.user_id, log.screening_id, stamp) in save_marks:
+            continue
+        deduped.append(log)
+
+    user_ids = {log.user_id for log in deduped if log.user_id}
+    handles = {log.username for log in deduped if log.username}
+    handles.update(
+        h for h in (screening.updated_by, screening.created_by) if h
+    )
+    by_id = {}
+    by_username = {}
+    if user_ids or handles:
+        clauses = []
+        if user_ids:
+            clauses.append(User.id.in_(user_ids))
+        if handles:
+            clauses.append(User.username.in_(handles))
+        found = db.query(User).filter(or_(*clauses)).all() if clauses else []
+        for user in found:
+            name = (user.full_name or "").strip()
+            if not name:
+                continue
+            by_id[user.id] = name
+            if user.username:
+                by_username[user.username] = name
+
+    def person_name(log) -> str:
+        return (
+            by_id.get(log.user_id)
+            or by_username.get(log.username or "")
+            or "—"
+        )
+
+    rows = []
+    for log in deduped:
+        form = (log.new_values or {}).get("form") or _FORM_LABELS.get(log.table_name) or log.table_name
+        rows.append({
+            "id": log.id,
+            "form": form,
+            "saved_by": person_name(log),
+            "saved_at": log.created_at.isoformat() if log.created_at else None,
+        })
+    if not rows and screening.explicitly_saved and screening.updated_at:
+        who = by_username.get(screening.updated_by or "") or by_username.get(screening.created_by or "") or "—"
+        rows.append({
+            "id": 0,
+            "form": "Form A — Screening",
+            "saved_by": who,
+            "saved_at": screening.updated_at.isoformat(),
+        })
+    return rows

@@ -23,6 +23,7 @@ import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
 import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
+import { formatDateToDDMMYYYY } from "./utils/datetime";
 import {
   Search, AlertTriangle, CheckCircle2, ArrowRight, RefreshCw, X,
 } from "lucide-react";
@@ -362,7 +363,7 @@ export default function GACheckLog() {
                 const unreliable = e.ga_source && e.ga_source !== RELIABLE_SOURCE;
                 return (
                   <tr key={e.id} className={isGap ? "gac-row--gap" : ""}>
-                    <td>{e.check_date || "—"}</td>
+                    <td>{e.check_date ? formatDateToDDMMYYYY(e.check_date) : "—"}</td>
                     <td>{e.site_name || "—"}</td>
                     <td>{e.mother_name || "—"}</td>
                     <td>{e.mother_uid || "—"}</td>

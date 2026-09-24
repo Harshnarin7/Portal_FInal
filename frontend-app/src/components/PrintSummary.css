@@ -280,6 +280,44 @@
     border-bottom: 0.3px solid #ddd;
   }
 
+  .pr-compact-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #0B2A4A;
+    color: #fff;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .pr-compact-title { font-size: 14pt; font-weight: bold; }
+  .pr-compact-sub { font-size: 9pt; }
+  .pr-compact-id {
+    margin-left: auto;
+    border: 1px solid #fff;
+    padding: 3px 8px;
+    text-align: center;
+    font-size: 7pt;
+  }
+  .pr-compact-id strong { display: block; font-size: 11pt; }
+  .pr-compact-pill {
+    font-size: 8pt;
+    font-weight: bold;
+    padding: 4px 8px;
+    background: #b91c1c;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .pr-compact-pill.pr-outcome-eligible { background: #15803d; }
+  .pr-compact-sec {
+    margin-top: 8px;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #0B2A4A;
+    letter-spacing: 0.04em;
+  }
+
   /* ── Signature area ── */
   .pr-sig-area {
     display: flex;
