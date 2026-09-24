@@ -643,7 +643,7 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
                  source="Form A records with no linked Gestation Log entry \u2014 a direct Form A "
                         "entry that bypassed the log, or a record from before the log existed."),
         ]),
-        _row(2, "Not screened", box2_total, sites,
+        _row(2, "Not approached/Not screened for eligibility", box2_total, sites,
              source="Sum of the 5 reasons below a Gestation Log entry never became a Form A. Does "
                     "NOT include the \"eligible, Form A not yet completed\" gap \u2014 see the footnote "
                     "for that count.",
@@ -671,13 +671,16 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
              source="Form A records that were screened but are not eligible (4a) or have an A4 "
                     "exclusion criterion (4b) \u2014 see the 2 rows below.",
              sub_rows=[
-                 _row(None, "GA outside inclusion window or unknown at Form A stage "
-                            "(legacy \u2014 the current Gestation Log + Form A validation "
-                            "no longer allow a new record to reach this state)", m("box4a"), sites,
+                 _row(None, "GA outside inclusion window or unknown, recorded on Form A itself",
+                      m("box4a"), sites,
                       source="Form A records with no exclusion ticked but gestation unknown or "
-                             "outside 25+0\u201331+6 weeks. Should be zero/near-zero for any record "
-                             "created after 2026-09-24 \u2014 Form A itself now refuses to save "
-                             "outside this window."),
+                             "outside 25+0\u201331+6 weeks AT THE TIME FORM A WAS COMPLETED. "
+                             "Rare/legacy now that Form A itself refuses to save outside this "
+                             "window \u2014 NOT the same as a woman whose gestation was confirmed "
+                             "<32 weeks at consent but crossed 32 weeks because delivery was "
+                             "delayed: that is a real, ongoing event checked on Form B at the "
+                             "delivery table, and is tracked under Box 7's \"GA \u226532 weeks\" "
+                             "reason instead."),
                  _row(None, "Met exclusion criteria", m("box4b"), sites,
                       source="Form A records where any A4 exclusion question was answered Yes \u2014 "
                              "see the 5 rows below (not mutually exclusive, one record can have more "

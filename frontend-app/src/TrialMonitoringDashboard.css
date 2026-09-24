@@ -253,12 +253,20 @@
   outline: none;
 }
 
+/* Rendered via a document.body portal with viewport-fixed `left`/`top`
+   set inline by InfoTip (JS-computed from the icon's own bounding rect)
+   -- NOT positioned relative to .tmd-info-wrap. A <td> in this
+   border-collapse:collapse table paints cell backgrounds in a layer
+   order that can cover an absolutely-positioned descendant with the
+   NEXT row's background regardless of z-index; escaping to a
+   body-level portal sidesteps that table-layout quirk entirely, since
+   the tooltip no longer participates in the table's stacking at all.
+   Mount/unmount (not CSS hover) controls visibility, so no
+   opacity/visibility transition is needed here. */
 .tmd-info-tip {
-  position: absolute;
-  left: 50%;
-  top: 130%;
+  position: fixed;
   transform: translateX(-50%);
-  z-index: 30;
+  z-index: 1000;
   width: 260px;
   max-width: min(70vw, 260px);
   background: #0f172a;
@@ -271,15 +279,7 @@
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
   white-space: normal;
   text-align: left;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.12s ease;
   pointer-events: none;
-}
-.tmd-info-wrap:hover .tmd-info-tip,
-.tmd-info-wrap:focus-within .tmd-info-tip {
-  opacity: 1;
-  visibility: visible;
 }
 
 /* ── Section tabs ── */
