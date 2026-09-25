@@ -2050,7 +2050,11 @@ const PREFILL_FIELD_LABELS = {
   feed_intolerance: "Feed Intolerance", nec: "NEC",
   pn: "PN", probiotic: "Probiotic", cholestasis: "Cholestasis",
   hypothermia: "Hypothermia", hyperthermia: "Hyperthermia",
-  rop_screened: "ROP Screened", rop: "ROP Diagnosed",
+  rop_screened: "ROP Screened", rop: "ROP Diagnosed", rop_side: "ROP Side",
+  rop_stage_right: "Right Eye Stage", rop_zone_right: "Right Eye Zone", rop_plus_right: "Right Eye Plus",
+  rop_arop_right: "Right Eye A-ROP", rop_treatment_right: "Right Eye Treatment",
+  rop_stage_left: "Left Eye Stage", rop_zone_left: "Left Eye Zone", rop_plus_left: "Left Eye Plus",
+  rop_arop_left: "Left Eye A-ROP", rop_treatment_left: "Left Eye Treatment",
   hs_pda: "HS-PDA", pda_medical_rx: "PDA Medical Rx", shock: "Shock",
   fluid_bolus: "Fluid Bolus", inotropes: "Vasoactives",
   sbp: "SBP", dbp: "DBP", map: "MAP",
@@ -2672,20 +2676,56 @@ const handleGiChange = (e) => {
 // in the Neuro domain. Severity/location/etiology checkboxes under
 // Thermoregulation have no day-log source either, see the backend
 // endpoint docstring.
+// ROP fields come from Form G (ROP Screening) when it has them, else the
+// daily log -- the backend decides and reports `sources` per field. Order
+// matters: rop/rop_side/rop_treatment_* are applied before the fields they
+// gate, so the gating checks below see the value being filled in.
+const ROP_EYE_FIELDS = (eye) => [
+  `rop_stage_${eye}`, `rop_zone_${eye}`, `rop_plus_${eye}`, `rop_arop_${eye}`, `rop_treatment_${eye}`,
+  `rop_laser_${eye}`, `rop_anti_vegf_${eye}`, `rop_vitrectomy_${eye}`, `rop_other_${eye}`, `rop_other_text_${eye}`,
+];
 const ROP_THERMO_PREFILL_FIELDS = [
   "hypothermia", "hypothermia_lowest_temp",
   "hyperthermia", "hyperthermia_temp",
-  "rop_screened", "rop_first_screen_date",
-  "rop", "rop_diagnosis_date",
+  "rop_screened", "rop_method", "rop_first_screen_date",
+  "rop", "rop_diagnosis_date", "rop_side",
+  ...ROP_EYE_FIELDS("right"), ...ROP_EYE_FIELDS("left"),
+];
+// Treatment-type checkboxes default to false rather than "", so "blank"
+// for them means "not ticked"; the backend only ever sends true.
+const ROP_BOOLEAN_PREFILL_FIELDS = new Set([
+  "rop_laser_right", "rop_anti_vegf_right", "rop_vitrectomy_right", "rop_other_right",
+  "rop_laser_left", "rop_anti_vegf_left", "rop_vitrectomy_left", "rop_other_left",
+]);
+
+// Staleness is checked only on categorical answers -- temperature extremes
+// and dates are excluded on purpose, same reasoning as every other domain.
+const ROP_THERMO_STALE_CHECK_FIELDS = [
+  "hypothermia", "hyperthermia", "rop_screened", "rop", "rop_side",
+  "rop_stage_right", "rop_zone_right", "rop_plus_right", "rop_arop_right", "rop_treatment_right",
+  "rop_stage_left", "rop_zone_left", "rop_plus_left", "rop_arop_left", "rop_treatment_left",
 ];
 
-// Only the 4 Yes/No fields get checked for staleness — the temperature
-// extremes and onset dates are excluded on purpose, same reasoning as
-// every other domain: those keep drifting or are one-time facts once
-// set, not a meaningful "review this" signal.
-const ROP_THERMO_STALE_CHECK_FIELDS = [
-  "hypothermia", "hyperthermia", "rop_screened", "rop",
-];
+// Per-eye ROP fields are only filled when the (resulting) form actually
+// shows them -- otherwise hidden values would be saved without the
+// side/diagnosis clearing effects ever running on them.
+const ropFieldVisible = (field, form) => {
+  if (field === "rop_method" || field === "rop_first_screen_date") return form.rop_screened === "Yes";
+  if (field === "rop_diagnosis_date" || field === "rop_side") return form.rop === "Yes";
+  const eye = field.endsWith("_right") ? "right" : field.endsWith("_left") ? "left" : null;
+  if (!eye) return true;
+  if (form.rop !== "Yes") return false;
+  const sideOk = eye === "right"
+    ? form.rop_side === "Right" || form.rop_side === "Bilateral"
+    : form.rop_side === "Left" || form.rop_side === "Bilateral";
+  if (!sideOk) return false;
+  if (/^rop_(laser|anti_vegf|vitrectomy|other)_(right|left)$/.test(field)) return form[`rop_treatment_${eye}`] === "Yes";
+  if (field.startsWith("rop_other_text_")) return form[`rop_other_${eye}`] === true;
+  return true;
+};
+
+const ropSourceLabel = (field) =>
+  ropThermoPrefill?.sources?.[field] === "form_g" ? "from Form G" : "from daily logs";
 
 // force: see the comment on fetchVascularAccessPrefill above — overwrites
 // already-answered fields instead of only blank ones.
@@ -2704,6 +2744,14 @@ const fetchRopThermoPrefill = async ({ force = false } = {}) => {
       ROP_THERMO_PREFILL_FIELDS.forEach((field) => {
         const value = data[field];
         if (isBlank(value)) return;
+        if (!ropFieldVisible(field, next)) return;
+        if (ROP_BOOLEAN_PREFILL_FIELDS.has(field)) {
+          if (value === true && next[field] !== true) {
+            next[field] = true;
+            filled[field] = true;
+          }
+          return;
+        }
         const currentlyBlank = isBlank(prev[field]);
         const disagrees = !currentlyBlank
           && ROP_THERMO_STALE_CHECK_FIELDS.includes(field)
@@ -3037,9 +3085,10 @@ const renderRopThermoFieldStaleBanner = (field, phrase) => {
   if (!ropThermoStale[field]) return null;
   const fromLogs = ropThermoPrefill?.[field] || "Yes";
   const current = formData[field] || "blank";
+  const sourceName = ropThermoPrefill?.sources?.[field] === "form_g" ? "Form G" : "Daily logs";
   return (
     <div className="field-hint-stale-inline" role="status">
-      Daily logs show {phrase} ({fromLogs}), but this is currently answered {current}. Click Refill to update.
+      {sourceName} show {phrase} ({fromLogs}), but this is currently answered {current}. Click Refill to update.
       <button
         type="button"
         className="link-button"
@@ -9718,10 +9767,10 @@ const peripheralStatus= getPeripheralStatus();
 )}
 {Object.keys(ropThermoStale).length > 0 && (
   <div className="field-hint field-hint-warning">
-    ⚠ The daily logs now disagree with the saved answer for:{" "}
+    ⚠ Form G / the daily logs now disagree with the saved answer for:{" "}
     {Object.keys(ropThermoStale).map((f) => PREFILL_FIELD_LABELS[f] || f).join(", ")}.
-    This can happen if Form H was answered before the daily logs had this
-    data. Use "Force refill" above if the daily logs are correct.
+    This can happen if Form H was answered before Form G or the daily logs
+    had this data. Use "Force refill" above if they are correct.
   </div>
 )}
 
@@ -9755,7 +9804,7 @@ const peripheralStatus= getPeripheralStatus();
       {/* ---------------- SCREENING (179-181) ---------------- */}
       <div className="form-group">
         <YesNoToggle label="179. Screened" name="rop_screened" value={formData.rop_screened} onChange={handleRopThermoChange} onBlur={handleBlur} required />
-        {ropThermoAutoFilled.rop_screened && <span className="field-hint-auto-inline">from daily logs</span>}
+        {ropThermoAutoFilled.rop_screened && <span className="field-hint-auto-inline">{ropSourceLabel("rop_screened")}</span>}
         {renderRopThermoFieldStaleBanner("rop_screened", "ROP was screened")}
         {touched.rop_screened && errors.rop_screened && <div className="error-text">{errors.rop_screened}</div>}
       </div>
@@ -9767,10 +9816,11 @@ const peripheralStatus= getPeripheralStatus();
             <input
               name="rop_method"
               value={formData.rop_method || ""}
-              onChange={handleChange}
+              onChange={handleRopThermoChange}
               onBlur={handleBlur}
               placeholder="e.g. Indirect ophthalmoscopy, RetCam"
             />
+            {ropThermoAutoFilled.rop_method && <span className="field-hint-auto-inline">{ropSourceLabel("rop_method")}</span>}
             {touched.rop_method && errors.rop_method && <div className="error-text">{errors.rop_method}</div>}
           </div>
 
@@ -9783,7 +9833,7 @@ const peripheralStatus= getPeripheralStatus();
               onChange={handleRopThermoChange}
               onBlur={handleBlur}
             />
-            {ropThermoAutoFilled.rop_first_screen_date && <span className="field-hint-auto-inline">from daily logs</span>}
+            {ropThermoAutoFilled.rop_first_screen_date && <span className="field-hint-auto-inline">{ropSourceLabel("rop_first_screen_date")}</span>}
             {touched.rop_first_screen_date && errors.rop_first_screen_date && <div className="error-text">{errors.rop_first_screen_date}</div>}
           </div>
         </div>
@@ -9792,7 +9842,7 @@ const peripheralStatus= getPeripheralStatus();
       {/* ---------------- DIAGNOSIS (182-184) ---------------- */}
       <div className="form-group">
         <YesNoToggle label="182. ROP Diagnosed" name="rop" value={formData.rop} onChange={handleRopThermoChange} onBlur={handleBlur} required />
-        {ropThermoAutoFilled.rop && <span className="field-hint-auto-inline">from daily logs</span>}
+        {ropThermoAutoFilled.rop && <span className="field-hint-auto-inline">{ropSourceLabel("rop")}</span>}
         {renderRopThermoFieldStaleBanner("rop", "ROP was diagnosed")}
         {touched.rop && errors.rop && <div className="error-text">{errors.rop}</div>}
       </div>
@@ -9809,7 +9859,7 @@ const peripheralStatus= getPeripheralStatus();
                 onChange={handleRopThermoChange}
                 onBlur={handleBlur}
               />
-              {ropThermoAutoFilled.rop_diagnosis_date && <span className="field-hint-auto-inline">from daily logs</span>}
+              {ropThermoAutoFilled.rop_diagnosis_date && <span className="field-hint-auto-inline">{ropSourceLabel("rop_diagnosis_date")}</span>}
               {touched.rop_diagnosis_date && errors.rop_diagnosis_date && <div className="error-text">{errors.rop_diagnosis_date}</div>}
             </div>
 
@@ -9821,11 +9871,12 @@ const peripheralStatus= getPeripheralStatus();
                 name="rop_side"
                 value={formData.rop_side || ""}
                 options={["Right", "Left", "Bilateral"]}
-                onChange={handleChange}
+                onChange={handleRopThermoChange}
                 onBlur={handleBlur}
                 touched={touched.rop_side}
                 error={errors.rop_side}
               />
+              {ropThermoAutoFilled.rop_side && <span className="field-hint-auto-inline">{ropSourceLabel("rop_side")}</span>}
             </div>
           </div>
 
@@ -9843,15 +9894,17 @@ const peripheralStatus= getPeripheralStatus();
                     name="rop_stage_right"
                     value={formData.rop_stage_right || ""}
                     options={["1", "2", "3", "4", "5"]}
-                    onChange={handleChange}
+                    onChange={handleRopThermoChange}
                     onBlur={handleBlur}
                     touched={touched.rop_stage_right}
                     error={errors.rop_stage_right}
                   />
+                  {ropThermoAutoFilled.rop_stage_right && <span className="field-hint-auto-inline">{ropSourceLabel("rop_stage_right")}</span>}
                 </div>
 
                 <div className="form-group">
-                  <YesNoToggle label="186. Plus" name="rop_plus_right" value={formData.rop_plus_right} onChange={handleChange} onBlur={handleBlur} required />
+                  <YesNoToggle label="186. Plus" name="rop_plus_right" value={formData.rop_plus_right} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                  {ropThermoAutoFilled.rop_plus_right && <span className="field-hint-auto-inline">{ropSourceLabel("rop_plus_right")}</span>}
                   {touched.rop_plus_right && errors.rop_plus_right && <div className="error-text">{errors.rop_plus_right}</div>}
                 </div>
 
@@ -9863,21 +9916,24 @@ const peripheralStatus= getPeripheralStatus();
                     name="rop_zone_right"
                     value={formData.rop_zone_right || ""}
                     options={["I", "II", "III"]}
-                    onChange={handleChange}
+                    onChange={handleRopThermoChange}
                     onBlur={handleBlur}
                     touched={touched.rop_zone_right}
                     error={errors.rop_zone_right}
                   />
+                  {ropThermoAutoFilled.rop_zone_right && <span className="field-hint-auto-inline">{ropSourceLabel("rop_zone_right")}</span>}
                 </div>
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="188. A-ROP (Aggressive ROP)" name="rop_arop_right" value={formData.rop_arop_right} onChange={handleChange} onBlur={handleBlur} required />
+                <YesNoToggle label="188. A-ROP (Aggressive ROP)" name="rop_arop_right" value={formData.rop_arop_right} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                {ropThermoAutoFilled.rop_arop_right && <span className="field-hint-auto-inline">{ropSourceLabel("rop_arop_right")}</span>}
                 {touched.rop_arop_right && errors.rop_arop_right && <div className="error-text">{errors.rop_arop_right}</div>}
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="189. Treatment" name="rop_treatment_right" value={formData.rop_treatment_right} onChange={handleChange} onBlur={handleBlur} required />
+                <YesNoToggle label="189. Treatment" name="rop_treatment_right" value={formData.rop_treatment_right} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                {ropThermoAutoFilled.rop_treatment_right && <span className="field-hint-auto-inline">{ropSourceLabel("rop_treatment_right")}</span>}
                 {touched.rop_treatment_right && errors.rop_treatment_right && <div className="error-text">{errors.rop_treatment_right}</div>}
               </div>
 
@@ -9892,9 +9948,12 @@ const peripheralStatus= getPeripheralStatus();
                       { name: "rop_vitrectomy_right", label: "Vitrectomy", checked: formData.rop_vitrectomy_right },
                       { name: "rop_other_right", label: "Other", checked: formData.rop_other_right },
                     ]}
-                    onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+                    onToggle={(name, checked) => { clearRopThermoAutoFilled(name); handleChange({ target: { name, type: "checkbox", checked } }); }}
                     error={errors.rop_treatment_type_right_group}
                   />
+                  {["rop_laser_right", "rop_anti_vegf_right", "rop_vitrectomy_right", "rop_other_right"].some((f) => ropThermoAutoFilled[f]) && (
+                    <span className="field-hint-auto-inline">{ropSourceLabel("rop_treatment_right")}</span>
+                  )}
 
                   {formData.rop_other_right && (
                     <div className="form-group" style={{marginTop: 12}}>
@@ -9902,7 +9961,7 @@ const peripheralStatus= getPeripheralStatus();
                       <input
                         name="rop_other_text_right"
                         value={formData.rop_other_text_right || ""}
-                        onChange={handleChange}
+                        onChange={handleRopThermoChange}
                         onBlur={handleBlur}
                       />
                       {touched.rop_other_text_right && errors.rop_other_text_right && <div className="error-text">{errors.rop_other_text_right}</div>}
@@ -9927,15 +9986,17 @@ const peripheralStatus= getPeripheralStatus();
                     name="rop_stage_left"
                     value={formData.rop_stage_left || ""}
                     options={["1", "2", "3", "4", "5"]}
-                    onChange={handleChange}
+                    onChange={handleRopThermoChange}
                     onBlur={handleBlur}
                     touched={touched.rop_stage_left}
                     error={errors.rop_stage_left}
                   />
+                  {ropThermoAutoFilled.rop_stage_left && <span className="field-hint-auto-inline">{ropSourceLabel("rop_stage_left")}</span>}
                 </div>
 
                 <div className="form-group">
-                  <YesNoToggle label="192. Plus" name="rop_plus_left" value={formData.rop_plus_left} onChange={handleChange} onBlur={handleBlur} required />
+                  <YesNoToggle label="192. Plus" name="rop_plus_left" value={formData.rop_plus_left} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                  {ropThermoAutoFilled.rop_plus_left && <span className="field-hint-auto-inline">{ropSourceLabel("rop_plus_left")}</span>}
                   {touched.rop_plus_left && errors.rop_plus_left && <div className="error-text">{errors.rop_plus_left}</div>}
                 </div>
 
@@ -9947,21 +10008,24 @@ const peripheralStatus= getPeripheralStatus();
                     name="rop_zone_left"
                     value={formData.rop_zone_left || ""}
                     options={["I", "II", "III"]}
-                    onChange={handleChange}
+                    onChange={handleRopThermoChange}
                     onBlur={handleBlur}
                     touched={touched.rop_zone_left}
                     error={errors.rop_zone_left}
                   />
+                  {ropThermoAutoFilled.rop_zone_left && <span className="field-hint-auto-inline">{ropSourceLabel("rop_zone_left")}</span>}
                 </div>
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="194. A-ROP (Aggressive ROP)" name="rop_arop_left" value={formData.rop_arop_left} onChange={handleChange} onBlur={handleBlur} required />
+                <YesNoToggle label="194. A-ROP (Aggressive ROP)" name="rop_arop_left" value={formData.rop_arop_left} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                {ropThermoAutoFilled.rop_arop_left && <span className="field-hint-auto-inline">{ropSourceLabel("rop_arop_left")}</span>}
                 {touched.rop_arop_left && errors.rop_arop_left && <div className="error-text">{errors.rop_arop_left}</div>}
               </div>
 
               <div className="form-group">
-                <YesNoToggle label="195. Treatment" name="rop_treatment_left" value={formData.rop_treatment_left} onChange={handleChange} onBlur={handleBlur} required />
+                <YesNoToggle label="195. Treatment" name="rop_treatment_left" value={formData.rop_treatment_left} onChange={handleRopThermoChange} onBlur={handleBlur} required />
+                {ropThermoAutoFilled.rop_treatment_left && <span className="field-hint-auto-inline">{ropSourceLabel("rop_treatment_left")}</span>}
                 {touched.rop_treatment_left && errors.rop_treatment_left && <div className="error-text">{errors.rop_treatment_left}</div>}
               </div>
 
@@ -9976,9 +10040,12 @@ const peripheralStatus= getPeripheralStatus();
                       { name: "rop_vitrectomy_left", label: "Vitrectomy", checked: formData.rop_vitrectomy_left },
                       { name: "rop_other_left", label: "Other", checked: formData.rop_other_left },
                     ]}
-                    onToggle={(name, checked) => handleChange({ target: { name, type: "checkbox", checked } })}
+                    onToggle={(name, checked) => { clearRopThermoAutoFilled(name); handleChange({ target: { name, type: "checkbox", checked } }); }}
                     error={errors.rop_treatment_type_left_group}
                   />
+                  {["rop_laser_left", "rop_anti_vegf_left", "rop_vitrectomy_left", "rop_other_left"].some((f) => ropThermoAutoFilled[f]) && (
+                    <span className="field-hint-auto-inline">{ropSourceLabel("rop_treatment_left")}</span>
+                  )}
 
                   {formData.rop_other_left && (
                     <div className="form-group" style={{marginTop: 12}}>
@@ -9986,7 +10053,7 @@ const peripheralStatus= getPeripheralStatus();
                       <input
                         name="rop_other_text_left"
                         value={formData.rop_other_text_left || ""}
-                        onChange={handleChange}
+                        onChange={handleRopThermoChange}
                         onBlur={handleBlur}
                       />
                       {touched.rop_other_text_left && errors.rop_other_text_left && <div className="error-text">{errors.rop_other_text_left}</div>}

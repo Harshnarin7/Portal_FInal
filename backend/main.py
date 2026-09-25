@@ -30,7 +30,7 @@ from rop_form_g_linkage import (
     enrich_rop_screening_payload,
     sync_rop_screening_from_metab_log,
 )
-from rop_consistency import build_rop_consistency_report
+from rop_consistency import build_rop_consistency_report, derive_form_h_rop_from_form_g
 from mml_resp_a_autofill import (
     autofill_from_mml_rows,
     autofill_list_field_from_mml_rows,
@@ -2984,13 +2984,16 @@ def get_rop_thermoreg_prefill(
     - rop_first_screen_date / rop_diagnosis_date: earliest day
       `rop_screened` / `rop_detected` was true, via the usual
       NICUAdmission.day1_date cross-table pattern.
-    - rop_method, rop_side, and every per-eye field (stage/plus/zone/
-      A-ROP/treatment/treatment-type, right and left) are deliberately
-      NOT filled: the day log's `rop_stage`/`plus_disease`/`rop_treatment`
-      are single flat fields with no left/right split, so there's no way
-      to know which eye (or both) they refer to — same side-ambiguity
-      reasoning as IVH/PVL in the Neuro domain. Zone and A-ROP have no
-      day-log field at all.
+    - The day log can't fill rop_method, rop_side, or any per-eye field
+      (stage/plus/zone/A-ROP/treatment): its `rop_stage`/`plus_disease`/
+      `rop_treatment` are single flat fields with no left/right split.
+
+    Form G (ROP Screening) is the PRIMARY source for every ROP field
+    (2026-09-25): it's the ophthalmologist's own per-eye record. See
+    rop_consistency.derive_form_h_rop_from_form_g() for the mapping. Any
+    ROP key Form G has a value for overrides the day-log value; the day
+    log remains the fallback (e.g. before Form G is filled). `sources`
+    tells the frontend which one each ROP field came from.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -2999,8 +3002,22 @@ def get_rop_thermoreg_prefill(
         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
         .all()
     )
+    rop_record = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    form_g = derive_form_h_rop_from_form_g(rop_record)
     if not logs:
-        return {"has_data": False}
+        if not form_g:
+            return {"has_data": False}
+        return {
+            "has_data": True,
+            "log_days_count": 0,
+            **form_g,
+            "sources": {k: "form_g" for k in form_g},
+        }
 
     def to_float(v):
         try:
@@ -3030,6 +3047,14 @@ def get_rop_thermoreg_prefill(
     hypothermia_from_temp = any(t < 36.5 for t in temps)
     hyperthermia_from_temp = any(t > 37.5 for t in temps)
 
+    day_log_rop = {
+        "rop_screened": "Yes" if any_day("rop_screened") else "No",
+        "rop_first_screen_date": earliest_date("rop_screened"),
+        "rop": "Yes" if any_day("rop_detected") else "No",
+        "rop_diagnosis_date": earliest_date("rop_detected"),
+    }
+    sources = {k: "daily_log" for k, v in day_log_rop.items() if v is not None}
+    sources.update({k: "form_g" for k in form_g})
     return {
         "has_data": True,
         "log_days_count": len(logs),
@@ -3037,10 +3062,9 @@ def get_rop_thermoreg_prefill(
         "hypothermia_lowest_temp": min(temps) if temps else None,
         "hyperthermia": "Yes" if (hyperthermia_from_temp or (not temps and any_day("hyperthermia"))) else "No",
         "hyperthermia_temp": max(temps) if temps else None,
-        "rop_screened": "Yes" if any_day("rop_screened") else "No",
-        "rop_first_screen_date": earliest_date("rop_screened"),
-        "rop": "Yes" if any_day("rop_detected") else "No",
-        "rop_diagnosis_date": earliest_date("rop_detected"),
+        **day_log_rop,
+        **form_g,
+        "sources": sources,
     }
 
 
