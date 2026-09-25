@@ -37,7 +37,7 @@ const RL_MAP = {
 };
 
 function workspaceNavClass({ isActive }) {
-  return `ds-focus flex h-9 items-center gap-2 rounded-lg border-0 px-3 text-[12px] shadow-none transition-colors ${
+  return `ds-focus flex h-9 items-center gap-2 rounded-lg border-0 px-3 text-[13px] font-medium tracking-[-0.01em] no-underline shadow-none transition-colors ${
     isActive
       ? "bg-portal-primary-mid font-semibold text-white"
       : "bg-transparent text-portal-muted hover:bg-portal-ice hover:text-portal-ink"
@@ -67,7 +67,7 @@ export default function DashboardSidebar({
               onClose?.();
             }}
             aria-current={active ? "page" : undefined}
-            className={`ds-focus flex h-10 items-center gap-3 rounded-lg border-0 px-3 text-left text-[13px] font-medium shadow-none transition-colors ${
+            className={`ds-focus flex h-10 items-center gap-3 rounded-lg border-0 px-3 text-left font-[Inter,system-ui,sans-serif] text-[13.5px] font-medium tracking-[-0.01em] shadow-none transition-colors ${
               active
                 ? "bg-portal-primary-mid font-semibold text-white"
                 : "bg-transparent text-portal-muted hover:bg-portal-ice hover:text-portal-ink"
@@ -83,7 +83,7 @@ export default function DashboardSidebar({
 
   const workspace = (
     <div className="mt-4 px-1">
-      <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-portal-outline">
+      <p className="mb-1.5 px-3 font-[Inter,system-ui,sans-serif] text-[11px] font-medium uppercase tracking-[0.08em] text-portal-outline">
         Workspace
       </p>
       <div className="flex flex-col gap-0.5">
@@ -144,15 +144,15 @@ export default function DashboardSidebar({
     <div className="mt-auto px-2 pb-2">
       <div className="rounded-lg bg-white p-3 shadow-card">
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-portal-outline">
+          <p className="m-0 font-[Inter,system-ui,sans-serif] text-[11px] font-medium uppercase tracking-[0.08em] text-portal-outline">
             Assigned Role
           </p>
-          <span className="rounded bg-portal-secondary-fixed px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-portal-primary">
+          <span className="rounded bg-portal-secondary-fixed px-1.5 py-0.5 font-[Inter,system-ui,sans-serif] text-[10px] font-medium uppercase tracking-[0.06em] text-portal-primary">
             Active
           </span>
         </div>
-        <p className="text-[12px] font-semibold text-portal-ink">{roleLabel}</p>
-        <p className="mt-0.5 text-[11px] text-portal-muted">
+        <p className="m-0 font-[Inter,system-ui,sans-serif] text-[14px] font-semibold tracking-[-0.02em] text-portal-ink">{roleLabel}</p>
+        <p className="m-0 mt-1 font-[Inter,system-ui,sans-serif] text-[12px] font-normal tracking-[-0.01em] text-portal-muted">
           {user?.site ? formatSiteName(user.site) : "PORTAL Trial"}
         </p>
       </div>
@@ -160,9 +160,9 @@ export default function DashboardSidebar({
   );
 
   const panel = (
-    <div className="flex h-full w-60 flex-col bg-portal-surface-low text-portal-ink">
+    <div className="flex h-full w-60 flex-col bg-portal-surface-low font-[Inter,system-ui,sans-serif] text-portal-ink [&_a]:no-underline">
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-4">
-        <p className="mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.06em] text-portal-outline">
+        <p className="mb-2 px-4 font-[Inter,system-ui,sans-serif] text-[11px] font-medium uppercase tracking-[0.08em] text-portal-outline">
           Navigation Menu
         </p>
         {nav}

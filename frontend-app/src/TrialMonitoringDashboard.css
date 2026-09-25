@@ -41,25 +41,107 @@
 }
 
 .global-site-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  box-sizing: border-box;
+  width: 240px;
+  max-width: 100%;
+  height: 40px;
+  margin: 0;
+  padding: 0 12px 0 14px;
+  border: 1px solid #9eb8d4;
+  border-radius: 999px;
+  background: #d7e6f5;
+  box-shadow: 0 1px 2px rgba(0, 29, 61, 0.08);
+}
+
+.global-site-filter__label {
+  flex: none;
+  margin: 0;
+  padding: 0 10px 0 0;
+  border-right: 1px solid #9eb8d4;
   font-size: 11px;
-  font-weight: 700;
-  color: var(--tmd-muted);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--tmd-muted);
 }
 
 .global-site-filter__select {
-  min-width: 200px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--tmd-border);
-  background: var(--tmd-surface);
+  box-sizing: border-box;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  margin: 0;
+  padding: 0 22px 0 10px;
+  border: 0;
+  border-radius: 0;
+  background-color: #d7e6f5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23001d3d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+  background-size: 14px;
+  appearance: none;
+  overflow: hidden;
+  font-family: Inter, system-ui, "Segoe UI", sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-align: left;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
   color: var(--tmd-ink);
+  cursor: pointer;
+}
+
+.global-site-filter__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid #d5e4f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 14px 36px rgba(0, 29, 61, 0.16);
+}
+
+.global-site-filter__menu button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: Inter, system-ui, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  text-align: left;
+  text-transform: none;
+  white-space: nowrap;
+  color: #1c3148;
+  cursor: pointer;
+}
+
+.global-site-filter__menu button:hover,
+.global-site-filter__menu button.is-active {
+  background: #e7f0fa;
+  color: #001d3d;
+  font-weight: 600;
 }
 
 .tmd-title {

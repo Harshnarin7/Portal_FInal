@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { isGlobalUser } from "../../utils/roles";
 import {
   Bell,
   Menu,
   RefreshCw,
-  Search,
   Sparkles,
   LogOut,
 } from "lucide-react";
-import { COORDINATING_SITE, formatSiteName } from "./siteLabels";
+import { formatSiteName, formatSiteShort } from "./siteLabels";
 
 const NOTIF_COL = {
   warn: "#E8A020",
@@ -18,8 +18,6 @@ const NOTIF_COL = {
 };
 
 export default function DashboardHeader({
-  search,
-  onSearchChange,
   now,
   notifications,
   notifOpen,
@@ -34,6 +32,16 @@ export default function DashboardHeader({
 }) {
   const { user, logout } = useAuth();
   const [confirmOut, setConfirmOut] = useState(false);
+  const siteChip = user?.site
+    ? formatSiteShort(user.site)
+    : isGlobalUser(user)
+      ? "All sites"
+      : "";
+  const siteChipTitle = user?.site
+    ? formatSiteName(user.site)
+    : isGlobalUser(user)
+      ? "All trial sites"
+      : "";
 
   const handleLogout = () => {
     logout();
@@ -41,10 +49,10 @@ export default function DashboardHeader({
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2.5 border-b border-portal-line/60 bg-portal-mist/90 px-4 backdrop-blur-xl sm:px-5">
+    <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center gap-3 border-b border-[#00132c] bg-[#001d3d] px-4 shadow-[0_8px_24px_rgba(0,19,44,0.18)] sm:px-5">
       <button
         type="button"
-        className="ds-focus flex h-10 w-10 items-center justify-center rounded-lg border-0 bg-transparent text-portal-outline shadow-none hover:bg-portal-surface-low lg:hidden"
+        className="ds-focus flex h-10 w-10 items-center justify-center rounded-lg border-0 bg-white/10 text-white shadow-none hover:bg-white/15 lg:hidden"
         aria-label="Open navigation"
         onClick={onMenu}
       >
@@ -52,58 +60,46 @@ export default function DashboardHeader({
       </button>
 
       <div className="hidden min-w-0 shrink-0 items-center gap-2.5 lg:flex">
-        <img src="/logo.png" alt="" className="h-8 w-auto object-contain" />
-        <div className="min-w-0 leading-tight">
-          <p className="font-display text-[16px] font-semibold uppercase tracking-tight text-portal-primary">
-            PORTAL
+        <img src="/logo.png" alt="" className="h-11 w-auto object-contain" />
+        <div className="flex min-w-0 flex-col justify-center">
+          <p className="m-0 font-display text-[17px] font-semibold leading-none tracking-[-0.02em] text-white">
+            Portal
           </p>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-portal-outline">
-            Clinical Research Platform // Clinical Ops
+          <p className="m-0 mt-0.5 text-[11px] font-normal leading-none tracking-normal text-[#b7c6dc]">
+            Clinical research platform
           </p>
         </div>
       </div>
 
-      <p className="min-w-0 truncate font-display text-[15px] font-semibold text-portal-primary lg:hidden">
+      <p className="min-w-0 flex-1 truncate font-display text-[15px] font-medium tracking-[-0.01em] text-white lg:hidden">
         {tabLabel}
       </p>
 
-      <div className="relative min-w-0 max-w-[22rem] flex-1 lg:w-[22rem] lg:flex-none">
-        <Search
-          size={15}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-portal-outline"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          className="ds-focus h-9 w-full rounded-lg border-0 bg-white pl-9 pr-3 text-[13px] text-portal-ink shadow-card placeholder:text-slate-400"
-          placeholder="Search patient, site, or enrollment ID..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          aria-label="Search patient, site, or enrollment ID"
-        />
-      </div>
-
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <span className="hidden items-center gap-1.5 rounded-lg bg-portal-surface-low px-2 py-1.5 xl:inline-flex" title="Live telemetry">
+        <span className="hidden items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 xl:inline-flex" title="Live telemetry">
           <span className="h-1.5 w-1.5 rounded-full bg-portal-live animate-ds-pulse" aria-hidden="true" />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-portal-live">Live</span>
+          <span className="text-[12px] font-medium tracking-normal text-[#8ee0b8]">Live</span>
         </span>
 
         <time
-          className="hidden items-center rounded-lg bg-portal-surface-low px-2 py-1.5 font-data-mono text-[12px] font-medium text-portal-ink lg:inline-flex"
+          className="hidden items-center rounded-full bg-white/10 px-2.5 py-1.5 text-[12px] font-medium tracking-normal text-white lg:inline-flex"
           dateTime={now.toISOString()}
         >
-          {now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} IST
+          {now.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+          {" · "}
+          {now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
         </time>
 
-        <span className="hidden items-center rounded-lg bg-portal-surface-low px-2 py-1.5 2xl:inline-flex" title={COORDINATING_SITE}>
-          <span className="text-[12px] font-medium text-portal-ink">PGIMER</span>
-        </span>
+        {siteChip && (
+          <span className="hidden items-center rounded-full bg-white/10 px-2.5 py-1.5 2xl:inline-flex" title={siteChipTitle}>
+            <span className="text-[12px] font-medium text-white">{siteChip}</span>
+          </span>
+        )}
 
         <button
           type="button"
           onClick={onAskAi}
-          className="ds-focus hidden h-9 items-center gap-1.5 rounded-lg border-0 bg-portal-primary px-3 text-[12px] font-medium tracking-wide text-white hover:bg-portal-primary-mid sm:inline-flex"
+          className="ds-focus hidden h-9 items-center gap-1.5 rounded-full border-0 bg-[#006398] px-3.5 text-[13px] font-medium tracking-normal text-white hover:bg-[#1478b0] sm:inline-flex"
         >
           <Sparkles size={13} aria-hidden="true" />
           Ask AI
@@ -112,7 +108,7 @@ export default function DashboardHeader({
         <button
           type="button"
           onClick={onRefresh}
-          className="ds-focus flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-white text-portal-outline shadow-card hover:bg-portal-surface-low"
+          className="ds-focus flex h-9 w-9 items-center justify-center rounded-full border-0 bg-white/10 text-white shadow-none hover:bg-white/20"
           aria-label="Refresh dashboard"
         >
           <RefreshCw size={16} />
@@ -121,7 +117,7 @@ export default function DashboardHeader({
         <div className="relative">
           <button
             type="button"
-            className="ds-focus relative flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-white text-portal-outline shadow-card hover:bg-portal-surface-low"
+            className="ds-focus relative flex h-9 w-9 items-center justify-center rounded-full border-0 bg-white/10 text-white shadow-none hover:bg-white/20"
             aria-label="Notifications"
             aria-expanded={notifOpen}
             onClick={onNotifToggle}
@@ -133,10 +129,9 @@ export default function DashboardHeader({
           </button>
           {notifOpen && (
             <>
-              <button
-                type="button"
-                className="fixed inset-0 z-40 cursor-default"
-                aria-label="Close notifications"
+              <div
+                className="fixed inset-0 z-40 cursor-default bg-transparent"
+                aria-hidden="true"
                 onClick={onNotifClose}
               />
               <div
@@ -176,7 +171,7 @@ export default function DashboardHeader({
           )}
         </div>
 
-        <div className="hidden items-center gap-2.5 border-l border-portal-line/80 pl-2 sm:flex">
+        <div className="hidden items-center gap-2.5 border-l border-white/15 pl-2.5 sm:flex">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white"
             style={{ background: roleColor }}
@@ -184,31 +179,63 @@ export default function DashboardHeader({
           >
             {(user?.name || "U")[0].toUpperCase()}
           </div>
-          <div className="min-w-0 max-w-[148px]">
-            <p className="truncate text-[12px] font-semibold text-portal-ink">{user?.name || "User"}</p>
-            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-portal-secondary">
+          <div className="flex min-w-0 max-w-[160px] flex-col justify-center">
+            <p className="m-0 truncate text-[13px] font-medium leading-none tracking-[-0.01em] text-white">
+              {user?.full_name || user?.name || "User"}
+            </p>
+            <p className="m-0 mt-0.5 truncate text-[11px] font-normal leading-none tracking-normal text-[#b7c6dc]">
               {roleLabel}
               {user?.site ? ` · ${formatSiteName(user.site)}` : ""}
             </p>
           </div>
         </div>
 
-        {confirmOut ? (
-          <div className="flex items-center gap-1 text-[11px] font-medium">
-            <span className="hidden text-portal-muted sm:inline">Log out?</span>
-            <button type="button" onClick={handleLogout} className="ds-focus rounded-lg bg-portal-accent px-2 py-1 text-white">Yes</button>
-            <button type="button" onClick={() => setConfirmOut(false)} className="ds-focus rounded-lg bg-portal-surface-low px-2 py-1 text-portal-ink">No</button>
-          </div>
-        ) : (
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setConfirmOut(true)}
-            className="ds-focus flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-transparent text-portal-outline shadow-none hover:bg-portal-surface-low"
+            onClick={() => setConfirmOut((open) => !open)}
+            className="ds-focus flex h-9 w-9 items-center justify-center rounded-full border-0 bg-white/10 text-white shadow-none hover:bg-white/20"
             aria-label="Log out"
+            aria-expanded={confirmOut}
           >
             <LogOut size={16} />
           </button>
-        )}
+          {confirmOut && (
+            <>
+              <div
+                className="fixed inset-0 z-40 cursor-default bg-transparent"
+                aria-hidden="true"
+                onClick={() => setConfirmOut(false)}
+              />
+              <div
+                className="absolute right-0 top-[calc(100%+10px)] z-50 w-56 rounded-xl border border-white/10 bg-white p-3.5 shadow-[0_16px_40px_rgba(0,19,44,0.22)]"
+                role="dialog"
+                aria-label="Confirm log out"
+              >
+                <p className="m-0 text-[13px] font-semibold leading-none text-portal-ink">Log out?</p>
+                <p className="m-0 mt-1.5 text-[12px] leading-snug text-portal-muted">
+                  You will need to sign in again to continue.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="ds-focus h-8 flex-1 rounded-lg border-0 bg-portal-accent text-[12px] font-semibold text-white hover:opacity-90"
+                  >
+                    Log out
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmOut(false)}
+                    className="ds-focus h-8 flex-1 rounded-lg border border-portal-line bg-white text-[12px] font-semibold text-portal-ink hover:bg-portal-surface-low"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </header>
   );

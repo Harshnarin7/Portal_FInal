@@ -365,4 +365,36 @@
     color: #666;
   }
 
+  /* Form B is denser than Form A — keep the whole report on one A4 page. */
+  .pr-root--b {
+    padding: 8mm 10mm 6mm;
+    font-size: 8pt;
+  }
+  .pr-root--b .pr-header { margin-bottom: 2px; gap: 8px; }
+  .pr-root--b .pr-study-title { font-size: 13pt; }
+  .pr-root--b .pr-study-full { font-size: 7pt; line-height: 1.2; max-width: 340px; }
+  .pr-root--b .pr-study-meta { margin-top: 1px; }
+  .pr-root--b .pr-doc-label { margin-bottom: 2px; }
+  .pr-root--b .pr-meta-table td { padding: 1px 5px; font-size: 7pt; }
+  .pr-root--b .pr-rule { margin: 2px 0 3px; }
+  .pr-root--b .pr-outcome { padding: 2px 8px; margin-bottom: 3px; }
+  .pr-root--b .pr-outcome-value { font-size: 11pt; }
+  .pr-root--b .pr-section { margin-bottom: 3px; }
+  .pr-root--b .pr-section-hd { margin-bottom: 1px; padding-bottom: 0; }
+  .pr-root--b .pr-td-label,
+  .pr-root--b .pr-td-value,
+  .pr-root--b .pr-exc-label,
+  .pr-root--b .pr-exc-yn {
+    font-size: 7pt;
+    padding-top: 0.4px;
+    padding-bottom: 0.4px;
+    line-height: 1.15;
+  }
+  .pr-root--b .pr-exc-th-label,
+  .pr-root--b .pr-exc-th-yn { padding: 0.5px 3px; }
+  .pr-root--b .pr-sig-area { margin-top: 6px; gap: 12px; page-break-before: avoid; }
+  .pr-root--b .pr-sig-space { height: 18px; }
+  .pr-root--b .pr-sig-line { height: 4px; }
+  .pr-root--b .pr-footer { margin-top: 4px; }
+
 } /* end @media print */

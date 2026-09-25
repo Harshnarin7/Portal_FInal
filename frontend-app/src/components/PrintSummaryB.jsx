@@ -44,7 +44,7 @@ const E = ({ label, value }) => (
   </tr>
 );
 
-function PrintReportB({ formData = {} }) {
+function PrintReportB({ formData = {}, preparedByName = "", piName = "" }) {
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "long", year: "numeric",
   });
@@ -85,16 +85,16 @@ function PrintReportB({ formData = {} }) {
   const outcomeKey = outcome.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/g, "");
 
   return (
-    <div className="pr-root">
+    <div className="pr-root pr-root--b">
       <div className="pr-header">
         <div className="pr-header-left">
           <div className="pr-study-title">PORTAL Trial</div>
           <div className="pr-study-full">
-            Providing initial Oxygen for delivery Room resuscitATion of
-            preteRm infants using targeted Low oxygen versus air
+            Initial Oxygen for Delivery room Resuscitation of preterm neonates:
+            a triple-arm, multi-site, randomized, controlled trial
           </div>
           <div className="pr-study-meta">
-            ICMR Funded · Multi-site RCT · PGIMER Chandigarh
+            ICMR Funded · Multi-site RCT
           </div>
         </div>
         <div className="pr-header-right">
@@ -110,6 +110,10 @@ function PrintReportB({ formData = {} }) {
               <tr>
                 <td className="pr-meta-key">Screening ID</td>
                 <td className="pr-meta-val">{v(formData.screening_id)}</td>
+              </tr>
+              <tr>
+                <td className="pr-meta-key">Site</td>
+                <td className="pr-meta-val">{v(formData.site_name)}</td>
               </tr>
               <tr>
                 <td className="pr-meta-key">Print Date</td>
@@ -274,16 +278,24 @@ function PrintReportB({ formData = {} }) {
 
       <div className="pr-sig-area">
         <div className="pr-sig-block">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
-          <div className="pr-sig-cap">Prepared By — Name &amp; Signature</div>
+          <div className="pr-sig-name">{v(preparedByName)}</div>
+          <div className="pr-sig-cap">Prepared By — Signature</div>
         </div>
         <div className="pr-sig-block">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
+          <div className="pr-sig-name">
+            {formData.created_at ? fmtDate(formData.created_at) : fmtDate(new Date())}
+          </div>
           <div className="pr-sig-cap">Date</div>
         </div>
         <div className="pr-sig-block">
+          <div className="pr-sig-space" />
           <div className="pr-sig-line" />
-          <div className="pr-sig-cap">Investigator / Delegate — Signature</div>
+          <div className="pr-sig-name">{v(piName)}</div>
+          <div className="pr-sig-cap">Principal Investigator — Signature</div>
         </div>
       </div>
 
@@ -308,14 +320,14 @@ function ensurePrintPortal() {
   return portalEl;
 }
 
-export default function PrintSummaryB({ formData }) {
+export default function PrintSummaryB({ formData, preparedByName, piName }) {
   useEffect(() => {
     document.body.classList.add("has-print-summary");
     return () => document.body.classList.remove("has-print-summary");
   }, []);
 
   return ReactDOM.createPortal(
-    <PrintReportB formData={formData} />,
+    <PrintReportB formData={formData} preparedByName={preparedByName} piName={piName} />,
     ensurePrintPortal()
   );
 }

@@ -5,6 +5,7 @@ import "./styles/global.css";
 import "./styles/FormA.css";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
+import { useAuth } from "./context/AuthContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -314,6 +315,7 @@ export default function BirthResuscitationForm() {
   const { screeningId } = useParams();
   const [confirmedEnrollmentId, setConfirmedEnrollmentId] = useState(null);
   const { updatePatientData } = usePatient();
+  const { user } = useAuth();
 
   /* ── State ── */
   const [errors,           setErrors]           = useState({});
@@ -331,6 +333,7 @@ export default function BirthResuscitationForm() {
   const [showDraftModal,  setShowDraftModal]   = useState(false);
   const [showSaveSuccess, setShowSaveSuccess]  = useState(false);
   const [siteName,        setSiteName]          = useState("");
+  const [piName,          setPiName]            = useState("");
   const [babyUidDuplicateWarn, setBabyUidDuplicateWarn] = useState("");
   const [enrollmentDuplicateWarn, setEnrollmentDuplicateWarn] = useState("");
   const SITE_ID_MAP = {
@@ -455,6 +458,14 @@ export default function BirthResuscitationForm() {
     },
   };
   const [formData, setFormData] = useState(BLANK);
+
+  useEffect(() => {
+    const site = (siteName || "").trim();
+    if (!site) { setPiName(""); return; }
+    api.get(`/sites/${encodeURIComponent(site)}/pi-name`)
+      .then(r => setPiName(r.data?.pi_name || ""))
+      .catch(() => setPiName(""));
+  }, [siteName]);
   // Live check (not just at Save) — birth can't be recorded as happening
   // before the mother was even screened.
   const birthBeforeScreening = (() => {
@@ -2921,7 +2932,11 @@ export default function BirthResuscitationForm() {
         onClose={() => setShowSaveSuccess(false)}
         message="Form B has been saved successfully."
       />
-      <PrintSummaryB formData={formData} />
+      <PrintSummaryB
+        formData={formData}
+        preparedByName={(user?.full_name || "").trim()}
+        piName={piName}
+      />
     </>
   );
 }

@@ -347,7 +347,7 @@ export default function Dashboard() {
       {tab === "overview" && (
         <div className="space-y-6">
           {isGlobal && (
-            <div className="flex justify-end">
+            <div className="flex w-full min-w-0 justify-end">
               <GlobalSiteFilter
                 value={apiSite}
                 onChange={setApiSite}
