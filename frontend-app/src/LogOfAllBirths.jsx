@@ -55,40 +55,47 @@ function ynLabel(v) {
   return "";
 }
 
-function MatchBadge({ status, screeningId }) {
+// Two independent facts (2026-09-24 PI-directed redesign), each its own
+// badge, shown together whenever both apply -- see
+// birth_log_matching.py's module docstring. `match_status` is purely
+// about Form A; `ga_log_missing` is purely about the Gestation Log and is
+// shown regardless of match_status (the PI explicitly wants an orphan
+// Form A -- matched, but the Gestation Log was bypassed -- flagged too).
+function MatchBadges({ status, screeningId, gaLogMissing }) {
+  const badges = [];
   if (status === "matched") {
-    return (
-      <span className="lob-badge lob-badge--matched">
+    badges.push(
+      <span key="matched" className="lob-badge lob-badge--matched">
         <CheckCircle2 size={13} /> Matched{screeningId ? ` — ${screeningId}` : ""}
       </span>
     );
-  }
-  if (status === "never_checked") {
-    return (
-      <span className="lob-badge lob-badge--danger">
-        <AlertTriangle size={13} /> Never checked — no GA log entry
+  } else if (status === "in_range_no_match") {
+    badges.push(
+      <span key="no-form-a" className="lob-badge lob-badge--alert">
+        <AlertTriangle size={13} /> Not filled Form A
       </span>
     );
-  }
-  if (status === "in_range_no_match") {
-    return (
-      <span className="lob-badge lob-badge--alert">
-        <AlertTriangle size={13} /> In range, checked but no Form A
-      </span>
-    );
-  }
-  if (status === "ga_unknown") {
-    return (
-      <span className="lob-badge lob-badge--unknown">
+  } else if (status === "ga_unknown") {
+    badges.push(
+      <span key="unknown" className="lob-badge lob-badge--unknown">
         <HelpCircle size={13} /> GA unknown
       </span>
     );
+  } else {
+    badges.push(
+      <span key="out-of-range" className="lob-badge lob-badge--neutral">
+        <Circle size={13} /> Out of range
+      </span>
+    );
   }
-  return (
-    <span className="lob-badge lob-badge--neutral">
-      <Circle size={13} /> Out of range
-    </span>
-  );
+  if (gaLogMissing) {
+    badges.push(
+      <span key="no-ga-log" className="lob-badge lob-badge--danger">
+        <AlertTriangle size={13} /> Never Checked GA log
+      </span>
+    );
+  }
+  return <div className="lob-badge-stack">{badges}</div>;
 }
 
 export default function LogOfAllBirths() {
@@ -100,6 +107,11 @@ export default function LogOfAllBirths() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [editingId, setEditingId] = useState(null);
+  // 2026-09-24: the 5 reason checkboxes are hidden by default and only
+  // appear when the user clicks "Add reason" on a row (or when editing
+  // an entry that already has a reason saved) -- per the PI's explicit
+  // "only show when clicked" decision, not always-visible in the form.
+  const [showReasonSection, setShowReasonSection] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -119,13 +131,18 @@ export default function LogOfAllBirths() {
   useEffect(() => { load(); }, [load]);
 
   const alertCount = useMemo(
-    () => entries.filter((e) => e.match_status === "in_range_no_match" || e.match_status === "never_checked").length,
+    () => entries.filter((e) => e.match_status === "in_range_no_match" || e.ga_log_missing).length,
     [entries]
   );
 
   const setField = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
-  const resetForm = () => { setForm(BLANK_ENTRY); setEditingId(null); setSaveError(""); };
+  const resetForm = () => {
+    setForm(BLANK_ENTRY);
+    setEditingId(null);
+    setSaveError("");
+    setShowReasonSection(false);
+  };
 
   const startEdit = (entry) => {
     setEditingId(entry.id);
@@ -146,8 +163,17 @@ export default function LogOfAllBirths() {
       reason_not_approached_list: reasonList,
       reason_not_approached_other: reasonList.includes("Other") ? (entry.reason_not_approached_other || "") : "",
     });
+    setShowReasonSection(reasonList.length > 0);
     setSaveError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // "Add reason" action button (per-row) -- opens the entry for editing
+  // AND forces the reason section open, so a user going straight for the
+  // reason doesn't have to separately notice/click a second toggle.
+  const startAddReason = (entry) => {
+    startEdit(entry);
+    setShowReasonSection(true);
   };
 
   const toggleReason = (opt) => setForm((p) => {
@@ -218,9 +244,8 @@ export default function LogOfAllBirths() {
         <div className="lob-alert-banner">
           <AlertTriangle size={16} />
           <span>
-            <strong>{alertCount}</strong> GA-eligible birth{alertCount === 1 ? "" : "s"} logged
-            with no matching Form A screening (checked but not continued, or never checked at
-            all) — review below.
+            <strong>{alertCount}</strong> entr{alertCount === 1 ? "y needs" : "ies need"} review —
+            "Not filled Form A" and/or "Never Checked GA log" below.
           </span>
         </div>
       )}
@@ -289,25 +314,33 @@ export default function LogOfAllBirths() {
           </label>
         </div>
 
-        <div className="lob-reason-section">
-          <span className="lob-reason-label">
-            If no matching Form A is found, reason not approached (optional — most relevant once
-            this entry shows "In range" or "Never checked" below)
-          </span>
-          <div className="lob-reason-group">
-            {NOT_APPROACHED_REASONS.map((opt) => (
-              <label key={opt} className={`lob-reason-item${form.reason_not_approached_list.includes(opt) ? " checked" : ""}`}>
-                <input type="checkbox" checked={form.reason_not_approached_list.includes(opt)} onChange={() => toggleReason(opt)} />
-                <span>{opt}</span>
-              </label>
-            ))}
+        {!showReasonSection && (
+          <button type="button" className="lob-link-btn lob-add-reason-toggle" onClick={() => setShowReasonSection(true)}>
+            + Add reason
+          </button>
+        )}
+
+        {showReasonSection && (
+          <div className="lob-reason-section">
+            <div className="lob-reason-head">
+              <span className="lob-reason-label">Reason not approached</span>
+              <button type="button" className="lob-link-btn" onClick={() => setShowReasonSection(false)}>Hide</button>
+            </div>
+            <div className="lob-reason-group">
+              {NOT_APPROACHED_REASONS.map((opt) => (
+                <label key={opt} className={`lob-reason-item${form.reason_not_approached_list.includes(opt) ? " checked" : ""}`}>
+                  <input type="checkbox" checked={form.reason_not_approached_list.includes(opt)} onChange={() => toggleReason(opt)} />
+                  <span>{opt}</span>
+                </label>
+              ))}
+            </div>
+            {form.reason_not_approached_list.includes("Other") && (
+              <input className="lob-reason-other-input" placeholder="Please specify…"
+                value={form.reason_not_approached_other}
+                onChange={(e) => setField("reason_not_approached_other", e.target.value)} />
+            )}
           </div>
-          {form.reason_not_approached_list.includes("Other") && (
-            <input className="lob-reason-other-input" placeholder="Please specify…"
-              value={form.reason_not_approached_other}
-              onChange={(e) => setField("reason_not_approached_other", e.target.value)} />
-          )}
-        </div>
+        )}
 
         {saveError && <div className="lob-form-error">{saveError}</div>}
         <div className="lob-form-actions">
@@ -343,23 +376,35 @@ export default function LogOfAllBirths() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className={e.match_status === "in_range_no_match" || e.match_status === "never_checked" ? "lob-row--alert" : ""}>
-                  <td>{e.date_of_birth ? formatDateToDDMMYYYY(e.date_of_birth) : "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
-                  <td>{e.mother_uid || "—"}</td>
-                  <td>{e.mother_name || "—"}</td>
-                  <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
-                  <td>{e.mode_of_delivery || "—"}</td>
-                  <td>{e.birth_weight_grams ?? "—"}</td>
-                  <td>{ynLabel(e.resuscitation_required) || "—"}</td>
-                  <td>{ynLabel(e.ppv_required) || "—"}</td>
-                  <td><MatchBadge status={e.match_status} screeningId={e.matched_screening_id} /></td>
-                  <td>{e.reason_not_approached || "—"}</td>
-                  <td>
-                    <button type="button" className="lob-link-btn" onClick={() => startEdit(e)}>Edit</button>
-                  </td>
-                </tr>
-              ))}
+              {entries.map((e) => {
+                const isAlert = e.match_status === "in_range_no_match" || e.ga_log_missing;
+                // "Add reason" only makes sense when Form A is genuinely
+                // missing -- an orphan Form A (matched, but
+                // ga_log_missing=TRUE) has nothing to explain via "reason
+                // not approached", since she WAS screened.
+                const canAddReason = e.match_status === "in_range_no_match";
+                return (
+                  <tr key={e.id} className={isAlert ? "lob-row--alert" : ""}>
+                    <td>{e.date_of_birth ? formatDateToDDMMYYYY(e.date_of_birth) : "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
+                    <td>{e.mother_uid || "—"}</td>
+                    <td>{e.mother_name || "—"}</td>
+                    <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
+                    <td>{e.mode_of_delivery || "—"}</td>
+                    <td>{e.birth_weight_grams ?? "—"}</td>
+                    <td>{ynLabel(e.resuscitation_required) || "—"}</td>
+                    <td>{ynLabel(e.ppv_required) || "—"}</td>
+                    <td><MatchBadges status={e.match_status} screeningId={e.matched_screening_id} gaLogMissing={e.ga_log_missing} /></td>
+                    <td>
+                      {e.reason_not_approached || (canAddReason
+                        ? <button type="button" className="lob-link-btn" onClick={() => startAddReason(e)}>+ Add reason</button>
+                        : "—")}
+                    </td>
+                    <td>
+                      <button type="button" className="lob-link-btn" onClick={() => startEdit(e)}>Edit</button>
+                    </td>
+                  </tr>
+                );
+              })}
               {!loading && entries.length === 0 && (
                 <tr><td colSpan={11} className="lob-empty">No births logged yet.</td></tr>
               )}

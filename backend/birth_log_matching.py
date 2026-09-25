@@ -13,13 +13,27 @@ encrypted at rest, so this can't be a SQL WHERE -- candidates are narrowed
 by site_name (plain, indexed) and matched in Python after decrypting.
 
 A second cross-check (2026-09-24) also matches against GACheckEntry (the
-Gestation (Inclusion Criteria) Screening Log -- ga_check.py/GACheckLog.jsx)
-to distinguish two different kinds of miss for an in-range, unmatched
-birth: "in_range_no_match" (a nurse checked her GA but the record never
-continued into Form A) vs. the strictly worse "never_checked" (no
-Gestation Log entry exists for her at all -- nobody ever checked her GA
-in the first place). That second case is the true remaining gap the
-Gestation Log's own Box 1 population exists to close.
+Gestation (Inclusion Criteria) Screening Log -- ga_check.py/GACheckLog.jsx).
+
+**Restructured 2026-09-24 (PI-directed) from one combined `match_status`
+enum into two INDEPENDENT facts, each surfaced as its own badge on
+LogOfAllBirths.jsx, both shown together whenever both apply:**
+- `match_status` -- purely about Form A: "matched" | "in_range_no_match"
+  | "out_of_range" | "ga_unknown". ("never_checked" no longer exists as
+  a match_status value -- see below.)
+- `ga_log_missing` -- purely about the Gestation Log: True if no
+  Gestation Log entry exists for this woman at all, regardless of
+  whether Form A was also found. A woman CAN have `match_status=
+  "matched"` (Form A exists) AND `ga_log_missing=True` at the same time
+  -- a direct/orphan Form A entry that bypassed the log entirely. The PI
+  explicitly wants this shown even when Form A is fine, since it's real
+  data-quality information (is staff actually using the intended triage
+  workflow?) independent of whether Form A itself is missing.
+
+Only computed (True/False, never left at the SQL-NULL default) when
+`match_status` is "matched" or "in_range_no_match" -- left NULL for
+out_of_range/ga_unknown, since this log is preterm-triage-only and
+asking "was her GA ever checked" makes no sense for a term birth.
 """
 from __future__ import annotations
 
@@ -135,23 +149,20 @@ def match_birth_log_entry(
     elif ga_range == "ga_unknown":
         match_status = "ga_unknown"
     elif ga_range == "in_range":
-        # A miss at this point is either "she was checked at triage but
-        # never continued into Form A" (in_range_no_match) or the strictly
-        # worse "nobody ever even checked her GA" (never_checked) -- the
-        # true gap the Gestation Log's own Box 1 population exists to
-        # close. Distinguished by whether ANY Gestation Log entry exists
-        # for this woman at all, regardless of what it concluded (even an
-        # Unknown/Unreliable-source entry proves she was seen).
-        match_status = (
-            "in_range_no_match"
-            if _has_ga_check_entry(db, site_name, target_uid, target_name)
-            else "never_checked"
-        )
+        match_status = "in_range_no_match"
     else:
         match_status = "out_of_range"
+
+    # Independent of match_status -- see module docstring. Only
+    # meaningful (non-NULL) for the two match_status values where "was
+    # her GA ever checked" is a sensible question at all.
+    ga_log_missing: Optional[bool] = None
+    if match_status in ("matched", "in_range_no_match"):
+        ga_log_missing = not _has_ga_check_entry(db, site_name, target_uid, target_name)
 
     return {
         "matched_screening_id": matched_screening_id,
         "matched_enrollment_id": matched_enrollment_id,
         "match_status": match_status,
+        "ga_log_missing": ga_log_missing,
     }

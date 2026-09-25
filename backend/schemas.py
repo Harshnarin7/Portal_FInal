@@ -2968,6 +2968,7 @@ class BirthLogEntryOut(BirthLogEntryCreate):
     matched_screening_id: Optional[str] = None
     matched_enrollment_id: Optional[str] = None
     match_status: Optional[str] = None
+    ga_log_missing: Optional[bool] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

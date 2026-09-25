@@ -27,7 +27,8 @@ different populations:
   orphans out).
 - Box 3 "Screened for Eligibility" = every `screenings` (Form A) row —
   can ONLY ever be reached from a Gestation Log entry that was Reliable
-  and <32 weeks (or a direct Form A entry bypassing the log entirely).
+  and within the 25+0-31+6 week window (or a direct Form A entry
+  bypassing the log entirely).
 
 Proof this guarantees Approached >= Screened: let G = ga_check_log row
 count, L = ga_check_log rows with `continued_to_screening=TRUE` (i.e.
@@ -187,20 +188,27 @@ GA_CHECK_QUERY = text("""
 """)
 
 # Box 2's other sub-reason: births known only from the Log of All Births,
-# with NO matching Gestation Log entry at all (never even checked) -- see
-# birth_log_matching.py's match_birth_log_entry(). Deliberately NOT part
-# of Box 1's own total (see module docstring).
+# in the GA-eligible range, with NO matching Form A AND no Gestation Log
+# entry at all (never even checked) -- see birth_log_matching.py's
+# match_birth_log_entry(). Both conditions are required for this specific
+# CONSORT "Not Screened" sub-reason -- an orphan/direct Form A entry that
+# bypassed the log (match_status="matched", ga_log_missing=TRUE) was
+# unquestionably screened, so it must NOT count here even though
+# ga_log_missing is TRUE for it too (that fact is surfaced separately, as
+# its own badge, on the Log of All Births page itself -- see
+# birth_log_matching.py's module docstring). Deliberately NOT part of Box
+# 1's own total (see module docstring above).
 NEVER_CHECKED_QUERY = text("""
     SELECT site_name, COUNT(*) AS n
     FROM birth_log_all_births
-    WHERE match_status = 'never_checked'
+    WHERE match_status = 'in_range_no_match' AND ga_log_missing = TRUE
     GROUP BY site_name
 """)
 
 NEVER_CHECKED_REASON_QUERY = text("""
     SELECT site_name, reason_not_approached AS reason, COUNT(*) AS n
     FROM birth_log_all_births
-    WHERE match_status = 'never_checked'
+    WHERE match_status = 'in_range_no_match' AND ga_log_missing = TRUE
       AND reason_not_approached IS NOT NULL AND reason_not_approached != ''
     GROUP BY site_name, reason_not_approached
 """)
@@ -230,8 +238,8 @@ SCREENING_QUERY = text(f"""
 
         -- Box 3: screened for eligibility = every Form A record, full
         -- stop -- can only ever be reached from a Gestation Log entry
-        -- that was Reliable and <32 weeks (or a direct Form A entry
-        -- bypassing the log).
+        -- that was Reliable and within the 25+0-31+6 week window (or a
+        -- direct Form A entry bypassing the log).
         COUNT(*) AS box3,
 
         -- Box 4a: screened, no exclusion flag, but GA unknown or outside
@@ -657,8 +665,10 @@ def _build_rows(ga_counts_by_site, never_checked_by_site, never_checked_reasons_
                         "(a nurse logging a known miss after the fact)."),
             _row(None, "IUFD at screening", box2_iufd, sites,
                  source="Gestation Log entries with \"Found to be IUFD\" ticked."),
-            _row(None, "Checked, gestation \u226532 weeks (reliable source)", box2_not_candidate_older, sites,
-                 source="Gestation Log entries with source = Reliable and gestation \u226532 weeks."),
+            _row(None, "Checked, gestation outside 25+0\u201331+6 window (reliable source)", box2_not_candidate_older, sites,
+                 source="Gestation Log entries with source = Reliable and gestation outside the "
+                        "25+0\u201331+6 week inclusion window (either <25 or \u226532 weeks) \u2014 "
+                        "see ga_check.py::classify_eligibility()."),
             _row(None, "Checked, gestation source unreliable/unknown", box2_not_candidate_unreliable, sites,
                  source="Gestation Log entries with source = Unknown/Unreliable (weeks were never "
                         "entered for these, by design)."),
@@ -817,7 +827,7 @@ def get_consort_flow(
     if eligible_gap_total > 0:
         footnotes.append(
             f"{eligible_gap_total} Gestation Log entr{'y is' if eligible_gap_total == 1 else 'ies are'} "
-            "eligible (Reliable source, <32 weeks) but Form A has not been completed yet -- "
+            "eligible (Reliable source, 25+0-31+6 weeks) but Form A has not been completed yet -- "
             "still mid-process, so not counted in either \"Screened for Eligibility\" or "
             "\"Not Screened\" above. See the Gestation Log's own \"Eligible, no Form A yet\" list."
         )

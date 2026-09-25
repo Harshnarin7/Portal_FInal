@@ -30,7 +30,7 @@ from rop_form_g_linkage import (
     enrich_rop_screening_payload,
     sync_rop_screening_from_metab_log,
 )
-from rop_consistency import build_rop_consistency_report
+from rop_consistency import build_rop_consistency_report, derive_form_h_rop_from_form_g
 from mml_resp_a_autofill import (
     autofill_from_mml_rows,
     autofill_list_field_from_mml_rows,
@@ -2984,13 +2984,16 @@ def get_rop_thermoreg_prefill(
     - rop_first_screen_date / rop_diagnosis_date: earliest day
       `rop_screened` / `rop_detected` was true, via the usual
       NICUAdmission.day1_date cross-table pattern.
-    - rop_method, rop_side, and every per-eye field (stage/plus/zone/
-      A-ROP/treatment/treatment-type, right and left) are deliberately
-      NOT filled: the day log's `rop_stage`/`plus_disease`/`rop_treatment`
-      are single flat fields with no left/right split, so there's no way
-      to know which eye (or both) they refer to — same side-ambiguity
-      reasoning as IVH/PVL in the Neuro domain. Zone and A-ROP have no
-      day-log field at all.
+    - The day log can't fill rop_method, rop_side, or any per-eye field
+      (stage/plus/zone/A-ROP/treatment): its `rop_stage`/`plus_disease`/
+      `rop_treatment` are single flat fields with no left/right split.
+
+    Form G (ROP Screening) is the PRIMARY source for every ROP field
+    (2026-09-25): it's the ophthalmologist's own per-eye record. See
+    rop_consistency.derive_form_h_rop_from_form_g() for the mapping. Any
+    ROP key Form G has a value for overrides the day-log value; the day
+    log remains the fallback (e.g. before Form G is filled). `sources`
+    tells the frontend which one each ROP field came from.
     """
     require_enrollment_access(enrollment_id, db, current_user)
 
@@ -2999,8 +3002,22 @@ def get_rop_thermoreg_prefill(
         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id)
         .all()
     )
+    rop_record = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    form_g = derive_form_h_rop_from_form_g(rop_record)
     if not logs:
-        return {"has_data": False}
+        if not form_g:
+            return {"has_data": False}
+        return {
+            "has_data": True,
+            "log_days_count": 0,
+            **form_g,
+            "sources": {k: "form_g" for k in form_g},
+        }
 
     def to_float(v):
         try:
@@ -3030,6 +3047,14 @@ def get_rop_thermoreg_prefill(
     hypothermia_from_temp = any(t < 36.5 for t in temps)
     hyperthermia_from_temp = any(t > 37.5 for t in temps)
 
+    day_log_rop = {
+        "rop_screened": "Yes" if any_day("rop_screened") else "No",
+        "rop_first_screen_date": earliest_date("rop_screened"),
+        "rop": "Yes" if any_day("rop_detected") else "No",
+        "rop_diagnosis_date": earliest_date("rop_detected"),
+    }
+    sources = {k: "daily_log" for k, v in day_log_rop.items() if v is not None}
+    sources.update({k: "form_g" for k in form_g})
     return {
         "has_data": True,
         "log_days_count": len(logs),
@@ -3037,10 +3062,9 @@ def get_rop_thermoreg_prefill(
         "hypothermia_lowest_temp": min(temps) if temps else None,
         "hyperthermia": "Yes" if (hyperthermia_from_temp or (not temps and any_day("hyperthermia"))) else "No",
         "hyperthermia_temp": max(temps) if temps else None,
-        "rop_screened": "Yes" if any_day("rop_screened") else "No",
-        "rop_first_screen_date": earliest_date("rop_screened"),
-        "rop": "Yes" if any_day("rop_detected") else "No",
-        "rop_diagnosis_date": earliest_date("rop_detected"),
+        **day_log_rop,
+        **form_g,
+        "sources": sources,
     }
 
 
@@ -7868,6 +7892,7 @@ def create_birth_log_entry(
     record.matched_screening_id = match["matched_screening_id"]
     record.matched_enrollment_id = match["matched_enrollment_id"]
     record.match_status = match["match_status"]
+    record.ga_log_missing = match["ga_log_missing"]
 
     db.add(record)
     db.commit()
@@ -7899,6 +7924,7 @@ def update_birth_log_entry(
     record.matched_screening_id = match["matched_screening_id"]
     record.matched_enrollment_id = match["matched_enrollment_id"]
     record.match_status = match["match_status"]
+    record.ga_log_missing = match["ga_log_missing"]
 
     db.commit()
     db.refresh(record)
@@ -7934,14 +7960,16 @@ def get_birth_log_alerts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """GA-eligible (25w0d-31w6d) births with no matching Form A screening —
-    the completeness cross-check the paper 'Log of All Births' CRF exists
-    for, computed automatically instead of relying on a hand-ticked column.
-    Includes both 'in_range_no_match' (checked at triage, never continued
-    into Form A) and the strictly worse 'never_checked' (no Gestation Log
-    entry for her at all) — match_status in the response tells them apart."""
+    """GA-eligible (25w0d-31w6d) births needing attention — the
+    completeness cross-check the paper 'Log of All Births' CRF exists
+    for, computed automatically instead of relying on a hand-ticked
+    column. Includes any entry with EITHER badge condition: Form A
+    missing (match_status='in_range_no_match') OR no Gestation Log entry
+    at all (ga_log_missing=True, which can also be true on an otherwise-
+    matched entry — see birth_log_matching.py's module docstring)."""
     query = db.query(BirthLogEntry).filter(
-        BirthLogEntry.match_status.in_(["in_range_no_match", "never_checked"])
+        (BirthLogEntry.match_status == "in_range_no_match")
+        | (BirthLogEntry.ga_log_missing.is_(True))
     )
     if not is_global(current_user):
         query = query.filter(BirthLogEntry.site_name == current_user.site_name)
@@ -7955,6 +7983,7 @@ def get_birth_log_alerts(
             "id": r.id,
             "site_name": r.site_name,
             "match_status": r.match_status,
+            "ga_log_missing": r.ga_log_missing,
             "mother_uid": r.mother_uid if can_view(r) else None,
             "mother_name": r.mother_name if can_view(r) else None,
             "date_of_birth": r.date_of_birth.isoformat() if r.date_of_birth else None,
