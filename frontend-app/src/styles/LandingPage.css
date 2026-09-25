@@ -157,13 +157,20 @@ html:has(.lp-root) {
 
 /* ── Nav ── */
 .lp-nav {
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.95);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--lp-line);
+  box-shadow: 0 1px 0 rgba(0, 36, 70, 0.04);
+}
+
+.lp-root {
+  padding-top: 92px;
 }
 
 .lp-nav-inner {
