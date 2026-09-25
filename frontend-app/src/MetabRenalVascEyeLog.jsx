@@ -1846,10 +1846,13 @@ export default function MetabRenalVascEyeLog() {
   /* ═══════════════════════════════════════ RENDER ═══════════════════════════════════════ */
   return (
     <>
-      {isSaved && isEditing && (
+      {/* Unlocked days are always editable (since 7f2068d), so an "editing"
+          banner on every saved day carried no information. Only warn when
+          a locked day has been reopened via Override & Unlock. */}
+      {isSaved && isOverrideActiveDay && (
         <div className="editing-mode-banner">
           <span className="editing-mode-dot" />
-          Editing Mode Active — changes will be saved when you click Save
+          Day {activeDay} reopened by override — you are correcting a locked day. Lock it again when done.
         </div>
       )}
 
