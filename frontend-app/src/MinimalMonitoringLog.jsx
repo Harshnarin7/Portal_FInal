@@ -2104,20 +2104,37 @@ export default function MinimalMonitoringLog() {
     }
   };
 
+  // Save validates the whole sheet, but only problems in the block the nurse
+  // is working in may block it. Before 2026-09-26 an unfinished feed row in
+  // 5.4.A blocked Save in Cardiovascular with "Enter feed volume — check
+  // highlighted fields in this block" though nothing in that block was wrong
+  // (PI-reported). Problems elsewhere now save anyway and name their block.
+  const blockNameOf = (errorKey) => {
+    const meta = BLOCK_META[String(errorKey).split(".")[0]];
+    return meta ? `${meta.code} ${meta.label}` : "another section";
+  };
+
   const handleSave = async () => {
     const next = buildValidationErrors();
     setErrors(next);
-    if (Object.keys(next).length > 0) {
-      const detail = Object.values(next)[0];
+    const here = Object.keys(next).filter(k => activeBlock && k.startsWith(`${activeBlock}.`));
+    const blocking = activeBlock ? here : Object.keys(next);
+    if (blocking.length > 0) {
+      const detail = next[blocking[0]];
       setMessage(detail
-        ? `${detail} — check highlighted fields in this block or the readings table`
+        ? `${detail} — check the highlighted fields in ${blockNameOf(blocking[0])}`
         : "Fix the highlighted fields before saving");
       setTimeout(() => setMessage(""), 5000);
       return;
     }
     const committed = commitFilledDraftRows(entries, sheetDate);
     setEntries(committed);
-    await persist({ silent: false, runValidate: false, entriesSnapshot: committed });
+    const ok = await persist({ silent: false, runValidate: false, entriesSnapshot: committed });
+    const elsewhere = Object.keys(next);
+    if (ok && elsewhere.length > 0) {
+      setMessage(`Sheet saved. Still to finish in ${blockNameOf(elsewhere[0])}: ${next[elsewhere[0]]}`);
+      setTimeout(() => setMessage(""), 6000);
+    }
   };
 
   const flushPersist = (opts = {}) =>

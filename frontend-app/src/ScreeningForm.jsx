@@ -989,7 +989,10 @@ export default function ScreeningForm() {
       /* Video PIS required whenever any consent value is selected */
       if (formData.consent_given && !formData.video_pis_shown)
         add("Video PIS shown? (A5)",                                               "video_pis_shown");
-      if (formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") {
+      // The ICF signature is the consenting party's — it doesn't exist when
+      // consent is refused. Requiring it for "No" made a refusal impossible to
+      // save (PI-reported 2026-09-26). The backend never required it.
+      if (formData.consent_given === "Yes" || formData.consent_given === "Trial run") {
         if (!formData.consent_signature_image) add("Consent signature (A5)", "consent_signature_image");
       }
     }
@@ -1937,8 +1940,9 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
-                    {/* ICF — consenting party signature only (staff/PI attestation is print-only) */}
-                    {(formData.consent_given === "Yes" || formData.consent_given === "No" ||
+                    {/* ICF — consenting party signature only (staff/PI attestation is print-only).
+                        Not shown for a refusal: there is no consenting party to sign. */}
+                    {(formData.consent_given === "Yes" ||
                       formData.consent_given === "Trial run") && (
                       <div className="followup-box icf-signature-box" data-field="consent_signature_image">
                         <label className="followup-label">Informed consent (ICF)</label>
