@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import { getMmlSheet } from "./utils/mmlSheetFetch";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay, NICU_DAY_GRACE_HOUR, helperDayStripLength } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
@@ -146,12 +147,12 @@ async function loadMmlGiAMilkTypesForHelperDay(enrollmentId, recordDate) {
     merged = mergeGiAMilkTypeLists(merged, parseGiAMilkTypes(payload, recordDate));
   };
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
     ingest(res?.data);
   } catch (_) { /* optional */ }
   if (merged.length > 0) return merged;
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today`,
       { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
     );
@@ -174,12 +175,12 @@ async function loadMmlGiAFeedValuesForHelperDay(enrollmentId, recordDate) {
     );
   };
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
     ingest(res?.data);
   } catch (_) { /* optional */ }
   if (merged.length > 0) return merged;
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today`,
       { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
     );
@@ -257,13 +258,13 @@ async function loadMmlHemeTransfusionFlagsForHelperDay(enrollmentId, recordDate)
     merged = mergeHemeTransfusionFlags(merged, parseHemeATransfusionFlags(payload, recordDate));
   };
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
     ingest(res?.data);
   } catch (_) { /* optional */ }
   const hasAny = merged.prbc || merged.platelet || merged.ffpCryo;
   if (hasAny) return merged;
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today`,
       { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
     );
@@ -1566,7 +1567,7 @@ export default function InfectGIHemaLog() {
     if (isSubmitted && !isOverrideActiveDay) return;
     const tick = () => applyMmlAutofillFromHelper5(activeDayDate);
     tick();
-    const interval = setInterval(tick, 60000);
+    const interval = setInterval(() => { if (!document.hidden) tick(); }, 60000);
     const onFocus = () => tick();
     const onVisibility = () => {
       if (document.visibilityState === "visible") tick();

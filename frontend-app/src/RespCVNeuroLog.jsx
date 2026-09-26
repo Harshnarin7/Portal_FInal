@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import { getMmlSheet } from "./utils/mmlSheetFetch";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, nicuDayForCalendarYmd, calendarDateForNicuDay, helperDayStripLength, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
@@ -118,12 +119,12 @@ async function loadMmlFluidBolusForHelperDay(enrollmentId, recordDate) {
     if (mmlHasFluidBolusForHelperDay(payload, recordDate)) has = true;
   };
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
     ingest(res?.data);
   } catch (_) { /* optional */ }
   if (has) return true;
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today`,
       { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
     );
@@ -297,13 +298,13 @@ async function loadMmlBloodGasReadingsForHelperDay(
   };
   const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
     );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     ingest(res?.data || {});
@@ -342,12 +343,12 @@ async function loadMmlRespAEntriesLegacy(enrollmentId, recordDate, { bustCache =
   const remembered = readRememberedMmlSheetDate(enrollmentId);
   if (remembered) datesToFetch.add(remembered);
   for (const ymd of datesToFetch) {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${ymd}${cacheQ}`,
     );
     ingest(res?.data);
   }
-  const res = await api.get(
+  const res = await getMmlSheet(
     `/minimal-monitoring/${enrollmentId}/today${cacheQ}`,
     { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
   );
@@ -418,11 +419,11 @@ async function loadMmlListFieldForHelperDay(
   const cacheQ = bustCache ? `?t=${Date.now()}` : "";
   const parts = [];
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`);
     parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
@@ -513,13 +514,13 @@ async function loadMmlEpisodeReadingsForHelperDay(
   };
   const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
     );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     ingest(res?.data || {});
@@ -1839,7 +1840,10 @@ export default function RespCVNeuroLog() {
       ...opts,
     });
     tick();
-    const interval = setInterval(() => tick(), 15000);
+    // 60 s (was 15 s): same-browser DMS saves and tab focus already refresh
+    // immediately; the timer only has to catch another device's edits.
+    // Hidden tabs skip the tick — focus/visibility catches up on return.
+    const interval = setInterval(() => { if (!document.hidden) tick(); }, 60000);
     const onFocus = () => {
       const dirtyYmd = peekMmlRespDirtyForHelper(enrollmentId);
       const force = dirtyYmd != null && dirtyYmd === activeDayDate;
