@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import "./styles/FormF.css";
 import { designationForCompletedBy } from "./utils/completedByDesignation";
+import { isFormFComplete } from "./utils/formCompletion";
 import NotesBox from "./components/NotesBox";
 import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
@@ -444,6 +445,20 @@ export default function FormF() {
   const helper2CpvlGateBlocking = helper2Flags?.cpvl_flagged === "Yes" && scanEntries.length === 0;
   const helper2GateBlocking = helper2IvhGateBlocking || helper2CpvlGateBlocking;
 
+  // Green tick = key items + sign-off (utils/formCompletion), not "a save
+  // happened" — Back/Next/sidebar autosaves must not tick a blank form.
+  const syncFormFTick = () => {
+    const complete = isFormFComplete({
+      scans: scanEntries, complications, completion, gateBlocking: helper2GateBlocking,
+    });
+    if (complete) markFormCompleted("form_f");
+    else unmarkFormCompleted("form_f");
+  };
+  useEffect(() => {
+    if (!loading && isSaved) syncFormFTick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   /* ── Auto-enriched scan entries (DOL + PMA from date) ── */
   const enrichedScans = useMemo(() =>
     scanEntries.map(s => {
@@ -559,11 +574,7 @@ export default function FormF() {
       isSaved
         ? await api.put(`/form-h/${enrollmentId}`, payload)
         : await api.post("/form-h/", payload);
-      if (helper2GateBlocking) {
-        unmarkFormCompleted("form_f");
-      } else {
-        markFormCompleted("form_f");
-      }
+      syncFormFTick();
       setIsSaved(true); setIsEditing(false);
       setShowSaveSuccess(true);
       setMessage("Form F saved successfully.");
@@ -591,11 +602,7 @@ export default function FormF() {
         isSaved
           ? await api.put(`/form-h/${enrollmentId}`, payload)
           : await api.post("/form-h/", payload);
-        if (helper2GateBlocking) {
-          unmarkFormCompleted("form_f");
-        } else {
-          markFormCompleted("form_f");
-        }
+        syncFormFTick();
         setIsSaved(true);
       }
     } catch (_) {

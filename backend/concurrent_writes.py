@@ -93,7 +93,33 @@ def entry_has_clinical(entry: Any) -> bool:
     return False
 
 
-def merge_mml_entries_json(existing_raw: Any, incoming_raw: Any) -> Optional[str]:
+def merge_mml_entries_json(
+    existing_raw: Any, incoming_raw: Any, deleted_ids: Any = None,
+) -> Optional[str]:
+    """Union merge per DMS block, then drop rows the client explicitly deleted.
+
+    The union alone can never delete: a row missing from the incoming save is
+    indistinguishable from another nurse's row this screen never loaded, so a
+    reading a nurse removed reappeared on the next load. `deleted_ids` are
+    entry ids the client removed on purpose — only those are dropped, so the
+    two-nurse guarantee (neither save wipes the other's new rows) still holds.
+    Older clients (mobile) omit it and keep plain union behaviour.
+    """
+    merged = _union_mml_entries_json(existing_raw, incoming_raw)
+    drop = {str(i).strip() for i in (deleted_ids or []) if str(i or "").strip()}
+    if not drop or merged is None:
+        return merged
+    parsed = _parse_entries(merged)
+    for key, entries in parsed.items():
+        if isinstance(entries, list):
+            parsed[key] = [
+                e for e in entries
+                if not (isinstance(e, dict) and str(e.get("id") or "").strip() in drop)
+            ]
+    return json.dumps(parsed)
+
+
+def _union_mml_entries_json(existing_raw: Any, incoming_raw: Any) -> Optional[str]:
     """Union merge per DMS block. Empty incoming blocks never delete server rows."""
     existing = _parse_entries(existing_raw)
     incoming = _parse_entries(incoming_raw)

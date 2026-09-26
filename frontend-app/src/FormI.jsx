@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, createContext, use
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isFormIComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./ScreeningForm.css";
@@ -443,7 +444,9 @@ export default function FormI() {
   const navigate = useNavigate();
   const { enrollmentId } = useParams();
   const { patientData } = usePatient() || {};
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Bumped when a saved record finishes loading, so the tick re-syncs.
+  const [recordLoadedTick, setRecordLoadedTick] = useState(0);
 
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
@@ -795,6 +798,7 @@ export default function FormI() {
           completion_date: existing.completion_date || "",
         } : {}),
       }));
+      if (existing?.id) setRecordLoadedTick((n) => n + 1);
 
       // Chained, not a separate effect racing this one — must run after
       // the existing-record load above has queued its setFormData, same
@@ -1513,11 +1517,22 @@ export default function FormI() {
     );
   };
 
+  // Green tick = the starred items + sign-off (utils/formCompletion), not
+  // "a save happened" — Back/Next save a blank form too.
+  const syncFormITick = () => {
+    if (isFormIComplete(formData)) markFormCompleted("form_i");
+    else unmarkFormCompleted("form_i");
+  };
+  useEffect(() => {
+    if (recordLoadedTick > 0) syncFormITick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordLoadedTick]);
+
   const saveFormI = async () => {
     if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
-      markFormCompleted("form_i");
+      syncFormITick();
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -1533,7 +1548,7 @@ export default function FormI() {
     if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
-      markFormCompleted("form_i");
+      syncFormITick();
       alert("✅ Form I submitted successfully");
       navigate(`/form-j/${formData.enrollment_id}`);
     } catch (err) {

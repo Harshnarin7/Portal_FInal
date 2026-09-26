@@ -1,0 +1,155 @@
+// formCompletion.js — PORTAL Trial
+// When a downstream form (F–L) earns its green sidebar tick.
+//
+// A save — including the silent saves on Back / Next / sidebar navigation
+// that protect partly-filled data — is NOT completion. A form is complete
+// only when its key clinical items are answered AND it has been signed off
+// (Completed By + Date), with no validation errors showing. PI decision
+// 2026-09-26. Forms still autosave exactly as before; only the tick changes.
+//
+// Each rule takes plain form data so it can run both after a save and when
+// a saved record is loaded (so the tick reflects the record, not the session).
+
+const answered = (v) => {
+  if (v === null || v === undefined) return false;
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v)) return v.length > 0;
+  return true; // booleans (incl. false) and numbers count as answered
+};
+
+const signedOff = (completedBy, completionDate) =>
+  answered(completedBy) && answered(completionDate);
+
+/** Form F — Cranial USG. Key items: ≥1 scan recorded; items 5–6 (PHVD,
+ *  VP shunt) answered, with their dates when Yes; no unresolved Helper 2
+ *  IVH/cPVL gate. Item 8 is auto-calculated, so it isn't a key item. */
+export function isFormFComplete({ scans, complications, completion, gateBlocking }) {
+  if (gateBlocking) return false;
+  if (!Array.isArray(scans) || !scans.some((s) => answered(s?.scanDate))) return false;
+  const c = complications || {};
+  if (!answered(c.phvd) || !answered(c.vpShunt)) return false;
+  if (c.phvd === true && !answered(c.phvdDate)) return false;
+  if (c.vpShunt === true && !answered(c.vpShuntDate)) return false;
+  return signedOff(completion?.completedBy, completion?.completionDate);
+}
+
+// Mirrors backend rop_form_g_linkage.SCREENING_DETAIL_FIELDS: a visit row
+// auto-suggested from Helper 5 carries only a date until someone fills it.
+const ROP_VISIT_DETAIL_FIELDS = ["method", "re_stage", "re_zone", "le_stage", "le_zone", "plus_status"];
+
+/** Form G — ROP. Key items: ≥1 real screening visit (dated, with clinical
+ *  detail); item 17 Outcome (+ text when Other); item 18 ROP requiring
+ *  treatment; item 19 final screening date; no pending auto-suggested
+ *  visits awaiting review. */
+export function isFormGComplete(data, { compositeValue, reviewAlerts } = {}) {
+  const d = data || {};
+  const realVisit = (d.screenings || []).some((s) =>
+    answered(s?.date) && (answered(s?.signature) || ROP_VISIT_DETAIL_FIELDS.some((f) => answered(s?.[f]))));
+  if (!realVisit) return false;
+  if (Array.isArray(reviewAlerts) && reviewAlerts.length > 0) return false;
+  if (!answered(d.outcome)) return false;
+  if (d.outcome === "Other" && !answered(d.outcome_other_text)) return false;
+  if (!answered(compositeValue ?? d.rop_treatment_composite)) return false;
+  if (!answered(d.final_screening_date)) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** Form H — Morbidities. Key items: summary Outcome + Discharge date (the
+ *  form's own "Required" items); all detected infection windows reviewed;
+ *  no field-validation error currently showing. */
+export function isFormHComplete(data, { errors, infectionReviewed } = {}) {
+  const d = data || {};
+  if (!infectionReviewed) return false;
+  if (errors && Object.values(errors).some(Boolean)) return false;
+  if (!answered(d.outcome) || !answered(d.discharge_date)) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+// Form I items already marked * on the form.
+const FORM_I_REQUIRED = [
+  "ventilation_required", "switched_100_o2", "resus_chest_compressions",
+  "intubation_during_resus", "resp_support_72h", "sepsis_eos", "sepsis_los",
+];
+
+/** Form I — Study outcomes. Key items: the 7 starred items. */
+export function isFormIComplete(data) {
+  const d = data || {};
+  if (!FORM_I_REQUIRED.every((k) => answered(d[k]))) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** Form J — External hospital. Complete when ≥1 saved assessment is
+ *  signed off (each assessment row carries its own sign-off). */
+export function isFormJComplete(savedRows) {
+  return Array.isArray(savedRows)
+    && savedRows.some((r) => signedOff(r?.completed_by, r?.completion_date));
+}
+
+/** Form K — MRI. Key items: item 1 "Selected for MRI subset"; when Yes,
+ *  MRI date + K.4 Overall MRI. */
+export function isFormKComplete(data) {
+  const d = data || {};
+  if (d.selected_for_mri === null || d.selected_for_mri === undefined) return false;
+  if (d.selected_for_mri === true && (!answered(d.mri_date) || !answered(d.overall_mri))) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** Form L — Blender & summary. Key items: L.2 initial / exit / max-first-hour
+ *  FiO₂; L.3 both composite outcomes + MRI abnormality. */
+export function isFormLComplete(data) {
+  const d = data || {};
+  const keys = ["initial_fio2", "exit_fio2", "max_fio2_first_hour",
+    "composite_outcome_1", "composite_outcome_2", "mri_abnormality"];
+  if (!keys.every((k) => answered(d[k]))) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** Adverse Events. Key items: "Adverse event reported?" answered; when Yes,
+ *  ≥1 event, each with description, start date, grade and "converted to
+ *  SAE" answered. */
+export function isAdverseEventsComplete(data) {
+  const d = data || {};
+  if (!answered(d.has_adverse_event)) return false;
+  if (d.has_adverse_event === "Yes") {
+    const events = (d.events || []).filter((e) =>
+      Object.values(e || {}).some((v) => answered(v)));
+    if (!events.length) return false;
+    const ok = events.every((e) => answered(e.description) && answered(e.start_date)
+      && answered(e.grade) && answered(e.converted_to_sae));
+    if (!ok) return false;
+  }
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** SAE list. A baby may have no SAE — a signed-off empty list is complete.
+ *  Every row that has anything in it needs its SAE term, start date and 24-h
+ *  notification date. */
+export function isSaeListComplete(data) {
+  const d = data || {};
+  const rows = (d.rows || []).filter((r) => Object.values(r || {}).some((v) => answered(v)));
+  const ok = rows.every((r) => answered(r.sae) && answered(r.start_date) && answered(r.notification_24h));
+  if (!ok) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** Last NICU day a day-by-day helper must have complete (PI rule 2026-09-26:
+ *  "every day up to yesterday"). Day 1 itself is required even on Day 1 so a
+ *  brand-new, empty log never ticks. After discharge/death, days after the
+ *  stay ended don't count. `maxDay` caps fixed-length logs (FiO₂ AUC = 7). */
+export function helperLastRequiredDay({ todayNicuDay, dischargeDay, maxDay } = {}) {
+  let last = null;
+  if (todayNicuDay != null) last = Math.max(1, todayNicuDay - 1);
+  if (dischargeDay != null) last = last == null ? dischargeDay : Math.min(last, dischargeDay);
+  if (last != null && maxDay != null) last = Math.min(last, maxDay);
+  return last;
+}
+
+/** Helpers 2/4/5 (and 3 via hours): complete when every day 1..lastDay is
+ *  at 100%. `pctByDay` = { [day]: pct }. */
+export function isHelperLogComplete(pctByDay, lastDay) {
+  if (!lastDay || lastDay < 1) return false;
+  for (let d = 1; d <= lastDay; d += 1) {
+    if ((Number(pctByDay?.[d]) || 0) < 100) return false;
+  }
+  return true;
+}

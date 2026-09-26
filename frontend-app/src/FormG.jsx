@@ -12,6 +12,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
 import { designationForCompletedBy } from "./utils/completedByDesignation";
+import { isFormGComplete } from "./utils/formCompletion";
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS
@@ -221,12 +222,14 @@ export default function FormG() {
   const { enrollmentId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { patientData } = usePatient();
 
   const [message, setMessage] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [ropReviewAlerts, setRopReviewAlerts] = useState([]);
+  // Bumped when a saved record finishes loading, so the tick re-syncs.
+  const [recordLoadedTick, setRecordLoadedTick] = useState(0);
   const [ropConsistency, setRopConsistency] = useState({ unreviewed_discrepancies: [] });
   const [roster, setRoster] = useState([]);
 
@@ -381,6 +384,7 @@ export default function FormG() {
         designation: d.designation || "",
         completion_date: d.completion_date || "",
       }));
+      setRecordLoadedTick((n) => n + 1);
     }).catch((err) => {
       if (err?.response?.status !== 404) {
         console.error("Failed to load ROP screening record:", err);
@@ -453,6 +457,17 @@ export default function FormG() {
   /* ================= AUTO-CALC COMPOSITE (item 18) ================= */
   const eitherEyeTreated = formData.treatment_required === "Yes" || formData.treatment_required_le === "Yes";
   const compositeValue = eitherEyeTreated ? "Yes" : formData.rop_treatment_composite;
+
+  // Green tick = key items + sign-off (utils/formCompletion), not "a save
+  // happened".
+  const syncFormGTick = (data = formData) => {
+    if (isFormGComplete(data, { compositeValue, reviewAlerts: ropReviewAlerts })) markFormCompleted("form_g");
+    else unmarkFormCompleted("form_g");
+  };
+  useEffect(() => {
+    if (recordLoadedTick > 0) syncFormGTick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordLoadedTick]);
 
   useEffect(() => {
     if (eitherEyeTreated && formData.rop_treatment_composite !== "Yes") {
@@ -539,7 +554,7 @@ export default function FormG() {
     if (e) e.preventDefault();
     try {
       await api.post("/rop-screening/", buildPayload());
-      markFormCompleted("form_g");
+      syncFormGTick();
       setMessage("Form G saved successfully.");
       setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);

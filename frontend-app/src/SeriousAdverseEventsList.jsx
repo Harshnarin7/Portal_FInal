@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isSaeListComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/FormSAEList.css";
@@ -183,7 +184,13 @@ export default function SeriousAdverseEventsList() {
   const navigate = useNavigate();
   const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Green tick = key items + sign-off (utils/formCompletion), checked against
+  // the stored record on load and after each save — not "a save happened".
+  const syncTick = (data) => {
+    if (isSaeListComplete(data)) markFormCompleted("sae_list");
+    else unmarkFormCompleted("sae_list");
+  };
 
   const [formData, setFormData] = useState(() => BLANK());
   const [isSaved, setIsSaved] = useState(false);
@@ -251,7 +258,9 @@ export default function SeriousAdverseEventsList() {
       .get(`/sae-list/${encodeURIComponent(id)}`)
       .then((res) => {
         if (!res.data || !res.data.enrollment_id) return;
-        setFormData(mapApiToForm(res.data));
+        const mapped = mapApiToForm(res.data);
+        setFormData(mapped);
+        syncTick(mapped);
         setIsSaved(true);
       })
       .catch((err) => {
@@ -279,8 +288,9 @@ export default function SeriousAdverseEventsList() {
     }
     try {
       const res = await api.post("/sae-list/", buildPayload(formData));
-      setFormData(mapApiToForm(res.data));
-      markFormCompleted("sae_list");
+      const saved = mapApiToForm(res.data);
+      setFormData(saved);
+      syncTick(saved);
       setIsSaved(true);
       setSaveMessage("✅ SAE list saved");
       setTimeout(() => setSaveMessage(""), 3000);

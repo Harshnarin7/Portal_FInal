@@ -311,7 +311,7 @@ function IntvCell({ value, disabled, onChange }) {
 
 export default function BirthResuscitationForm() {
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { screeningId } = useParams();
   const [confirmedEnrollmentId, setConfirmedEnrollmentId] = useState(null);
   const { updatePatientData } = usePatient();
@@ -936,6 +936,8 @@ export default function BirthResuscitationForm() {
         apgar: fd.interventions?.apgar || {},
       },
       ...(explicitlySaved ? { explicitly_saved: true } : {}),
+      // Green tick: this form's own Save validation passes (see validate()).
+      is_complete: formCompleteRef.current,
     };
   }, []);
 
@@ -1096,6 +1098,11 @@ export default function BirthResuscitationForm() {
     return m;
   };
 
+  // Recomputed every render so every save — autosave included — sends the
+  // current answer; the sidebar tick follows it (PI decision 2026-09-26).
+  const formCompleteRef = useRef(false);
+  formCompleteRef.current = validate().length === 0;
+
   const scrollToFirstError = missing => {
     if(!missing?.length) return;
     const el = document.querySelector(`[name="${missing[0].fieldName}"], #${missing[0].fieldName}`);
@@ -1166,7 +1173,8 @@ export default function BirthResuscitationForm() {
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
       setLastSaved(new Date()); setIsDirty(false);
-      markFormCompleted("form_b");
+      if (formCompleteRef.current) markFormCompleted("form_b");
+      else unmarkFormCompleted("form_b");
       updatePatientData({
         enrollment_id:  eid,
         gestation:      `${formData.gestation_weeks}+${formData.gestation_days}`,

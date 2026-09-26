@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import { getMmlSheet } from "./utils/mmlSheetFetch";
+import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, nicuDayForCalendarYmd, calendarDateForNicuDay, helperDayStripLength, NICU_DAY_GRACE_HOUR } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import { usePatient } from "./context/PatientContext";
@@ -118,12 +120,12 @@ async function loadMmlFluidBolusForHelperDay(enrollmentId, recordDate) {
     if (mmlHasFluidBolusForHelperDay(payload, recordDate)) has = true;
   };
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${recordDate}`);
     ingest(res?.data);
   } catch (_) { /* optional */ }
   if (has) return true;
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today`,
       { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
     );
@@ -297,13 +299,13 @@ async function loadMmlBloodGasReadingsForHelperDay(
   };
   const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
     );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     ingest(res?.data || {});
@@ -342,12 +344,12 @@ async function loadMmlRespAEntriesLegacy(enrollmentId, recordDate, { bustCache =
   const remembered = readRememberedMmlSheetDate(enrollmentId);
   if (remembered) datesToFetch.add(remembered);
   for (const ymd of datesToFetch) {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${ymd}${cacheQ}`,
     );
     ingest(res?.data);
   }
-  const res = await api.get(
+  const res = await getMmlSheet(
     `/minimal-monitoring/${enrollmentId}/today${cacheQ}`,
     { params: { boundary_hour: NICU_DAY_GRACE_HOUR } },
   );
@@ -418,11 +420,11 @@ async function loadMmlListFieldForHelperDay(
   const cacheQ = bustCache ? `?t=${Date.now()}` : "";
   const parts = [];
   try {
-    const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`);
+    const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`);
     parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     parts.push(parseMmlListField(res?.data, helperYmd, blockKey, listKey, valueMap));
@@ -513,13 +515,13 @@ async function loadMmlEpisodeReadingsForHelperDay(
   };
   const cacheQ = bustCache ? `?_=${Date.now()}` : "";
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/on/${helperYmd}${cacheQ}`,
     );
     ingest(res?.data);
   } catch (_) { /* optional */ }
   try {
-    const res = await api.get(
+    const res = await getMmlSheet(
       `/minimal-monitoring/${enrollmentId}/today${cacheQ ? `${cacheQ}&` : "?"}boundary_hour=${NICU_DAY_GRACE_HOUR}`,
     );
     ingest(res?.data || {});
@@ -1181,6 +1183,19 @@ export default function RespCVNeuroLog() {
      today vs an 11am landing tab. */
   const todayNicuDay = useNicuWorkingDay(day1Date);
 
+  // Green tick (PI rule 2026-09-26): every NICU day from Day 1 up to
+  // yesterday is 100% complete; today may still be in progress. dayMeta holds
+  // each day's pct (from the summary on load, updated on every save).
+  useEffect(() => {
+    const lastDay = helperLastRequiredDay({ todayNicuDay, dischargeDay });
+    const pctByDay = Object.fromEntries(
+      Object.entries(dayMeta || {}).map(([d, m]) => [d, m?.pct]),
+    );
+    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("vs6_1");
+    else unmarkFormCompleted("vs6_1");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayMeta, todayNicuDay, dischargeDay]);
+
   const activeDayDate = useMemo(
     () => calendarDateForNicuDay(day1Date, activeDay),
     [day1Date, activeDay],
@@ -1839,7 +1854,10 @@ export default function RespCVNeuroLog() {
       ...opts,
     });
     tick();
-    const interval = setInterval(() => tick(), 15000);
+    // 60 s (was 15 s): same-browser DMS saves and tab focus already refresh
+    // immediately; the timer only has to catch another device's edits.
+    // Hidden tabs skip the tick — focus/visibility catches up on return.
+    const interval = setInterval(() => { if (!document.hidden) tick(); }, 60000);
     const onFocus = () => {
       const dirtyYmd = peekMmlRespDirtyForHelper(enrollmentId);
       const force = dirtyYmd != null && dirtyYmd === activeDayDate;
@@ -2129,11 +2147,7 @@ export default function RespCVNeuroLog() {
       } else {
         res = await api.post("/resp-cv-neuro/", payload, staleCfg);
       }
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — data added then deleted before the
-      // next save must un-tick the helper, not leave it stuck complete.
-      if (completionPct > 0) markFormCompleted("vs6_1");
-      else unmarkFormCompleted("vs6_1");
+      // Sidebar tick: see the dayMeta effect (all days to yesterday at 100%).
       loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
@@ -2392,10 +2406,13 @@ export default function RespCVNeuroLog() {
   return (
     <>
       {/* ── Editing banner (matches FormD pattern) ── */}
-      {isSaved && isEditing && (
+      {/* Unlocked days are always editable (since 7f2068d), so an "editing"
+          banner on every saved day carried no information. Only warn when
+          a locked day has been reopened via Override & Unlock. */}
+      {isSaved && isOverrideActiveDay && (
         <div className="editing-mode-banner">
           <span className="editing-mode-dot" />
-          Editing Mode Active — changes will be saved when you click Save
+          Day {activeDay} reopened by override — you are correcting a locked day. Lock it again when done.
         </div>
       )}
 
