@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { getMmlSheet } from "./utils/mmlSheetFetch";
+import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, nicuDayNumberFromDay1, calendarDateForNicuDay, NICU_DAY_GRACE_HOUR, helperDayStripLength } from "./utils/datetime";
 // ✅ Reuses RespCVNeuro.css — same design system, same class names
 import "./styles/RespCVNeuro.css";
@@ -965,6 +966,19 @@ export default function InfectGIHemaLog() {
      tab all use this same number. */
   const todayNicuDay = useNicuWorkingDay(day1Date);
 
+  // Green tick (PI rule 2026-09-26): every NICU day from Day 1 up to
+  // yesterday is 100% complete; today may still be in progress. dayMeta holds
+  // each day's pct (from the summary on load, updated on every save).
+  useEffect(() => {
+    const lastDay = helperLastRequiredDay({ todayNicuDay, dischargeDay });
+    const pctByDay = Object.fromEntries(
+      Object.entries(dayMeta || {}).map(([d, m]) => [d, m?.pct]),
+    );
+    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("infect_gi_hema");
+    else unmarkFormCompleted("infect_gi_hema");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayMeta, todayNicuDay, dischargeDay]);
+
   const isFutureActiveDay = todayNicuDay != null && activeDay > todayNicuDay;
   // Informational only now — locking is manual (see the Lock button below),
   // so a past calendar date no longer forces a day read-only by itself.
@@ -1662,11 +1676,7 @@ export default function InfectGIHemaLog() {
       const res = isSaved
         ? await api.put(`/infect-gi-hema/${enrollmentId}/${activeDay}`, payload, staleCfg)
         : await api.post("/infect-gi-hema/", payload, staleCfg);
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — data added then deleted before the
-      // next save must un-tick the helper, not leave it stuck complete.
-      if (completionPct > 0) markFormCompleted("infect_gi_hema");
-      else unmarkFormCompleted("infect_gi_hema");
+      // Sidebar tick: see the dayMeta effect (all days to yesterday at 100%).
       loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);

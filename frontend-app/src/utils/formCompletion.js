@@ -131,3 +131,25 @@ export function isSaeListComplete(data) {
   if (!ok) return false;
   return signedOff(d.completed_by, d.completion_date);
 }
+
+/** Last NICU day a day-by-day helper must have complete (PI rule 2026-09-26:
+ *  "every day up to yesterday"). Day 1 itself is required even on Day 1 so a
+ *  brand-new, empty log never ticks. After discharge/death, days after the
+ *  stay ended don't count. `maxDay` caps fixed-length logs (FiO₂ AUC = 7). */
+export function helperLastRequiredDay({ todayNicuDay, dischargeDay, maxDay } = {}) {
+  let last = null;
+  if (todayNicuDay != null) last = Math.max(1, todayNicuDay - 1);
+  if (dischargeDay != null) last = last == null ? dischargeDay : Math.min(last, dischargeDay);
+  if (last != null && maxDay != null) last = Math.min(last, maxDay);
+  return last;
+}
+
+/** Helpers 2/4/5 (and 3 via hours): complete when every day 1..lastDay is
+ *  at 100%. `pctByDay` = { [day]: pct }. */
+export function isHelperLogComplete(pctByDay, lastDay) {
+  if (!lastDay || lastDay < 1) return false;
+  for (let d = 1; d <= lastDay; d += 1) {
+    if ((Number(pctByDay?.[d]) || 0) < 100) return false;
+  }
+  return true;
+}

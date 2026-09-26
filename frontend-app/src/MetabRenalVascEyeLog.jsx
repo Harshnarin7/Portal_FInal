@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import { getMmlSheet } from "./utils/mmlSheetFetch";
+import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1, helperDayStripLength } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
@@ -831,6 +832,19 @@ export default function MetabRenalVascEyeLog() {
      tab all use this same number. */
   const todayNicuDay = useNicuWorkingDay(day1Date);
 
+  // Green tick (PI rule 2026-09-26): every NICU day from Day 1 up to
+  // yesterday is 100% complete; today may still be in progress. dayMeta holds
+  // each day's pct (from the summary on load, updated on every save).
+  useEffect(() => {
+    const lastDay = helperLastRequiredDay({ todayNicuDay, dischargeDay });
+    const pctByDay = Object.fromEntries(
+      Object.entries(dayMeta || {}).map(([d, m]) => [d, m?.pct]),
+    );
+    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("metab_renal_vasc_eye");
+    else unmarkFormCompleted("metab_renal_vasc_eye");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayMeta, todayNicuDay, dischargeDay]);
+
   /** Calendar date for the open NICU day (day1Date + activeDay − 1). */
   const activeDayDate = useMemo(() => {
     if (!day1Date) return null;
@@ -1615,11 +1629,7 @@ export default function MetabRenalVascEyeLog() {
       const res = isSaved
         ? await api.put(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`, payload, staleCfg)
         : await api.post("/metab-renal-vasc-eye/", payload, staleCfg);
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — data added then deleted before the next
-      // save must un-tick the helper, not leave it stuck complete.
-      if (completionPct > 0) markFormCompleted("metab_renal_vasc_eye");
-      else unmarkFormCompleted("metab_renal_vasc_eye");
+      // Sidebar tick: see the dayMeta effect (all days to yesterday at 100%).
       loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
