@@ -7414,6 +7414,7 @@ def _upsert_minimal_monitoring_for_date(
 ) -> MinimalMonitoringDayLog:
     """Upsert one calendar-date scratchpad row (shared by /today and /on/{date})."""
     payload = data.model_dump(exclude_unset=True)
+    deleted_entry_ids = payload.pop("deleted_entry_ids", None)
     payload["enrollment_id"] = enrollment_id
     payload["record_date"] = record_date
     if not payload.get("submission_status") or payload.get("submission_status") == "empty":
@@ -7432,7 +7433,7 @@ def _upsert_minimal_monitoring_for_date(
     if record:
         if "entries_json" in payload:
             payload["entries_json"] = merge_mml_entries_json(
-                record.entries_json, payload.get("entries_json"),
+                record.entries_json, payload.get("entries_json"), deleted_entry_ids,
             )
         for key, value in payload.items():
             if key == "enrollment_id":

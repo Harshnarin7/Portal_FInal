@@ -2037,6 +2037,9 @@ export default function MinimalMonitoringLog() {
     glucose_frequency_hours: glucoseFrequencyHours,
     vitals_frequency_hours: vitalsFrequencyHours,
     weight_frequency_hours: weightFrequencyHours,
+    // Rows removed on this screen: the backend's union merge keeps any row a
+    // save omits (it may be another nurse's), so deletions must be explicit.
+    deleted_entry_ids: [...deletedIdsRef.current],
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });

@@ -56,6 +56,33 @@ def test_mml_merge_incoming_edits_same_id():
     assert out["cv_a"][0]["sbp"] == "42"
 
 
+def test_mml_merge_drops_explicitly_deleted_row():
+    # Nurse deletes gi_a row g1 (last row in its block): the save omits the
+    # block's clinical rows entirely, which the plain union treats as "keep".
+    existing = {"gi_a": [{"id": "g1", "status": "EF", "volume_ml": "12"}]}
+    incoming = {"gi_a": []}
+    import json
+    kept = json.loads(merge_mml_entries_json(existing, incoming))
+    assert [e["id"] for e in kept["gi_a"]] == ["g1"]
+    out = json.loads(merge_mml_entries_json(existing, incoming, ["g1"]))
+    assert out["gi_a"] == []
+
+
+def test_mml_merge_delete_keeps_other_nurses_new_row():
+    # Nurse A deletes g1 while nurse B has already saved g2 — g2 survives.
+    existing = {"gi_a": [{"id": "g1", "status": "EF"}, {"id": "g2", "status": "NPO"}]}
+    incoming = {"gi_a": [{"id": "g3", "status": "EF", "volume_ml": "5"}]}
+    import json
+    out = json.loads(merge_mml_entries_json(existing, incoming, ["g1"]))
+    assert {e["id"] for e in out["gi_a"]} == {"g2", "g3"}
+
+
+def test_mml_merge_no_deleted_ids_is_unchanged():
+    existing = {"cv_a": [{"id": "v1", "sbp": "40"}]}
+    incoming = {"cv_a": [{"id": "v2", "sbp": "45"}]}
+    assert merge_mml_entries_json(existing, incoming) == merge_mml_entries_json(existing, incoming, [])
+
+
 def test_fio2_merge_keeps_hidden_day():
     existing = [
         {"day": 2, "block": "0-12h", "entries": [{"fio2": "30", "dur": "6"}]},
