@@ -5938,88 +5938,101 @@ def get_enrollment_status(
 # ============================================================================
 
 def _compute_completion_pct(record) -> int:
-    """Compute completion % for a RespCVNeuroDayLog row (spec items 1-37)."""
+    """Completion % for a RespCVNeuroDayLog row (spec items 1-37).
+
+    Mirrors RespCVNeuroLog.jsx's own progress calculation item for item —
+    the page's number is what nurses see and what gates "Lock Day", so the
+    day badge / summary / sidebar tick must agree with it exactly. (Before
+    2026-09-26 these drifted: resp total declared 22 while 23 items could be
+    counted, #3 ignored "Respiratory support = No", #9/#10 counted half-filled
+    ranges, #31-33 were counted even when cranial USG = No, and "A/C" wasn't a
+    pressure mode — e.g. one test day read 95% on the page, 97% here.)
+    """
 
     def answered(val):
         return val is not None and val != ""
-    def answered_value_or_status(value_field, status_field):
+
+    def value_or_status(value_field, status_field):
         return (
             answered(getattr(record, value_field, None))
             or answered(getattr(record, status_field, None))
         )
 
-    #  -  RESPIRATORY (items 1-22)  - 
-    resp_bool_fields = [
-        "respiratory_support", "endotracheal_intubation",       # 1, 2
-        "surfactant", "caffeine",                               # 11, 12
-        "extub_attempted", "pulm_hemorrhage",                   # 16, 18
-        "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",  # 19-22
-    ]
-    resp_text_fields = [
-        "lowest_ph", "pao2_range", "paco2_range",                # 8, 9, 10
-        "apnea_count", "desaturation_count", "severe_desaturation_count",  # 13, 14, 15
-    ]
-    # #3-7 depend on respiratory support mode / status:
-    #  - #4 (MAP/CPAP), #5 (Max FiO2), #6 (Max Gas Flow), #7 (Supplemental O2)
-    #    are only asked when Respiratory support (#1) is Yes ? if it's No,
-    #    they're N/A and shouldn't block completion.
-    #  - #4b (the second CPAP/MAP field) only applies when CPAP is combined
-    #    with a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) on the same day.
-    #  - #17 (Extubation failure) is only asked when Extubation attempted
-    #    (#16) is Yes.
-    _modes = [m.strip() for m in (getattr(record, "support_modes", None) or "").split(",") if m.strip()]
-    _pressure_modes = {"NIPPV", "SIMV", "AC", "PSV", "HFOV"}
-    _has_pressure_mode = any(m in _pressure_modes for m in _modes)
-    _has_cpap = "CPAP" in _modes
-    if _has_pressure_mode and _has_cpap:
-        _map_cpap_mode = "BOTH"
-    elif _has_pressure_mode:
-        _map_cpap_mode = "MAP"
-    elif _has_cpap:
-        _map_cpap_mode = "CPAP"
-    elif any(m in {"NC", "HFNC"} for m in _modes):
-        _map_cpap_mode = "NA"
+    def range_complete(field):
+        # Stored as "low-high" or "Not Done" (combineRangeField); a range with
+        # only one end filled is "12-" / "-40" and is NOT answered on the page.
+        v = getattr(record, field, None)
+        if not answered(v):
+            return False
+        if str(v).strip().lower() == "not done":
+            return True
+        low, _, high = str(v).partition("-")
+        return low.strip() != "" and high.strip() != ""
+
+    #  -  RESPIRATORY (items 1-22 + weight 2.1)  -
+    modes = [m.strip() for m in (getattr(record, "support_modes", None) or "").split(",") if m.strip()]
+    pressure_modes = {"NIPPV", "SIMV", "A/C", "AC", "PSV", "HFOV"}   # = mapCpapMode.js
+    has_pressure = any(m in pressure_modes for m in modes)
+    has_cpap = "CPAP" in modes
+    if has_pressure and has_cpap:
+        map_cpap_mode = "BOTH"
+    elif has_pressure:
+        map_cpap_mode = "MAP"
+    elif has_cpap:
+        map_cpap_mode = "CPAP"
+    elif any(m in {"NC", "HFNC"} for m in modes):
+        map_cpap_mode = "NA"
     else:
-        _map_cpap_mode = None
-    _dual_cpap_map = _map_cpap_mode == "BOTH"
-    _map_cpap_na   = _map_cpap_mode == "NA"
-    _resp_support_no = getattr(record, "respiratory_support", None) is False
-    _extub_attempted_yes = getattr(record, "extub_attempted", None) is True
-    resp_done = (
-        (1 if answered(getattr(record, "weight_kg", None)) else 0)      # 2.1 weight
-        + sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
-        + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
-        + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
-        + (1 if (_resp_support_no or _map_cpap_na or answered_value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
-        + (1 if (_dual_cpap_map and answered_value_or_status("map_cpap_secondary", "map_cpap_secondary_status")) else 0)  # 4b
-        + (1 if (_resp_support_no or answered_value_or_status("max_fio2", "max_fio2_status")) else 0)   # 5
-        + (1 if (_resp_support_no or answered_value_or_status("max_flow", "max_flow_status")) else 0)   # 6
-        + (1 if (_resp_support_no or answered(getattr(record, "supp_o2", None))) else 0)    # 7
-        + (1 if (not _extub_attempted_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
-    )
-    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 5 + (1 if _dual_cpap_map else 0)  # weight + #3,4,5,6,7,17 (+4b when dual)
+        map_cpap_mode = None
+    dual = map_cpap_mode == "BOTH"
+    resp_no = getattr(record, "respiratory_support", None) is False
+    extub_yes = getattr(record, "extub_attempted", None) is True
 
-    #  -  CARDIOVASCULAR (items 23-29)  - 
-    cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27
-    vasoactive_visible = getattr(record, "vasoactive_support", None) is True
-    cv_done = (
-        sum(1 for f in cv_bool_fields if answered(getattr(record, f, None)))
-        + (1 if answered(getattr(record, "fluid_bolus_given", None)) else 0)  # 29
-        + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
-    )
-    cv_total = len(cv_bool_fields) + 1 + (1 if vasoactive_visible else 0)
-
-    #  -  NEUROLOGICAL (items 30-37)  - 
-    neuro_base = [
-        "cranial_usg", "ivh", "cpvl_confirmed", "ventriculomegaly",       # 30-33
-        "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich",  # 34-37
+    resp_event_fields = [   # items 11, 12, 16, 18-22
+        "surfactant", "caffeine", "extub_attempted", "pulm_hemorrhage",
+        "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",
     ]
-    neuro_done = sum(1 for f in neuro_base if answered(getattr(record, f, None)))
-    neuro_total = len(neuro_base)
+    resp_total = 23 + (1 if dual else 0)
+    resp_done = min(resp_total, (
+        (1 if answered(getattr(record, "weight_kg", None)) else 0)                        # 2.1
+        + (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
+        + (1 if answered(getattr(record, "endotracheal_intubation", None)) else 0)        # 2
+        + (1 if (resp_no or modes) else 0)                                                 # 3
+        + (1 if (resp_no or map_cpap_mode == "NA" or value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
+        + (1 if (dual and value_or_status("map_cpap_secondary", "map_cpap_secondary_status")) else 0)          # 4b
+        + (1 if (resp_no or value_or_status("max_fio2", "max_fio2_status")) else 0)       # 5
+        + (1 if (resp_no or value_or_status("max_flow", "max_flow_status")) else 0)       # 6
+        + (1 if (resp_no or answered(getattr(record, "supp_o2", None))) else 0)           # 7
+        + (1 if answered(getattr(record, "lowest_ph", None)) else 0)                      # 8
+        + (1 if range_complete("pao2_range") else 0)                                       # 9
+        + (1 if range_complete("paco2_range") else 0)                                      # 10
+        + (1 if answered(getattr(record, "apnea_count", None)) else 0)                    # 13
+        + (1 if answered(getattr(record, "desaturation_count", None)) else 0)             # 14
+        + (1 if answered(getattr(record, "severe_desaturation_count", None)) else 0)      # 15
+        + (1 if (not extub_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
+        + sum(1 for f in resp_event_fields if answered(getattr(record, f, None)))
+    ))
 
-    total_fields = resp_total + cv_total + neuro_total  # = 37 (+1 if vasoactive visible)
-    total_done   = resp_done + cv_done + neuro_done
+    #  -  CARDIOVASCULAR (items 23-29)  -
+    cv_keys = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support", "fluid_bolus_given"]
+    vasoactive_visible = getattr(record, "vasoactive_support", None) is True
+    cv_total = len(cv_keys) + (1 if vasoactive_visible else 0)
+    cv_done = min(cv_total, (
+        sum(1 for f in cv_keys if answered(getattr(record, f, None)))
+        + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
+    ))
 
+    #  -  NEUROLOGICAL (items 30-37): #31-33 only asked when cranial USG = Yes  -
+    neuro_base = ["cranial_usg", "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich"]
+    usg_yes = getattr(record, "cranial_usg", None) is True
+    neuro_gated = ["ivh", "cpvl_confirmed", "ventriculomegaly"] if usg_yes else []
+    neuro_total = len(neuro_base) + len(neuro_gated)
+    neuro_done = min(neuro_total, sum(
+        1 for f in neuro_base + neuro_gated if answered(getattr(record, f, None))
+    ))
+
+    total_fields = resp_total + cv_total + neuro_total
+    total_done = resp_done + cv_done + neuro_done
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
@@ -6694,30 +6707,37 @@ def _infect_completion_pct(r) -> int:
         + (sum(1 for k in INF_MENING if ans(getattr(r, k, None))) if meningitis_yes else 0)
     )
 
-    #  -  GASTROINTESTINAL (Fields 10-22)  - 
-    # Base fields (always visible): 12 fields
-    GI_BASE = [
-        "npo", "men", "feed_type",
-        "cumulative_feed_volume", "feed_volume", "iv_fluids",
-        "parenteral_nutrition", "probiotic", "feed_intolerance",
-        "nec_suspected", "cholestasis"
-    ]  # 10-11, 13-20, 22
-    
-    # Handle field rename: enteral_feeds_received (new) or enteral_feeds_started (old)
+    #  -  GASTROINTESTINAL (Fields 10-22)  -
+    # Mirrors InfectGIHemaLog.jsx exactly (2026-09-26): MEN, enteral feeds,
+    # cumulative feed volume and feed volume are only asked when NPO = No;
+    # feed type only when NPO = No AND enteral feeds = Yes. Before, all were
+    # always required here, so an NPO baby's day could never reach 100% on the
+    # summary/badge even when the page showed 100%.
     enteral_feeds_field = "enteral_feeds_received" if hasattr(r, "enteral_feeds_received") else "enteral_feeds_started"
-    
-    # NEC conditional field: 1 field (visible when nec_suspected = Yes)
-    GI_NEC = ["nec_confirmed_stage"]  # 21
-
+    GI_ALWAYS = ["npo", "iv_fluids", "parenteral_nutrition", "probiotic",
+                 "feed_intolerance", "nec_suspected", "cholestasis"]
+    npo_no = getattr(r, "npo", None) is False
+    enteral_yes = getattr(r, enteral_feeds_field, None) is True
     nec_yes = getattr(r, "nec_suspected", None) is True
-    gi_total = len(GI_BASE) + 1 + (len(GI_NEC) if nec_yes else 0)  # +1 for enteral_feeds field
-    gi_done = (
-        sum(1 for k in GI_BASE if ans(getattr(r, k, None)))
-        + (1 if not ans(getattr(r, "cumulative_feed_volume", None)) and ans(getattr(r, "cumulative_feed_volume_status", None)) else 0)
-        + (1 if not ans(getattr(r, "feed_volume", None)) and ans(getattr(r, "feed_volume_status", None)) else 0)
-        + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)  # Check either old or new field name
-        + (sum(1 for k in GI_NEC if ans(getattr(r, k, None))) if nec_yes else 0)
-    )
+
+    def value_or_status(field):
+        return ans(getattr(r, field, None)) or ans(getattr(r, f"{field}_status", None))
+
+    gi_total = (len(GI_ALWAYS)
+                + (4 if npo_no else 0)
+                + (1 if npo_no and enteral_yes else 0)
+                + (1 if nec_yes else 0))
+    gi_done = min(gi_total, (
+        sum(1 for k in GI_ALWAYS if ans(getattr(r, k, None)))
+        + ((
+            (1 if ans(getattr(r, "men", None)) else 0)
+            + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)
+            + (1 if value_or_status("cumulative_feed_volume") else 0)
+            + (1 if value_or_status("feed_volume") else 0)
+        ) if npo_no else 0)
+        + (1 if npo_no and enteral_yes and ans(getattr(r, "feed_type", None)) else 0)
+        + (1 if nec_yes and ans(getattr(r, "nec_confirmed_stage", None)) else 0)
+    ))
 
     #  -  HEMATOLOGY (Fields 23-30)  - 
     # Base fields (always visible): 7 fields
@@ -6986,14 +7006,13 @@ def _metab_completion_pct(r) -> int:
     metab_total = len(metab_fields)
 
     # #11 Yes/No in aki_suspected; stage only when Yes. Creatinine prefers string col.
-    aki_yes = getattr(r, "aki_suspected", None) is True
     creat = getattr(r, "creatinine_value", None)
     if not ans(creat):
         creat = getattr(r, "creatinine", None)
-    renal_fields = [
-        "aki_suspected",
-        *(["aki_stage"] if aki_yes else []),
-    ]
+    # Mirrors MetabRenalVascEyeLog.jsx (2026-09-26): the page counts #11-#14
+    # only — AKI stage is recorded but never counted there, so it must not
+    # hold the summary/badge below the page's 100% either.
+    renal_fields = ["aki_suspected"]
     renal_done = sum(1 for k in renal_fields if ans(getattr(r, k, None)))
     renal_done += 1 if ans(creat) else 0
     renal_done += 1 if (
@@ -7030,13 +7049,10 @@ def _metab_completion_pct(r) -> int:
         *(["rop_screened"] if due else []),
         *(["rop_detected"] if due and screened else []),
     ]
-    rop_yes = getattr(r, "rop_detected", None) is True
-    eye_rop = ["rop_stage", "plus_disease", "rop_treatment"]
-    eye_total = len(eye_keys) + (len(eye_rop) if rop_yes else 0)
-    eye_done = (
-        sum(1 for k in eye_keys if ans(getattr(r, k, None)))
-        + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0)
-    )
+    # Mirrors the page (2026-09-26): #23-#25 only. ROP stage / plus / treatment
+    # are recorded per eye in Form G, not counted toward this day's completion.
+    eye_total = len(eye_keys)
+    eye_done = sum(1 for k in eye_keys if ans(getattr(r, k, None)))
 
     tail_fields = ["location", "survived_the_day"]
     tail_done   = sum(1 for k in tail_fields if ans(getattr(r, k, None)))
