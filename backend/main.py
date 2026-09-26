@@ -6041,23 +6041,18 @@ def _compute_completion_pct(record) -> int:
 
 #  -  GET summary (all days for timeline status indicators)  - 
 #  -  GET records (cross-patient list ? Helper Form Records page)  - 
-@app.get("/resp-cv-neuro/records", response_model=HelperFormRecordsPage)
-def list_resp_cv_neuro_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",   # today | yesterday | last7 | all
-    status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
+def _helper_records_page(
+    request, db, current_user, *, model, pct_fn, overlay_fn, audit_path,
+    date_filter, status, site, search, page, per_page,
 ):
-    """List Helper Form 2 (Resp/CV/Neuro) daily-log records across patients,
-    for the day-to-day work queue. 'Today' is derived from date_of_birth +
-    (nicu_day - 1), matching the calendar date the form itself computes for
-    each NICU day ? not the row's created_at/updated_at, which only reflects
-    when it was last edited."""
+    """Cross-patient day-log list for the Helper Form Records page, shared by
+    Helpers 2/4/5 (Helpers 4/5 had no /records route at all until
+    2026-09-26 — their tabs 404'd). 'Today' is derived from date_of_birth +
+    (nicu_day - 1), matching the calendar date the form computes for each NICU
+    day. completion_pct is scored exactly as the form scores it: the same
+    read-time DMS overlay the day GET applies (Helpers 2/5), in memory only,
+    never written back — and only for the rows on the requested page, since
+    the overlay costs several queries per row and sorting doesn't use it."""
     per_page = min(max(per_page, 1), 100)
     page = max(page, 1)
 
@@ -6072,8 +6067,8 @@ def list_resp_cv_neuro_records(
         return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
 
     logs = (
-        db.query(RespCVNeuroDayLog)
-        .filter(RespCVNeuroDayLog.enrollment_id.in_(accessible.keys()))
+        db.query(model)
+        .filter(model.enrollment_id.in_(accessible.keys()))
         .all()
     )
 
@@ -6106,7 +6101,7 @@ def list_resp_cv_neuro_records(
     status_pending = {"empty", "draft", "complete", "late"}
     search_lower = search.strip().lower()
 
-    rows: list[HelperFormRecordOut] = []
+    matched = []   # (log, row fields) — pct filled in after pagination
     for log in logs:
         screening = accessible.get(log.enrollment_id)
         dob = dob_map.get(log.enrollment_id)
@@ -6134,7 +6129,7 @@ def list_resp_cv_neuro_records(
             if search_lower not in haystack:
                 continue
 
-        rows.append(HelperFormRecordOut(
+        matched.append((log, dict(
             enrollment_id=log.enrollment_id,
             screening_id=screening.screening_id if screening else None,
             site_name=screening.site_name if screening else None,
@@ -6142,25 +6137,31 @@ def list_resp_cv_neuro_records(
             calendar_date=calendar_date,
             mother_name=mother_name,
             submission_status=log_status,
-            completion_pct=_compute_completion_pct(log),
             saved_at=log.saved_at,
             saved_by=log.saved_by,
             submitted_at=log.submitted_at,
             submitted_by=log.submitted_by,
             created_at=log.created_at,
             updated_at=log.updated_at,
-        ))
+        )))
 
-    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
+    matched.sort(key=lambda m: m[1]["updated_at"] or m[1]["created_at"] or datetime.min, reverse=True)
 
-    total = len(rows)
+    total = len(matched)
     start = (page - 1) * per_page
-    page_rows = rows[start:start + per_page]
+    page_rows = []
+    with db.no_autoflush:
+        for log, fields in matched[start:start + per_page]:
+            if overlay_fn is not None:
+                cal = calendar_date_for_nicu_day_from_birth(dob_map.get(log.enrollment_id), log.nicu_day)
+                if cal:
+                    overlay_fn(db, log.enrollment_id, log, cal)
+            page_rows.append(HelperFormRecordOut(**fields, completion_pct=pct_fn(log)))
 
     if total >= 50:
         security_monitor.record_bulk_access(
             current_user.username,
-            "/resp-cv-neuro/records",
+            audit_path,
             total,
             get_real_client_ip(request),
         )
@@ -6168,23 +6169,57 @@ def list_resp_cv_neuro_records(
     return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
 
 
-#  -  GET latest update (lightweight polling for "new records" banner)  - 
-@app.get("/resp-cv-neuro/records/latest-update")
-def get_resp_cv_neuro_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Returns the most recent updated_at across accessible Helper Form 2 day
-    logs, so the frontend can detect newly-synced or edited records with a
-    cheap poll instead of re-fetching the full list."""
+def _helper_records_latest_update(db, current_user, model):
+    """Most recent updated_at across accessible day logs of one helper, so the
+    page can detect new/edited records with a cheap poll."""
     query = (
-        db.query(func.max(RespCVNeuroDayLog.updated_at))
-        .join(Screening, Screening.enrollment_id == RespCVNeuroDayLog.enrollment_id)
+        db.query(func.max(model.updated_at))
+        .join(Screening, Screening.enrollment_id == model.enrollment_id)
         .filter(Screening.is_deleted.isnot(True))
     )
     if not is_global(current_user):
         query = query.filter(Screening.site_name == current_user.site_name)
     return {"latest_updated_at": query.scalar()}
+
+
+def _records_route(prefix, model, pct_fn, overlay_fn, label):
+    """Registers GET {prefix}/records and {prefix}/records/latest-update.
+    Must run BEFORE the helper's /{enrollment_id}/{nicu_day} route is declared
+    (FastAPI matches in order; 'records/latest-update' would otherwise be
+    parsed as enrollment_id='records', nicu_day='latest-update' -> 422)."""
+
+    @app.get(f"{prefix}/records", response_model=HelperFormRecordsPage, name=f"list_{label}_records")
+    def _list(
+        request:      Request,
+        db:           Session = Depends(get_db),
+        current_user: User    = Depends(get_current_user),
+        date_filter:  str     = "today",   # today | yesterday | last7 | all
+        status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
+        site:         str | None = None,
+        search:       str     = "",
+        page:         int     = 1,
+        per_page:     int     = 25,
+    ):
+        return _helper_records_page(
+            request, db, current_user, model=model, pct_fn=pct_fn, overlay_fn=overlay_fn,
+            audit_path=f"{prefix}/records", date_filter=date_filter, status=status,
+            site=site, search=search, page=page, per_page=per_page,
+        )
+
+    @app.get(f"{prefix}/records/latest-update", name=f"{label}_records_latest_update")
+    def _latest(
+        db:           Session = Depends(get_db),
+        current_user: User    = Depends(get_current_user),
+    ):
+        return _helper_records_latest_update(db, current_user, model)
+
+
+# Helper Form 2 (Resp/CV/Neuro) — overlay/pct functions are defined further
+# down; they are only looked up when a request runs.
+_records_route("/resp-cv-neuro", RespCVNeuroDayLog,
+               lambda r: _compute_completion_pct(r),
+               lambda db, eid, rec, cal: _overlay_resp_cv_from_mml(db, eid, rec, cal),
+               "resp_cv_neuro")
 
 
 @app.get("/resp-cv-neuro/{enrollment_id}/summary")
@@ -6790,6 +6825,13 @@ def _infect_completion_pct(r) -> int:
 #  -  GET summary (all days  -  for timeline status indicators)  - 
 # NOTE: this must be declared BEFORE the "/{nicu_day}" route below, otherwise
 # FastAPI matches "summary" against the int path param first and returns 422.
+# Helper Form Records list for this helper (didn't exist before 2026-09-26).
+_records_route("/infect-gi-hema", InfectGIHemaDayLog,
+               lambda r: _infect_completion_pct(r),
+               None,
+               "infect_gi_hema")
+
+
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
 def get_infect_gi_hema_summary(
     enrollment_id: str,
@@ -7089,6 +7131,13 @@ def _metab_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
  
  
+# Helper Form Records list for this helper (didn't exist before 2026-09-26).
+_records_route("/metab-renal-vasc-eye", MetabRenalVascEyeDayLog,
+               lambda r: _metab_completion_pct(r),
+               lambda db, eid, rec, cal: _overlay_helper5_from_mml(db, eid, rec, cal),
+               "metab_renal_vasc_eye")
+
+
 @app.get("/metab-renal-vasc-eye/{enrollment_id}/summary")
 def get_metab_renal_vasc_eye_summary(
     enrollment_id: str,
