@@ -187,7 +187,7 @@ function preparedByDisplayName(fd, user) {
 ════════════════════════════════════════════ */
 export default function ScreeningForm() {
   const navigate = useNavigate();
-  const { markFormCompleted, resetProgress, fetchProgress } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted, resetProgress, fetchProgress } = useFormProgress();
   const { screeningId } = useParams();
   const { user } = useAuth();
   // Global roles (project_scientist — e.g. the nodal scientist Mannat —
@@ -996,6 +996,11 @@ export default function ScreeningForm() {
     return m;
   };
 
+  // Recomputed every render so every save — autosave included — sends the
+  // current answer; the sidebar tick follows it (PI decision 2026-09-26).
+  const formCompleteRef = useRef(false);
+  formCompleteRef.current = validate().length === 0;
+
   /* ─── Scroll to first error field ── */
   const scrollToFirstError = (missing) => {
     if (!missing || missing.length === 0) return;
@@ -1081,6 +1086,8 @@ export default function ScreeningForm() {
           }
         : {}),
       ...(explicitlySaved ? { explicitly_saved: true } : {}),
+      // Green tick: this form's own Save validation passes (see validate()).
+      is_complete: formCompleteRef.current,
     };
   };
 
@@ -1314,7 +1321,8 @@ export default function ScreeningForm() {
     localStorage.removeItem("enrollment_locked");
     localStorage.removeItem("enrollment_lock_reason");
     window.dispatchEvent(new Event("storage"));
-    markFormCompleted("form_a");
+    if (formCompleteRef.current) markFormCompleted("form_a");
+    else unmarkFormCompleted("form_a");
     navigate(`/form-b/${localStorage.getItem("current_screening_id")}`);
   };
 

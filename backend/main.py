@@ -959,6 +959,7 @@ def create_screening(
                 reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
                 video_pis_shown=screening.video_pis_shown,
                 explicitly_saved=bool(screening.explicitly_saved),
+                is_complete=screening.is_complete,
             )
             stamp_created(db_screening, current_user)
             mirror_consent_signature_fields(db_screening)
@@ -5898,9 +5899,22 @@ def get_enrollment_status(
     else:
         next_form = "completed"
 
+    # Green tick (strict): the web form sends is_complete on every save =
+    # "its own Save validation passes". form_a..form_e above stay as they
+    # were — they UNLOCK later forms and drive next_form. NULL is_complete
+    # (mobile app / rows saved before this flag) falls back to that rule.
+    def _complete(row, legacy):
+        flag = getattr(row, "is_complete", None) if row is not None else None
+        return bool(legacy) if flag is None else flag is True
+
     return {
         "enrollment_id": enrollment_id,
         "screening_status": screening.screening_status,
+        "form_a_complete": _complete(screening, True),
+        "form_b_complete": _complete(birth, form_b),
+        "form_c_complete": _complete(maternal, form_c),
+        "form_d_complete": _complete(postnatal, form_d),
+        "form_e_complete": _complete(nicu, form_e),
         "form_a": True,
         "form_b": form_b,
         "form_b_started": birth is not None,

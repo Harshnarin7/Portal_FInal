@@ -104,7 +104,10 @@ const validId = value => value && value !== 'undefined' && value !== 'null' ? va
 const consentAllowsEnrollment = value => value === 'Yes' || value === 'Trial run';
 
 export default function Sidebar({ currentForm }) {
-  const { completedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
+  const { completedForms = [], unlockedForms = [], isProgressLoaded, fetchProgress } = useFormProgress();
+  // Unlocking follows "has a record" (unlockedForms); the tick follows
+  // "complete" (completedForms). A complete form is always unlocked too.
+  const isUnlockedPrereq = (p) => unlockedForms.includes(p) || completedForms.includes(p);
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -294,7 +297,7 @@ export default function Sidebar({ currentForm }) {
       return FORMS_ALLOWED_WHEN_NO_PPV.has(formId);
     }
     if (enrollmentLocked) return false;
-    return (PREREQS[formId] || []).every(p => completedForms.includes(p));
+    return (PREREQS[formId] || []).every(isUnlockedPrereq);
   };
 
   const lockMessage = () => {
@@ -505,7 +508,7 @@ export default function Sidebar({ currentForm }) {
                             return;
                           }
                           const missing = (PREREQS[form.id] || [])
-                            .filter(p => !completedForms.includes(p))
+                            .filter(p => !isUnlockedPrereq(p))
                             .map(p => p === 'form_a' ? 'Form A (Screening)' : 'Form B (Birth & Resuscitation)')
                             .join(' and ');
                           alert(`Complete ${missing || 'Form A and Form B'} first to unlock all forms.`);

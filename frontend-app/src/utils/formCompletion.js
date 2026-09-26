@@ -103,3 +103,31 @@ export function isFormLComplete(data) {
   if (!keys.every((k) => answered(d[k]))) return false;
   return signedOff(d.completed_by, d.completion_date);
 }
+
+/** Adverse Events. Key items: "Adverse event reported?" answered; when Yes,
+ *  ≥1 event, each with description, start date, grade and "converted to
+ *  SAE" answered. */
+export function isAdverseEventsComplete(data) {
+  const d = data || {};
+  if (!answered(d.has_adverse_event)) return false;
+  if (d.has_adverse_event === "Yes") {
+    const events = (d.events || []).filter((e) =>
+      Object.values(e || {}).some((v) => answered(v)));
+    if (!events.length) return false;
+    const ok = events.every((e) => answered(e.description) && answered(e.start_date)
+      && answered(e.grade) && answered(e.converted_to_sae));
+    if (!ok) return false;
+  }
+  return signedOff(d.completed_by, d.completion_date);
+}
+
+/** SAE list. A baby may have no SAE — a signed-off empty list is complete.
+ *  Every row that has anything in it needs its SAE term, start date and 24-h
+ *  notification date. */
+export function isSaeListComplete(data) {
+  const d = data || {};
+  const rows = (d.rows || []).filter((r) => Object.values(r || {}).some((v) => answered(v)));
+  const ok = rows.every((r) => answered(r.sae) && answered(r.start_date) && answered(r.notification_24h));
+  if (!ok) return false;
+  return signedOff(d.completed_by, d.completion_date);
+}
