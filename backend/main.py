@@ -6200,11 +6200,28 @@ def get_resp_cv_neuro_summary(
         .order_by(RespCVNeuroDayLog.nicu_day)
         .all()
     )
+    # Score each day on what the page shows: the day GET overlays DMS values
+    # at read time, so the summary must too or the badge/tick % drifts from
+    # the page % (live example 2026-09-26: page 95%, summary 97%). In-memory
+    # only; no_autoflush so the overlaid values are never written back.
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    pct_by_day = {}
+    with db.no_autoflush:
+        for r in records:
+            cal = calendar_date_for_nicu_day_from_birth(dob, r.nicu_day)
+            if cal:
+                _overlay_resp_cv_from_mml(db, enrollment_id, r, cal)
+            pct_by_day[r.nicu_day] = _compute_completion_pct(r)
     return [
         {
             "nicu_day":          r.nicu_day,
             "submission_status": r.submission_status or "empty",
-            "completion_pct":    _compute_completion_pct(r),
+            "completion_pct":    pct_by_day[r.nicu_day],
             "saved_at":          r.saved_at,
             "submitted_at":      r.submitted_at,
             "surfactant":        r.surfactant,
@@ -6224,6 +6241,43 @@ VASOACTIVE_DRUG_NAME_ALIASES = {
     "Epinephrine": "Adrenaline",
     "Norepinephrine": "Noradrenaline",
 }
+
+def _overlay_resp_cv_from_mml(db, enrollment_id, record, cal):
+    """Read-time DMS overlay for a Helper 2 day (in-memory only, never
+    committed). Shared by the day GET and /summary so the summary's
+    completion % is computed on exactly what the page shows."""
+    overlay_resp_cv_day_from_autofill(
+        record,
+        _mml_helper1_resp_autofill(db, enrollment_id, cal),
+    )
+    overlay_resp_cv_episodes_from_mml(
+        record,
+        _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
+    )
+    overlay_resp_cv_blood_gas_from_mml(
+        record,
+        _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(
+            db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
+            value_map=VASOACTIVE_DRUG_NAME_ALIASES,
+        ),
+        "vasoactive_support",
+        "vasoactive_drugs",
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
+        "pda_medical_rx",
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
+        "postnatal_steroids",
+    )
+
 
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
@@ -6253,37 +6307,7 @@ def get_resp_cv_neuro_day(
         nicu_day,
     )
     if cal:
-        overlay_resp_cv_day_from_autofill(
-            record,
-            _mml_helper1_resp_autofill(db, enrollment_id, cal),
-        )
-        overlay_resp_cv_episodes_from_mml(
-            record,
-            _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
-        )
-        overlay_resp_cv_blood_gas_from_mml(
-            record,
-            _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(
-                db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
-                value_map=VASOACTIVE_DRUG_NAME_ALIASES,
-            ),
-            "vasoactive_support",
-            "vasoactive_drugs",
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
-            "pda_medical_rx",
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
-            "postnatal_steroids",
-        )
+        _overlay_resp_cv_from_mml(db, enrollment_id, record, cal)
     return record
 
 
@@ -7078,11 +7102,53 @@ def get_metab_renal_vasc_eye_summary(
         .order_by(MetabRenalVascEyeDayLog.nicu_day)
         .all()
     )
+    # Score on what the page shows (the day GET overlays DMS glucose/temp at
+    # read time) — see the Helper 2 summary. In-memory only; no_autoflush.
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    pct_by_day = {}
+    with db.no_autoflush:
+        for r in records:
+            cal = calendar_date_for_nicu_day_from_birth(dob, r.nicu_day)
+            if cal:
+                _overlay_helper5_from_mml(db, enrollment_id, r, cal)
+            pct_by_day[r.nicu_day] = _metab_completion_pct(r)
     return [{"nicu_day": r.nicu_day, "submission_status": r.submission_status or "empty",
-             "completion_pct": _metab_completion_pct(r), "saved_at": r.saved_at,
+             "completion_pct": pct_by_day[r.nicu_day], "saved_at": r.saved_at,
              "submitted_at": r.submitted_at} for r in records]
  
  
+def _overlay_helper5_from_mml(db, enrollment_id, record, cal):
+    """Read-time DMS overlay for a Helper 5 day (in-memory only, never
+    committed). Shared by the day GET and /summary so the summary's
+    completion % is computed on exactly what the page shows."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == cal,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != cal:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
+    overlay_helper5_day_from_mml(record, autofill)
+
+
 @app.get("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}")
 def get_metab_renal_vasc_eye_day(
     enrollment_id: str, nicu_day: int,
@@ -7112,27 +7178,7 @@ def get_metab_renal_vasc_eye_day(
         nicu_day,
     )
     if cal:
-        on_row = (
-            db.query(MinimalMonitoringDayLog)
-            .filter(
-                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-                MinimalMonitoringDayLog.record_date == cal,
-            )
-            .first()
-        )
-        today_ymd = _mml_sheet_date()
-        today_row = on_row
-        if today_ymd != cal:
-            today_row = (
-                db.query(MinimalMonitoringDayLog)
-                .filter(
-                    MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-                    MinimalMonitoringDayLog.record_date == today_ymd,
-                )
-                .first()
-            )
-        autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
-        overlay_helper5_day_from_mml(record, autofill)
+        _overlay_helper5_from_mml(db, enrollment_id, record, cal)
     return record
  
  
