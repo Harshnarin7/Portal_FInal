@@ -15,6 +15,7 @@ import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
 import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
 import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
+import { isFormHComplete } from "./utils/formCompletion";
 
 /* ─── FormH category map — powers the sticky jump-nav below the header.
    Keeping this outside the component avoids re-creating the array (and
@@ -2977,6 +2978,20 @@ const addInfectionFromWindow = (detectedWindow) => {
 // reviewed or acted on.
 const allInfectionFlagsReviewed = infectionWindows.every((w) => isInfectionFlagReviewed(w.signature));
 
+// Green tick = key items + sign-off + no validation errors
+// (utils/formCompletion) — infection-window review stays a precondition.
+const syncFormHTick = () => {
+  if (isFormHComplete(formData, { errors, infectionReviewed: allInfectionFlagsReviewed })) {
+    markFormCompleted("form_h");
+  } else {
+    unmarkFormCompleted("form_h");
+  }
+};
+useEffect(() => {
+  if (formData._record_id) syncFormHTick();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [formData._record_id, allInfectionFlagsReviewed]);
+
 // Respiratory (H2) auto-fill — same pattern as the other domains above.
 // BPD (H2.1) has no entry here at all — see the backend endpoint
 // docstring for why it needs its own dedicated design pass rather than
@@ -4867,11 +4882,7 @@ const num = (v) => {
       // Detected infection trigger windows (see fetchInfectionWindows)
       // must be reviewed/addressed before Form H counts as complete —
       // this never blocks saving, only the "done" tick.
-      if (allInfectionFlagsReviewed) {
-        markFormCompleted("form_h");
-      } else {
-        unmarkFormCompleted("form_h");
-      }
+      syncFormHTick();
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -4931,7 +4942,7 @@ const num = (v) => {
           setFormData((prev) => ({ ...prev, _record_id: res.data.id }));
         }
       }
-      markFormCompleted("form_h");
+      syncFormHTick();
 
       alert("✅ Form H submitted successfully");
 
