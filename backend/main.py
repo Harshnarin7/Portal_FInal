@@ -3874,6 +3874,10 @@ def get_post_resus_prefill(
     after day 3 of life) rather than a simple any-day aggregate, so it's
     its own endpoint instead of a reuse of an existing one.
 
+    2026-09-26: "No" for #7-#10 is now only filled when the window has been
+    fully observed (days 1-3 logged for #7/#8; stay ended for #9/#10) — see
+    the comment in the body. The rules below describe how "Yes" is found.
+
     - resp_support_72h (#7, "any respiratory support more than
       supplemental oxygen", the 0.5-72h window — day-log resolution is
       daily, so this reads as nicu_day 1-3, the CRF's 0.5h lower bound
@@ -3963,26 +3967,70 @@ def get_post_resus_prefill(
             return None
         return (nicu.day1_date + timedelta(days=day - 1)).isoformat()
 
+    # "No" is only filled when the data can actually rule the event out for
+    # the item's whole window — same principle as mortality below (PI-reported
+    # 2026-09-26: a baby born that morning was pre-filled "No" for #7-#9
+    # before the 72 h window had even passed). "Yes" still fills as soon as
+    # the evidence appears.
+    death_day_seen = min(
+        (l.nicu_day for l in metab_logs if l.survived_the_day is False),
+        default=None,
+    )
+    stay_ended = bool(
+        (form_h_discharge and form_h_discharge.discharge_date) or death_day_seen is not None
+    )
+
     resp_support_72h = None
     if resp_logs:
+        # Score what Helper 2 shows: its day GET overlays DMS respiratory
+        # data at read time (in memory only; never written back).
+        birth_row = (
+            db.query(BirthResuscitation)
+            .filter(BirthResuscitation.enrollment_id == enrollment_id)
+            .first()
+        )
+        dob = birth_row.date_of_birth if birth_row else None
+        with db.no_autoflush:
+            for l in resp_logs:
+                if l.nicu_day <= 3:
+                    cal = calendar_date_for_nicu_day_from_birth(dob, l.nicu_day)
+                    if cal:
+                        _overlay_resp_cv_from_mml(db, enrollment_id, l, cal)
         window_hit = any(
             l.nicu_day <= 3 and (
                 (l.support_modes or "").strip() or l.endotracheal_intubation is True
             )
             for l in resp_logs
         )
-        resp_support_72h = "Yes" if window_hit else "No"
+        # "No" needs days 1-3 all logged with #1 Respiratory support answered.
+        observed = {l.nicu_day for l in resp_logs if l.nicu_day <= 3 and l.respiratory_support is not None}
+        if window_hit:
+            resp_support_72h = "Yes"
+        elif {1, 2, 3} <= observed:
+            resp_support_72h = "No"
 
     sepsis_eos = sepsis_los = culture_positive_sepsis = None
     culture_positive_body_fluid = None
     if inf_logs:
         windows = _compute_infection_windows(inf_logs, nicu)
-        sepsis_eos = "Yes" if any(w["nicu_day_start"] <= 3 for w in windows) else "No"
-        sepsis_los = "Yes" if any(w["nicu_day_start"] > 3 for w in windows) else "No"
+        # EOS "No" needs days 1-3 all logged with sepsis suspected answered.
+        eos_observed = {l.nicu_day for l in inf_logs if l.nicu_day <= 3 and l.sepsis_suspected is not None}
+        if any(w["nicu_day_start"] <= 3 for w in windows):
+            sepsis_eos = "Yes"
+        elif {1, 2, 3} <= eos_observed:
+            sepsis_eos = "No"
+        # LOS and culture-positive sepsis can still happen at any point in the
+        # stay, so "No" only once it has ended (discharge or death).
+        if any(w["nicu_day_start"] > 3 for w in windows):
+            sepsis_los = "Yes"
+        elif stay_ended:
+            sepsis_los = "No"
         culture_positive = any(l.blood_culture_positive is True for l in inf_logs)
-        culture_positive_sepsis = "Yes" if culture_positive else "No"
         if culture_positive:
+            culture_positive_sepsis = "Yes"
             culture_positive_body_fluid = "Blood"
+        elif stay_ended:
+            culture_positive_sepsis = "No"
 
     mortality_7_days = mortality_28_days = None
     mortality_7d_date = mortality_28d_date = None
