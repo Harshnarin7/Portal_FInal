@@ -13,7 +13,7 @@ import { useActiveFormSessionRegistry } from './context/ActiveFormSessionContext
 import { useAuth } from './context/AuthContext';
 import api from './api/axios';
 import { isUsableEnrollmentId } from './utils/enrollmentId';
-import { realCalendarDateYmd } from './utils/datetime';
+import { realCalendarDateYmd, NICU_DAY_GRACE_HOUR } from './utils/datetime';
 import './Sidebar.css';
 
 /* All forms unlock after A+B are done */
@@ -198,16 +198,24 @@ export default function Sidebar({ currentForm }) {
     }
   }, [enrollmentId, location.pathname]); // eslint-disable-line
 
-  // DMS "Today" note: does today's calendar-date sheet (the one the DMS page
-  // opens by default) have at least one reading? Refreshed when the baby or
-  // page changes and after every DMS save.
-  const [dmsToday, setDmsToday] = useState(null); // null | 'logged' | 'none'
+  // DMS "Today" note: does the current NICU working day's sheet have at least
+  // one reading? The NICU day starts at 8 am (NICU_DAY_GRACE_HOUR), so before
+  // 8 am "today" is still yesterday's sheet — the one the nurse is finishing.
+  // Computed in the browser (India time); the server's /today uses its own
+  // UTC clock and is off by 5:30 h. Refreshed when the baby or page changes
+  // and after every DMS save.
+  const [dmsToday, setDmsToday] = useState(null); // null | {state, label}
   useEffect(() => {
     if (!enrollmentId) { setDmsToday(null); return undefined; }
     let active = true;
     const load = () => {
-      api.get(`/minimal-monitoring/${enrollmentId}/on/${realCalendarDateYmd()}`)
-        .then(res => { if (active) setDmsToday(sheetHasReading(res?.data) ? 'logged' : 'none'); })
+      const now = new Date();
+      const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (now.getHours() < NICU_DAY_GRACE_HOUR) day.setDate(day.getDate() - 1);
+      const ymd = realCalendarDateYmd(day);
+      const label = day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`)
+        .then(res => { if (active) setDmsToday({ state: sheetHasReading(res?.data) ? 'logged' : 'none', label }); })
         .catch(() => { if (active) setDmsToday(null); });
     };
     load();
@@ -567,7 +575,7 @@ export default function Sidebar({ currentForm }) {
                         <span className="item-label">{form.label}</span>
                         <span className="item-sub">
                           {form.id === 'minimal_monitoring' && enrollmentId && dmsToday
-                            ? (dmsToday === 'logged' ? 'Today: logged' : 'Today: not yet logged')
+                            ? `Today (${dmsToday.label}): ${dmsToday.state === 'logged' ? 'logged' : 'not yet logged'}`
                             : form.sub}
                         </span>
                       </div>
