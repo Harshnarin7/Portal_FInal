@@ -46,6 +46,7 @@ from mml_helper5_autofill import (
     compute_helper5_day_autofill,
     overlay_helper5_day_from_mml,
 )
+from clinical_time import clinical_now, clinical_today
 from concurrent_writes import (
     assert_fresh_write,
     merge_fio2_logs,
@@ -577,6 +578,7 @@ def version_check():
 
 @app.get("/users/roster", response_model=list[UserRosterOut])
 def list_site_roster(
+    enrollment_id: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -597,10 +599,24 @@ def list_site_roster(
             User.role != ROLE_SUPERADMIN,
         )
     )
-    if current_user.site_name:
+    # Whose site's staff: the baby's site when the form passes its
+    # enrollment_id (so a superadmin/global user filling Form F/G/H sees that
+    # site's staff, not all 37 names — found in live testing 2026-09-26),
+    # otherwise the caller's own site as before.
+    roster_site = current_user.site_name
+    if enrollment_id:
+        require_enrollment_access(enrollment_id, db, current_user)
+        scr = (
+            db.query(Screening)
+            .filter(Screening.enrollment_id == enrollment_id)
+            .first()
+        )
+        if scr and scr.site_name:
+            roster_site = scr.site_name
+    if roster_site:
         # Own site only. Mannat Guliani (nodal, site_name NULL) is listed
         # at PGIMER only — not at GMCH-A / GMCH / AMC / IOG / AFMC.
-        if current_user.site_name == "PGIMER":
+        if roster_site == "PGIMER":
             query = query.filter(
                 or_(
                     User.site_name == "PGIMER",
@@ -608,9 +624,18 @@ def list_site_roster(
                 )
             )
         else:
-            query = query.filter(User.site_name == current_user.site_name)
+            query = query.filter(User.site_name == roster_site)
     query = query.order_by(User.full_name)
-    return [{"full_name": u.full_name, "designation": u.designation} for u in query.all()]
+    # One entry per name: two accounts can share a full_name (e.g. a nodal
+    # and a site account), which showed "Mannat Guliani" twice.
+    seen, out = set(), []
+    for u in query.all():
+        key = u.full_name.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"full_name": u.full_name, "designation": u.designation})
+    return out
 
 
 @app.get("/users/", response_model=list[UserOut])
@@ -2014,7 +2039,7 @@ DAY1_DATE_ENTRY_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
 
 def _day1_date_within_allowed_range(value: date) -> bool:
-    now = datetime.now()
+    now = clinical_now()
     today = now.date()
     if value == today:
         return True
@@ -6135,7 +6160,7 @@ def _helper_records_page(
             name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
             pii_map[p.enrollment_id] = name or None
 
-    today = date.today()
+    today = clinical_today()
     if date_filter == "today":
         date_range = (today, today)
     elif date_filter == "yesterday":
@@ -7422,11 +7447,12 @@ def _validate_mml_manual_on_date(on_date: str) -> None:
         on = datetime.strptime(on_date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
-    today = datetime.now().date()
+    now = clinical_now()
+    today = now.date()
     yesterday = today - timedelta(days=1)
     if on == today:
         return
-    if on == yesterday and datetime.now().hour < MML_DROPDOWN_CUTOFF_HOUR:
+    if on == yesterday and now.hour < MML_DROPDOWN_CUTOFF_HOUR:
         return
     raise HTTPException(
         status_code=400,
@@ -7435,7 +7461,7 @@ def _validate_mml_manual_on_date(on_date: str) -> None:
 
 
 def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
-    now = datetime.now()
+    now = clinical_now()
     sheet = now.date()
     if now.hour < max(0, min(23, int(boundary_hour))):
         sheet = sheet - timedelta(days=1)
@@ -8212,7 +8238,7 @@ def create_ga_check_entry(
         eligible=None if payload.get("found_iufd") else classify_eligibility(payload.get("gestation_weeks"), payload.get("ga_source")),
     )
     if not record.check_date:
-        record.check_date = date.today()
+        record.check_date = clinical_today()
 
     db.add(record)
     db.commit()

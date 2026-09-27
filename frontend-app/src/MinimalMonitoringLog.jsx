@@ -68,6 +68,9 @@ const BLOCKS_BY_SECTION = {
 };
 
 /** Friendly label + one-line description shown in the field-picker list. */
+// Blocks rendered as scheduled flowsheets (slot-based rows, not a "new reading" draft).
+const FLOWSHEET_BLOCKS = new Set(["cv_a", "met_a", "gi_a", "growth_a"]);
+
 const BLOCK_META = {
   cv_a: { code: "5.1.A", label: "Vitals", desc: "Skin/Axillary temp, SBP, DBP, MAP" },
   cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus volume given" },
@@ -1723,6 +1726,15 @@ export default function MinimalMonitoringLog() {
     // field's array before showing it — if the last reading already has data
     // (e.g. it was filled in a previous visit today), start a fresh one so
     // the field always opens on a blank form with history below it.
+    // Scheduled flowsheets (vitals, glucose, feeds, weight) are slot-based:
+    // rows are added by tapping a slot, and an extra unscheduled blank row
+    // showed up as a stray "— <time>" line every time the field was reopened
+    // (found in live testing 2026-09-26). Only free-entry blocks get a draft.
+    if (FLOWSHEET_BLOCKS.has(key)) {
+      setActiveBlock(key);
+      setView("detail");
+      return;
+    }
     setEntries(prev => {
       const list = prev[key] || [];
       const last = list[list.length - 1];

@@ -342,7 +342,7 @@ export default function FormF() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get("/users/roster")
+    api.get("/users/roster", { params: enrollmentId ? { enrollment_id: enrollmentId } : {} })
       .then((res) => {
         if (cancelled) return;
         const rows = Array.isArray(res.data) ? res.data.filter((r) => r && r.full_name) : [];
@@ -352,7 +352,7 @@ export default function FormF() {
         if (!cancelled) setRoster([]);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [enrollmentId]); // baby's site staff (see /users/roster)
 
   const nurses = roster.map((r) => r.full_name);
   const completedByOptions =

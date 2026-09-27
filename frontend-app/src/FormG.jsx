@@ -66,15 +66,17 @@ function calculateDOLandPMA(dob, screeningDate, gaWeeks, gaDays) {
   const dobDate = new Date(dob);
   const screenDate = new Date(screeningDate);
   const diffTime = screenDate - dobDate;
-  const dol = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  // DOL counts the day of birth as DOL 1 (PI decision 2026-09-27), matching
+  // Form F and the NICU day numbering; PMA still adds completed days.
+  const ageDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
   const weeks = Number(gaWeeks) || 0;
   const days = Number(gaDays) || 0;
   const gaBirthDays = weeks * 7 + days;
-  const pmaDays = gaBirthDays + dol;
+  const pmaDays = gaBirthDays + ageDays;
   const pmaWeeks = Math.floor(pmaDays / 7);
   const pmaRemainingDays = pmaDays % 7;
   return {
-    dol: dol >= 0 ? dol : "",
+    dol: ageDays >= 0 ? ageDays + 1 : "",
     pma: `${pmaWeeks}w ${pmaRemainingDays}d`,
   };
 }
@@ -235,7 +237,7 @@ export default function FormG() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get("/users/roster")
+    api.get("/users/roster", { params: enrollmentId ? { enrollment_id: enrollmentId } : {} })
       .then((res) => {
         if (cancelled) return;
         const rows = Array.isArray(res.data) ? res.data.filter((r) => r && r.full_name) : [];
@@ -245,7 +247,7 @@ export default function FormG() {
         if (!cancelled) setRoster([]);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [enrollmentId]); // baby's site staff (see /users/roster)
 
   const [formData, setFormData] = useState({
     enrollment_id: "",

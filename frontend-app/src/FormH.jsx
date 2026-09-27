@@ -688,7 +688,7 @@ useEffect(() => {
   let cancelled = false;
   (async () => {
     try {
-      const res = await api.get("/users/roster");
+      const res = await api.get("/users/roster", { params: enrollmentId ? { enrollment_id: enrollmentId } : {} });
       const rows = Array.isArray(res.data) ? res.data.filter(r => r && r.full_name) : [];
       if (!cancelled) setRoster(rows);
     } catch (_) {
@@ -698,7 +698,7 @@ useEffect(() => {
     }
   })();
   return () => { cancelled = true; };
-}, []);
+}, [enrollmentId]); // baby's site staff (see /users/roster)
 
 useEffect(() => {
   if (patientData?.enrollment_id) {

@@ -168,7 +168,25 @@ export default function Sidebar({ currentForm }) {
     };
   }, [navOpen]);
 
-  const readIds = () => ({
+  // A direct / bookmarked link names the baby in the URL (/vs6-1/01-D-901).
+  // After a fresh login the stored id is gone, which left the sidebar at 0/N
+  // for a baby the page itself was showing (found 2026-09-26). The URL wins;
+  // if it names a different baby, drop the old baby's screening id and lock
+  // flags so they can't leak across.
+  const syncIdFromUrl = () => {
+    const seg = decodeURIComponent(window.location.pathname.split('/')[2] || '');
+    if (!isUsableEnrollmentId(seg)) return;
+    if (localStorage.getItem('current_enrollment_id') === seg) return;
+    localStorage.setItem('current_enrollment_id', seg);
+    localStorage.removeItem('current_screening_id');
+    localStorage.removeItem('enrollment_locked');
+    localStorage.removeItem('enrollment_lock_reason');
+  };
+  const readIds = () => {
+    syncIdFromUrl();
+    return readStoredIds();
+  };
+  const readStoredIds = () => ({
     screeningId:  validId(localStorage.getItem('current_screening_id')),
     // Ignore typing stubs like "01-" left by Form B focus/autosave.
     enrollmentId: isUsableEnrollmentId(localStorage.getItem('current_enrollment_id'))

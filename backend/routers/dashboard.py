@@ -100,6 +100,7 @@ endpoint.
 """
 
 import csv
+from clinical_time import clinical_today
 import io
 import json
 import logging
@@ -499,7 +500,7 @@ def _compute_ga_check_boxes(db: Session):
 
 
 def _compute_followup_boxes(db: Session):
-    today = date.today()
+    today = clinical_today()
     # counts[box][state][site] -> int ; ltfu_reasons[box][site][reason] -> int
     boxes = {
         9: {s: {"died": 0, "assessed": 0, "ltfu": 0, "awaiting": 0} for s in ALL_SITES},
@@ -1222,7 +1223,7 @@ def get_data_quality(
             dt = row["last_entry"]
             last_entry[site] = dt.date().isoformat() if hasattr(dt, "date") else str(dt)[:10]
 
-    today_date = date.today()
+    today_date = clinical_today()
     inactive_flags = {
         s: (last_entry[s] is None or (today_date - date.fromisoformat(last_entry[s])).days >= 14)
         for s in sites

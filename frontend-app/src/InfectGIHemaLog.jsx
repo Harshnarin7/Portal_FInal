@@ -1136,7 +1136,8 @@ export default function InfectGIHemaLog() {
     if (isFutureActiveDay) return;
     if (isSubmitted && !isOverrideActiveDay) return;
     try {
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/latest-weight-kg/${recordDate}`);
+      // Shared fetch: this ran twice on every load (two effects ask for it).
+      const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/latest-weight-kg/${recordDate}`);
       if (activeDayDateRef.current !== recordDate) return;
       const dmsWeightKg = typeof res?.data?.weight_kg === "number" ? res.data.weight_kg : null;
       const birthWeightKg = birthWeightGrams != null ? birthWeightGrams / 1000 : null;

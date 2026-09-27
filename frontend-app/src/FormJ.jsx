@@ -998,7 +998,13 @@ export default function FormJ() {
 
       <FormNavBar
         onBack={async () => {
-          try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          // Only save-before-back when a visit has actually been started
+          // (assessment weeks entered). A blank Form J used to hit
+          // saveForm()'s blocking "Please enter assessment weeks" alert just
+          // for pressing Back (found in live testing 2026-09-26).
+          if (Number(formData.assessment_weeks) >= 1) {
+            try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          }
           navigate(`/form-i/${enrollmentId}`, { state: { enrollmentId } });
         }}
         onSave={async () => { await saveForm(); }}
