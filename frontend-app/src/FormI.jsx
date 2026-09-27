@@ -1254,6 +1254,26 @@ export default function FormI() {
   // auto-fill logic, just triggered in bulk instead of one checkpoint at
   // a time (added 2026-09 after a stale 36-week brain-injury flag was
   // found in production, unrelated to any code bug in the fetch itself).
+  // ROP suggestion note (PI design 2026-09-27): where the ROP answer at this
+  // checkpoint came from (Form G / Form J / Form H / Helper 5), or which
+  // follow-up is still missing, plus the "ROP requiring treatment" composite
+  // component and a warning when the sources disagree.
+  const renderRopNote = (checkpoint) => {
+    const d = pmaPrefill[checkpoint];
+    if (!d || !d.rop_note) return null;
+    const composite = d.rop_treatment_required
+      ? ` ROP requiring treatment (composite): ${d.rop_treatment_required}.`
+      : "";
+    return (
+      <div
+        className={`field-hint ${d.rop_sources_disagree ? "field-hint-warning" : "field-hint-auto"}`}
+        style={{ margin: "0 0 10px" }}
+      >
+        {d.rop_sources_disagree ? "⚠ " : ""}ROP: {d.rop_note}.{composite}
+      </div>
+    );
+  };
+
   const forceRefillAllPmaCheckpoints = async () => {
     if (
       !window.confirm(
@@ -1799,6 +1819,7 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderRopNote(36)}
           <div className="crf-encounter-row">
             <Mini label="22. Method of Encounter">
               <RSelect name="encounter36_method" options={["Direct", "Telephonic"]} />
@@ -1910,6 +1931,7 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderRopNote(40)}
           <div className="crf-encounter-row">
             <Mini label="42. Method of Encounter">
               <RSelect name="encounter40_method" options={["Direct", "Telephonic"]} />
@@ -2006,6 +2028,7 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderRopNote(44)}
           <div className="crf-encounter-row">
             <Mini label="59. Method of Encounter">
               <RSelect name="encounter44_method" options={["Direct", "Telephonic"]} />

@@ -48,6 +48,7 @@ from mml_helper5_autofill import (
 )
 from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
+from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
 from concurrent_writes import (
     assert_fresh_write,
     merge_fio2_logs,
@@ -4355,6 +4356,118 @@ PMA_CHECKPOINT_PREV_WEEKS = {36: None, 40: 36, 44: 40}
 NEC_STAGE_ORDER = {"IA": 1, "IB": 2, "IIA": 3, "IIB": 4, "IIIA": 5, "IIIB": 6}
 
 
+def _rop_checkpoint_suggestion(db, enrollment_id, checkpoint, target_date, day1_date,
+                               gestation_weeks, gestation_days, form_h, metab_logs):
+    """Collects dated eye findings from Form G, Form J, Form H and Helper 5
+    and hands them to rop_suggestion.suggest_rop (pure, tested)."""
+    exams, treatments, required, negatives = [], [], [], []
+
+    def as_date(v):
+        if not v:
+            return None
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            return None
+
+    # Form G: screening visits + per-eye treatment summary + completion.
+    g = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    completed = None
+    if g:
+        visits = []
+        for i, v in enumerate(g.screenings or []):
+            d = as_date((v or {}).get("date"))
+            r_re, r_le = stage_rank((v or {}).get("re_stage")), stage_rank((v or {}).get("le_stage"))
+            ranks = [r for r in (r_re, r_le) if r is not None]
+            if d and ranks:
+                visits.append((d, r_re, r_le))
+                exams.append(rop_exam(d, max(ranks), f"Form G visit {i + 1}",
+                                      f"right {v.get('re_stage') or '-'}, left {v.get('le_stage') or '-'}"))
+        last_visit = max((v[0] for v in visits), default=None)
+        for eye, idx, stage_f, req_f, type_f, date_f in (
+            ("right", 1, g.worst_stage, g.treatment_required, g.treatment_type, g.treatment_re_date),
+            ("left", 2, g.worst_stage_le, g.treatment_required_le, g.treatment_type_le, g.treatment_le_date),
+        ):
+            kinds = [t for t in (type_f or []) if t]
+            if kinds:
+                treatments.append(rop_event(date_f, "Form G", f"{', '.join(kinds)}, {eye} eye"))
+            if req_f:
+                # Required but maybe never given (e.g. left before laser): dated by
+                # the treatment if any, else the first visit that eye reached its
+                # worst stage (when the need was known).
+                worst = max((v[idx] for v in visits if v[idx] is not None), default=None)
+                reached = min((v[0] for v in visits if worst and v[idx] == worst), default=None)
+                required.append(rop_event(date_f, f"Form G {eye} eye", "treatment required",
+                                          known_by=reached))
+        if stage_rank(g.worst_stage) == 0 and stage_rank(g.worst_stage_le) == 0:
+            negatives.append({"kind": "rop", "source": "Form G", "until": last_visit})
+        if g.treatment_required is False and g.treatment_required_le is False:
+            negatives.append({"kind": "treatment", "source": "Form G", "until": last_visit})
+        completed = g.final_screening_date
+
+    # Form J: follow-up visits, dated at their PMA week.
+    for j in (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+        .all()
+    ):
+        vd = _pma_target_date(day1_date, gestation_weeks, gestation_days, j.assessment_weeks) if j.assessment_weeks else None
+        ranks = [r for r in (stage_rank(j.rop_right), stage_rank(j.rop_left)) if r is not None]
+        src = f"Form J {j.assessment_weeks}-week visit"
+        if vd and ranks:
+            exams.append(rop_exam(vd, max(ranks), src, f"right {j.rop_right or '-'}, left {j.rop_left or '-'}"))
+        for eye, treated, td in (("right", j.treat_right, j.treat_date_right), ("left", j.treat_left, j.treat_date_left)):
+            if treated:
+                treatments.append(rop_event(td, src, f"{eye} eye", known_by=vd))
+                required.append(rop_event(td, src, f"{eye} eye", known_by=vd))
+
+    # Form H: whole-stay summary (valid up to discharge).
+    if form_h:
+        dd = form_h.discharge_date
+        if form_h.rop == "Yes" and form_h.rop_diagnosis_date:
+            ranks = [r for r in (stage_rank(form_h.rop_stage_right), stage_rank(form_h.rop_stage_left)) if r]
+            exams.append(rop_exam(form_h.rop_diagnosis_date, max(ranks) if ranks else 1, "Form H"))
+        elif form_h.rop == "No":
+            negatives.append({"kind": "rop", "source": "Form H", "until": dd})
+            if dd:
+                exams.append(rop_exam(dd, 0, "Form H (no ROP by discharge)"))
+        rx = [e for e, v in (("right", form_h.rop_treatment_right), ("left", form_h.rop_treatment_left)) if v == "Yes"]
+        for eye in rx:
+            treatments.append(rop_event(None, "Form H", f"{eye} eye", known_by=dd))
+        if form_h.rop_treatment_right == "No" and form_h.rop_treatment_left == "No":
+            negatives.append({"kind": "treatment", "source": "Form H", "until": dd})
+
+    # Helper 5 daily eye flags.
+    for l in metab_logs:
+        d = day1_date + timedelta(days=l.nicu_day - 1)
+        if l.rop_detected is True:
+            exams.append(rop_exam(d, stage_rank(l.rop_stage) or 1, f"Helper 5 Day {l.nicu_day}"))
+        elif l.rop_screened is True and l.rop_detected is False:
+            exams.append(rop_exam(d, 0, f"Helper 5 Day {l.nicu_day}"))
+        if l.rop_treatment is True:
+            treatments.append(rop_event(d, f"Helper 5 Day {l.nicu_day}"))
+
+    death_day = min((l.nicu_day for l in metab_logs if l.survived_the_day is False), default=None)
+    death_date = day1_date + timedelta(days=death_day - 1) if death_day else (
+        form_h.discharge_date if form_h and form_h.outcome == "Died" else None)
+
+    return suggest_rop(
+        checkpoint=checkpoint, target_date=target_date, exams=exams,
+        treatments=treatments, required=required, screening_completed=completed,
+        summary_negatives=negatives, death_date=death_date,
+        outcome=form_h.outcome if form_h else None,
+        discharge_date=form_h.discharge_date if form_h else None,
+        today=clinical_today(),
+    )
+
+
 @app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")
 def get_pma_assessment_prefill(
     enrollment_id: str,
@@ -4587,32 +4700,17 @@ def get_pma_assessment_prefill(
         if cpvl_date:
             result["cpvl_date"] = cpvl_date
 
-    # ---- ROP (cumulative-to-date; Form H primary, day-log fallback) ----
-    if form_h and form_h.rop == "Yes" and form_h.rop_diagnosis_date and form_h.rop_diagnosis_date <= target_date:
-        result["rop"] = "Yes"
-        result["rop_date"] = form_h.rop_diagnosis_date.isoformat()
-        treated_r = form_h.rop_treatment_right == "Yes"
-        treated_l = form_h.rop_treatment_left == "Yes"
-        if form_h.rop_treatment_right is not None or form_h.rop_treatment_left is not None:
-            result["rop_treated"] = "Yes" if (treated_r or treated_l) else "No"
-    elif form_h and form_h.rop == "No":
-        result["rop"] = "No"
-    elif metab_logs:
-        rop_hit_days = sorted(
-            l.nicu_day for l in metab_logs
-            if l.rop_detected is True and day_to_date(l.nicu_day) <= target_date
-        )
-        covered = any(day_to_date(l.nicu_day) <= target_date for l in metab_logs)
-        if rop_hit_days:
-            result["rop"] = "Yes"
-            result["rop_date"] = day_to_date(rop_hit_days[0]).isoformat()
-            treated_days = [
-                l.nicu_day for l in metab_logs
-                if l.rop_treatment is True and day_to_date(l.nicu_day) <= target_date
-            ]
-            result["rop_treated"] = "Yes" if treated_days else "No"
-        elif covered:
-            result["rop"] = "No"
+    # ---- ROP (cumulative-to-date; PI design 2026-09-27, rules in rop_suggestion.py) ----
+    rop = _rop_checkpoint_suggestion(
+        db, enrollment_id, checkpoint, target_date, nicu.day1_date,
+        gestation_weeks, gestation_days, form_h, metab_logs,
+    )
+    for k in ("rop", "rop_date", "rop_treated", "rop_treatment_required"):
+        if rop.get(k) is not None:
+            result[k] = rop[k]
+    result["rop_note"] = rop["note"]
+    result["rop_status"] = rop["status"]
+    result["rop_sources_disagree"] = rop["sources_disagree"]
 
     # ---- BPD (36wk checkpoint only) ----
     if checkpoint == 36:
