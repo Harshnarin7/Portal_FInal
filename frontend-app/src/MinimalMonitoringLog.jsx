@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
-import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   toDateOnlyValue,
@@ -1685,7 +1684,6 @@ export default function MinimalMonitoringLog() {
   const params = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const enrollmentId = params.enrollmentId || localStorage.getItem("current_enrollment_id") || "";
 
   const [entries, setEntries] = useState(emptyEntries);
@@ -2079,12 +2077,9 @@ export default function MinimalMonitoringLog() {
         const serverEntries = hydrateEntries(res.data);
         setEntries(prev => mergeServerOnlyEntries(prev, serverEntries, sentIds));
       }
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — a reading added then deleted before the
-      // next save must un-tick the helper, not leave it stuck complete.
-      const progress = countProgress(snapshot);
-      if (progress.done > 0) markFormCompleted("minimal_monitoring");
-      else unmarkFormCompleted("minimal_monitoring");
+      // No green tick for the DMS (PI decision 2026-09-26): it's a scratchpad
+      // with nothing mandatory. The sidebar shows a "Today: logged / not yet
+      // logged" note instead, refreshed by the portal-mml-saved event below.
       if (!silent) {
         setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)}). This reading stays on the form — use Log another reading to start a new one.`);
         setTimeout(() => setMessage(""), 5000);

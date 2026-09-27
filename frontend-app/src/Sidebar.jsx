@@ -13,6 +13,7 @@ import { useActiveFormSessionRegistry } from './context/ActiveFormSessionContext
 import { useAuth } from './context/AuthContext';
 import api from './api/axios';
 import { isUsableEnrollmentId } from './utils/enrollmentId';
+import { realCalendarDateYmd } from './utils/datetime';
 import './Sidebar.css';
 
 /* All forms unlock after A+B are done */
@@ -93,7 +94,23 @@ const SECTIONS = [
   },
 ];
 
-const TOTAL_FORMS = SECTIONS.reduce((n, s) => n + s.items.length, 0);
+// The DMS is a same-day scratchpad feeding Helpers 2-5, with nothing
+// mandatory — it gets no green tick and isn't counted (PI decision
+// 2026-09-26). Its sidebar row shows a neutral "Today: logged / not yet
+// logged" note instead; completeness is judged in the helper forms.
+const NO_TICK_ITEMS = new Set(['minimal_monitoring']);
+const TOTAL_FORMS = SECTIONS.reduce((n, s) => n + s.items.filter(i => !NO_TICK_ITEMS.has(i.id)).length, 0);
+const DMS_META_KEYS = new Set(['id', 'date', 'time', 'slot_time']);
+const sheetHasReading = (sheet) => {
+  let parsed = sheet?.entries_json;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+  }
+  if (!parsed || typeof parsed !== 'object') return false;
+  return Object.values(parsed).some(list => Array.isArray(list) && list.some(e =>
+    e && Object.entries(e).some(([k, v]) =>
+      !DMS_META_KEYS.has(k) && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))));
+};
 const ALL_ITEMS = SECTIONS.flatMap(s => s.items);
 const getCurrentFormMeta = (id) => ALL_ITEMS.find(i => i.id === id);
 const ROLE_LABELS = {
@@ -180,6 +197,24 @@ export default function Sidebar({ currentForm }) {
       fetchProgress(enrollmentId);
     }
   }, [enrollmentId, location.pathname]); // eslint-disable-line
+
+  // DMS "Today" note: does today's calendar-date sheet (the one the DMS page
+  // opens by default) have at least one reading? Refreshed when the baby or
+  // page changes and after every DMS save.
+  const [dmsToday, setDmsToday] = useState(null); // null | 'logged' | 'none'
+  useEffect(() => {
+    if (!enrollmentId) { setDmsToday(null); return undefined; }
+    let active = true;
+    const load = () => {
+      api.get(`/minimal-monitoring/${enrollmentId}/on/${realCalendarDateYmd()}`)
+        .then(res => { if (active) setDmsToday(sheetHasReading(res?.data) ? 'logged' : 'none'); })
+        .catch(() => { if (active) setDmsToday(null); });
+    };
+    load();
+    const onSaved = (e) => { if (!e?.detail?.enrollmentId || e.detail.enrollmentId === enrollmentId) load(); };
+    window.addEventListener('portal-mml-saved', onSaved);
+    return () => { active = false; window.removeEventListener('portal-mml-saved', onSaved); };
+  }, [enrollmentId, location.pathname]);
 
   const [enrollmentLocked, setEnrollmentLocked] = useState(
     localStorage.getItem('enrollment_locked') === 'true'
@@ -320,7 +355,8 @@ export default function Sidebar({ currentForm }) {
     return null;
   };
 
-  const progressPct = TOTAL_FORMS > 0 ? Math.round((completedForms.length / TOTAL_FORMS) * 100) : 0;
+  const countedDone = completedForms.filter(id => !NO_TICK_ITEMS.has(id)).length;
+  const progressPct = TOTAL_FORMS > 0 ? Math.round((countedDone / TOTAL_FORMS) * 100) : 0;
   const currentMeta = getCurrentFormMeta(currentForm);
 
   return (
@@ -358,7 +394,7 @@ export default function Sidebar({ currentForm }) {
         </div>
 
         <span className="sidebar-sticky-progress" title="Case progress">
-          {completedForms.length}/{TOTAL_FORMS}
+          {countedDone}/{TOTAL_FORMS}
         </span>
 
         <div className="sidebar-sticky-user">
@@ -390,7 +426,7 @@ export default function Sidebar({ currentForm }) {
         <div className="sidebar-progress">
           <div className="progress-label">
             <span>Case Progress</span>
-            <span>{completedForms.length} / {TOTAL_FORMS} forms</span>
+            <span>{countedDone} / {TOTAL_FORMS} forms</span>
           </div>
           <div className="progress-bar-bg">
             <div className="progress-bar-fill" style={{ width: `${progressPct}%` }} />
@@ -455,8 +491,9 @@ export default function Sidebar({ currentForm }) {
               <span>Loading…</span>
             </div>
           ) : SECTIONS.map(section => {
-            const done  = section.items.filter(i => completedForms.includes(i.id)).length;
-            const total = section.items.length;
+            const counted = section.items.filter(i => !NO_TICK_ITEMS.has(i.id));
+            const done  = counted.filter(i => completedForms.includes(i.id)).length;
+            const total = counted.length;
             return (
               <div key={section.key} className="sidebar-section">
                 <div className="sidebar-section-header">
@@ -467,7 +504,7 @@ export default function Sidebar({ currentForm }) {
                 </div>
 
                 {section.items.map(form => {
-                  const completed = completedForms.includes(form.id);
+                  const completed = !NO_TICK_ITEMS.has(form.id) && completedForms.includes(form.id);
                   const unlocked  = isUnlocked(form.id);
                   const locked    = !unlocked;
                   const isCurrent = currentForm === form.id;
@@ -528,7 +565,11 @@ export default function Sidebar({ currentForm }) {
                       </div>
                       <div className="item-text">
                         <span className="item-label">{form.label}</span>
-                        <span className="item-sub">{form.sub}</span>
+                        <span className="item-sub">
+                          {form.id === 'minimal_monitoring' && enrollmentId && dmsToday
+                            ? (dmsToday === 'logged' ? 'Today: logged' : 'Today: not yet logged')
+                            : form.sub}
+                        </span>
                       </div>
                       <div className="item-right">
                         {completed ? (
