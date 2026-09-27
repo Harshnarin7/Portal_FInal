@@ -49,6 +49,7 @@ from mml_helper5_autofill import (
 from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
+from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
     assert_fresh_write,
     merge_fio2_logs,
@@ -4468,6 +4469,79 @@ def _rop_checkpoint_suggestion(db, enrollment_id, checkpoint, target_date, day1_
     )
 
 
+def _nec_findings(db, enrollment_id, day_to_date, form_h, inf_logs, pma_week_date=None):
+    """Dated NEC stage records from Helper 4, Form H and (when pma_week_date is
+    given) Form J, for nec_suggestion. Returns (findings, negatives,
+    in_nicu_through)."""
+    findings, negatives = [], []
+    for l in inf_logs:
+        rank = nec_stage_rank(l.nec_confirmed_stage)
+        if rank or l.nec_suspected is True:
+            findings.append(nec_finding(day_to_date(l.nicu_day), rank, f"Helper 4 Day {l.nicu_day}"))
+    dd = form_h.discharge_date if form_h else None
+    if form_h and form_h.nec is True:
+        findings.append(nec_finding(form_h.nec_date, nec_stage_rank(form_h.nec_stage), "Form H",
+                                    surgery=form_h.nec_surgery,
+                                    known_by=None if form_h.nec_date else dd))
+    elif form_h and form_h.nec is False:
+        negatives.append({"source": "Form H", "until": dd})
+    if pma_week_date:
+        for j in (
+            db.query(ExternalHospitalAssessment)
+            .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+            .all()
+        ):
+            vd = pma_week_date(j.assessment_weeks) if j.assessment_weeks else None
+            src = f"Form J {j.assessment_weeks}-week visit"
+            if j.nec is True:
+                findings.append(nec_finding(j.nec_date, nec_stage_rank(j.nec_stage), src,
+                                            surgery=j.nec_surgery,
+                                            known_by=None if j.nec_date else vd))
+            elif j.nec is False and vd:
+                negatives.append({"source": src, "until": vd})
+    last_log = max((day_to_date(l.nicu_day) for l in inf_logs), default=None)
+    return findings, negatives, dd or last_log
+
+
+@app.get("/neonatal-morbidities/nec-stage-suggestion/{enrollment_id}")
+def get_nec_stage_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested Bell stage for Form H H3 NEC (PI 2026-09-28): the highest
+    stage the nurses recorded in Helper 4 (incl. IA/IB, so suspected NEC is
+    recorded too). Read-only; Form H shows it and the clinician applies it."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    staged = [
+        nec_finding(dob + timedelta(days=l.nicu_day - 1) if dob else None,
+                    nec_stage_rank(l.nec_confirmed_stage), f"Helper 4 Day {l.nicu_day}")
+        for l in inf_logs if nec_stage_rank(l.nec_confirmed_stage)
+    ]
+    unstaged_days = [l.nicu_day for l in inf_logs if l.nec_suspected is True and not nec_stage_rank(l.nec_confirmed_stage)]
+    top = nec_highest_stage(staged)
+    if top:
+        first_iia = min((f["date"] for f in staged if f["rank"] >= 3 and f["date"]), default=None)
+        return {"status": "suggested", **top,
+                "first_iia_date": first_iia.isoformat() if first_iia else None,
+                "note": "suspected NEC (not ≥ IIA): stays out of the composite" if top["stage"] in ("IA", "IB") else ""}
+    if unstaged_days:
+        return {"status": "flag", "note": f"NEC suspected on Helper 4 Day {unstaged_days[0]} but no stage recorded: please stage it"}
+    return {"status": "none"}
+
+
 @app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")
 def get_pma_assessment_prefill(
     enrollment_id: str,
@@ -4613,26 +4687,30 @@ def get_pma_assessment_prefill(
         if last_known_date and last_known_date >= target_date:
             result["death"] = "No"
 
-    # ---- NEC (cumulative-to-date; Form H primary, day-log fallback) ----
-    if form_h and form_h.nec is True and form_h.nec_date and form_h.nec_date <= target_date:
-        result["nec_stage"] = "Yes"
-        result["nec_date"] = form_h.nec_date.isoformat()
-        if form_h.nec_surgery is not None:
-            result["nec_surgery"] = "Yes" if form_h.nec_surgery else "No"
-    elif form_h and form_h.nec is False:
-        result["nec_stage"] = "No"
-    elif inf_logs:
-        nec_hit_days = sorted(
-            l.nicu_day for l in inf_logs
-            if NEC_STAGE_ORDER.get(l.nec_confirmed_stage or "", 0) >= NEC_STAGE_ORDER["IIA"]
-            and day_to_date(l.nicu_day) <= target_date
-        )
-        covered = any(day_to_date(l.nicu_day) <= target_date for l in inf_logs)
-        if nec_hit_days:
-            result["nec_stage"] = "Yes"
-            result["nec_date"] = day_to_date(nec_hit_days[0]).isoformat()
-        elif covered:
-            result["nec_stage"] = "No"
+    # ---- NEC (cumulative-to-date; PI design 2026-09-28, rules in nec_suggestion.py) ----
+    nec_findings, nec_negatives, nec_in_nicu = _nec_findings(
+        db, enrollment_id, lambda n: day_to_date(n), form_h, inf_logs,
+        lambda w: _pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, w),
+    )
+    nec_death = None
+    nec_death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
+    if nec_death_days:
+        nec_death = day_to_date(nec_death_days[0])
+    elif form_h and form_h.outcome == "Died":
+        nec_death = form_h.discharge_date
+    nec = suggest_nec(
+        checkpoint=checkpoint, target_date=target_date, findings=nec_findings,
+        negatives=nec_negatives, in_nicu_through=nec_in_nicu,
+        outcome=form_h.outcome if form_h else None,
+        discharge_date=form_h.discharge_date if form_h else None,
+        death_date=nec_death, today=clinical_today(),
+    )
+    for k in ("nec_stage", "nec_date", "nec_surgery"):
+        if nec.get(k) is not None:
+            result[k] = nec[k]
+    result["nec_note"] = nec["note"]
+    result["nec_status"] = nec["status"]
+    result["nec_sources_disagree"] = nec["sources_disagree"]
 
     # ---- Brain injury: IVH grade III/IV, cPVL grade 3/4 (cumulative-to-date) ----
     usg_record = None

@@ -276,6 +276,25 @@ useEffect(() => {
   fetchBpdSuggestion();
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [enrollmentId]);
+
+// NEC stage suggestion (H3 #71, PI 2026-09-28): the highest Bell stage the
+// nurses recorded in Helper 4, including IA/IB, so suspected NEC is recorded
+// here too (it stays out of Form I's ">= IIA" item and the composite).
+// Suggestion only; the clinician applies it.
+const [necStageSuggestion, setNecStageSuggestion] = useState(null);
+const fetchNecStageSuggestion = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/nec-stage-suggestion/${enrollmentId}`);
+    setNecStageSuggestion(res?.data || null);
+  } catch (_) {
+    setNecStageSuggestion(null);
+  }
+};
+useEffect(() => {
+  fetchNecStageSuggestion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [enrollmentId]);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -4903,6 +4922,7 @@ const num = (v) => {
       // this never blocks saving, only the "done" tick.
       syncFormHTick();
       fetchBpdSuggestion(); // outcome/discharge may have changed
+      fetchNecStageSuggestion();
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -5072,6 +5092,12 @@ const applyBpdSuggestion = () => {
     bpd_grade: sgt.bpd === "Yes" ? (sgt.bpd_grade || "") : "",
   }));
   setErrors((prev) => ({ ...prev, bpd: "", bpd_support_36w: "", bpd_grade: "" }));
+};
+const applyNecStageSuggestion = () => {
+  const sgt = necStageSuggestion;
+  if (!sgt?.stage) return;
+  setFormData((prev) => ({ ...prev, nec: "Yes", nec_stage: sgt.stage }));
+  setErrors((prev) => ({ ...prev, nec: "", nec_stage: "" }));
 };
 const bpdDiffersFromSuggestion = !!(
   bpdSuggestion?.status === "suggested" && bpdSuggestion.bpd && formData.bpd
@@ -7742,6 +7768,28 @@ const peripheralStatus= getPeripheralStatus();
     <div className="error-text">{errors.nec}</div>
   )}
 </div>
+
+{necStageSuggestion?.status === "suggested" && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    <strong>Suggested max stage: {necStageSuggestion.stage}</strong>
+    {" "}— highest stage in the daily logs ({necStageSuggestion.source}
+    {necStageSuggestion.date ? `, ${formatDateToDDMMYYYY(necStageSuggestion.date)}` : ""})
+    {necStageSuggestion.first_iia_date ? `; first ≥ IIA on ${formatDateToDDMMYYYY(necStageSuggestion.first_iia_date)}` : ""}.
+    {necStageSuggestion.note ? ` ${necStageSuggestion.note[0].toUpperCase()}${necStageSuggestion.note.slice(1)}.` : ""}
+    {" "}Verify before saving.{" "}
+    <button type="button" className="link-button" onClick={applyNecStageSuggestion}>Apply suggestion</button>
+    {formData.nec_stage && formData.nec_stage !== necStageSuggestion.stage && (
+      <div style={{ marginTop: "6px", color: "#b45309" }}>
+        Your current stage differs from this suggestion — check which is right.
+      </div>
+    )}
+  </div>
+)}
+{necStageSuggestion?.status === "flag" && (
+  <div className="field-hint field-hint-warning" style={{ marginBottom: "10px" }}>
+    ⚠ {necStageSuggestion.note}.
+  </div>
+)}
 
 {formData.nec === "Yes" && (
   <>
