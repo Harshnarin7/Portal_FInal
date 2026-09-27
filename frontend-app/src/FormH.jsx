@@ -11,7 +11,7 @@ import { designationForCompletedBy } from "./utils/completedByDesignation";
 import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { toDateOnlyValue, parseDateOnly, formatDateToDDMMYYYY } from "./utils/datetime";
 import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
 import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
@@ -257,6 +257,25 @@ const [cranialUsgStale, setCranialUsgStale] = useState({});
 // load (autoFillBlanks: false). Surfaced as a per-card hint so the
 // clinician can pull them in with "Refill empty fields from Form F".
 const [cranialUsgNewlyAvailable, setCranialUsgNewlyAvailable] = useState({});
+// BPD (H2.1) suggestion — Jensen 2019 at 36+0 weeks PMA, computed by
+// GET /neonatal-morbidities/bpd-suggestion (rules: backend/bpd_suggestion.py,
+// agreed with the PI 2026-09-27). Suggestion only: nothing is written until
+// the clinician presses "Apply suggestion". Refetched after every save so a
+// newly entered discharge date / outcome is taken into account.
+const [bpdSuggestion, setBpdSuggestion] = useState(null);
+const fetchBpdSuggestion = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/bpd-suggestion/${enrollmentId}`);
+    setBpdSuggestion(res?.data || null);
+  } catch (_) {
+    setBpdSuggestion(null);
+  }
+};
+useEffect(() => {
+  fetchBpdSuggestion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [enrollmentId]);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -4883,6 +4902,7 @@ const num = (v) => {
       // must be reviewed/addressed before Form H counts as complete —
       // this never blocks saving, only the "done" tick.
       syncFormHTick();
+      fetchBpdSuggestion(); // outcome/discharge may have changed
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -5039,6 +5059,26 @@ const getStatusIcon = (value) => {
   if (value === "Yes") return "✔";
   if (value === "No") return "✖";
 };
+
+const applyBpdSuggestion = () => {
+  const sgt = bpdSuggestion;
+  if (!sgt?.bpd) return;
+  setFormData((prev) => ({
+    ...prev,
+    bpd: sgt.bpd,
+    // Grade/support left blank when the suggestion can't tell (NC without
+    // a recorded flow) — the clinician chooses.
+    bpd_support_36w: sgt.bpd === "Yes" ? (sgt.bpd_support_36w || "") : "",
+    bpd_grade: sgt.bpd === "Yes" ? (sgt.bpd_grade || "") : "",
+  }));
+  setErrors((prev) => ({ ...prev, bpd: "", bpd_support_36w: "", bpd_grade: "" }));
+};
+const bpdDiffersFromSuggestion = !!(
+  bpdSuggestion?.status === "suggested" && bpdSuggestion.bpd && formData.bpd
+  && (formData.bpd !== bpdSuggestion.bpd
+    || (bpdSuggestion.bpd === "Yes" && bpdSuggestion.bpd_grade && formData.bpd_grade
+        && String(formData.bpd_grade) !== String(bpdSuggestion.bpd_grade)))
+);
 
 const getBPDSummary = () => {
   if (!formData.bpd) return "Not filled";
@@ -6787,6 +6827,32 @@ const peripheralStatus= getPeripheralStatus();
     open={openSection === "bpd"}
     onToggle={() => setOpenSection(openSection === "bpd" ? null : "bpd")}
   >
+
+{bpdSuggestion && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    {bpdSuggestion.status === "suggested" && (
+      <>
+        <strong>Suggested: {bpdSuggestion.bpd === "No" ? "No BPD"
+          : `BPD${bpdSuggestion.bpd_grade ? ` — Grade ${bpdSuggestion.bpd_grade} (${bpdSuggestion.bpd_support_36w})` : " (grade: please choose)"}`}</strong>
+        {" "}— from {bpdSuggestion.source}: {bpdSuggestion.note}.
+        {bpdSuggestion.assessment_date && ` 36+0 weeks PMA = ${formatDateToDDMMYYYY(bpdSuggestion.assessment_date)} (Day ${bpdSuggestion.assessment_day}).`}
+        {" "}Verify before saving.{" "}
+        <button type="button" className="link-button" onClick={applyBpdSuggestion}>Apply suggestion</button>
+        {bpdDiffersFromSuggestion && (
+          <div style={{ marginTop: "6px", color: "#b45309" }}>
+            Your current answer differs from this suggestion — check which is right.
+          </div>
+        )}
+      </>
+    )}
+    {bpdSuggestion.status === "flag" && (
+      <>⚠ Needs your decision — from {bpdSuggestion.source}: {bpdSuggestion.note}.</>
+    )}
+    {(bpdSuggestion.status === "pending" || bpdSuggestion.status === "not_applicable") && (
+      <>BPD suggestion: {bpdSuggestion.note}.</>
+    )}
+  </div>
+)}
 
 {/* BPD */}
 <div className="form-group">

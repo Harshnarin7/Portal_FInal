@@ -47,6 +47,7 @@ from mml_helper5_autofill import (
     overlay_helper5_day_from_mml,
 )
 from clinical_time import clinical_now, clinical_today
+from bpd_suggestion import suggest_bpd
 from concurrent_writes import (
     assert_fresh_write,
     merge_fio2_logs,
@@ -3720,6 +3721,92 @@ def get_infection_detect(
         "log_days_count": len(logs),
         "windows": windows,
     }
+
+
+@app.get("/neonatal-morbidities/bpd-suggestion/{enrollment_id}")
+def get_bpd_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested BPD (Form H H2.1, #35-37) — Jensen 2019 at 36+0 weeks PMA.
+    Rules live in bpd_suggestion.py (agreed with the PI 2026-09-27). Never
+    writes anything: Form H shows it and the clinician applies it. Helper 2
+    days are read with the same read-time DMS overlay the Helper 2 form shows
+    (in memory under no_autoflush, never written back)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    form_h = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
+        .first()
+    )
+    outcome = form_h.outcome if form_h else None
+    discharge_date = form_h.discharge_date if form_h else None
+
+    death_date = None
+    death_day = min(
+        (l.nicu_day for l in db.query(MetabRenalVascEyeDayLog)
+         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
+                 MetabRenalVascEyeDayLog.survived_the_day.is_(False)).all()),
+        default=None,
+    )
+    if dob and death_day:
+        death_date = dob + timedelta(days=death_day - 1)
+    elif outcome == "Died" and discharge_date:
+        death_date = discharge_date
+
+    j = (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id,
+                ExternalHospitalAssessment.assessment_weeks == 36)
+        .order_by(ExternalHospitalAssessment.id.desc())
+        .first()
+    )
+    form_j36 = {"resp_support": j.resp_support, "resp_mode": j.resp_mode, "flow_rate": j.flow_rate} if j else None
+
+    cache = {}
+
+    def get_day(n):
+        if n in cache:
+            return cache[n]
+        log = None
+        if n >= 1:
+            log = (
+                db.query(RespCVNeuroDayLog)
+                .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id,
+                        RespCVNeuroDayLog.nicu_day == n)
+                .first()
+            )
+        if log is not None:
+            cal = calendar_date_for_nicu_day_from_birth(dob, n)
+            if cal:
+                _overlay_resp_cv_from_mml(db, enrollment_id, log, cal)
+            cache[n] = {k: getattr(log, k, None) for k in (
+                "respiratory_support", "endotracheal_intubation", "support_modes",
+                "max_flow", "supp_o2")}
+        else:
+            cache[n] = None
+        return cache[n]
+
+    with db.no_autoflush:
+        return suggest_bpd(
+            dob=dob,
+            ga_weeks=birth.gestation_weeks if birth else None,
+            ga_days=birth.gestation_days if birth else None,
+            today=clinical_today(),
+            death_date=death_date,
+            outcome=outcome,
+            discharge_date=discharge_date,
+            form_j36=form_j36,
+            get_day=get_day,
+        )
 
 
 @app.get("/neonatal-morbidities/resp-prefill/{enrollment_id}")
