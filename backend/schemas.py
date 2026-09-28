@@ -323,6 +323,7 @@ class ParticipantPIIBatchRequest(BaseModel):
 # ==========================================================
 
 class ScreeningCreate(BaseModel):
+    is_complete: Optional[bool] = None  # web green-tick flag (see models)
     screening_id: Optional[str] = None
     screening_datetime: Optional[datetime] = None
     enrollment_id: Optional[str] = None
@@ -463,6 +464,7 @@ ScreeningOut = ScreeningClinicalOut
 # ==========================================================
 
 class BirthResuscitationCreate(BaseModel):
+    is_complete: Optional[bool] = None  # web green-tick flag (see models)
     screening_id: Optional[str] = None
     enrollment_id: Optional[str] = None
 
@@ -789,6 +791,7 @@ class BirthResuscitationOut(BirthResuscitationCreate):
 # ==========================================================
 
 class MaternalDetailsCreate(BaseModel):
+    is_complete: Optional[bool] = None  # web green-tick flag (see models)
     enrollment_id: Optional[str] = None
     mother_name: Optional[str] = None
     maternal_uid: Optional[str] = None
@@ -966,6 +969,7 @@ class MaternalDetailsOut(MaternalDetailsCreate):
 # =========================
 
 class PostnatalDay1Create(BaseModel):
+    is_complete: Optional[bool] = None  # web green-tick flag (see models)
     enrollment_id: str | None = None
     gestation_weeks: int | None = None
     gestation_days: int | None = None
@@ -1034,6 +1038,7 @@ class PostnatalDay1Out(PostnatalDay1Create):
         from_attributes = True
 
 class NICUAdmissionCreate(BaseModel):
+    is_complete: Optional[bool] = None  # web green-tick flag (see models)
     enrollment_id: str
 
     baby_uid: Optional[str] = None
@@ -2740,6 +2745,9 @@ class MinimalMonitoringDayCreate(BaseModel):
     prbc_volume: Optional[float] = None
 
     entries_json: Optional[str] = None
+    # Request-only: entry ids the nurse removed on screen. Not a DB column —
+    # consumed by merge_mml_entries_json so a deleted reading stays deleted.
+    deleted_entry_ids: Optional[List[str]] = None
     steroid_other: Optional[str] = None
     apnea_shift: Optional[str] = None
     feed_shift: Optional[str] = None

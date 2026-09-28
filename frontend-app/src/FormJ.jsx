@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isFormJComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/FormJ.css";
@@ -481,13 +482,24 @@ export default function FormJ() {
   const navigate = useNavigate();
   const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
 
   const [enrollmentId, setEnrollmentId] = useState("");
   const [motherName, setMotherName] = useState("");
   const [dob, setDob] = useState("");
   const [formData, setFormData] = useState(emptyForm);
   const [savedRows, setSavedRows] = useState([]);
+  // Green tick = ≥1 saved assessment that is signed off
+  // (utils/formCompletion), not "a save happened". savedRows only ever holds
+  // server rows (set on load and after each save), so this tracks the
+  // stored record. Skip the initial empty list before the load returns.
+  const savedRowsSeenRef = useRef(false);
+  useEffect(() => {
+    if (!savedRowsSeenRef.current) { savedRowsSeenRef.current = true; return; }
+    if (isFormJComplete(savedRows)) markFormCompleted("form_j");
+    else unmarkFormCompleted("form_j");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedRows]);
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [assessors, setAssessors] = useState([]);
@@ -650,7 +662,6 @@ export default function FormJ() {
         const others = prev.filter((r) => Number(r.assessment_weeks) !== Number(res.data.assessment_weeks));
         return [...others, res.data].sort((a, b) => a.assessment_weeks - b.assessment_weeks);
       });
-      markFormCompleted("form_j");
       setIsSaved(true);
       if (!silent) {
         setSaveMessage(`✅ ${weeks}-week assessment saved — you can fill again for another week anytime`);
@@ -987,7 +998,13 @@ export default function FormJ() {
 
       <FormNavBar
         onBack={async () => {
-          try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          // Only save-before-back when a visit has actually been started
+          // (assessment weeks entered). A blank Form J used to hit
+          // saveForm()'s blocking "Please enter assessment weeks" alert just
+          // for pressing Back (found in live testing 2026-09-26).
+          if (Number(formData.assessment_weeks) >= 1) {
+            try { await saveForm(); } catch (err) { console.error("Save before back failed:", err); }
+          }
           navigate(`/form-i/${enrollmentId}`, { state: { enrollmentId } });
         }}
         onSave={async () => { await saveForm(); }}

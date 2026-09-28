@@ -367,7 +367,7 @@ const FieldError = ({ msg }) => msg ? <div className="field-error">{msg}</div> :
 export default function FormC() {
   const navigate  = useNavigate();
   const { enrollmentId } = useParams();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
 
   // Recover when Form B autosave left a typing stub in the URL (e.g. /form-c/01-).
   useEffect(() => {
@@ -1297,6 +1297,11 @@ export default function FormC() {
     return e;
   };
 
+  // Recomputed every render so every save — autosave included — sends the
+  // current answer; the sidebar tick follows it (PI decision 2026-09-26).
+  const formCompleteRef = useRef(false);
+  formCompleteRef.current = Object.keys(validate()).length === 0;
+
   /* ── Build payload ── */
   const buildPayload = useCallback((explicitlySaved = false) => ({
     enrollment_id: formData.enrollment_id || null,
@@ -1397,6 +1402,8 @@ export default function FormC() {
     duration_rom: formData.duration_rom||null,
     uterotonic: formData.uterotonic||null, uterotonic_timing: formData.uterotonic_timing||null,
     ...(explicitlySaved ? { explicitly_saved: true } : {}),
+    // Green tick: this form's own Save validation passes (see validate()).
+    is_complete: formCompleteRef.current,
   }), [formData]); // eslint-disable-line
 
   /* ── Save form ── */
@@ -1427,7 +1434,8 @@ export default function FormC() {
       setMessage("✅ Form C saved successfully");
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);
-      markFormCompleted("form_c");
+      if (formCompleteRef.current) markFormCompleted("form_c");
+      else unmarkFormCompleted("form_c");
       setTimeout(() => setMessage(""), 3000);
       return true;
     } catch (err) {

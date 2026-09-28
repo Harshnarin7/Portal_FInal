@@ -1294,3 +1294,14 @@ BIRTH_LOG_REASON_NOT_APPROACHED_PATCHES = [
 BIRTH_LOG_GA_LOG_MISSING_PATCHES = [
     "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS ga_log_missing BOOLEAN",
 ]
+
+
+# 2026-09-26 — strict "complete" flag behind the Forms A–E green tick. Name
+# must end in _PATCHES (auto-discovered by apply_schema_patches()).
+FORM_IS_COMPLETE_PATCHES = [
+    "ALTER TABLE screenings ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+    "ALTER TABLE birth_resuscitation ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+    "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+    "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+    "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+]

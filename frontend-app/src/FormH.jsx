@@ -11,10 +11,11 @@ import { designationForCompletedBy } from "./utils/completedByDesignation";
 import { useParams } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { toDateOnlyValue, parseDateOnly } from "./utils/datetime";
+import { toDateOnlyValue, parseDateOnly, formatDateToDDMMYYYY } from "./utils/datetime";
 import { Plus, Trash2, Brain, Wind, Utensils, Activity, HeartPulse, Droplets, Eye, Thermometer, Syringe, Bug, ClipboardList, Home, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import FormNavBar from "./components/FormNavBar";
 import { PillSelect, ChipMultiSelect, CollapsibleCard, FieldRow } from "./components/formh/FormHFields";
+import { isFormHComplete } from "./utils/formCompletion";
 
 /* ─── FormH category map — powers the sticky jump-nav below the header.
    Keeping this outside the component avoids re-creating the array (and
@@ -256,6 +257,44 @@ const [cranialUsgStale, setCranialUsgStale] = useState({});
 // load (autoFillBlanks: false). Surfaced as a per-card hint so the
 // clinician can pull them in with "Refill empty fields from Form F".
 const [cranialUsgNewlyAvailable, setCranialUsgNewlyAvailable] = useState({});
+// BPD (H2.1) suggestion — Jensen 2019 at 36+0 weeks PMA, computed by
+// GET /neonatal-morbidities/bpd-suggestion (rules: backend/bpd_suggestion.py,
+// agreed with the PI 2026-09-27). Suggestion only: nothing is written until
+// the clinician presses "Apply suggestion". Refetched after every save so a
+// newly entered discharge date / outcome is taken into account.
+const [bpdSuggestion, setBpdSuggestion] = useState(null);
+const fetchBpdSuggestion = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/bpd-suggestion/${enrollmentId}`);
+    setBpdSuggestion(res?.data || null);
+  } catch (_) {
+    setBpdSuggestion(null);
+  }
+};
+useEffect(() => {
+  fetchBpdSuggestion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [enrollmentId]);
+
+// NEC stage suggestion (H3 #71, PI 2026-09-28): the highest Bell stage the
+// nurses recorded in Helper 4, including IA/IB, so suspected NEC is recorded
+// here too (it stays out of Form I's ">= IIA" item and the composite).
+// Suggestion only; the clinician applies it.
+const [necStageSuggestion, setNecStageSuggestion] = useState(null);
+const fetchNecStageSuggestion = async () => {
+  if (!enrollmentId) return;
+  try {
+    const res = await api.get(`/neonatal-morbidities/nec-stage-suggestion/${enrollmentId}`);
+    setNecStageSuggestion(res?.data || null);
+  } catch (_) {
+    setNecStageSuggestion(null);
+  }
+};
+useEffect(() => {
+  fetchNecStageSuggestion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [enrollmentId]);
   const [formData, setFormData] = useState({
     // ================= IDENTIFICATION =================
     enrollment_id: "",
@@ -687,7 +726,7 @@ useEffect(() => {
   let cancelled = false;
   (async () => {
     try {
-      const res = await api.get("/users/roster");
+      const res = await api.get("/users/roster", { params: enrollmentId ? { enrollment_id: enrollmentId } : {} });
       const rows = Array.isArray(res.data) ? res.data.filter(r => r && r.full_name) : [];
       if (!cancelled) setRoster(rows);
     } catch (_) {
@@ -697,7 +736,7 @@ useEffect(() => {
     }
   })();
   return () => { cancelled = true; };
-}, []);
+}, [enrollmentId]); // baby's site staff (see /users/roster)
 
 useEffect(() => {
   if (patientData?.enrollment_id) {
@@ -2977,6 +3016,20 @@ const addInfectionFromWindow = (detectedWindow) => {
 // reviewed or acted on.
 const allInfectionFlagsReviewed = infectionWindows.every((w) => isInfectionFlagReviewed(w.signature));
 
+// Green tick = key items + sign-off + no validation errors
+// (utils/formCompletion) — infection-window review stays a precondition.
+const syncFormHTick = () => {
+  if (isFormHComplete(formData, { errors, infectionReviewed: allInfectionFlagsReviewed })) {
+    markFormCompleted("form_h");
+  } else {
+    unmarkFormCompleted("form_h");
+  }
+};
+useEffect(() => {
+  if (formData._record_id) syncFormHTick();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [formData._record_id, allInfectionFlagsReviewed]);
+
 // Respiratory (H2) auto-fill — same pattern as the other domains above.
 // BPD (H2.1) has no entry here at all — see the backend endpoint
 // docstring for why it needs its own dedicated design pass rather than
@@ -4867,11 +4920,9 @@ const num = (v) => {
       // Detected infection trigger windows (see fetchInfectionWindows)
       // must be reviewed/addressed before Form H counts as complete —
       // this never blocks saving, only the "done" tick.
-      if (allInfectionFlagsReviewed) {
-        markFormCompleted("form_h");
-      } else {
-        unmarkFormCompleted("form_h");
-      }
+      syncFormHTick();
+      fetchBpdSuggestion(); // outcome/discharge may have changed
+      fetchNecStageSuggestion();
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -4931,7 +4982,7 @@ const num = (v) => {
           setFormData((prev) => ({ ...prev, _record_id: res.data.id }));
         }
       }
-      markFormCompleted("form_h");
+      syncFormHTick();
 
       alert("✅ Form H submitted successfully");
 
@@ -5028,6 +5079,32 @@ const getStatusIcon = (value) => {
   if (value === "Yes") return "✔";
   if (value === "No") return "✖";
 };
+
+const applyBpdSuggestion = () => {
+  const sgt = bpdSuggestion;
+  if (!sgt?.bpd) return;
+  setFormData((prev) => ({
+    ...prev,
+    bpd: sgt.bpd,
+    // Grade/support left blank when the suggestion can't tell (NC without
+    // a recorded flow) — the clinician chooses.
+    bpd_support_36w: sgt.bpd === "Yes" ? (sgt.bpd_support_36w || "") : "",
+    bpd_grade: sgt.bpd === "Yes" ? (sgt.bpd_grade || "") : "",
+  }));
+  setErrors((prev) => ({ ...prev, bpd: "", bpd_support_36w: "", bpd_grade: "" }));
+};
+const applyNecStageSuggestion = () => {
+  const sgt = necStageSuggestion;
+  if (!sgt?.stage) return;
+  setFormData((prev) => ({ ...prev, nec: "Yes", nec_stage: sgt.stage }));
+  setErrors((prev) => ({ ...prev, nec: "", nec_stage: "" }));
+};
+const bpdDiffersFromSuggestion = !!(
+  bpdSuggestion?.status === "suggested" && bpdSuggestion.bpd && formData.bpd
+  && (formData.bpd !== bpdSuggestion.bpd
+    || (bpdSuggestion.bpd === "Yes" && bpdSuggestion.bpd_grade && formData.bpd_grade
+        && String(formData.bpd_grade) !== String(bpdSuggestion.bpd_grade)))
+);
 
 const getBPDSummary = () => {
   if (!formData.bpd) return "Not filled";
@@ -6777,6 +6854,32 @@ const peripheralStatus= getPeripheralStatus();
     onToggle={() => setOpenSection(openSection === "bpd" ? null : "bpd")}
   >
 
+{bpdSuggestion && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    {bpdSuggestion.status === "suggested" && (
+      <>
+        <strong>Suggested: {bpdSuggestion.bpd === "No" ? "No BPD"
+          : `BPD${bpdSuggestion.bpd_grade ? ` — Grade ${bpdSuggestion.bpd_grade} (${bpdSuggestion.bpd_support_36w})` : " (grade: please choose)"}`}</strong>
+        {" "}— from {bpdSuggestion.source}: {bpdSuggestion.note}.
+        {bpdSuggestion.assessment_date && ` 36+0 weeks PMA = ${formatDateToDDMMYYYY(bpdSuggestion.assessment_date)} (Day ${bpdSuggestion.assessment_day}).`}
+        {" "}Verify before saving.{" "}
+        <button type="button" className="link-button" onClick={applyBpdSuggestion}>Apply suggestion</button>
+        {bpdDiffersFromSuggestion && (
+          <div style={{ marginTop: "6px", color: "#b45309" }}>
+            Your current answer differs from this suggestion — check which is right.
+          </div>
+        )}
+      </>
+    )}
+    {bpdSuggestion.status === "flag" && (
+      <>⚠ Needs your decision — from {bpdSuggestion.source}: {bpdSuggestion.note}.</>
+    )}
+    {(bpdSuggestion.status === "pending" || bpdSuggestion.status === "not_applicable") && (
+      <>BPD suggestion: {bpdSuggestion.note}.</>
+    )}
+  </div>
+)}
+
 {/* BPD */}
 <div className="form-group">
   <YesNoToggle label="35. BPD Diagnosed" name="bpd" value={formData.bpd} onChange={handleChange} onBlur={handleBlur} required />
@@ -7665,6 +7768,28 @@ const peripheralStatus= getPeripheralStatus();
     <div className="error-text">{errors.nec}</div>
   )}
 </div>
+
+{necStageSuggestion?.status === "suggested" && (
+  <div className="field-hint field-hint-auto" style={{ marginBottom: "10px" }}>
+    <strong>Suggested max stage: {necStageSuggestion.stage}</strong>
+    {" "}— highest stage in the daily logs ({necStageSuggestion.source}
+    {necStageSuggestion.date ? `, ${formatDateToDDMMYYYY(necStageSuggestion.date)}` : ""})
+    {necStageSuggestion.first_iia_date ? `; first ≥ IIA on ${formatDateToDDMMYYYY(necStageSuggestion.first_iia_date)}` : ""}.
+    {necStageSuggestion.note ? ` ${necStageSuggestion.note[0].toUpperCase()}${necStageSuggestion.note.slice(1)}.` : ""}
+    {" "}Verify before saving.{" "}
+    <button type="button" className="link-button" onClick={applyNecStageSuggestion}>Apply suggestion</button>
+    {formData.nec_stage && formData.nec_stage !== necStageSuggestion.stage && (
+      <div style={{ marginTop: "6px", color: "#b45309" }}>
+        Your current stage differs from this suggestion — check which is right.
+      </div>
+    )}
+  </div>
+)}
+{necStageSuggestion?.status === "flag" && (
+  <div className="field-hint field-hint-warning" style={{ marginBottom: "10px" }}>
+    ⚠ {necStageSuggestion.note}.
+  </div>
+)}
 
 {formData.nec === "Yes" && (
   <>

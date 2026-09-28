@@ -21,6 +21,11 @@ function progressStorageKey(enrollmentId, screeningId) {
 
 export function FormProgressProvider({ children }) {
   const [completedForms, setCompletedForms] = useState([]);
+  // Forms that UNLOCK their dependants (PREREQS in Sidebar). Kept separate
+  // from the green tick since 2026-09-26: the tick now means "complete"
+  // (mandatory fields + validation), but a started Form A/B must still open
+  // the DMS/helpers/C-L exactly as before.
+  const [unlockedForms, setUnlockedForms] = useState([]);
   const [isProgressLoaded, setIsProgressLoaded] = useState(false);
   const [progress, setProgress] = useState({
     form_a: false, form_b: false, form_c: false, form_d: false, form_e: false,
@@ -46,6 +51,7 @@ export function FormProgressProvider({ children }) {
       skipNextPersist.current = true;
       helpersTrustedFor.current = null;
       setCompletedForms([]);
+      setUnlockedForms([]);
       setProgress({ form_a: false, form_b: false, form_c: false, form_d: false, form_e: false });
       setIsProgressLoaded(true);
       return;
@@ -53,9 +59,12 @@ export function FormProgressProvider({ children }) {
 
     if (!enrollmentId) {
       // Pre-enrolment: only Form A. Never show helpers/C/D/E from a polluted cache.
+      // Form A unlocks Form B once a screening exists; its tick is set by
+      // ScreeningForm from its own validation.
       skipNextPersist.current = true;
       helpersTrustedFor.current = null;
-      setCompletedForms(["form_a"]);
+      setCompletedForms([]);
+      setUnlockedForms(["form_a"]);
       setProgress({ form_a: true, form_b: false, form_c: false, form_d: false, form_e: false });
       setIsProgressLoaded(true);
       return;
@@ -67,7 +76,8 @@ export function FormProgressProvider({ children }) {
     skipNextPersist.current = true;
     if (helpersTrustedFor.current !== enrollmentId) {
       helpersTrustedFor.current = null;
-      setCompletedForms(["form_a"]);
+      setCompletedForms([]);
+      setUnlockedForms(["form_a"]);
       setProgress({ form_a: true, form_b: false, form_c: false, form_d: false, form_e: false });
     }
     setIsProgressLoaded(true);
@@ -111,7 +121,14 @@ export function FormProgressProvider({ children }) {
     localStorage.setItem(activeKey, JSON.stringify(completedForms));
   }, [completedForms, isProgressLoaded, activeKey]);
 
+  // A save that reaches mark/unmark means the form has a record — enough to
+  // unlock its dependants, whether or not it is complete.
+  const markFormUnlocked = useCallback((formId) => {
+    setUnlockedForms((prev) => (prev.includes(formId) ? prev : [...prev, formId]));
+  }, []);
+
   const markFormCompleted = useCallback((formId) => {
+    markFormUnlocked(formId);
     setCompletedForms((prev) => {
       if (prev.includes(formId)) return prev;
       const updated = [...prev, formId];
@@ -129,7 +146,7 @@ export function FormProgressProvider({ children }) {
       // the tick we just added before fetchProgress could re-merge it.
       return updated;
     });
-  }, []);
+  }, [markFormUnlocked]);
 
   // Counterpart to markFormCompleted for forms whose "done" state can go
   // backwards — e.g. a helper log where the user adds a reading (ticks it),
@@ -137,6 +154,7 @@ export function FormProgressProvider({ children }) {
   // is permanently stuck true once counts.done crosses 0 a single time,
   // because markFormCompleted only ever appends and never removes.
   const unmarkFormCompleted = useCallback((formId) => {
+    markFormUnlocked(formId);
     setCompletedForms((prev) => {
       if (!prev.includes(formId)) return prev;
       const updated = prev.filter((f) => f !== formId);
@@ -151,7 +169,7 @@ export function FormProgressProvider({ children }) {
       }
       return updated;
     });
-  }, []);
+  }, [markFormUnlocked]);
 
   const resetProgress = useCallback(() => {
     const enrollmentId = validId(localStorage.getItem("current_enrollment_id"));
@@ -162,6 +180,7 @@ export function FormProgressProvider({ children }) {
     skipNextPersist.current = true;
     helpersTrustedFor.current = null;
     setCompletedForms([]);
+    setUnlockedForms([]);
     setProgress({ form_a: false, form_b: false, form_c: false, form_d: false, form_e: false });
     setActiveKey(null);
     setIsProgressLoaded(true);
@@ -179,12 +198,20 @@ export function FormProgressProvider({ children }) {
       if (currentEid && currentEid !== enrollmentId) return;
 
       const data = res.data;
+      // Tick = strict completeness (form_x_complete); unlock = the long-
+      // standing loose flag (form_x). An older backend without *_complete
+      // falls back to the loose flag for both.
       const fromBackend = [];
-      if (data.form_a) fromBackend.push("form_a");
-      if (data.form_b) fromBackend.push("form_b");
-      if (data.form_c) fromBackend.push("form_c");
-      if (data.form_d) fromBackend.push("form_d");
-      if (data.form_e) fromBackend.push("form_e");
+      const unlocked = [];
+      ["form_a", "form_b", "form_c", "form_d", "form_e"].forEach((f) => {
+        const strict = data[`${f}_complete`];
+        if (strict === undefined ? data[f] : strict) fromBackend.push(f);
+        if (data[f]) unlocked.push(f);
+      });
+      setUnlockedForms((prev) => [...new Set([
+        ...unlocked,
+        ...prev.filter((f) => !BACKEND_TRACKED.has(f)),
+      ])]);
 
       const key = `completedForms_${enrollmentId}`;
       // Helpers are session-only for sidebar ticks. localStorage previously
@@ -221,6 +248,7 @@ export function FormProgressProvider({ children }) {
   return (
     <FormProgressContext.Provider value={{
       completedForms,
+      unlockedForms,
       markFormCompleted,
       unmarkFormCompleted,
       resetProgress,

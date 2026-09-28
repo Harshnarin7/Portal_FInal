@@ -187,7 +187,7 @@ function preparedByDisplayName(fd, user) {
 ════════════════════════════════════════════ */
 export default function ScreeningForm() {
   const navigate = useNavigate();
-  const { markFormCompleted, resetProgress, fetchProgress } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted, resetProgress, fetchProgress } = useFormProgress();
   const { screeningId } = useParams();
   const { user } = useAuth();
   // Global roles (project_scientist — e.g. the nodal scientist Mannat —
@@ -989,12 +989,20 @@ export default function ScreeningForm() {
       /* Video PIS required whenever any consent value is selected */
       if (formData.consent_given && !formData.video_pis_shown)
         add("Video PIS shown? (A5)",                                               "video_pis_shown");
-      if (formData.consent_given === "Yes" || formData.consent_given === "No" || formData.consent_given === "Trial run") {
+      // The ICF signature is the consenting party's — it doesn't exist when
+      // consent is refused. Requiring it for "No" made a refusal impossible to
+      // save (PI-reported 2026-09-26). The backend never required it.
+      if (formData.consent_given === "Yes" || formData.consent_given === "Trial run") {
         if (!formData.consent_signature_image) add("Consent signature (A5)", "consent_signature_image");
       }
     }
     return m;
   };
+
+  // Recomputed every render so every save — autosave included — sends the
+  // current answer; the sidebar tick follows it (PI decision 2026-09-26).
+  const formCompleteRef = useRef(false);
+  formCompleteRef.current = validate().length === 0;
 
   /* ─── Scroll to first error field ── */
   const scrollToFirstError = (missing) => {
@@ -1081,6 +1089,8 @@ export default function ScreeningForm() {
           }
         : {}),
       ...(explicitlySaved ? { explicitly_saved: true } : {}),
+      // Green tick: this form's own Save validation passes (see validate()).
+      is_complete: formCompleteRef.current,
     };
   };
 
@@ -1314,7 +1324,8 @@ export default function ScreeningForm() {
     localStorage.removeItem("enrollment_locked");
     localStorage.removeItem("enrollment_lock_reason");
     window.dispatchEvent(new Event("storage"));
-    markFormCompleted("form_a");
+    if (formCompleteRef.current) markFormCompleted("form_a");
+    else unmarkFormCompleted("form_a");
     navigate(`/form-b/${localStorage.getItem("current_screening_id")}`);
   };
 
@@ -1929,8 +1940,9 @@ export default function ScreeningForm() {
                       </div>
                     )}
 
-                    {/* ICF — consenting party signature only (staff/PI attestation is print-only) */}
-                    {(formData.consent_given === "Yes" || formData.consent_given === "No" ||
+                    {/* ICF — consenting party signature only (staff/PI attestation is print-only).
+                        Not shown for a refusal: there is no consenting party to sign. */}
+                    {(formData.consent_given === "Yes" ||
                       formData.consent_given === "Trial run") && (
                       <div className="followup-box icf-signature-box" data-field="consent_signature_image">
                         <label className="followup-label">Informed consent (ICF)</label>

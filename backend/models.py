@@ -168,6 +168,9 @@ class Screening(Base):
     decision_forego_resuscitation_reason_other = Column(String, nullable=True)
     video_pis_shown = Column(String, nullable=True)
     explicitly_saved = Column(Boolean, default=False, nullable=True)
+    # Green tick (web): the form's own Save validation passed at the last
+    # save. NULL = never sent (mobile app / older rows) -> legacy rule.
+    is_complete = Column(Boolean, nullable=True)
 
     created_by = Column(String, nullable=True)
     updated_by = Column(String, nullable=True)
@@ -291,6 +294,9 @@ class BirthResuscitation(Base):
     blender_interrupt_reasons = Column(String, nullable=True)
     blender_stopped_description = Column(String, nullable=True)
     explicitly_saved = Column(Boolean, default=False, nullable=True)
+    # Green tick (web): the form's own Save validation passed at the last
+    # save. NULL = never sent (mobile app / older rows) -> legacy rule.
+    is_complete = Column(Boolean, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)
 
@@ -353,6 +359,9 @@ class MaternalDetails(Base):
     mgso4_gestation_weeks = Column(Integer)
     mgso4_gestation_days = Column(Integer)
     explicitly_saved = Column(Boolean, default=False, nullable=True)
+    # Green tick (web): the form's own Save validation passed at the last
+    # save. NULL = never sent (mobile app / older rows) -> legacy rule.
+    is_complete = Column(Boolean, nullable=True)
 
     # ---------- MATERNAL MEDICAL DISORDERS ----------
     chronic_hypertension = Column(Boolean, default=False)
@@ -439,6 +448,9 @@ class MaternalDetails(Base):
 
 class PostnatalDay1(Base):
     __tablename__ = "postnatal_day1"
+    # Green tick (web): the form's own Save validation passed at the last
+    # save. NULL = never sent (mobile app / older rows) -> legacy rule.
+    is_complete = Column(Boolean, nullable=True)
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(DateTime, default=utcnow)
@@ -570,6 +582,9 @@ class NICUAdmission(Base):
     # a record only autosave has touched doesn't lock it read-only; only
     # a genuinely finished record does.
     finalized = Column(Boolean, default=False, nullable=True)
+    # Green tick (web): the form's own Save validation passed at the last
+    # save. NULL = never sent (mobile app / older rows) -> legacy rule.
+    is_complete = Column(Boolean, nullable=True)
 
 
 

@@ -46,6 +46,10 @@ from mml_helper5_autofill import (
     compute_helper5_day_autofill,
     overlay_helper5_day_from_mml,
 )
+from clinical_time import clinical_now, clinical_today
+from bpd_suggestion import suggest_bpd
+from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
+from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
     assert_fresh_write,
     merge_fio2_logs,
@@ -577,6 +581,7 @@ def version_check():
 
 @app.get("/users/roster", response_model=list[UserRosterOut])
 def list_site_roster(
+    enrollment_id: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -597,10 +602,24 @@ def list_site_roster(
             User.role != ROLE_SUPERADMIN,
         )
     )
-    if current_user.site_name:
+    # Whose site's staff: the baby's site when the form passes its
+    # enrollment_id (so a superadmin/global user filling Form F/G/H sees that
+    # site's staff, not all 37 names — found in live testing 2026-09-26),
+    # otherwise the caller's own site as before.
+    roster_site = current_user.site_name
+    if enrollment_id:
+        require_enrollment_access(enrollment_id, db, current_user)
+        scr = (
+            db.query(Screening)
+            .filter(Screening.enrollment_id == enrollment_id)
+            .first()
+        )
+        if scr and scr.site_name:
+            roster_site = scr.site_name
+    if roster_site:
         # Own site only. Mannat Guliani (nodal, site_name NULL) is listed
         # at PGIMER only — not at GMCH-A / GMCH / AMC / IOG / AFMC.
-        if current_user.site_name == "PGIMER":
+        if roster_site == "PGIMER":
             query = query.filter(
                 or_(
                     User.site_name == "PGIMER",
@@ -608,9 +627,18 @@ def list_site_roster(
                 )
             )
         else:
-            query = query.filter(User.site_name == current_user.site_name)
+            query = query.filter(User.site_name == roster_site)
     query = query.order_by(User.full_name)
-    return [{"full_name": u.full_name, "designation": u.designation} for u in query.all()]
+    # One entry per name: two accounts can share a full_name (e.g. a nodal
+    # and a site account), which showed "Mannat Guliani" twice.
+    seen, out = set(), []
+    for u in query.all():
+        key = u.full_name.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"full_name": u.full_name, "designation": u.designation})
+    return out
 
 
 @app.get("/users/", response_model=list[UserOut])
@@ -959,6 +987,7 @@ def create_screening(
                 reason_for_consent_refusal_other=screening.reason_for_consent_refusal_other,
                 video_pis_shown=screening.video_pis_shown,
                 explicitly_saved=bool(screening.explicitly_saved),
+                is_complete=screening.is_complete,
             )
             stamp_created(db_screening, current_user)
             mirror_consent_signature_fields(db_screening)
@@ -2013,7 +2042,7 @@ DAY1_DATE_ENTRY_GRACE_HOUR = NICU_DAY_GRACE_HOUR
 
 
 def _day1_date_within_allowed_range(value: date) -> bool:
-    now = datetime.now()
+    now = clinical_now()
     today = now.date()
     if value == today:
         return True
@@ -3696,6 +3725,92 @@ def get_infection_detect(
     }
 
 
+@app.get("/neonatal-morbidities/bpd-suggestion/{enrollment_id}")
+def get_bpd_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested BPD (Form H H2.1, #35-37) — Jensen 2019 at 36+0 weeks PMA.
+    Rules live in bpd_suggestion.py (agreed with the PI 2026-09-27). Never
+    writes anything: Form H shows it and the clinician applies it. Helper 2
+    days are read with the same read-time DMS overlay the Helper 2 form shows
+    (in memory under no_autoflush, never written back)."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    form_h = (
+        db.query(NeonatalMorbidities)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
+        .first()
+    )
+    outcome = form_h.outcome if form_h else None
+    discharge_date = form_h.discharge_date if form_h else None
+
+    death_date = None
+    death_day = min(
+        (l.nicu_day for l in db.query(MetabRenalVascEyeDayLog)
+         .filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id,
+                 MetabRenalVascEyeDayLog.survived_the_day.is_(False)).all()),
+        default=None,
+    )
+    if dob and death_day:
+        death_date = dob + timedelta(days=death_day - 1)
+    elif outcome == "Died" and discharge_date:
+        death_date = discharge_date
+
+    j = (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id,
+                ExternalHospitalAssessment.assessment_weeks == 36)
+        .order_by(ExternalHospitalAssessment.id.desc())
+        .first()
+    )
+    form_j36 = {"resp_support": j.resp_support, "resp_mode": j.resp_mode, "flow_rate": j.flow_rate} if j else None
+
+    cache = {}
+
+    def get_day(n):
+        if n in cache:
+            return cache[n]
+        log = None
+        if n >= 1:
+            log = (
+                db.query(RespCVNeuroDayLog)
+                .filter(RespCVNeuroDayLog.enrollment_id == enrollment_id,
+                        RespCVNeuroDayLog.nicu_day == n)
+                .first()
+            )
+        if log is not None:
+            cal = calendar_date_for_nicu_day_from_birth(dob, n)
+            if cal:
+                _overlay_resp_cv_from_mml(db, enrollment_id, log, cal)
+            cache[n] = {k: getattr(log, k, None) for k in (
+                "respiratory_support", "endotracheal_intubation", "support_modes",
+                "max_flow", "supp_o2")}
+        else:
+            cache[n] = None
+        return cache[n]
+
+    with db.no_autoflush:
+        return suggest_bpd(
+            dob=dob,
+            ga_weeks=birth.gestation_weeks if birth else None,
+            ga_days=birth.gestation_days if birth else None,
+            today=clinical_today(),
+            death_date=death_date,
+            outcome=outcome,
+            discharge_date=discharge_date,
+            form_j36=form_j36,
+            get_day=get_day,
+        )
+
+
 @app.get("/neonatal-morbidities/resp-prefill/{enrollment_id}")
 def get_resp_prefill(
     enrollment_id: str,
@@ -3873,6 +3988,10 @@ def get_post_resus_prefill(
     after day 3 of life) rather than a simple any-day aggregate, so it's
     its own endpoint instead of a reuse of an existing one.
 
+    2026-09-26: "No" for #7-#10 is now only filled when the window has been
+    fully observed (days 1-3 logged for #7/#8; stay ended for #9/#10) — see
+    the comment in the body. The rules below describe how "Yes" is found.
+
     - resp_support_72h (#7, "any respiratory support more than
       supplemental oxygen", the 0.5-72h window — day-log resolution is
       daily, so this reads as nicu_day 1-3, the CRF's 0.5h lower bound
@@ -3962,26 +4081,70 @@ def get_post_resus_prefill(
             return None
         return (nicu.day1_date + timedelta(days=day - 1)).isoformat()
 
+    # "No" is only filled when the data can actually rule the event out for
+    # the item's whole window — same principle as mortality below (PI-reported
+    # 2026-09-26: a baby born that morning was pre-filled "No" for #7-#9
+    # before the 72 h window had even passed). "Yes" still fills as soon as
+    # the evidence appears.
+    death_day_seen = min(
+        (l.nicu_day for l in metab_logs if l.survived_the_day is False),
+        default=None,
+    )
+    stay_ended = bool(
+        (form_h_discharge and form_h_discharge.discharge_date) or death_day_seen is not None
+    )
+
     resp_support_72h = None
     if resp_logs:
+        # Score what Helper 2 shows: its day GET overlays DMS respiratory
+        # data at read time (in memory only; never written back).
+        birth_row = (
+            db.query(BirthResuscitation)
+            .filter(BirthResuscitation.enrollment_id == enrollment_id)
+            .first()
+        )
+        dob = birth_row.date_of_birth if birth_row else None
+        with db.no_autoflush:
+            for l in resp_logs:
+                if l.nicu_day <= 3:
+                    cal = calendar_date_for_nicu_day_from_birth(dob, l.nicu_day)
+                    if cal:
+                        _overlay_resp_cv_from_mml(db, enrollment_id, l, cal)
         window_hit = any(
             l.nicu_day <= 3 and (
                 (l.support_modes or "").strip() or l.endotracheal_intubation is True
             )
             for l in resp_logs
         )
-        resp_support_72h = "Yes" if window_hit else "No"
+        # "No" needs days 1-3 all logged with #1 Respiratory support answered.
+        observed = {l.nicu_day for l in resp_logs if l.nicu_day <= 3 and l.respiratory_support is not None}
+        if window_hit:
+            resp_support_72h = "Yes"
+        elif {1, 2, 3} <= observed:
+            resp_support_72h = "No"
 
     sepsis_eos = sepsis_los = culture_positive_sepsis = None
     culture_positive_body_fluid = None
     if inf_logs:
         windows = _compute_infection_windows(inf_logs, nicu)
-        sepsis_eos = "Yes" if any(w["nicu_day_start"] <= 3 for w in windows) else "No"
-        sepsis_los = "Yes" if any(w["nicu_day_start"] > 3 for w in windows) else "No"
+        # EOS "No" needs days 1-3 all logged with sepsis suspected answered.
+        eos_observed = {l.nicu_day for l in inf_logs if l.nicu_day <= 3 and l.sepsis_suspected is not None}
+        if any(w["nicu_day_start"] <= 3 for w in windows):
+            sepsis_eos = "Yes"
+        elif {1, 2, 3} <= eos_observed:
+            sepsis_eos = "No"
+        # LOS and culture-positive sepsis can still happen at any point in the
+        # stay, so "No" only once it has ended (discharge or death).
+        if any(w["nicu_day_start"] > 3 for w in windows):
+            sepsis_los = "Yes"
+        elif stay_ended:
+            sepsis_los = "No"
         culture_positive = any(l.blood_culture_positive is True for l in inf_logs)
-        culture_positive_sepsis = "Yes" if culture_positive else "No"
         if culture_positive:
+            culture_positive_sepsis = "Yes"
             culture_positive_body_fluid = "Blood"
+        elif stay_ended:
+            culture_positive_sepsis = "No"
 
     mortality_7_days = mortality_28_days = None
     mortality_7d_date = mortality_28d_date = None
@@ -4194,6 +4357,191 @@ PMA_CHECKPOINT_PREV_WEEKS = {36: None, 40: 36, 44: 40}
 NEC_STAGE_ORDER = {"IA": 1, "IB": 2, "IIA": 3, "IIB": 4, "IIIA": 5, "IIIB": 6}
 
 
+def _rop_checkpoint_suggestion(db, enrollment_id, checkpoint, target_date, day1_date,
+                               gestation_weeks, gestation_days, form_h, metab_logs):
+    """Collects dated eye findings from Form G, Form J, Form H and Helper 5
+    and hands them to rop_suggestion.suggest_rop (pure, tested)."""
+    exams, treatments, required, negatives = [], [], [], []
+
+    def as_date(v):
+        if not v:
+            return None
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            return None
+
+    # Form G: screening visits + per-eye treatment summary + completion.
+    g = (
+        db.query(ROPScreening)
+        .filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc())
+        .first()
+    )
+    completed = None
+    if g:
+        visits = []
+        for i, v in enumerate(g.screenings or []):
+            d = as_date((v or {}).get("date"))
+            r_re, r_le = stage_rank((v or {}).get("re_stage")), stage_rank((v or {}).get("le_stage"))
+            ranks = [r for r in (r_re, r_le) if r is not None]
+            if d and ranks:
+                visits.append((d, r_re, r_le))
+                exams.append(rop_exam(d, max(ranks), f"Form G visit {i + 1}",
+                                      f"right {v.get('re_stage') or '-'}, left {v.get('le_stage') or '-'}"))
+        last_visit = max((v[0] for v in visits), default=None)
+        for eye, idx, stage_f, req_f, type_f, date_f in (
+            ("right", 1, g.worst_stage, g.treatment_required, g.treatment_type, g.treatment_re_date),
+            ("left", 2, g.worst_stage_le, g.treatment_required_le, g.treatment_type_le, g.treatment_le_date),
+        ):
+            kinds = [t for t in (type_f or []) if t]
+            if kinds:
+                treatments.append(rop_event(date_f, "Form G", f"{', '.join(kinds)}, {eye} eye"))
+            if req_f:
+                # Required but maybe never given (e.g. left before laser): dated by
+                # the treatment if any, else the first visit that eye reached its
+                # worst stage (when the need was known).
+                worst = max((v[idx] for v in visits if v[idx] is not None), default=None)
+                reached = min((v[0] for v in visits if worst and v[idx] == worst), default=None)
+                required.append(rop_event(date_f, f"Form G {eye} eye", "treatment required",
+                                          known_by=reached))
+        if stage_rank(g.worst_stage) == 0 and stage_rank(g.worst_stage_le) == 0:
+            negatives.append({"kind": "rop", "source": "Form G", "until": last_visit})
+        if g.treatment_required is False and g.treatment_required_le is False:
+            negatives.append({"kind": "treatment", "source": "Form G", "until": last_visit})
+        completed = g.final_screening_date
+
+    # Form J: follow-up visits, dated at their PMA week.
+    for j in (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+        .all()
+    ):
+        vd = _pma_target_date(day1_date, gestation_weeks, gestation_days, j.assessment_weeks) if j.assessment_weeks else None
+        ranks = [r for r in (stage_rank(j.rop_right), stage_rank(j.rop_left)) if r is not None]
+        src = f"Form J {j.assessment_weeks}-week visit"
+        if vd and ranks:
+            exams.append(rop_exam(vd, max(ranks), src, f"right {j.rop_right or '-'}, left {j.rop_left or '-'}"))
+        for eye, treated, td in (("right", j.treat_right, j.treat_date_right), ("left", j.treat_left, j.treat_date_left)):
+            if treated:
+                treatments.append(rop_event(td, src, f"{eye} eye", known_by=vd))
+                required.append(rop_event(td, src, f"{eye} eye", known_by=vd))
+
+    # Form H: whole-stay summary (valid up to discharge).
+    if form_h:
+        dd = form_h.discharge_date
+        if form_h.rop == "Yes" and form_h.rop_diagnosis_date:
+            ranks = [r for r in (stage_rank(form_h.rop_stage_right), stage_rank(form_h.rop_stage_left)) if r]
+            exams.append(rop_exam(form_h.rop_diagnosis_date, max(ranks) if ranks else 1, "Form H"))
+        elif form_h.rop == "No":
+            negatives.append({"kind": "rop", "source": "Form H", "until": dd})
+            if dd:
+                exams.append(rop_exam(dd, 0, "Form H (no ROP by discharge)"))
+        rx = [e for e, v in (("right", form_h.rop_treatment_right), ("left", form_h.rop_treatment_left)) if v == "Yes"]
+        for eye in rx:
+            treatments.append(rop_event(None, "Form H", f"{eye} eye", known_by=dd))
+        if form_h.rop_treatment_right == "No" and form_h.rop_treatment_left == "No":
+            negatives.append({"kind": "treatment", "source": "Form H", "until": dd})
+
+    # Helper 5 daily eye flags.
+    for l in metab_logs:
+        d = day1_date + timedelta(days=l.nicu_day - 1)
+        if l.rop_detected is True:
+            exams.append(rop_exam(d, stage_rank(l.rop_stage) or 1, f"Helper 5 Day {l.nicu_day}"))
+        elif l.rop_screened is True and l.rop_detected is False:
+            exams.append(rop_exam(d, 0, f"Helper 5 Day {l.nicu_day}"))
+        if l.rop_treatment is True:
+            treatments.append(rop_event(d, f"Helper 5 Day {l.nicu_day}"))
+
+    death_day = min((l.nicu_day for l in metab_logs if l.survived_the_day is False), default=None)
+    death_date = day1_date + timedelta(days=death_day - 1) if death_day else (
+        form_h.discharge_date if form_h and form_h.outcome == "Died" else None)
+
+    return suggest_rop(
+        checkpoint=checkpoint, target_date=target_date, exams=exams,
+        treatments=treatments, required=required, screening_completed=completed,
+        summary_negatives=negatives, death_date=death_date,
+        outcome=form_h.outcome if form_h else None,
+        discharge_date=form_h.discharge_date if form_h else None,
+        today=clinical_today(),
+    )
+
+
+def _nec_findings(db, enrollment_id, day_to_date, form_h, inf_logs, pma_week_date=None):
+    """Dated NEC stage records from Helper 4, Form H and (when pma_week_date is
+    given) Form J, for nec_suggestion. Returns (findings, negatives,
+    in_nicu_through)."""
+    findings, negatives = [], []
+    for l in inf_logs:
+        rank = nec_stage_rank(l.nec_confirmed_stage)
+        if rank or l.nec_suspected is True:
+            findings.append(nec_finding(day_to_date(l.nicu_day), rank, f"Helper 4 Day {l.nicu_day}"))
+    dd = form_h.discharge_date if form_h else None
+    if form_h and form_h.nec is True:
+        findings.append(nec_finding(form_h.nec_date, nec_stage_rank(form_h.nec_stage), "Form H",
+                                    surgery=form_h.nec_surgery,
+                                    known_by=None if form_h.nec_date else dd))
+    elif form_h and form_h.nec is False:
+        negatives.append({"source": "Form H", "until": dd})
+    if pma_week_date:
+        for j in (
+            db.query(ExternalHospitalAssessment)
+            .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+            .all()
+        ):
+            vd = pma_week_date(j.assessment_weeks) if j.assessment_weeks else None
+            src = f"Form J {j.assessment_weeks}-week visit"
+            if j.nec is True:
+                findings.append(nec_finding(j.nec_date, nec_stage_rank(j.nec_stage), src,
+                                            surgery=j.nec_surgery,
+                                            known_by=None if j.nec_date else vd))
+            elif j.nec is False and vd:
+                negatives.append({"source": src, "until": vd})
+    last_log = max((day_to_date(l.nicu_day) for l in inf_logs), default=None)
+    return findings, negatives, dd or last_log
+
+
+@app.get("/neonatal-morbidities/nec-stage-suggestion/{enrollment_id}")
+def get_nec_stage_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested Bell stage for Form H H3 NEC (PI 2026-09-28): the highest
+    stage the nurses recorded in Helper 4 (incl. IA/IB, so suspected NEC is
+    recorded too). Read-only; Form H shows it and the clinician applies it."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    staged = [
+        nec_finding(dob + timedelta(days=l.nicu_day - 1) if dob else None,
+                    nec_stage_rank(l.nec_confirmed_stage), f"Helper 4 Day {l.nicu_day}")
+        for l in inf_logs if nec_stage_rank(l.nec_confirmed_stage)
+    ]
+    unstaged_days = [l.nicu_day for l in inf_logs if l.nec_suspected is True and not nec_stage_rank(l.nec_confirmed_stage)]
+    top = nec_highest_stage(staged)
+    if top:
+        first_iia = min((f["date"] for f in staged if f["rank"] >= 3 and f["date"]), default=None)
+        return {"status": "suggested", **top,
+                "first_iia_date": first_iia.isoformat() if first_iia else None,
+                "note": "suspected NEC (not ≥ IIA): stays out of the composite" if top["stage"] in ("IA", "IB") else ""}
+    if unstaged_days:
+        return {"status": "flag", "note": f"NEC suspected on Helper 4 Day {unstaged_days[0]} but no stage recorded: please stage it"}
+    return {"status": "none"}
+
+
 @app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")
 def get_pma_assessment_prefill(
     enrollment_id: str,
@@ -4339,26 +4687,30 @@ def get_pma_assessment_prefill(
         if last_known_date and last_known_date >= target_date:
             result["death"] = "No"
 
-    # ---- NEC (cumulative-to-date; Form H primary, day-log fallback) ----
-    if form_h and form_h.nec is True and form_h.nec_date and form_h.nec_date <= target_date:
-        result["nec_stage"] = "Yes"
-        result["nec_date"] = form_h.nec_date.isoformat()
-        if form_h.nec_surgery is not None:
-            result["nec_surgery"] = "Yes" if form_h.nec_surgery else "No"
-    elif form_h and form_h.nec is False:
-        result["nec_stage"] = "No"
-    elif inf_logs:
-        nec_hit_days = sorted(
-            l.nicu_day for l in inf_logs
-            if NEC_STAGE_ORDER.get(l.nec_confirmed_stage or "", 0) >= NEC_STAGE_ORDER["IIA"]
-            and day_to_date(l.nicu_day) <= target_date
-        )
-        covered = any(day_to_date(l.nicu_day) <= target_date for l in inf_logs)
-        if nec_hit_days:
-            result["nec_stage"] = "Yes"
-            result["nec_date"] = day_to_date(nec_hit_days[0]).isoformat()
-        elif covered:
-            result["nec_stage"] = "No"
+    # ---- NEC (cumulative-to-date; PI design 2026-09-28, rules in nec_suggestion.py) ----
+    nec_findings, nec_negatives, nec_in_nicu = _nec_findings(
+        db, enrollment_id, lambda n: day_to_date(n), form_h, inf_logs,
+        lambda w: _pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, w),
+    )
+    nec_death = None
+    nec_death_days = sorted({l.nicu_day for l in metab_logs if l.survived_the_day is False})
+    if nec_death_days:
+        nec_death = day_to_date(nec_death_days[0])
+    elif form_h and form_h.outcome == "Died":
+        nec_death = form_h.discharge_date
+    nec = suggest_nec(
+        checkpoint=checkpoint, target_date=target_date, findings=nec_findings,
+        negatives=nec_negatives, in_nicu_through=nec_in_nicu,
+        outcome=form_h.outcome if form_h else None,
+        discharge_date=form_h.discharge_date if form_h else None,
+        death_date=nec_death, today=clinical_today(),
+    )
+    for k in ("nec_stage", "nec_date", "nec_surgery"):
+        if nec.get(k) is not None:
+            result[k] = nec[k]
+    result["nec_note"] = nec["note"]
+    result["nec_status"] = nec["status"]
+    result["nec_sources_disagree"] = nec["sources_disagree"]
 
     # ---- Brain injury: IVH grade III/IV, cPVL grade 3/4 (cumulative-to-date) ----
     usg_record = None
@@ -4426,32 +4778,17 @@ def get_pma_assessment_prefill(
         if cpvl_date:
             result["cpvl_date"] = cpvl_date
 
-    # ---- ROP (cumulative-to-date; Form H primary, day-log fallback) ----
-    if form_h and form_h.rop == "Yes" and form_h.rop_diagnosis_date and form_h.rop_diagnosis_date <= target_date:
-        result["rop"] = "Yes"
-        result["rop_date"] = form_h.rop_diagnosis_date.isoformat()
-        treated_r = form_h.rop_treatment_right == "Yes"
-        treated_l = form_h.rop_treatment_left == "Yes"
-        if form_h.rop_treatment_right is not None or form_h.rop_treatment_left is not None:
-            result["rop_treated"] = "Yes" if (treated_r or treated_l) else "No"
-    elif form_h and form_h.rop == "No":
-        result["rop"] = "No"
-    elif metab_logs:
-        rop_hit_days = sorted(
-            l.nicu_day for l in metab_logs
-            if l.rop_detected is True and day_to_date(l.nicu_day) <= target_date
-        )
-        covered = any(day_to_date(l.nicu_day) <= target_date for l in metab_logs)
-        if rop_hit_days:
-            result["rop"] = "Yes"
-            result["rop_date"] = day_to_date(rop_hit_days[0]).isoformat()
-            treated_days = [
-                l.nicu_day for l in metab_logs
-                if l.rop_treatment is True and day_to_date(l.nicu_day) <= target_date
-            ]
-            result["rop_treated"] = "Yes" if treated_days else "No"
-        elif covered:
-            result["rop"] = "No"
+    # ---- ROP (cumulative-to-date; PI design 2026-09-27, rules in rop_suggestion.py) ----
+    rop = _rop_checkpoint_suggestion(
+        db, enrollment_id, checkpoint, target_date, nicu.day1_date,
+        gestation_weeks, gestation_days, form_h, metab_logs,
+    )
+    for k in ("rop", "rop_date", "rop_treated", "rop_treatment_required"):
+        if rop.get(k) is not None:
+            result[k] = rop[k]
+    result["rop_note"] = rop["note"]
+    result["rop_status"] = rop["status"]
+    result["rop_sources_disagree"] = rop["sources_disagree"]
 
     # ---- BPD (36wk checkpoint only) ----
     if checkpoint == 36:
@@ -5898,9 +6235,22 @@ def get_enrollment_status(
     else:
         next_form = "completed"
 
+    # Green tick (strict): the web form sends is_complete on every save =
+    # "its own Save validation passes". form_a..form_e above stay as they
+    # were — they UNLOCK later forms and drive next_form. NULL is_complete
+    # (mobile app / rows saved before this flag) falls back to that rule.
+    def _complete(row, legacy):
+        flag = getattr(row, "is_complete", None) if row is not None else None
+        return bool(legacy) if flag is None else flag is True
+
     return {
         "enrollment_id": enrollment_id,
         "screening_status": screening.screening_status,
+        "form_a_complete": _complete(screening, True),
+        "form_b_complete": _complete(birth, form_b),
+        "form_c_complete": _complete(maternal, form_c),
+        "form_d_complete": _complete(postnatal, form_d),
+        "form_e_complete": _complete(nicu, form_e),
         "form_a": True,
         "form_b": form_b,
         "form_b_started": birth is not None,
@@ -5924,88 +6274,101 @@ def get_enrollment_status(
 # ============================================================================
 
 def _compute_completion_pct(record) -> int:
-    """Compute completion % for a RespCVNeuroDayLog row (spec items 1-37)."""
+    """Completion % for a RespCVNeuroDayLog row (spec items 1-37).
+
+    Mirrors RespCVNeuroLog.jsx's own progress calculation item for item —
+    the page's number is what nurses see and what gates "Lock Day", so the
+    day badge / summary / sidebar tick must agree with it exactly. (Before
+    2026-09-26 these drifted: resp total declared 22 while 23 items could be
+    counted, #3 ignored "Respiratory support = No", #9/#10 counted half-filled
+    ranges, #31-33 were counted even when cranial USG = No, and "A/C" wasn't a
+    pressure mode — e.g. one test day read 95% on the page, 97% here.)
+    """
 
     def answered(val):
         return val is not None and val != ""
-    def answered_value_or_status(value_field, status_field):
+
+    def value_or_status(value_field, status_field):
         return (
             answered(getattr(record, value_field, None))
             or answered(getattr(record, status_field, None))
         )
 
-    #  -  RESPIRATORY (items 1-22)  - 
-    resp_bool_fields = [
-        "respiratory_support", "endotracheal_intubation",       # 1, 2
-        "surfactant", "caffeine",                               # 11, 12
-        "extub_attempted", "pulm_hemorrhage",                   # 16, 18
-        "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",  # 19-22
-    ]
-    resp_text_fields = [
-        "lowest_ph", "pao2_range", "paco2_range",                # 8, 9, 10
-        "apnea_count", "desaturation_count", "severe_desaturation_count",  # 13, 14, 15
-    ]
-    # #3-7 depend on respiratory support mode / status:
-    #  - #4 (MAP/CPAP), #5 (Max FiO2), #6 (Max Gas Flow), #7 (Supplemental O2)
-    #    are only asked when Respiratory support (#1) is Yes ? if it's No,
-    #    they're N/A and shouldn't block completion.
-    #  - #4b (the second CPAP/MAP field) only applies when CPAP is combined
-    #    with a MAP-generating mode (NIPPV/SIMV/A-C/PSV/HFOV) on the same day.
-    #  - #17 (Extubation failure) is only asked when Extubation attempted
-    #    (#16) is Yes.
-    _modes = [m.strip() for m in (getattr(record, "support_modes", None) or "").split(",") if m.strip()]
-    _pressure_modes = {"NIPPV", "SIMV", "AC", "PSV", "HFOV"}
-    _has_pressure_mode = any(m in _pressure_modes for m in _modes)
-    _has_cpap = "CPAP" in _modes
-    if _has_pressure_mode and _has_cpap:
-        _map_cpap_mode = "BOTH"
-    elif _has_pressure_mode:
-        _map_cpap_mode = "MAP"
-    elif _has_cpap:
-        _map_cpap_mode = "CPAP"
-    elif any(m in {"NC", "HFNC"} for m in _modes):
-        _map_cpap_mode = "NA"
+    def range_complete(field):
+        # Stored as "low-high" or "Not Done" (combineRangeField); a range with
+        # only one end filled is "12-" / "-40" and is NOT answered on the page.
+        v = getattr(record, field, None)
+        if not answered(v):
+            return False
+        if str(v).strip().lower() == "not done":
+            return True
+        low, _, high = str(v).partition("-")
+        return low.strip() != "" and high.strip() != ""
+
+    #  -  RESPIRATORY (items 1-22 + weight 2.1)  -
+    modes = [m.strip() for m in (getattr(record, "support_modes", None) or "").split(",") if m.strip()]
+    pressure_modes = {"NIPPV", "SIMV", "A/C", "AC", "PSV", "HFOV"}   # = mapCpapMode.js
+    has_pressure = any(m in pressure_modes for m in modes)
+    has_cpap = "CPAP" in modes
+    if has_pressure and has_cpap:
+        map_cpap_mode = "BOTH"
+    elif has_pressure:
+        map_cpap_mode = "MAP"
+    elif has_cpap:
+        map_cpap_mode = "CPAP"
+    elif any(m in {"NC", "HFNC"} for m in modes):
+        map_cpap_mode = "NA"
     else:
-        _map_cpap_mode = None
-    _dual_cpap_map = _map_cpap_mode == "BOTH"
-    _map_cpap_na   = _map_cpap_mode == "NA"
-    _resp_support_no = getattr(record, "respiratory_support", None) is False
-    _extub_attempted_yes = getattr(record, "extub_attempted", None) is True
-    resp_done = (
-        (1 if answered(getattr(record, "weight_kg", None)) else 0)      # 2.1 weight
-        + sum(1 for f in resp_bool_fields if answered(getattr(record, f, None)))
-        + sum(1 for f in resp_text_fields if answered(getattr(record, f, None)))
-        + (1 if answered(getattr(record, "support_modes", None)) else 0)  # 3
-        + (1 if (_resp_support_no or _map_cpap_na or answered_value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
-        + (1 if (_dual_cpap_map and answered_value_or_status("map_cpap_secondary", "map_cpap_secondary_status")) else 0)  # 4b
-        + (1 if (_resp_support_no or answered_value_or_status("max_fio2", "max_fio2_status")) else 0)   # 5
-        + (1 if (_resp_support_no or answered_value_or_status("max_flow", "max_flow_status")) else 0)   # 6
-        + (1 if (_resp_support_no or answered(getattr(record, "supp_o2", None))) else 0)    # 7
-        + (1 if (not _extub_attempted_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
-    )
-    resp_total = len(resp_bool_fields) + len(resp_text_fields) + 1 + 5 + (1 if _dual_cpap_map else 0)  # weight + #3,4,5,6,7,17 (+4b when dual)
+        map_cpap_mode = None
+    dual = map_cpap_mode == "BOTH"
+    resp_no = getattr(record, "respiratory_support", None) is False
+    extub_yes = getattr(record, "extub_attempted", None) is True
 
-    #  -  CARDIOVASCULAR (items 23-29)  - 
-    cv_bool_fields = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support"]  # 23-27
-    vasoactive_visible = getattr(record, "vasoactive_support", None) is True
-    cv_done = (
-        sum(1 for f in cv_bool_fields if answered(getattr(record, f, None)))
-        + (1 if answered(getattr(record, "fluid_bolus_given", None)) else 0)  # 29
-        + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
-    )
-    cv_total = len(cv_bool_fields) + 1 + (1 if vasoactive_visible else 0)
-
-    #  -  NEUROLOGICAL (items 30-37)  - 
-    neuro_base = [
-        "cranial_usg", "ivh", "cpvl_confirmed", "ventriculomegaly",       # 30-33
-        "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich",  # 34-37
+    resp_event_fields = [   # items 11, 12, 16, 18-22
+        "surfactant", "caffeine", "extub_attempted", "pulm_hemorrhage",
+        "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",
     ]
-    neuro_done = sum(1 for f in neuro_base if answered(getattr(record, f, None)))
-    neuro_total = len(neuro_base)
+    resp_total = 23 + (1 if dual else 0)
+    resp_done = min(resp_total, (
+        (1 if answered(getattr(record, "weight_kg", None)) else 0)                        # 2.1
+        + (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
+        + (1 if answered(getattr(record, "endotracheal_intubation", None)) else 0)        # 2
+        + (1 if (resp_no or modes) else 0)                                                 # 3
+        + (1 if (resp_no or map_cpap_mode == "NA" or value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
+        + (1 if (dual and value_or_status("map_cpap_secondary", "map_cpap_secondary_status")) else 0)          # 4b
+        + (1 if (resp_no or value_or_status("max_fio2", "max_fio2_status")) else 0)       # 5
+        + (1 if (resp_no or value_or_status("max_flow", "max_flow_status")) else 0)       # 6
+        + (1 if (resp_no or answered(getattr(record, "supp_o2", None))) else 0)           # 7
+        + (1 if answered(getattr(record, "lowest_ph", None)) else 0)                      # 8
+        + (1 if range_complete("pao2_range") else 0)                                       # 9
+        + (1 if range_complete("paco2_range") else 0)                                      # 10
+        + (1 if answered(getattr(record, "apnea_count", None)) else 0)                    # 13
+        + (1 if answered(getattr(record, "desaturation_count", None)) else 0)             # 14
+        + (1 if answered(getattr(record, "severe_desaturation_count", None)) else 0)      # 15
+        + (1 if (not extub_yes or answered(getattr(record, "extub_failure", None))) else 0)  # 17
+        + sum(1 for f in resp_event_fields if answered(getattr(record, f, None)))
+    ))
 
-    total_fields = resp_total + cv_total + neuro_total  # = 37 (+1 if vasoactive visible)
-    total_done   = resp_done + cv_done + neuro_done
+    #  -  CARDIOVASCULAR (items 23-29)  -
+    cv_keys = ["pda_suspected", "echo_done", "hs_pda", "shock", "vasoactive_support", "fluid_bolus_given"]
+    vasoactive_visible = getattr(record, "vasoactive_support", None) is True
+    cv_total = len(cv_keys) + (1 if vasoactive_visible else 0)
+    cv_done = min(cv_total, (
+        sum(1 for f in cv_keys if answered(getattr(record, f, None)))
+        + (1 if vasoactive_visible and answered(getattr(record, "vasoactive_drugs", None)) else 0)  # 28
+    ))
 
+    #  -  NEUROLOGICAL (items 30-37): #31-33 only asked when cranial USG = Yes  -
+    neuro_base = ["cranial_usg", "clinical_seizures", "eeg_seizures", "aeds_given", "non_ivh_ich"]
+    usg_yes = getattr(record, "cranial_usg", None) is True
+    neuro_gated = ["ivh", "cpvl_confirmed", "ventriculomegaly"] if usg_yes else []
+    neuro_total = len(neuro_base) + len(neuro_gated)
+    neuro_done = min(neuro_total, sum(
+        1 for f in neuro_base + neuro_gated if answered(getattr(record, f, None))
+    ))
+
+    total_fields = resp_total + cv_total + neuro_total
+    total_done = resp_done + cv_done + neuro_done
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
 
 
@@ -6014,23 +6377,18 @@ def _compute_completion_pct(record) -> int:
 
 #  -  GET summary (all days for timeline status indicators)  - 
 #  -  GET records (cross-patient list ? Helper Form Records page)  - 
-@app.get("/resp-cv-neuro/records", response_model=HelperFormRecordsPage)
-def list_resp_cv_neuro_records(
-    request:      Request,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-    date_filter:  str     = "today",   # today | yesterday | last7 | all
-    status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
-    site:         str | None = None,
-    search:       str     = "",
-    page:         int     = 1,
-    per_page:     int     = 25,
+def _helper_records_page(
+    request, db, current_user, *, model, pct_fn, overlay_fn, audit_path,
+    date_filter, status, site, search, page, per_page,
 ):
-    """List Helper Form 2 (Resp/CV/Neuro) daily-log records across patients,
-    for the day-to-day work queue. 'Today' is derived from date_of_birth +
-    (nicu_day - 1), matching the calendar date the form itself computes for
-    each NICU day ? not the row's created_at/updated_at, which only reflects
-    when it was last edited."""
+    """Cross-patient day-log list for the Helper Form Records page, shared by
+    Helpers 2/4/5 (Helpers 4/5 had no /records route at all until
+    2026-09-26 — their tabs 404'd). 'Today' is derived from date_of_birth +
+    (nicu_day - 1), matching the calendar date the form computes for each NICU
+    day. completion_pct is scored exactly as the form scores it: the same
+    read-time DMS overlay the day GET applies (Helpers 2/5), in memory only,
+    never written back — and only for the rows on the requested page, since
+    the overlay costs several queries per row and sorting doesn't use it."""
     per_page = min(max(per_page, 1), 100)
     page = max(page, 1)
 
@@ -6045,8 +6403,8 @@ def list_resp_cv_neuro_records(
         return HelperFormRecordsPage(total=0, page=page, per_page=per_page, records=[])
 
     logs = (
-        db.query(RespCVNeuroDayLog)
-        .filter(RespCVNeuroDayLog.enrollment_id.in_(accessible.keys()))
+        db.query(model)
+        .filter(model.enrollment_id.in_(accessible.keys()))
         .all()
     )
 
@@ -6065,7 +6423,7 @@ def list_resp_cv_neuro_records(
             name = " ".join(filter(None, [p.mother_first_name, p.mother_surname])).strip()
             pii_map[p.enrollment_id] = name or None
 
-    today = date.today()
+    today = clinical_today()
     if date_filter == "today":
         date_range = (today, today)
     elif date_filter == "yesterday":
@@ -6079,7 +6437,7 @@ def list_resp_cv_neuro_records(
     status_pending = {"empty", "draft", "complete", "late"}
     search_lower = search.strip().lower()
 
-    rows: list[HelperFormRecordOut] = []
+    matched = []   # (log, row fields) — pct filled in after pagination
     for log in logs:
         screening = accessible.get(log.enrollment_id)
         dob = dob_map.get(log.enrollment_id)
@@ -6107,7 +6465,7 @@ def list_resp_cv_neuro_records(
             if search_lower not in haystack:
                 continue
 
-        rows.append(HelperFormRecordOut(
+        matched.append((log, dict(
             enrollment_id=log.enrollment_id,
             screening_id=screening.screening_id if screening else None,
             site_name=screening.site_name if screening else None,
@@ -6115,25 +6473,31 @@ def list_resp_cv_neuro_records(
             calendar_date=calendar_date,
             mother_name=mother_name,
             submission_status=log_status,
-            completion_pct=_compute_completion_pct(log),
             saved_at=log.saved_at,
             saved_by=log.saved_by,
             submitted_at=log.submitted_at,
             submitted_by=log.submitted_by,
             created_at=log.created_at,
             updated_at=log.updated_at,
-        ))
+        )))
 
-    rows.sort(key=lambda r: r.updated_at or r.created_at or datetime.min, reverse=True)
+    matched.sort(key=lambda m: m[1]["updated_at"] or m[1]["created_at"] or datetime.min, reverse=True)
 
-    total = len(rows)
+    total = len(matched)
     start = (page - 1) * per_page
-    page_rows = rows[start:start + per_page]
+    page_rows = []
+    with db.no_autoflush:
+        for log, fields in matched[start:start + per_page]:
+            if overlay_fn is not None:
+                cal = calendar_date_for_nicu_day_from_birth(dob_map.get(log.enrollment_id), log.nicu_day)
+                if cal:
+                    overlay_fn(db, log.enrollment_id, log, cal)
+            page_rows.append(HelperFormRecordOut(**fields, completion_pct=pct_fn(log)))
 
     if total >= 50:
         security_monitor.record_bulk_access(
             current_user.username,
-            "/resp-cv-neuro/records",
+            audit_path,
             total,
             get_real_client_ip(request),
         )
@@ -6141,23 +6505,57 @@ def list_resp_cv_neuro_records(
     return HelperFormRecordsPage(total=total, page=page, per_page=per_page, records=page_rows)
 
 
-#  -  GET latest update (lightweight polling for "new records" banner)  - 
-@app.get("/resp-cv-neuro/records/latest-update")
-def get_resp_cv_neuro_latest_update(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    """Returns the most recent updated_at across accessible Helper Form 2 day
-    logs, so the frontend can detect newly-synced or edited records with a
-    cheap poll instead of re-fetching the full list."""
+def _helper_records_latest_update(db, current_user, model):
+    """Most recent updated_at across accessible day logs of one helper, so the
+    page can detect new/edited records with a cheap poll."""
     query = (
-        db.query(func.max(RespCVNeuroDayLog.updated_at))
-        .join(Screening, Screening.enrollment_id == RespCVNeuroDayLog.enrollment_id)
+        db.query(func.max(model.updated_at))
+        .join(Screening, Screening.enrollment_id == model.enrollment_id)
         .filter(Screening.is_deleted.isnot(True))
     )
     if not is_global(current_user):
         query = query.filter(Screening.site_name == current_user.site_name)
     return {"latest_updated_at": query.scalar()}
+
+
+def _records_route(prefix, model, pct_fn, overlay_fn, label):
+    """Registers GET {prefix}/records and {prefix}/records/latest-update.
+    Must run BEFORE the helper's /{enrollment_id}/{nicu_day} route is declared
+    (FastAPI matches in order; 'records/latest-update' would otherwise be
+    parsed as enrollment_id='records', nicu_day='latest-update' -> 422)."""
+
+    @app.get(f"{prefix}/records", response_model=HelperFormRecordsPage, name=f"list_{label}_records")
+    def _list(
+        request:      Request,
+        db:           Session = Depends(get_db),
+        current_user: User    = Depends(get_current_user),
+        date_filter:  str     = "today",   # today | yesterday | last7 | all
+        status:       str     = "all",     # all | pending | completed | empty | draft | complete | submitted | late
+        site:         str | None = None,
+        search:       str     = "",
+        page:         int     = 1,
+        per_page:     int     = 25,
+    ):
+        return _helper_records_page(
+            request, db, current_user, model=model, pct_fn=pct_fn, overlay_fn=overlay_fn,
+            audit_path=f"{prefix}/records", date_filter=date_filter, status=status,
+            site=site, search=search, page=page, per_page=per_page,
+        )
+
+    @app.get(f"{prefix}/records/latest-update", name=f"{label}_records_latest_update")
+    def _latest(
+        db:           Session = Depends(get_db),
+        current_user: User    = Depends(get_current_user),
+    ):
+        return _helper_records_latest_update(db, current_user, model)
+
+
+# Helper Form 2 (Resp/CV/Neuro) — overlay/pct functions are defined further
+# down; they are only looked up when a request runs.
+_records_route("/resp-cv-neuro", RespCVNeuroDayLog,
+               lambda r: _compute_completion_pct(r),
+               lambda db, eid, rec, cal: _overlay_resp_cv_from_mml(db, eid, rec, cal),
+               "resp_cv_neuro")
 
 
 @app.get("/resp-cv-neuro/{enrollment_id}/summary")
@@ -6173,11 +6571,28 @@ def get_resp_cv_neuro_summary(
         .order_by(RespCVNeuroDayLog.nicu_day)
         .all()
     )
+    # Score each day on what the page shows: the day GET overlays DMS values
+    # at read time, so the summary must too or the badge/tick % drifts from
+    # the page % (live example 2026-09-26: page 95%, summary 97%). In-memory
+    # only; no_autoflush so the overlaid values are never written back.
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    pct_by_day = {}
+    with db.no_autoflush:
+        for r in records:
+            cal = calendar_date_for_nicu_day_from_birth(dob, r.nicu_day)
+            if cal:
+                _overlay_resp_cv_from_mml(db, enrollment_id, r, cal)
+            pct_by_day[r.nicu_day] = _compute_completion_pct(r)
     return [
         {
             "nicu_day":          r.nicu_day,
             "submission_status": r.submission_status or "empty",
-            "completion_pct":    _compute_completion_pct(r),
+            "completion_pct":    pct_by_day[r.nicu_day],
             "saved_at":          r.saved_at,
             "submitted_at":      r.submitted_at,
             "surfactant":        r.surfactant,
@@ -6197,6 +6612,43 @@ VASOACTIVE_DRUG_NAME_ALIASES = {
     "Epinephrine": "Adrenaline",
     "Norepinephrine": "Noradrenaline",
 }
+
+def _overlay_resp_cv_from_mml(db, enrollment_id, record, cal):
+    """Read-time DMS overlay for a Helper 2 day (in-memory only, never
+    committed). Shared by the day GET and /summary so the summary's
+    completion % is computed on exactly what the page shows."""
+    overlay_resp_cv_day_from_autofill(
+        record,
+        _mml_helper1_resp_autofill(db, enrollment_id, cal),
+    )
+    overlay_resp_cv_episodes_from_mml(
+        record,
+        _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
+    )
+    overlay_resp_cv_blood_gas_from_mml(
+        record,
+        _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(
+            db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
+            value_map=VASOACTIVE_DRUG_NAME_ALIASES,
+        ),
+        "vasoactive_support",
+        "vasoactive_drugs",
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
+        "pda_medical_rx",
+    )
+    overlay_boolean_presence_from_mml(
+        record,
+        _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
+        "postnatal_steroids",
+    )
+
 
 @app.get("/resp-cv-neuro/{enrollment_id}/{nicu_day}")
 def get_resp_cv_neuro_day(
@@ -6226,37 +6678,7 @@ def get_resp_cv_neuro_day(
         nicu_day,
     )
     if cal:
-        overlay_resp_cv_day_from_autofill(
-            record,
-            _mml_helper1_resp_autofill(db, enrollment_id, cal),
-        )
-        overlay_resp_cv_episodes_from_mml(
-            record,
-            _mml_helper1_resp_c_autofill(db, enrollment_id, cal),
-        )
-        overlay_resp_cv_blood_gas_from_mml(
-            record,
-            _mml_helper1_resp_b_autofill(db, enrollment_id, cal),
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(
-                db, enrollment_id, cal, "cv_c", "vasoactive_drugs",
-                value_map=VASOACTIVE_DRUG_NAME_ALIASES,
-            ),
-            "vasoactive_support",
-            "vasoactive_drugs",
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "cv_d", "pda_agent"),
-            "pda_medical_rx",
-        )
-        overlay_boolean_presence_from_mml(
-            record,
-            _mml_helper1_list_field_autofill(db, enrollment_id, cal, "resp_d", "postnatal_steroids"),
-            "postnatal_steroids",
-        )
+        _overlay_resp_cv_from_mml(db, enrollment_id, record, cal)
     return record
 
 
@@ -6680,30 +7102,37 @@ def _infect_completion_pct(r) -> int:
         + (sum(1 for k in INF_MENING if ans(getattr(r, k, None))) if meningitis_yes else 0)
     )
 
-    #  -  GASTROINTESTINAL (Fields 10-22)  - 
-    # Base fields (always visible): 12 fields
-    GI_BASE = [
-        "npo", "men", "feed_type",
-        "cumulative_feed_volume", "feed_volume", "iv_fluids",
-        "parenteral_nutrition", "probiotic", "feed_intolerance",
-        "nec_suspected", "cholestasis"
-    ]  # 10-11, 13-20, 22
-    
-    # Handle field rename: enteral_feeds_received (new) or enteral_feeds_started (old)
+    #  -  GASTROINTESTINAL (Fields 10-22)  -
+    # Mirrors InfectGIHemaLog.jsx exactly (2026-09-26): MEN, enteral feeds,
+    # cumulative feed volume and feed volume are only asked when NPO = No;
+    # feed type only when NPO = No AND enteral feeds = Yes. Before, all were
+    # always required here, so an NPO baby's day could never reach 100% on the
+    # summary/badge even when the page showed 100%.
     enteral_feeds_field = "enteral_feeds_received" if hasattr(r, "enteral_feeds_received") else "enteral_feeds_started"
-    
-    # NEC conditional field: 1 field (visible when nec_suspected = Yes)
-    GI_NEC = ["nec_confirmed_stage"]  # 21
-
+    GI_ALWAYS = ["npo", "iv_fluids", "parenteral_nutrition", "probiotic",
+                 "feed_intolerance", "nec_suspected", "cholestasis"]
+    npo_no = getattr(r, "npo", None) is False
+    enteral_yes = getattr(r, enteral_feeds_field, None) is True
     nec_yes = getattr(r, "nec_suspected", None) is True
-    gi_total = len(GI_BASE) + 1 + (len(GI_NEC) if nec_yes else 0)  # +1 for enteral_feeds field
-    gi_done = (
-        sum(1 for k in GI_BASE if ans(getattr(r, k, None)))
-        + (1 if not ans(getattr(r, "cumulative_feed_volume", None)) and ans(getattr(r, "cumulative_feed_volume_status", None)) else 0)
-        + (1 if not ans(getattr(r, "feed_volume", None)) and ans(getattr(r, "feed_volume_status", None)) else 0)
-        + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)  # Check either old or new field name
-        + (sum(1 for k in GI_NEC if ans(getattr(r, k, None))) if nec_yes else 0)
-    )
+
+    def value_or_status(field):
+        return ans(getattr(r, field, None)) or ans(getattr(r, f"{field}_status", None))
+
+    gi_total = (len(GI_ALWAYS)
+                + (4 if npo_no else 0)
+                + (1 if npo_no and enteral_yes else 0)
+                + (1 if nec_yes else 0))
+    gi_done = min(gi_total, (
+        sum(1 for k in GI_ALWAYS if ans(getattr(r, k, None)))
+        + ((
+            (1 if ans(getattr(r, "men", None)) else 0)
+            + (1 if ans(getattr(r, enteral_feeds_field, None)) else 0)
+            + (1 if value_or_status("cumulative_feed_volume") else 0)
+            + (1 if value_or_status("feed_volume") else 0)
+        ) if npo_no else 0)
+        + (1 if npo_no and enteral_yes and ans(getattr(r, "feed_type", None)) else 0)
+        + (1 if nec_yes and ans(getattr(r, "nec_confirmed_stage", None)) else 0)
+    ))
 
     #  -  HEMATOLOGY (Fields 23-30)  - 
     # Base fields (always visible): 7 fields
@@ -6732,6 +7161,13 @@ def _infect_completion_pct(r) -> int:
 #  -  GET summary (all days  -  for timeline status indicators)  - 
 # NOTE: this must be declared BEFORE the "/{nicu_day}" route below, otherwise
 # FastAPI matches "summary" against the int path param first and returns 422.
+# Helper Form Records list for this helper (didn't exist before 2026-09-26).
+_records_route("/infect-gi-hema", InfectGIHemaDayLog,
+               lambda r: _infect_completion_pct(r),
+               None,
+               "infect_gi_hema")
+
+
 @app.get("/infect-gi-hema/{enrollment_id}/summary")
 def get_infect_gi_hema_summary(
     enrollment_id: str,
@@ -6972,14 +7408,13 @@ def _metab_completion_pct(r) -> int:
     metab_total = len(metab_fields)
 
     # #11 Yes/No in aki_suspected; stage only when Yes. Creatinine prefers string col.
-    aki_yes = getattr(r, "aki_suspected", None) is True
     creat = getattr(r, "creatinine_value", None)
     if not ans(creat):
         creat = getattr(r, "creatinine", None)
-    renal_fields = [
-        "aki_suspected",
-        *(["aki_stage"] if aki_yes else []),
-    ]
+    # Mirrors MetabRenalVascEyeLog.jsx (2026-09-26): the page counts #11-#14
+    # only — AKI stage is recorded but never counted there, so it must not
+    # hold the summary/badge below the page's 100% either.
+    renal_fields = ["aki_suspected"]
     renal_done = sum(1 for k in renal_fields if ans(getattr(r, k, None)))
     renal_done += 1 if ans(creat) else 0
     renal_done += 1 if (
@@ -7016,13 +7451,10 @@ def _metab_completion_pct(r) -> int:
         *(["rop_screened"] if due else []),
         *(["rop_detected"] if due and screened else []),
     ]
-    rop_yes = getattr(r, "rop_detected", None) is True
-    eye_rop = ["rop_stage", "plus_disease", "rop_treatment"]
-    eye_total = len(eye_keys) + (len(eye_rop) if rop_yes else 0)
-    eye_done = (
-        sum(1 for k in eye_keys if ans(getattr(r, k, None)))
-        + (sum(1 for k in eye_rop if ans(getattr(r, k, None))) if rop_yes else 0)
-    )
+    # Mirrors the page (2026-09-26): #23-#25 only. ROP stage / plus / treatment
+    # are recorded per eye in Form G, not counted toward this day's completion.
+    eye_total = len(eye_keys)
+    eye_done = sum(1 for k in eye_keys if ans(getattr(r, k, None)))
 
     tail_fields = ["location", "survived_the_day"]
     tail_done   = sum(1 for k in tail_fields if ans(getattr(r, k, None)))
@@ -7035,6 +7467,13 @@ def _metab_completion_pct(r) -> int:
     return min(100, round((total_done / total_fields) * 100)) if total_fields else 0
  
  
+# Helper Form Records list for this helper (didn't exist before 2026-09-26).
+_records_route("/metab-renal-vasc-eye", MetabRenalVascEyeDayLog,
+               lambda r: _metab_completion_pct(r),
+               lambda db, eid, rec, cal: _overlay_helper5_from_mml(db, eid, rec, cal),
+               "metab_renal_vasc_eye")
+
+
 @app.get("/metab-renal-vasc-eye/{enrollment_id}/summary")
 def get_metab_renal_vasc_eye_summary(
     enrollment_id: str,
@@ -7048,11 +7487,53 @@ def get_metab_renal_vasc_eye_summary(
         .order_by(MetabRenalVascEyeDayLog.nicu_day)
         .all()
     )
+    # Score on what the page shows (the day GET overlays DMS glucose/temp at
+    # read time) — see the Helper 2 summary. In-memory only; no_autoflush.
+    birth = (
+        db.query(BirthResuscitation)
+        .filter(BirthResuscitation.enrollment_id == enrollment_id)
+        .first()
+    )
+    dob = birth.date_of_birth if birth else None
+    pct_by_day = {}
+    with db.no_autoflush:
+        for r in records:
+            cal = calendar_date_for_nicu_day_from_birth(dob, r.nicu_day)
+            if cal:
+                _overlay_helper5_from_mml(db, enrollment_id, r, cal)
+            pct_by_day[r.nicu_day] = _metab_completion_pct(r)
     return [{"nicu_day": r.nicu_day, "submission_status": r.submission_status or "empty",
-             "completion_pct": _metab_completion_pct(r), "saved_at": r.saved_at,
+             "completion_pct": pct_by_day[r.nicu_day], "saved_at": r.saved_at,
              "submitted_at": r.submitted_at} for r in records]
  
  
+def _overlay_helper5_from_mml(db, enrollment_id, record, cal):
+    """Read-time DMS overlay for a Helper 5 day (in-memory only, never
+    committed). Shared by the day GET and /summary so the summary's
+    completion % is computed on exactly what the page shows."""
+    on_row = (
+        db.query(MinimalMonitoringDayLog)
+        .filter(
+            MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+            MinimalMonitoringDayLog.record_date == cal,
+        )
+        .first()
+    )
+    today_ymd = _mml_sheet_date()
+    today_row = on_row
+    if today_ymd != cal:
+        today_row = (
+            db.query(MinimalMonitoringDayLog)
+            .filter(
+                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
+                MinimalMonitoringDayLog.record_date == today_ymd,
+            )
+            .first()
+        )
+    autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
+    overlay_helper5_day_from_mml(record, autofill)
+
+
 @app.get("/metab-renal-vasc-eye/{enrollment_id}/{nicu_day}")
 def get_metab_renal_vasc_eye_day(
     enrollment_id: str, nicu_day: int,
@@ -7082,27 +7563,7 @@ def get_metab_renal_vasc_eye_day(
         nicu_day,
     )
     if cal:
-        on_row = (
-            db.query(MinimalMonitoringDayLog)
-            .filter(
-                MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-                MinimalMonitoringDayLog.record_date == cal,
-            )
-            .first()
-        )
-        today_ymd = _mml_sheet_date()
-        today_row = on_row
-        if today_ymd != cal:
-            today_row = (
-                db.query(MinimalMonitoringDayLog)
-                .filter(
-                    MinimalMonitoringDayLog.enrollment_id == enrollment_id,
-                    MinimalMonitoringDayLog.record_date == today_ymd,
-                )
-                .first()
-            )
-        autofill = compute_helper5_day_autofill(on_row, today_row, helper_calendar_date=cal)
-        overlay_helper5_day_from_mml(record, autofill)
+        _overlay_helper5_from_mml(db, enrollment_id, record, cal)
     return record
  
  
@@ -7249,11 +7710,12 @@ def _validate_mml_manual_on_date(on_date: str) -> None:
         on = datetime.strptime(on_date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="on_date must be YYYY-MM-DD")
-    today = datetime.now().date()
+    now = clinical_now()
+    today = now.date()
     yesterday = today - timedelta(days=1)
     if on == today:
         return
-    if on == yesterday and datetime.now().hour < MML_DROPDOWN_CUTOFF_HOUR:
+    if on == yesterday and now.hour < MML_DROPDOWN_CUTOFF_HOUR:
         return
     raise HTTPException(
         status_code=400,
@@ -7262,7 +7724,7 @@ def _validate_mml_manual_on_date(on_date: str) -> None:
 
 
 def _mml_sheet_date(boundary_hour: int = MML_LATE_GRACE_HOUR) -> str:
-    now = datetime.now()
+    now = clinical_now()
     sheet = now.date()
     if now.hour < max(0, min(23, int(boundary_hour))):
         sheet = sheet - timedelta(days=1)
@@ -7414,6 +7876,7 @@ def _upsert_minimal_monitoring_for_date(
 ) -> MinimalMonitoringDayLog:
     """Upsert one calendar-date scratchpad row (shared by /today and /on/{date})."""
     payload = data.model_dump(exclude_unset=True)
+    deleted_entry_ids = payload.pop("deleted_entry_ids", None)
     payload["enrollment_id"] = enrollment_id
     payload["record_date"] = record_date
     if not payload.get("submission_status") or payload.get("submission_status") == "empty":
@@ -7432,7 +7895,7 @@ def _upsert_minimal_monitoring_for_date(
     if record:
         if "entries_json" in payload:
             payload["entries_json"] = merge_mml_entries_json(
-                record.entries_json, payload.get("entries_json"),
+                record.entries_json, payload.get("entries_json"), deleted_entry_ids,
             )
         for key, value in payload.items():
             if key == "enrollment_id":
@@ -8038,7 +8501,7 @@ def create_ga_check_entry(
         eligible=None if payload.get("found_iufd") else classify_eligibility(payload.get("gestation_weeks"), payload.get("ga_source")),
     )
     if not record.check_date:
-        record.check_date = date.today()
+        record.check_date = clinical_today()
 
     db.add(record)
     db.commit()

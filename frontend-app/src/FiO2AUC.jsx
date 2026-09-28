@@ -9,6 +9,8 @@ import { calendarDateForNicuDay } from "./utils/datetime";
 import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { parseRespAEntries, buildFio2AucRowsFromRespA } from "./utils/mmlRespASync";
 import { printPatientPdf } from "./utils/printPatientPdf";
+import { useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
+import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
@@ -201,6 +203,7 @@ export default function Fio2AUCForm() {
   // needed to convert a NICU day number into the calendar date DMS is keyed
   // by, same as RespCVNeuroLog's own day1Date usage.
   const [day1Date, setDay1Date] = useState("");
+  const todayNicuDay = useNicuWorkingDay(day1Date);
 
   /*  Per-day state — built from Helper 2 Supplemental O₂=Yes days (not a fixed 1–7) */
   const [days, setDays] = useState([]);
@@ -561,6 +564,19 @@ export default function Fio2AUCForm() {
   // the old fixed-168 formula did — nothing changes about the Day-7
   // clinical endpoint itself.
   const hoursLoggedSoFar = totalHoursLogged(days);
+
+  // Green tick (PI rule 2026-09-26): the 7-day record is complete up to
+  // yesterday — every day 1..min(7, yesterday) has both 12 h windows fully
+  // logged (24 h). A day with no rows counts as 0 h.
+  useEffect(() => {
+    const lastDay = helperLastRequiredDay({ todayNicuDay, maxDay: 7 });
+    const pctByDay = Object.fromEntries(days.map((d) => [
+      d.day, ((windowHours(d.w1) + windowHours(d.w2)) / 24) * 100,
+    ]));
+    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("fio2_auc");
+    else unmarkFormCompleted("fio2_auc");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, todayNicuDay]);
   const meanFiO2     = hoursLoggedSoFar > 0 ? ((grandTotal / hoursLoggedSoFar) * 100).toFixed(1) : "0.0";
   const excessO2     = Math.max(0, grandTotal - 0.21 * hoursLoggedSoFar).toFixed(2);
   const daysComplete = days.filter(d => {
@@ -726,11 +742,7 @@ export default function Fio2AUCForm() {
         await api.post("/fio2-auc/", payload);
       }
       lastServerLogsRef.current = fio2_logs.map(l => ({ ...l }));
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — hours logged then cleared before the
-      // next save must un-tick the helper, not leave it stuck complete.
-      if (hoursLoggedSoFar > 0) markFormCompleted("fio2_auc");
-      else unmarkFormCompleted("fio2_auc");
+      // Sidebar tick: see the days effect (7-day record complete to yesterday).
       setMessage("FiO2 data saved successfully");
       setIsSaved(true);
       setHasUnsavedChanges(false);

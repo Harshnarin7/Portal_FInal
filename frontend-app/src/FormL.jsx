@@ -13,6 +13,7 @@ import FormNavBar from "./components/FormNavBar";
 import { usePatient } from "./context/PatientContext";
 import { useFormProgress } from "./context/FormProgressContext";
 import { Home, Building2, Wind, BarChart2 } from "lucide-react";
+import { isFormLComplete } from "./utils/formCompletion";
 
 const MINUTE_LABELS = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"];
 
@@ -176,7 +177,13 @@ export default function FormL() {
   const navigate = useNavigate();
   const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Green tick = key items + sign-off (utils/formCompletion), checked against
+  // the stored record on load and after each save — not "a save happened".
+  const syncTick = (data) => {
+    if (isFormLComplete(data)) markFormCompleted("form_l");
+    else unmarkFormCompleted("form_l");
+  };
 
   const [formData, setFormData] = useState(BLANK);
   const [isSaved, setIsSaved] = useState(false);
@@ -253,6 +260,7 @@ export default function FormL() {
       .then((res) => {
         if (!res.data) return;
         const mapped = mapApiToForm(res.data);
+        syncTick(mapped);
         setFormData((p) => ({
           ...mapped,
           enrollment_id: id,
@@ -292,8 +300,9 @@ export default function FormL() {
     }
     try {
       const res = await api.post("/form-l", buildPayload(formData));
-      setFormData(mapApiToForm(res.data));
-      markFormCompleted("form_l");
+      const saved = mapApiToForm(res.data);
+      setFormData(saved);
+      syncTick(saved);
       setIsSaved(true);
       setSaveMessage("✅ Form L saved");
       setTimeout(() => setSaveMessage(""), 3000);

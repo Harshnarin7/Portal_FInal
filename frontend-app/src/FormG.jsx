@@ -12,6 +12,7 @@ import SaveSuccessModal from "./components/SaveSuccessModal";
 import { useFormProgress } from "./context/FormProgressContext";
 import { toDateOnlyValue } from "./utils/datetime";
 import { designationForCompletedBy } from "./utils/completedByDesignation";
+import { isFormGComplete } from "./utils/formCompletion";
 
 /* ══════════════════════════════════════════════════════
    CONSTANTS
@@ -65,15 +66,17 @@ function calculateDOLandPMA(dob, screeningDate, gaWeeks, gaDays) {
   const dobDate = new Date(dob);
   const screenDate = new Date(screeningDate);
   const diffTime = screenDate - dobDate;
-  const dol = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  // DOL counts the day of birth as DOL 1 (PI decision 2026-09-27), matching
+  // Form F and the NICU day numbering; PMA still adds completed days.
+  const ageDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
   const weeks = Number(gaWeeks) || 0;
   const days = Number(gaDays) || 0;
   const gaBirthDays = weeks * 7 + days;
-  const pmaDays = gaBirthDays + dol;
+  const pmaDays = gaBirthDays + ageDays;
   const pmaWeeks = Math.floor(pmaDays / 7);
   const pmaRemainingDays = pmaDays % 7;
   return {
-    dol: dol >= 0 ? dol : "",
+    dol: ageDays >= 0 ? ageDays + 1 : "",
     pma: `${pmaWeeks}w ${pmaRemainingDays}d`,
   };
 }
@@ -221,18 +224,20 @@ export default function FormG() {
   const { enrollmentId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { patientData } = usePatient();
 
   const [message, setMessage] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [ropReviewAlerts, setRopReviewAlerts] = useState([]);
+  // Bumped when a saved record finishes loading, so the tick re-syncs.
+  const [recordLoadedTick, setRecordLoadedTick] = useState(0);
   const [ropConsistency, setRopConsistency] = useState({ unreviewed_discrepancies: [] });
   const [roster, setRoster] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
-    api.get("/users/roster")
+    api.get("/users/roster", { params: enrollmentId ? { enrollment_id: enrollmentId } : {} })
       .then((res) => {
         if (cancelled) return;
         const rows = Array.isArray(res.data) ? res.data.filter((r) => r && r.full_name) : [];
@@ -242,7 +247,7 @@ export default function FormG() {
         if (!cancelled) setRoster([]);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [enrollmentId]); // baby's site staff (see /users/roster)
 
   const [formData, setFormData] = useState({
     enrollment_id: "",
@@ -381,6 +386,7 @@ export default function FormG() {
         designation: d.designation || "",
         completion_date: d.completion_date || "",
       }));
+      setRecordLoadedTick((n) => n + 1);
     }).catch((err) => {
       if (err?.response?.status !== 404) {
         console.error("Failed to load ROP screening record:", err);
@@ -453,6 +459,17 @@ export default function FormG() {
   /* ================= AUTO-CALC COMPOSITE (item 18) ================= */
   const eitherEyeTreated = formData.treatment_required === "Yes" || formData.treatment_required_le === "Yes";
   const compositeValue = eitherEyeTreated ? "Yes" : formData.rop_treatment_composite;
+
+  // Green tick = key items + sign-off (utils/formCompletion), not "a save
+  // happened".
+  const syncFormGTick = (data = formData) => {
+    if (isFormGComplete(data, { compositeValue, reviewAlerts: ropReviewAlerts })) markFormCompleted("form_g");
+    else unmarkFormCompleted("form_g");
+  };
+  useEffect(() => {
+    if (recordLoadedTick > 0) syncFormGTick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordLoadedTick]);
 
   useEffect(() => {
     if (eitherEyeTreated && formData.rop_treatment_composite !== "Yes") {
@@ -539,7 +556,7 @@ export default function FormG() {
     if (e) e.preventDefault();
     try {
       await api.post("/rop-screening/", buildPayload());
-      markFormCompleted("form_g");
+      syncFormGTick();
       setMessage("Form G saved successfully.");
       setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);

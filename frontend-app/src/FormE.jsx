@@ -543,6 +543,8 @@ export default function FormE() {
   /* ── Build payload for auto-save (draft-safe, no validation) ── */
   const buildAutoPayload = () => ({
     enrollment_id: formData.enrollment_id,
+    // Green tick: this form's own Save validation passes (collectFormEErrors).
+    is_complete: Object.keys(collectFormEErrors()).length === 0,
     baby_uid: formData.baby_uid,
     annual_number: formData.annual_number,
     baby_name: formData.baby_name,
@@ -902,15 +904,9 @@ export default function FormE() {
   const yesNoToBool = (v) => v === "Yes" ? true : v === "No" ? false : null;
   const num = (v) => (v === "" || v == null) ? null : Number(v);
 
-  const handleSubmit = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-
-    if (!formData.enrollment_id) {
-      setMessage("❌ Enrollment ID missing. Cannot save form.");
-      return false;
-    }
-
-    // Required-field + conditional validation (aligned with CRF E1–E15)
+  // Form E's Save validation, extracted unchanged from handleSubmit so the
+  // same rules also decide the green tick on every save (autosave included).
+  const collectFormEErrors = () => {
     const v = {};
     if (!formData.admission_datetime) v.admission_datetime = "This field is required";
     else if (formData.date_of_birth) {
@@ -966,7 +962,19 @@ export default function FormE() {
       v.transport_fio2 = "Must be between 21% and 100%";
     if (formData.nicu_fio2 && (Number(formData.nicu_fio2) < 21 || Number(formData.nicu_fio2) > 100))
       v.nicu_fio2 = "Must be between 21% and 100%";
+    return v;
+  };
 
+  const handleSubmit = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+
+    if (!formData.enrollment_id) {
+      setMessage("❌ Enrollment ID missing. Cannot save form.");
+      return false;
+    }
+
+    // Required-field + conditional validation (aligned with CRF E1–E15)
+    const v = collectFormEErrors();
     if (Object.keys(v).length > 0) {
       setErrors(prev => ({ ...prev, ...v }));
       setMessage("❌ Please complete the required fields highlighted below.");
@@ -1014,6 +1022,7 @@ export default function FormE() {
       // backend is set up to leave finalized untouched when it's absent
       // rather than resetting it on every 10s autosave tick.
       finalized: true,
+      is_complete: true, // reached only after collectFormEErrors() passed
     };
     try {
       if (hasFormERecord || isSaved) {

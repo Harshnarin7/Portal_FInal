@@ -167,7 +167,13 @@ export function formatIsoDateMedium(iso) {
  */
 export function formatStampShort(value) {
   if (!value) return "";
-  const d = value instanceof Date ? value : new Date(value);
+  // The API returns saved_at / submitted_at as naive UTC ("2026-09-26T04:26:17"),
+  // which the browser would read as local time — the helpers showed 04:26 for
+  // a 09:56 IST save. No timezone suffix => treat as UTC.
+  const isNaiveIso = typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)
+    && !/(Z|[+-]\d{2}:?\d{2})$/.test(value);
+  const d = value instanceof Date ? value : new Date(isNaiveIso ? `${value}Z` : value);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString("en-GB", {
     day: "2-digit",

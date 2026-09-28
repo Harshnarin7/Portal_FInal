@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, createContext, use
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isFormIComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./ScreeningForm.css";
@@ -443,7 +444,9 @@ export default function FormI() {
   const navigate = useNavigate();
   const { enrollmentId } = useParams();
   const { patientData } = usePatient() || {};
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Bumped when a saved record finishes loading, so the tick re-syncs.
+  const [recordLoadedTick, setRecordLoadedTick] = useState(0);
 
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
@@ -795,6 +798,7 @@ export default function FormI() {
           completion_date: existing.completion_date || "",
         } : {}),
       }));
+      if (existing?.id) setRecordLoadedTick((n) => n + 1);
 
       // Chained, not a separate effect racing this one — must run after
       // the existing-record load above has queued its setFormData, same
@@ -1250,6 +1254,42 @@ export default function FormI() {
   // auto-fill logic, just triggered in bulk instead of one checkpoint at
   // a time (added 2026-09 after a stale 36-week brain-injury flag was
   // found in production, unrelated to any code bug in the fetch itself).
+  // ROP suggestion note (PI design 2026-09-27): where the ROP answer at this
+  // checkpoint came from (Form G / Form J / Form H / Helper 5), or which
+  // follow-up is still missing, plus the "ROP requiring treatment" composite
+  // component and a warning when the sources disagree.
+  const renderRopNote = (checkpoint) => {
+    const d = pmaPrefill[checkpoint];
+    if (!d || !d.rop_note) return null;
+    const composite = d.rop_treatment_required
+      ? ` ROP requiring treatment (composite): ${d.rop_treatment_required}.`
+      : "";
+    return (
+      <div
+        className={`field-hint ${d.rop_sources_disagree ? "field-hint-warning" : "field-hint-auto"}`}
+        style={{ margin: "0 0 10px" }}
+      >
+        {d.rop_sources_disagree ? "⚠ " : ""}ROP: {d.rop_note}.{composite}
+      </div>
+    );
+  };
+
+  // NEC suggestion note (PI design 2026-09-28): source of the "Stage >= IIA"
+  // answer, or what is missing; suspected NEC (IA/IB) is shown here but kept
+  // out of the answer and the composite.
+  const renderNecNote = (checkpoint) => {
+    const d = pmaPrefill[checkpoint];
+    if (!d || !d.nec_note) return null;
+    return (
+      <div
+        className={`field-hint ${d.nec_sources_disagree ? "field-hint-warning" : "field-hint-auto"}`}
+        style={{ margin: "0 0 10px" }}
+      >
+        {d.nec_sources_disagree ? "⚠ " : ""}NEC: {d.nec_note}.
+      </div>
+    );
+  };
+
   const forceRefillAllPmaCheckpoints = async () => {
     if (
       !window.confirm(
@@ -1513,11 +1553,22 @@ export default function FormI() {
     );
   };
 
+  // Green tick = the starred items + sign-off (utils/formCompletion), not
+  // "a save happened" — Back/Next save a blank form too.
+  const syncFormITick = () => {
+    if (isFormIComplete(formData)) markFormCompleted("form_i");
+    else unmarkFormCompleted("form_i");
+  };
+  useEffect(() => {
+    if (recordLoadedTick > 0) syncFormITick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordLoadedTick]);
+
   const saveFormI = async () => {
     if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
-      markFormCompleted("form_i");
+      syncFormITick();
       setIsSaved(true);
       setSaveMessage("✅ Saved");
     } catch (err) {
@@ -1533,7 +1584,7 @@ export default function FormI() {
     if (!(await confirmBrainInjuryConflicts())) return;
     try {
       await api.post("/study-outcomes/", buildPayload());
-      markFormCompleted("form_i");
+      syncFormITick();
       alert("✅ Form I submitted successfully");
       navigate(`/form-j/${formData.enrollment_id}`);
     } catch (err) {
@@ -1784,6 +1835,8 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderNecNote(36)}
+          {renderRopNote(36)}
           <div className="crf-encounter-row">
             <Mini label="22. Method of Encounter">
               <RSelect name="encounter36_method" options={["Direct", "Telephonic"]} />
@@ -1895,6 +1948,8 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderNecNote(40)}
+          {renderRopNote(40)}
           <div className="crf-encounter-row">
             <Mini label="42. Method of Encounter">
               <RSelect name="encounter40_method" options={["Direct", "Telephonic"]} />
@@ -1991,6 +2046,8 @@ export default function FormI() {
               Use "Force refill" above if the source data is correct.
             </div>
           )}
+          {renderNecNote(44)}
+          {renderRopNote(44)}
           <div className="crf-encounter-row">
             <Mini label="59. Method of Encounter">
               <RSelect name="encounter44_method" options={["Direct", "Telephonic"]} />

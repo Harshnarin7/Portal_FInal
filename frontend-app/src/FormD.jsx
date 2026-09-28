@@ -335,7 +335,7 @@ export default function FormD() {
   const { enrollmentId } = useParams();
   const location  = useLocation();
   const navigate  = useNavigate();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const { updatePatientData } = usePatient();
 
   const [isSaved,   setIsSaved]   = useState(false);
@@ -865,6 +865,8 @@ export default function FormD() {
     completed_by:  formData.completed_by,
     designation:   formData.designation,
     completion_date: formData.date || null,
+    // Green tick: this form's own Save validation passes (validateForm).
+    is_complete: Object.keys(validateForm(formData)).length === 0,
   }), [formData]); // eslint-disable-line
 
   /* ── Save logic: unchanged payload ── */
@@ -937,7 +939,8 @@ export default function FormD() {
         gestation_days: useNbsGa ? formData.gestation_days : (formData.original_gestation_days || formData.gestation_days),
         gestation_source: useNbsGa ? "Form D NBS" : "Form B",
       });
-      markFormCompleted("form_d");
+      if (Object.keys(validateForm(formData)).length === 0) markFormCompleted("form_d");
+      else unmarkFormCompleted("form_d");
       setMessage("✅ Form D saved successfully");
       setShowSaveSuccess(true);
       setIsSaved(true); setIsEditing(false);

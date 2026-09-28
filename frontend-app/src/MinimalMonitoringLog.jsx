@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
-import { useFormProgress } from "./context/FormProgressContext";
 import { useRegisterActiveFormSession } from "./context/ActiveFormSessionContext";
 import {
   toDateOnlyValue,
@@ -69,6 +68,9 @@ const BLOCKS_BY_SECTION = {
 };
 
 /** Friendly label + one-line description shown in the field-picker list. */
+// Blocks rendered as scheduled flowsheets (slot-based rows, not a "new reading" draft).
+const FLOWSHEET_BLOCKS = new Set(["cv_a", "met_a", "gi_a", "growth_a"]);
+
 const BLOCK_META = {
   cv_a: { code: "5.1.A", label: "Vitals", desc: "Skin/Axillary temp, SBP, DBP, MAP" },
   cv_b: { code: "5.1.B", label: "Fluid Bolus", desc: "Fluid bolus volume given" },
@@ -431,6 +433,29 @@ function ensureTrailingDraftRows(entries, sheetDateYmd) {
     changed = true;
   });
   return changed ? next : entries;
+}
+
+/** After a save: keep the on-screen entries exactly as they are and only add
+ *  readings the server has that this screen doesn't (another nurse's rows,
+ *  kept by the backend's union merge). Replacing state wholesale with the
+ *  server copy dropped a just-tapped blank row (blanks are never persisted),
+ *  undid anything typed while the save was in flight, and appended a fresh
+ *  draft under the row being typed. `skipIds` = rows this screen already sent
+ *  or deleted, so a delete isn't undone by the server's older copy. */
+function mergeServerOnlyEntries(local, server, skipIds) {
+  const next = { ...local };
+  let changed = false;
+  Object.keys(server || {}).forEach(blockKey => {
+    const list = local[blockKey] || [];
+    const localIds = new Set(list.map(e => e?.id).filter(Boolean));
+    const incoming = (server[blockKey] || []).filter(e =>
+      e?.id && !localIds.has(e.id) && !skipIds.has(e.id) && hasEntryData(e));
+    if (!incoming.length) return;
+    // Prepend: the last row of a block is its open draft (EntryBlock).
+    next[blockKey] = [...incoming, ...list];
+    changed = true;
+  });
+  return changed ? next : local;
 }
 
 function countProgress(entries) {
@@ -1662,7 +1687,6 @@ export default function MinimalMonitoringLog() {
   const params = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
   const enrollmentId = params.enrollmentId || localStorage.getItem("current_enrollment_id") || "";
 
   const [entries, setEntries] = useState(emptyEntries);
@@ -1684,6 +1708,9 @@ export default function MinimalMonitoringLog() {
   // get treated as "the user changed something".
   const dirtyRef = useRef(false);
   const entriesRef = useRef(entries);
+  // Row ids removed on this screen since the sheet was loaded — see
+  // mergeServerOnlyEntries.
+  const deletedIdsRef = useRef(new Set());
   const sheetDateRef = useRef(sheetDate);
   entriesRef.current = entries;
   sheetDateRef.current = sheetDate;
@@ -1699,6 +1726,15 @@ export default function MinimalMonitoringLog() {
     // field's array before showing it — if the last reading already has data
     // (e.g. it was filled in a previous visit today), start a fresh one so
     // the field always opens on a blank form with history below it.
+    // Scheduled flowsheets (vitals, glucose, feeds, weight) are slot-based:
+    // rows are added by tapping a slot, and an extra unscheduled blank row
+    // showed up as a stray "— <time>" line every time the field was reopened
+    // (found in live testing 2026-09-26). Only free-entry blocks get a draft.
+    if (FLOWSHEET_BLOCKS.has(key)) {
+      setActiveBlock(key);
+      setView("detail");
+      return;
+    }
     setEntries(prev => {
       const list = prev[key] || [];
       const last = list[list.length - 1];
@@ -1737,16 +1773,18 @@ export default function MinimalMonitoringLog() {
     dirtyRef.current = true;
   };
 
+  // Adding a blank row changes nothing the server stores (blank rows are
+  // never persisted), so it must not trigger an autosave — that save fired
+  // before the nurse had typed anything.
   const addEntry = (block, blank) => {
     setEntries(prev => ({ ...prev, [block]: [...(prev[block] || []), blank] }));
-    setSaveTick((t) => t + 1);
-    dirtyRef.current = true;
   };
 
   const removeEntry = (block, idx) => {
     setEntries(prev => {
       const list = [...(prev[block] || [])];
       if (list.length <= 1) return prev;
+      if (list[idx]?.id) deletedIdsRef.current.add(list[idx].id);
       list.splice(idx, 1);
       return { ...prev, [block]: list };
     });
@@ -1784,11 +1822,11 @@ export default function MinimalMonitoringLog() {
         freshEntry({ slot_time: slotTime, time: slotTime, ...extraFields }, sheetDate),
       ],
     }));
-    setSaveTick(t => t + 1);
-    dirtyRef.current = true;
+    // No autosave for a blank row — see addEntry.
   };
 
   const removeFlowsheetEntry = (block, id) => {
+    deletedIdsRef.current.add(id);
     setEntries(prev => ({ ...prev, [block]: (prev[block] || []).filter(e => e.id !== id) }));
     setSaveTick(t => t + 1);
     dirtyRef.current = true;
@@ -1850,6 +1888,7 @@ export default function MinimalMonitoringLog() {
     setErrors({});
     hydratedRef.current = false;
     setSaveTick(0);
+    deletedIdsRef.current = new Set();
     try {
       const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${ymd}`);
       const data = res?.data || {};
@@ -2008,6 +2047,9 @@ export default function MinimalMonitoringLog() {
     glucose_frequency_hours: glucoseFrequencyHours,
     vitals_frequency_hours: vitalsFrequencyHours,
     weight_frequency_hours: weightFrequencyHours,
+    // Rows removed on this screen: the backend's union merge keeps any row a
+    // save omits (it may be another nurse's), so deletions must be explicit.
+    deleted_entry_ids: [...deletedIdsRef.current],
     saved_at: new Date().toISOString(),
     saved_by: user?.name || user?.username || "Site User",
   });
@@ -2037,16 +2079,19 @@ export default function MinimalMonitoringLog() {
       setSheetDate(savedDate);
       sheetDateRef.current = savedDate;
       rememberMmlSheetDate(enrollmentId, savedDate);
-      dirtyRef.current = false;
+      // Edits made while this save was in flight are still unsaved.
+      if (entriesRef.current === snapshot) dirtyRef.current = false;
       if (res?.data) {
-        setEntries(ensureTrailingDraftRows(hydrateEntries(res.data), savedDate));
+        const sentIds = new Set(
+          Object.values(snapshot || {}).flat().map(e => e?.id).filter(Boolean),
+        );
+        deletedIdsRef.current.forEach(id => sentIds.add(id));
+        const serverEntries = hydrateEntries(res.data);
+        setEntries(prev => mergeServerOnlyEntries(prev, serverEntries, sentIds));
       }
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — a reading added then deleted before the
-      // next save must un-tick the helper, not leave it stuck complete.
-      const progress = countProgress(snapshot);
-      if (progress.done > 0) markFormCompleted("minimal_monitoring");
-      else unmarkFormCompleted("minimal_monitoring");
+      // No green tick for the DMS (PI decision 2026-09-26): it's a scratchpad
+      // with nothing mandatory. The sidebar shows a "Today: logged / not yet
+      // logged" note instead, refreshed by the portal-mml-saved event below.
       if (!silent) {
         setMessage(`Sheet saved (${formatDateToDDMMYYYY(sheetDate)}). This reading stays on the form — use Log another reading to start a new one.`);
         setTimeout(() => setMessage(""), 5000);
@@ -2066,20 +2111,37 @@ export default function MinimalMonitoringLog() {
     }
   };
 
+  // Save validates the whole sheet, but only problems in the block the nurse
+  // is working in may block it. Before 2026-09-26 an unfinished feed row in
+  // 5.4.A blocked Save in Cardiovascular with "Enter feed volume — check
+  // highlighted fields in this block" though nothing in that block was wrong
+  // (PI-reported). Problems elsewhere now save anyway and name their block.
+  const blockNameOf = (errorKey) => {
+    const meta = BLOCK_META[String(errorKey).split(".")[0]];
+    return meta ? `${meta.code} ${meta.label}` : "another section";
+  };
+
   const handleSave = async () => {
     const next = buildValidationErrors();
     setErrors(next);
-    if (Object.keys(next).length > 0) {
-      const detail = Object.values(next)[0];
+    const here = Object.keys(next).filter(k => activeBlock && k.startsWith(`${activeBlock}.`));
+    const blocking = activeBlock ? here : Object.keys(next);
+    if (blocking.length > 0) {
+      const detail = next[blocking[0]];
       setMessage(detail
-        ? `${detail} — check highlighted fields in this block or the readings table`
+        ? `${detail} — check the highlighted fields in ${blockNameOf(blocking[0])}`
         : "Fix the highlighted fields before saving");
       setTimeout(() => setMessage(""), 5000);
       return;
     }
     const committed = commitFilledDraftRows(entries, sheetDate);
     setEntries(committed);
-    await persist({ silent: false, runValidate: false, entriesSnapshot: committed });
+    const ok = await persist({ silent: false, runValidate: false, entriesSnapshot: committed });
+    const elsewhere = Object.keys(next);
+    if (ok && elsewhere.length > 0) {
+      setMessage(`Sheet saved. Still to finish in ${blockNameOf(elsewhere[0])}: ${next[elsewhere[0]]}`);
+      setTimeout(() => setMessage(""), 6000);
+    }
   };
 
   const flushPersist = (opts = {}) =>

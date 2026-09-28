@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isFormKComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/FormK.css";
@@ -275,7 +276,13 @@ export default function FormK() {
   const navigate = useNavigate();
   const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Green tick = key items + sign-off (utils/formCompletion), checked against
+  // the stored record on load and after each save — not "a save happened".
+  const syncTick = (data) => {
+    if (isFormKComplete(data)) markFormCompleted("form_k");
+    else unmarkFormCompleted("form_k");
+  };
 
   const [formData, setFormData] = useState(BLANK);
   const [isSaved, setIsSaved] = useState(false);
@@ -327,6 +334,7 @@ export default function FormK() {
       .then((res) => {
         if (!res.data) return;
         const mapped = mapApiToForm(res.data);
+        syncTick(mapped);
         setFormData((p) => ({
           ...mapped,
           enrollment_id: id,
@@ -380,8 +388,9 @@ export default function FormK() {
     }
     try {
       const res = await api.post("/form-k", buildPayload(formData));
-      setFormData(mapApiToForm(res.data));
-      markFormCompleted("form_k");
+      const saved = mapApiToForm(res.data);
+      setFormData(saved);
+      syncTick(saved);
       setIsSaved(true);
       setSaveMessage("✅ Form K saved");
       setTimeout(() => setSaveMessage(""), 3000);

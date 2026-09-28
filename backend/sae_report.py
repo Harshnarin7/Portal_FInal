@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 from datetime import date, datetime
+from clinical_time import clinical_today
 
 from docx import Document
 from docx.shared import Pt, Inches
@@ -345,7 +346,7 @@ def build_covering_letter_docx(sae, ctx) -> bytes:
     iec = cfg.iec_for(ctx.get("site_code"))
     d = _doc()
 
-    today = date.today().isoformat()
+    today = clinical_today().isoformat()
     _para(d, f"Date: {today}")
     d.add_paragraph()
     _para(d, "To,")

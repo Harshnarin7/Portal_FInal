@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "./api/axios";
+import { isAdverseEventsComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormComponents.css";
 import "./styles/FormAE.css";
@@ -244,7 +245,13 @@ export default function AdverseEventsForm() {
   const navigate = useNavigate();
   const { enrollmentId: routeId } = useParams();
   const { patientData } = usePatient();
-  const { markFormCompleted } = useFormProgress();
+  const { markFormCompleted, unmarkFormCompleted } = useFormProgress();
+  // Green tick = key items + sign-off (utils/formCompletion), checked against
+  // the stored record on load and after each save — not "a save happened".
+  const syncTick = (data) => {
+    if (isAdverseEventsComplete(data)) markFormCompleted("adverse_events");
+    else unmarkFormCompleted("adverse_events");
+  };
 
   const [formData, setFormData] = useState(() => BLANK());
   const [isSaved, setIsSaved] = useState(false);
@@ -444,6 +451,7 @@ export default function AdverseEventsForm() {
         // Backend returns null when no AE form has been saved yet
         if (!res.data || !res.data.enrollment_id) return;
         const mapped = mapApiToForm(res.data);
+        syncTick(mapped);
         setFormData((p) => ({
           ...mapped,
           enrollment_id: id,
@@ -486,7 +494,7 @@ export default function AdverseEventsForm() {
         maternal_uid: mapped.maternal_uid || p.maternal_uid,
         baby_uid: mapped.baby_uid || p.baby_uid,
       }));
-      markFormCompleted("adverse_events");
+      syncTick(mapped);
       setIsSaved(true);
       setSaveMessage("✅ Adverse Events form saved");
       setTimeout(() => setSaveMessage(""), 3000);

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api/axios";
+import { getMmlSheet } from "./utils/mmlSheetFetch";
+import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
 import { toDateOnlyValue, formatIsoDateMedium, formatStampShort, NICU_DAY_GRACE_HOUR, nicuDayNumberFromDay1, helperDayStripLength } from "./utils/datetime";
 import "./styles/RespCVNeuro.css";
 import "./styles/MinimalMonitoring.css";
@@ -830,6 +832,19 @@ export default function MetabRenalVascEyeLog() {
      tab all use this same number. */
   const todayNicuDay = useNicuWorkingDay(day1Date);
 
+  // Green tick (PI rule 2026-09-26): every NICU day from Day 1 up to
+  // yesterday is 100% complete; today may still be in progress. dayMeta holds
+  // each day's pct (from the summary on load, updated on every save).
+  useEffect(() => {
+    const lastDay = helperLastRequiredDay({ todayNicuDay, dischargeDay });
+    const pctByDay = Object.fromEntries(
+      Object.entries(dayMeta || {}).map(([d, m]) => [d, m?.pct]),
+    );
+    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("metab_renal_vasc_eye");
+    else unmarkFormCompleted("metab_renal_vasc_eye");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayMeta, todayNicuDay, dischargeDay]);
+
   /** Calendar date for the open NICU day (day1Date + activeDay − 1). */
   const activeDayDate = useMemo(() => {
     if (!day1Date) return null;
@@ -1140,7 +1155,7 @@ export default function MetabRenalVascEyeLog() {
     if (!enrollmentId || !viewedDate) return false;
     try {
       // Fetch the MM sheet for THIS NICU day's calendar date — never GET /today.
-      const res = await api.get(`/minimal-monitoring/${enrollmentId}/on/${viewedDate}`);
+      const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/on/${viewedDate}`);
       if (activeDayDateRef.current !== viewedDate) return false;
       const data = res?.data || {};
       // No MM row for this calendar date — do not invent "Not Tested".
@@ -1327,7 +1342,7 @@ export default function MetabRenalVascEyeLog() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get(`/minimal-monitoring/${enrollmentId}/today`, {
+        const res = await getMmlSheet(`/minimal-monitoring/${enrollmentId}/today`, {
           params: { boundary_hour: NICU_DAY_GRACE_HOUR },
         });
         const rd = res?.data?.record_date;
@@ -1478,8 +1493,8 @@ export default function MetabRenalVascEyeLog() {
   useEffect(() => {
     if (!enrollmentId || !isActiveDayToday || !isFieldEditable) return;
     const interval = setInterval(() => {
-      applyGlucoseAutofill({ force: false });
-    }, 60000); // every 60s
+      if (!document.hidden) applyGlucoseAutofill({ force: false });
+    }, 60000); // every 60s; hidden tabs skip (focus/visibility catches up)
     return () => clearInterval(interval);
   }, [enrollmentId, activeDay, isActiveDayToday, isFieldEditable]);
 
@@ -1614,11 +1629,7 @@ export default function MetabRenalVascEyeLog() {
       const res = isSaved
         ? await api.put(`/metab-renal-vasc-eye/${enrollmentId}/${activeDay}`, payload, staleCfg)
         : await api.post("/metab-renal-vasc-eye/", payload, staleCfg);
-      // Keep the sidebar tick in sync with the *current* state, not just
-      // whether it was ever true — data added then deleted before the next
-      // save must un-tick the helper, not leave it stuck complete.
-      if (completionPct > 0) markFormCompleted("metab_renal_vasc_eye");
-      else unmarkFormCompleted("metab_renal_vasc_eye");
+      // Sidebar tick: see the dayMeta effect (all days to yesterday at 100%).
       loadedUpdatedAtRef.current = res?.data?.updated_at || loadedUpdatedAtRef.current;
       setIsSaved(true);
       setIsEditing(true);
@@ -1846,10 +1857,13 @@ export default function MetabRenalVascEyeLog() {
   /* ═══════════════════════════════════════ RENDER ═══════════════════════════════════════ */
   return (
     <>
-      {isSaved && isEditing && (
+      {/* Unlocked days are always editable (since 7f2068d), so an "editing"
+          banner on every saved day carried no information. Only warn when
+          a locked day has been reopened via Override & Unlock. */}
+      {isSaved && isOverrideActiveDay && (
         <div className="editing-mode-banner">
           <span className="editing-mode-dot" />
-          Editing Mode Active — changes will be saved when you click Save
+          Day {activeDay} reopened by override — you are correcting a locked day. Lock it again when done.
         </div>
       )}
 

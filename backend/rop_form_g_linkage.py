@@ -33,14 +33,16 @@ def calculate_dol_and_pma(
     do for itself despite Form G already knowing how."""
     if not dob or not screening_date:
         return "", ""
-    dol = (screening_date - dob).days
+    # DOL counts the day of birth as DOL 1 (PI decision 2026-09-27), matching
+    # Form F and the app's NICU day numbering; PMA still adds completed days.
+    age_days = (screening_date - dob).days
     weeks = ga_weeks or 0
     days = ga_days or 0
     ga_birth_days = weeks * 7 + days
-    pma_days = ga_birth_days + dol
+    pma_days = ga_birth_days + age_days
     pma_weeks = pma_days // 7
     pma_remaining_days = pma_days % 7
-    return (dol if dol >= 0 else "", f"{pma_weeks}w {pma_remaining_days}d")
+    return (age_days + 1 if age_days >= 0 else "", f"{pma_weeks}w {pma_remaining_days}d")
 
 SCREENING_DETAIL_FIELDS = (
     "method",
