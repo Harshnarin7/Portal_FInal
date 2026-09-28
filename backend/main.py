@@ -8465,6 +8465,22 @@ from ga_check import classify_eligibility
 GA_CHECK_WRITE_FIELDS = set(GACheckEntryCreate.model_fields.keys()) - {"site_name"}
 
 
+def _normalize_ga_check_payload(payload: dict) -> dict:
+    """Unknown/Unreliable and IUFD must not keep method or gestation."""
+    if payload.get("ga_source") != "Reliable":
+        payload["gestation_method"] = None
+        payload["gestation_weeks"] = None
+        payload["gestation_days"] = None
+    if payload.get("found_iufd"):
+        payload["ga_source"] = None
+        payload["gestation_method"] = None
+        payload["gestation_weeks"] = None
+        payload["gestation_days"] = None
+    if not payload.get("identification_type"):
+        payload["identification_type"] = "Checked at triage"
+    return payload
+
+
 @app.post("/ga-check/", response_model=GACheckEntryOut)
 def create_ga_check_entry(
     data: GACheckEntryCreate,
@@ -8477,23 +8493,9 @@ def create_ga_check_entry(
     if not site_name:
         raise HTTPException(status_code=422, detail="site_name is required")
 
-    payload = {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS}
-    # Belt-and-suspenders: an Unknown/Unreliable source must never carry a
-    # method/weeks/days into storage, even if the client sent one anyway --
-    # never trust a client-only invariant for something that gates Form A.
-    if payload.get("ga_source") != "Reliable":
-        payload["gestation_method"] = None
-        payload["gestation_weeks"] = None
-        payload["gestation_days"] = None
-    # Found-IUFD dulls everything else too -- there is no gestation-
-    # eligibility question left once a woman is found to be IUFD.
-    if payload.get("found_iufd"):
-        payload["ga_source"] = None
-        payload["gestation_method"] = None
-        payload["gestation_weeks"] = None
-        payload["gestation_days"] = None
-    if not payload.get("identification_type"):
-        payload["identification_type"] = "Checked at triage"
+    payload = _normalize_ga_check_payload(
+        {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS}
+    )
     record = GACheckEntry(
         **payload,
         site_name=site_name,
@@ -8504,6 +8506,39 @@ def create_ga_check_entry(
         record.check_date = clinical_today()
 
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.put("/ga-check/{entry_id}", response_model=GACheckEntryOut)
+def update_ga_check_entry(
+    entry_id: int,
+    data: GACheckEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(GACheckEntry).filter(GACheckEntry.id == entry_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="GA check entry not found")
+    if not is_global(current_user) and record.site_name != current_user.site_name:
+        raise HTTPException(status_code=403, detail="Not authorized for this site")
+
+    site_name = data.site_name
+    if not is_global(current_user):
+        site_name = current_user.site_name
+    if not site_name:
+        raise HTTPException(status_code=422, detail="site_name is required")
+
+    payload = _normalize_ga_check_payload(
+        {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS and k != "check_date"}
+    )
+    for key, value in payload.items():
+        setattr(record, key, value)
+    record.site_name = site_name
+    record.eligible = None if payload.get("found_iufd") else classify_eligibility(
+        payload.get("gestation_weeks"), payload.get("ga_source")
+    )
     db.commit()
     db.refresh(record)
     return record
