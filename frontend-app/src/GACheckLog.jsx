@@ -24,6 +24,7 @@ import { useAuth } from "./context/AuthContext";
 import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
+import { maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
 import {
   Search, AlertTriangle, CheckCircle2, ArrowRight, RefreshCw, X,
 } from "lucide-react";
@@ -76,6 +77,7 @@ export default function GACheckLog() {
   const isSiteLocked = !isGlobalUser(user) && !!user?.site;
 
   const [form, setForm] = useState(BLANK_FORM);
+  const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [lastResult, setLastResult] = useState(null); // the just-saved entry
@@ -148,12 +150,17 @@ export default function GACheckLog() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.mother_name && !form.mother_uid) {
-      setSaveError("Enter at least the mother's name or UID.");
-      return;
-    }
     if (!isSiteLocked && !form.site_name) {
       setSaveError("Select a site.");
+      return;
+    }
+    const uidError = maternalUidSaveError(form.site_name, form.mother_uid);
+    if (uidError) {
+      setSaveError(uidError);
+      return;
+    }
+    if (!form.mother_name && !form.mother_uid) {
+      setSaveError("Enter at least the mother's name or UID.");
       return;
     }
     if (!form.found_iufd && !form.ga_source) {
@@ -162,6 +169,7 @@ export default function GACheckLog() {
     }
     setSaving(true);
     setSaveError("");
+    const blankSite = isSiteLocked ? form.site_name : "";
     const payload = {
       site_name: form.site_name || null,
       identification_type: form.identification_type || DEFAULT_IDENTIFICATION_TYPE,
@@ -178,9 +186,12 @@ export default function GACheckLog() {
       gestation_days: isReliable && form.gestation_days !== "" ? Number(form.gestation_days) : null,
     };
     try {
-      const res = await api.post("/ga-check/", payload);
-      setLastResult(res.data);
-      setForm((p) => ({ ...BLANK_FORM, site_name: isSiteLocked ? p.site_name : "" }));
+      const res = editingId
+        ? await api.put(`/ga-check/${editingId}`, payload)
+        : await api.post("/ga-check/", payload);
+      setLastResult(editingId ? null : res.data);
+      setEditingId(null);
+      setForm({ ...BLANK_FORM, site_name: blankSite });
       load();
     } catch (err) {
       setSaveError(err.response?.data?.detail || "Save failed.");
@@ -208,6 +219,30 @@ export default function GACheckLog() {
   };
 
   const dismissResult = () => setLastResult(null);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setSaveError("");
+    setForm((p) => ({ ...BLANK_FORM, site_name: isSiteLocked ? p.site_name : "" }));
+  };
+
+  const startEdit = (entry) => {
+    setEditingId(entry.id);
+    setLastResult(null);
+    setSaveError("");
+    setForm({
+      site_name: entry.site_name || (isSiteLocked ? form.site_name : ""),
+      identification_type: entry.identification_type || DEFAULT_IDENTIFICATION_TYPE,
+      mother_name: entry.mother_name || "",
+      mother_uid: entry.mother_uid || "",
+      found_iufd: !!entry.found_iufd,
+      ga_source: entry.found_iufd ? "" : (entry.ga_source || ""),
+      gestation_method: entry.found_iufd ? "" : (entry.gestation_method || ""),
+      gestation_weeks: entry.found_iufd || entry.ga_source !== RELIABLE_SOURCE ? "" : (entry.gestation_weeks ?? ""),
+      gestation_days: entry.found_iufd || entry.ga_source !== RELIABLE_SOURCE ? "" : (entry.gestation_days ?? ""),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="gac-page">
@@ -289,7 +324,10 @@ export default function GACheckLog() {
 
       <form className="gac-card" onSubmit={handleSave}>
         <div className="gac-card-head">
-          <h2>Log a gestation check</h2>
+          <h2>{editingId ? "Edit gestation check" : "Log a gestation check"}</h2>
+          {editingId && (
+            <button type="button" className="gac-link-btn" onClick={resetForm}>Cancel edit</button>
+          )}
         </div>
         <div className="gac-form-grid">
           <label className="gac-field">
@@ -297,7 +335,10 @@ export default function GACheckLog() {
             {isSiteLocked ? (
               <input value={form.site_name} disabled readOnly />
             ) : (
-              <select value={form.site_name} onChange={(e) => setField("site_name", e.target.value)}>
+              <select value={form.site_name} onChange={(e) => {
+                const site = e.target.value;
+                setForm((p) => ({ ...p, site_name: site, mother_uid: sanitizeMaternalUid(site, p.mother_uid) }));
+              }}>
                 <option value="">–– Select ––</option>
                 {SITE_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -315,7 +356,14 @@ export default function GACheckLog() {
           </label>
           <label className="gac-field">
             <span>Mother's UHID / CR Number</span>
-            <input value={form.mother_uid} onChange={(e) => setField("mother_uid", e.target.value)} />
+            <input
+              value={form.mother_uid}
+              placeholder={maternalUidPlaceholder(form.site_name)}
+              onChange={(e) => setField("mother_uid", sanitizeMaternalUid(form.site_name, e.target.value))}
+            />
+            {maternalUidLiveError(form.site_name, form.mother_uid) && (
+              <span className="gac-form-error">{maternalUidLiveError(form.site_name, form.mother_uid)}</span>
+            )}
           </label>
           <label className="gac-field">
             <span>Gestation Source</span>
@@ -355,7 +403,7 @@ export default function GACheckLog() {
         {saveError && <div className="gac-form-error">{saveError}</div>}
         <div className="gac-form-actions">
           <button type="submit" className="gac-btn gac-btn--primary" disabled={saving}>
-            {saving ? "Logging…" : "Log check"}
+            {saving ? "Saving…" : editingId ? "Save changes" : "Log check"}
           </button>
         </div>
       </form>
@@ -422,11 +470,14 @@ export default function GACheckLog() {
                       )}
                     </td>
                     <td>
-                      {isGap && (
-                        <button type="button" className="gac-row-action" onClick={() => continueEntryToFormA(e)}>
-                          Form A <ArrowRight size={12} />
-                        </button>
-                      )}
+                      <div className="gac-row-actions">
+                        <button type="button" className="gac-link-btn" onClick={() => startEdit(e)}>Edit</button>
+                        {isGap && (
+                          <button type="button" className="gac-row-action" onClick={() => continueEntryToFormA(e)}>
+                            Form A <ArrowRight size={12} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

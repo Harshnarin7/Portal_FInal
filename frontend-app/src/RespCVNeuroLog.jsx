@@ -2085,8 +2085,15 @@ export default function RespCVNeuroLog() {
   const setResp   = (k, v) => isFieldEditable && setRespEvents(p => ({ ...p, [k]: v }));
   const setCv = (k, v) => {
     if (!isFieldEditable) return;
-    if (k === "fluid_bolus_given") setBolusAutofilled(false);
-    setCvData(p => ({ ...p, [k]: v }));
+    if (k === "fluid_bolus_given") {
+      bolusAutofilledRef.current = false;
+      setBolusAutofilled(false);
+    }
+    setCvData(p => {
+      const next = { ...p, [k]: v };
+      cvStateRef.current = next;
+      return next;
+    });
   };
   const setNeuro  = (k, v) => isFieldEditable && setNeuroData(p => ({ ...p, [k]: v }));
 

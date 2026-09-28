@@ -4,22 +4,24 @@ export function mmlIsEmptyField(v) {
   return v === null || v === undefined || v === "";
 }
 
-/** Mirror 5.6.A / 5.1.B Y/N onto helper fields; respect nurse explicit No (false). */
+/** Mirror 5.6.A / 5.1.B Y/N onto helper fields.
+ *  DMS may set Yes when the sheet has a value, and may clear only a Yes it
+ *  wrote itself. A Yes or No the nurse chose on the helper form stays. */
 export function mmlSyncTransfusionYnFromMml(current, mmlHas, wasAutofilled) {
   if (current === false) {
-    return { next: current, autofilled: wasAutofilled, changed: false };
+    return { next: current, autofilled: false, changed: false };
   }
   if (mmlHas) {
-    if (current == null || current === true || wasAutofilled) {
+    if (current == null || wasAutofilled) {
       const changed = current !== true;
       return { next: true, autofilled: true, changed };
     }
-    return { next: current, autofilled: wasAutofilled, changed: false };
+    return { next: current, autofilled: false, changed: false };
   }
-  if (current === true) {
+  if (current === true && wasAutofilled) {
     return { next: null, autofilled: false, changed: true };
   }
-  return { next: current, autofilled: wasAutofilled, changed: false };
+  return { next: current, autofilled: false, changed: false };
 }
 
 /**

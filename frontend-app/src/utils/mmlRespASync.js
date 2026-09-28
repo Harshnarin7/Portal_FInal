@@ -232,7 +232,7 @@ function hhmmToMinutes(hhmm) {
 export function buildFio2AucRowsFromRespA(respARows) {
   const spans = [];
   for (const row of respARows || []) {
-    const { from, to } = parseTimeRangeStr(row?.time_range);
+    const { from, to } = parseTimeRangeStr(row?.time_range || row?.time);
     const fromMin = hhmmToMinutes(from);
     const toMin = hhmmToMinutes(to);
     const fio2 = row?.max_fio2;

@@ -284,22 +284,23 @@ function mmlYnLooksMmlSourced(current, mmlYes) {
   return current == null || current === true;
 }
 
-/** Mirror 5.6.A products onto Helper #28–#30; respect nurse explicit No (false). */
+/** Mirror 5.6.A products onto Helper #28–#30.
+ *  DMS may set Yes, and may clear only a Yes it wrote. A nurse Yes or No stays. */
 function mmlSyncTransfusionYnFromMml(current, mmlHas, wasAutofilled) {
   if (current === false) {
-    return { next: current, autofilled: wasAutofilled, changed: false };
+    return { next: current, autofilled: false, changed: false };
   }
   if (mmlHas) {
-    if (mmlYnLooksMmlSourced(current, true) || wasAutofilled) {
+    if (current == null || wasAutofilled) {
       const changed = current !== true;
       return { next: true, autofilled: true, changed };
     }
-    return { next: current, autofilled: wasAutofilled, changed: false };
+    return { next: current, autofilled: false, changed: false };
   }
-  if (current === true) {
+  if (current === true && wasAutofilled) {
     return { next: null, autofilled: false, changed: true };
   }
-  return { next: current, autofilled: wasAutofilled, changed: false };
+  return { next: current, autofilled: false, changed: false };
 }
 
 function feedVolumeLooksMmlSourced(current, entryValues) {

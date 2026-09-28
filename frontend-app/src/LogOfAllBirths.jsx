@@ -9,7 +9,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import api from "./api/axios";
 import { useAuth } from "./context/AuthContext";
+import { isGlobalUser } from "./utils/roles";
+import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
+import { maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
 import {
   ClipboardList, Plus, AlertTriangle, CheckCircle2, HelpCircle, Circle, RefreshCw,
 } from "lucide-react";
@@ -100,6 +103,8 @@ function MatchBadges({ status, screeningId, gaLogMissing }) {
 
 export default function LogOfAllBirths() {
   const { user } = useAuth();
+  const isSiteLocked = !isGlobalUser(user) && !!user?.site;
+  const [logSite, setLogSite] = useState(user?.site || "");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -130,6 +135,10 @@ export default function LogOfAllBirths() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (isSiteLocked && user?.site) setLogSite(user.site);
+  }, [isSiteLocked, user?.site]);
+
   const alertCount = useMemo(
     () => entries.filter((e) => e.match_status === "in_range_no_match" || e.ga_log_missing).length,
     [entries]
@@ -142,10 +151,12 @@ export default function LogOfAllBirths() {
     setEditingId(null);
     setSaveError("");
     setShowReasonSection(false);
+    if (!isSiteLocked) setLogSite("");
   };
 
   const startEdit = (entry) => {
     setEditingId(entry.id);
+    setLogSite(entry.site_name || (isSiteLocked ? user?.site : "") || "");
     const reasonList = entry.reason_not_approached
       ? entry.reason_not_approached.split(",").map((s) => s.trim()).filter(Boolean) : [];
     setForm({
@@ -185,6 +196,15 @@ export default function LogOfAllBirths() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!logSite) {
+      setSaveError("Select a site.");
+      return;
+    }
+    const uidError = maternalUidSaveError(logSite, form.mother_uid);
+    if (uidError) {
+      setSaveError(uidError);
+      return;
+    }
     if (!form.mother_uid && !form.mother_name) {
       setSaveError("Enter at least the Mother's UHID/CR Number or Name.");
       return;
@@ -196,6 +216,7 @@ export default function LogOfAllBirths() {
     setSaving(true);
     setSaveError("");
     const payload = {
+      site_name: logSite,
       mother_uid: form.mother_uid || null,
       mother_name: form.mother_name || null,
       husband_name: form.husband_name || null,
@@ -259,8 +280,33 @@ export default function LogOfAllBirths() {
         </div>
         <div className="lob-form-grid">
           <label className="lob-field">
+            <span>Site</span>
+            {isSiteLocked ? (
+              <input value={logSite} disabled readOnly />
+            ) : (
+              <select
+                value={logSite}
+                onChange={(e) => {
+                  const site = e.target.value;
+                  setLogSite(site);
+                  setField("mother_uid", sanitizeMaternalUid(site, form.mother_uid));
+                }}
+              >
+                <option value="">–– Select ––</option>
+                {SITE_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </label>
+          <label className="lob-field">
             <span>Mother's UHID / CR Number</span>
-            <input value={form.mother_uid} onChange={(e) => setField("mother_uid", e.target.value)} placeholder="e.g. 20260495-4829" />
+            <input
+              value={form.mother_uid}
+              placeholder={maternalUidPlaceholder(logSite)}
+              onChange={(e) => setField("mother_uid", sanitizeMaternalUid(logSite, e.target.value))}
+            />
+            {maternalUidLiveError(logSite, form.mother_uid) && (
+              <div className="lob-field-error">{maternalUidLiveError(logSite, form.mother_uid)}</div>
+            )}
           </label>
           <label className="lob-field">
             <span>Mother's Name</span>

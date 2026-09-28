@@ -238,6 +238,24 @@
 /* Persistent per-row action — unlike the transient just-saved banner,
    this stays clickable for as long as the entry is eligible and
    uncontinued, including after a page reload. */
+.gac-link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--gac-sky);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.gac-link-btn:hover { text-decoration: underline; }
+
+.gac-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .gac-row-action {
   display: inline-flex;
   align-items: center;

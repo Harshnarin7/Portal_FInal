@@ -125,6 +125,13 @@
 .lob-ga-row { display: flex; gap: 8px; }
 .lob-ga-row input { width: 100%; min-width: 0; }
 
+.lob-field-error {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .lob-form-error {
   margin-top: 10px;
   font-size: 12.5px;

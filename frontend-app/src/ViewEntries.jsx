@@ -16,6 +16,7 @@ import "./ViewEntries.css";
 import { formatMotherFirstName, formatParticipantListName } from "./utils/babyName";
 import { resolveConsentSignatureFromRecord } from "./utils/consentSignature";
 import { formatSiteName, formatSiteShort, canonicalSiteKey, isKnownTrialSite } from "./components/dashboard/siteLabels";
+import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateTimeDisplay24 } from "./utils/datetime";
 
 /* ─── Form definitions (from formsConfig.js) ────────────────── */
@@ -167,17 +168,32 @@ function getNextAction(entry, enrollStatus) {
   return { label: "Open Form F", variant: "primary", key: "form_f" };
 }
 
+function entriesBySite(entries) {
+  const bySite = new Map();
+  entries.forEach((entry) => {
+    const site = canonicalSiteKey(entry.site_name);
+    if (!site) return;
+    if (!bySite.has(site)) bySite.set(site, []);
+    bySite.get(site).push(entry);
+  });
+  return [...bySite.entries()].sort((a, b) => {
+    const ia = SITE_ORDER.indexOf(a[0]);
+    const ib = SITE_ORDER.indexOf(b[0]);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+}
+
 function buildKPIs(entries, saeCount = 0, enrollData = {}) {
   return [
     { key: "total",          label: "Total Screened",  value: entries.length,                                                              icon: <Users size={20}/>,        color: "blue"  },
     { key: "eligible",       label: "Eligible",        value: entries.filter(e => e.screening_status === "Eligible").length,               icon: <CheckCircle2 size={20}/>,  color: "green" },
+    { key: "delivered",      label: "Delivered",       value: entries.filter(e => entryIsDelivered(e, enrollData)).length,                 icon: <Baby size={20}/>,          color: "teal"  },
+    { key: "undelivered",    label: "Undelivered",     value: entries.filter(e => !entryIsDelivered(e, enrollData)).length,                icon: <Hourglass size={20}/>,     color: "amber" },
     { key: "screen_failure", label: "Screen Failures", value: entries.filter(e => e.screening_status === "Screen Failure").length,         icon: <XCircle size={20}/>,       color: "red"   },
     { key: "pending",        label: "Pending",         value: entries.filter(e => !e.screening_status || e.screening_status==="Pending").length, icon: <Clock size={20}/>,    color: "amber" },
     { key: "consented",      label: "Consented",       value: entries.filter(e => e.consent_given === "Yes").length,                       icon: <FileText size={20}/>,      color: "teal"  },
-    { key: "delivered",      label: "Delivered",       value: entries.filter(e => entryIsDelivered(e, enrollData)).length,                 icon: <Baby size={20}/>,          color: "teal"  },
-    { key: "undelivered",    label: "Undelivered",     value: entries.filter(e => !entryIsDelivered(e, enrollData)).length,                icon: <Hourglass size={20}/>,     color: "amber" },
     { key: "exclusion",      label: "Exclusion Present", value: entries.filter(entryHasExclusion).length,                                 icon: <Ban size={20}/>,           color: "red"   },
-    { key: "sites",          label: "Sites Active",    value: [...new Set(entries.map(e=>e.site_name).filter(Boolean))].length,            icon: <Activity size={20}/>,      color: "purple"},
+    { key: "sites",          label: "Sites Active",    value: entriesBySite(entries).length,                                              icon: <Activity size={20}/>,      color: "purple"},
     { key: "sae",            label: "SAE / Safety",    value: saeCount,                                                                    icon: <ShieldAlert size={20}/>,   color: "red"   },
   ];
 }
@@ -205,16 +221,9 @@ function recordsForKpi(key, entries, saeItems, enrollData = {}) {
     return { kind: "exclusions", rows: entries.filter(entryHasExclusion) };
   }
   if (key === "sites") {
-    const bySite = new Map();
-    entries.forEach(e => {
-      const site = (e.site_name || "").trim();
-      if (!site) return;
-      if (!bySite.has(site)) bySite.set(site, []);
-      bySite.get(site).push(e);
-    });
     return {
       kind: "sites",
-      rows: [...bySite.entries()].map(([site, list]) => ({
+      rows: entriesBySite(entries).map(([site, list]) => ({
         site,
         count: list.length,
         eligible: list.filter(e => e.screening_status === "Eligible").length,
