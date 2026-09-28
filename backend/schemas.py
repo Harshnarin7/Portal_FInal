@@ -2967,11 +2967,16 @@ class BirthLogEntryCreate(BaseModel):
     reason_not_approached: Optional[str] = None
     reason_not_approached_other: Optional[str] = None
 
+    # Request-only (not a column): the user confirmed this is a separate birth
+    # with the same CR number and date (twin / multiple birth).
+    allow_duplicate_cr: Optional[bool] = None
+
     model_config = {"extra": "ignore"}
 
 
 class BirthLogEntryOut(BirthLogEntryCreate):
     id: int
+    cr_pending: Optional[bool] = None  # no CR number yet (computed, not a column)
     entered_by: Optional[str] = None
     matched_screening_id: Optional[str] = None
     matched_enrollment_id: Optional[str] = None
@@ -2999,11 +3004,16 @@ class GACheckEntryCreate(BaseModel):
     gestation_weeks: Optional[int] = None
     gestation_days: Optional[int] = None
 
+    # Request-only (not a column): the user confirmed this is a new contact
+    # of a woman whose CR number is already logged.
+    allow_duplicate_cr: Optional[bool] = None
+
     model_config = {"extra": "ignore"}
 
 
 class GACheckEntryOut(GACheckEntryCreate):
     id: int
+    cr_pending: Optional[bool] = None  # no CR number yet (computed, not a column)
     entered_by: Optional[str] = None
     eligible: Optional[bool] = None
     continued_to_screening: bool = False

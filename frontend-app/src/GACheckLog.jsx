@@ -24,7 +24,7 @@ import { useAuth } from "./context/AuthContext";
 import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
-import { maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
+import { findDuplicateCr, maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
 import {
   Search, AlertTriangle, CheckCircle2, ArrowRight, RefreshCw, X,
 } from "lucide-react";
@@ -78,6 +78,9 @@ export default function GACheckLog() {
 
   const [form, setForm] = useState(BLANK_FORM);
   const [editingId, setEditingId] = useState(null);
+  // PI 2026-09-28: a CR number already logged at this site is flagged on
+  // the form; saving it again needs this explicit confirmation.
+  const [allowDuplicateCr, setAllowDuplicateCr] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [lastResult, setLastResult] = useState(null); // the just-saved entry
@@ -120,8 +123,14 @@ export default function GACheckLog() {
     const total = entries.length;
     const eligible = entries.filter((e) => e.eligible === true).length;
     const continued = entries.filter((e) => e.continued_to_screening).length;
-    return { total, eligible, continued, gap: gapEntries.length };
+    const crPending = entries.filter((e) => e.cr_pending).length;
+    return { total, eligible, continued, gap: gapEntries.length, crPending };
   }, [entries, gapEntries]);
+
+  const duplicateCr = useMemo(
+    () => findDuplicateCr(entries, { site: form.site_name, uid: form.mother_uid, excludeId: editingId }),
+    [entries, form.site_name, form.mother_uid, editingId]
+  );
 
   const setField = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
@@ -167,12 +176,17 @@ export default function GACheckLog() {
       setSaveError("Select a gestation source.");
       return;
     }
+    if (duplicateCr && !allowDuplicateCr) {
+      setSaveError("This CR number is already logged — edit that entry, or tick 'New contact of the same woman'.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     const blankSite = isSiteLocked ? form.site_name : "";
     const payload = {
       site_name: form.site_name || null,
       identification_type: form.identification_type || DEFAULT_IDENTIFICATION_TYPE,
+      allow_duplicate_cr: !!(duplicateCr && allowDuplicateCr),
       mother_name: form.mother_name || null,
       mother_uid: form.mother_uid || null,
       found_iufd: !!form.found_iufd,
@@ -191,6 +205,7 @@ export default function GACheckLog() {
         : await api.post("/ga-check/", payload);
       setLastResult(editingId ? null : res.data);
       setEditingId(null);
+      setAllowDuplicateCr(false);
       setForm({ ...BLANK_FORM, site_name: blankSite });
       load();
     } catch (err) {
@@ -222,12 +237,14 @@ export default function GACheckLog() {
 
   const resetForm = () => {
     setEditingId(null);
+    setAllowDuplicateCr(false);
     setSaveError("");
     setForm((p) => ({ ...BLANK_FORM, site_name: isSiteLocked ? p.site_name : "" }));
   };
 
   const startEdit = (entry) => {
     setEditingId(entry.id);
+    setAllowDuplicateCr(false);
     setLastResult(null);
     setSaveError("");
     setForm({
@@ -258,6 +275,16 @@ export default function GACheckLog() {
           straight into Form A.
         </p>
       </div>
+
+      {stats.crPending > 0 && (
+        <div className="gac-alert-banner">
+          <AlertTriangle size={16} />
+          <span>
+            <strong>{stats.crPending}</strong> entr{stats.crPending === 1 ? "y is" : "ies are"} pending a CR number —
+            use Edit to add it.
+          </span>
+        </div>
+      )}
 
       {stats.gap > 0 && (
         <div className="gac-alert-banner">
@@ -359,10 +386,24 @@ export default function GACheckLog() {
             <input
               value={form.mother_uid}
               placeholder={maternalUidPlaceholder(form.site_name)}
-              onChange={(e) => setField("mother_uid", sanitizeMaternalUid(form.site_name, e.target.value))}
+              onChange={(e) => { setAllowDuplicateCr(false); setField("mother_uid", sanitizeMaternalUid(form.site_name, e.target.value)); }}
             />
             {maternalUidLiveError(form.site_name, form.mother_uid) && (
               <span className="gac-form-error">{maternalUidLiveError(form.site_name, form.mother_uid)}</span>
+            )}
+            {!form.mother_uid && (
+              <span className="gac-field-hint">Optional — can be added later (entry shows as "CR pending").</span>
+            )}
+            {duplicateCr && (
+              <span className="gac-form-error gac-dup">
+                Already logged{duplicateCr.check_date ? ` on ${formatDateToDDMMYYYY(duplicateCr.check_date)}` : ""}
+                {duplicateCr.mother_name ? ` (${duplicateCr.mother_name})` : ""}.{" "}
+                <button type="button" className="gac-link-btn" onClick={() => startEdit(duplicateCr)}>Edit that entry</button>
+                <span className="gac-dup-allow">
+                  <input type="checkbox" checked={allowDuplicateCr} onChange={(ev) => setAllowDuplicateCr(ev.target.checked)} />
+                  {" "}New contact of the same woman — log again
+                </span>
+              </span>
             )}
           </label>
           <label className="gac-field">
@@ -441,7 +482,9 @@ export default function GACheckLog() {
                     <td>{e.check_date ? formatDateToDDMMYYYY(e.check_date) : "—"}</td>
                     <td>{e.site_name || "—"}</td>
                     <td>{e.mother_name || "—"}</td>
-                    <td>{e.mother_uid || "—"}</td>
+                    <td>
+                      {e.cr_pending ? <span className="gac-badge gac-badge--gap">CR pending</span> : (e.mother_uid || "—")}
+                    </td>
                     <td>
                       {e.identification_type === MISSED_IDENTIFICATION_TYPE ? (
                         <span className="gac-badge gac-badge--gap">Missed — retrospective</span>
