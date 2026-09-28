@@ -100,3 +100,12 @@ def test_died_before():
 def test_severe_first_seen_after_checkpoint_note():
     r = run("cpvl", records=[record(day(28), 0, "Form F scan 3"), record(T40, 2, "Form J 40-week visit")])
     assert r["answer"] is None and "after 36 weeks PMA" in r["note"] and "please decide" in r["note"]
+
+
+def test_form_h_worst_across_sides_agrees_with_scan():
+    # Test One live case: Form H right II + left III vs Form F scan left III
+    recs = [record(day(1), 3, "Form F scan 1", side="left"),
+            record(day(1), 2, "Form H", side="right", summary=True, can_clear=False),
+            record(day(1), 3, "Form H", side="left", summary=True, can_clear=False)]
+    r = run("ivh", records=recs)
+    assert r["answer"] == "Yes" and not r["sources_disagree"] and r["status"] == "suggested"

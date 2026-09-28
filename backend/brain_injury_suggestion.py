@@ -156,16 +156,26 @@ def suggest_brain_injury(
                 left = f"{outcome} on {_fmt(discharge_date)}; "
             notes.append(f"{left}{seen}: needs {rule}" + (f" or the Form J {checkpoint}-week visit" if kind == "cpvl" else ""))
 
-    # Disagreement: a summary source below the threshold for a period in which
-    # another source records a severe grade.
+    # Disagreement: a summary source (Form H: worst grade over the stay, both
+    # sides) below the threshold for a period in which another source records
+    # a severe grade. Judged on the source's worst grade across sides, not
+    # per side (Form H right II + left III agrees with a grade III scan).
+    summaries = {}
+    for s_ in recs:
+        if s_["summary"]:
+            cur = summaries.get(s_["source"])
+            until = s_["date"] or s_["known_by"]
+            if cur is None or s_["rank"] > cur["rank"]:
+                summaries[s_["source"]] = {"rank": s_["rank"], "until": until if cur is None else max(filter(None, [cur["until"], until]), default=None)}
+            elif until and (cur["until"] is None or until > cur["until"]):
+                cur["until"] = until
     for r in severe_by_t:
-        for s in recs:
-            if s["summary"] and s["rank"] < severe and s["source"] != r["source"]:
-                until = s["date"] or s["known_by"]
-                if until is None or _when(r) <= until:
-                    out["sources_disagree"] = True
-                    notes.append(f"sources disagree: {s['source']} worst grade {ROMAN.get(s['rank'], 'none') if s['rank'] else 'none'}, {r['source']} records grade {ROMAN[r['rank']]}")
-                    break
+        for src, sm in summaries.items():
+            if src != r["source"] and sm["rank"] < severe and (sm["until"] is None or _when(r) <= sm["until"]):
+                out["sources_disagree"] = True
+                worst = ROMAN.get(sm["rank"]) if sm["rank"] else "none"
+                notes.append(f"sources disagree: {src} worst grade {worst}, {r['source']} records grade {ROMAN[r['rank']]}")
+                break
         if out["sources_disagree"]:
             break
 
