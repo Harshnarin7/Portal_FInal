@@ -1290,6 +1290,21 @@ export default function FormI() {
     );
   };
 
+  // Brain injury note (PI design 2026-09-28): source of the IVH >= III /
+  // cPVL >= II answers, mild grades (not counted), or the scan still needed.
+  const renderBrainNote = (checkpoint) => {
+    const d = pmaPrefill[checkpoint];
+    if (!d || !d.brain_note) return null;
+    return (
+      <div
+        className={`field-hint ${d.brain_sources_disagree ? "field-hint-warning" : "field-hint-auto"}`}
+        style={{ margin: "0 0 10px" }}
+      >
+        {d.brain_sources_disagree ? "⚠ " : ""}Brain injury — {d.brain_note}.
+      </div>
+    );
+  };
+
   const forceRefillAllPmaCheckpoints = async () => {
     if (
       !window.confirm(
@@ -1836,6 +1851,7 @@ export default function FormI() {
             </div>
           )}
           {renderNecNote(36)}
+          {renderBrainNote(36)}
           {renderRopNote(36)}
           <div className="crf-encounter-row">
             <Mini label="22. Method of Encounter">
@@ -1949,6 +1965,7 @@ export default function FormI() {
             </div>
           )}
           {renderNecNote(40)}
+          {renderBrainNote(40)}
           {renderRopNote(40)}
           <div className="crf-encounter-row">
             <Mini label="42. Method of Encounter">
@@ -2047,6 +2064,7 @@ export default function FormI() {
             </div>
           )}
           {renderNecNote(44)}
+          {renderBrainNote(44)}
           {renderRopNote(44)}
           <div className="crf-encounter-row">
             <Mini label="59. Method of Encounter">

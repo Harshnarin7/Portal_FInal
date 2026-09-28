@@ -49,6 +49,7 @@ from mml_helper5_autofill import (
 from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
+from brain_injury_suggestion import suggest_brain_injury, grade_rank as bi_grade_rank, record as bi_record
 from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
     assert_fresh_write,
@@ -4503,6 +4504,69 @@ def _nec_findings(db, enrollment_id, day_to_date, form_h, inf_logs, pma_week_dat
     return findings, negatives, dd or last_log
 
 
+def _brain_injury_records(db, enrollment_id, form_h, pma_week_date):
+    """Graded IVH / cPVL looks from Form F scans, Form H and Form J, for
+    brain_injury_suggestion. Returns {"ivh": [...], "cpvl": [...]}."""
+    out = {"ivh": [], "cpvl": []}
+
+    def as_date(v):
+        if not v:
+            return None
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            return None
+
+    def add(kind, d, right, left, source, **kw):
+        rr, rl = bi_grade_rank(right), bi_grade_rank(left)
+        ranks = [r for r in (rr, rl) if r is not None]
+        if not ranks:
+            return
+        top = max(ranks)
+        side = "" if top == 0 else ("both" if rr == rl else ("right" if rr == top else "left"))
+        out[kind].append(bi_record(d, top, source, side=side, **kw))
+
+    usg = db.query(CranialUSGRecord).filter(CranialUSGRecord.enrollment_id == enrollment_id).first()
+    for i, e in enumerate((usg.scan_entries if usg else None) or []):
+        e = e or {}
+        d = as_date(e.get("scanDate"))
+        if not d:
+            continue
+        add("ivh", d, e.get("ivhGradeRight"), e.get("ivhGradeLeft"), f"Form F scan {i + 1}")
+        add("cpvl", d, e.get("cpvlGradeRight"), e.get("cpvlGradeLeft"), f"Form F scan {i + 1}")
+
+    if form_h:
+        dd = form_h.discharge_date
+        for kind, present, gr, gl, dr, dl in (
+            ("ivh", form_h.ivh_present, form_h.ivh_grade_right, form_h.ivh_grade_left, form_h.ivh_date_right, form_h.ivh_date_left),
+            ("cpvl", form_h.pvl_present, form_h.pvl_grade_right, form_h.pvl_grade_left, form_h.pvl_date_right, form_h.pvl_date_left),
+        ):
+            if present == "No":
+                out[kind].append(bi_record(None, 0, "Form H", summary=True, known_by=dd, can_clear=False))
+                continue
+            for side, g, d in (("right", gr, dr), ("left", gl, dl)):
+                r = bi_grade_rank(g)
+                if r:
+                    out[kind].append(bi_record(d, r, "Form H", side=side, summary=True,
+                                               known_by=None if d else dd, can_clear=False))
+
+    for j in (
+        db.query(ExternalHospitalAssessment)
+        .filter(ExternalHospitalAssessment.enrollment_id == enrollment_id)
+        .all()
+    ):
+        vd = pma_week_date(j.assessment_weeks) if j.assessment_weeks else None
+        src = f"Form J {j.assessment_weeks}-week visit"
+        for kind, right, left, dr, dl in (
+            ("ivh", j.ivh_right, j.ivh_left, j.ivh_right_date, j.ivh_left_date),
+            ("cpvl", j.cpvl_right, j.cpvl_left, j.cpvl_right_date, j.cpvl_left_date),
+        ):
+            add(kind, dr or dl or vd, right, left, src)
+    return out
+
+
 @app.get("/neonatal-morbidities/nec-stage-suggestion/{enrollment_id}")
 def get_nec_stage_suggestion(
     enrollment_id: str,
@@ -4712,71 +4776,35 @@ def get_pma_assessment_prefill(
     result["nec_status"] = nec["status"]
     result["nec_sources_disagree"] = nec["sources_disagree"]
 
-    # ---- Brain injury: IVH grade III/IV, cPVL grade 3/4 (cumulative-to-date) ----
-    usg_record = None
-
-    def brain_injury_status(form_h_grade_r, form_h_grade_l, form_h_date_r, form_h_date_l,
-                             form_h_valid_grades, scan_grade_key_r, scan_grade_key_l,
-                             scan_valid_grades):
-        nonlocal usg_record
-        if form_h_grade_r in form_h_valid_grades or form_h_grade_l in form_h_valid_grades:
-            hit_dates = []
-            undated_severe = False
-            if form_h_grade_r in form_h_valid_grades:
-                if form_h_date_r and form_h_date_r <= target_date:
-                    hit_dates.append(form_h_date_r)
-                elif not form_h_date_r:
-                    undated_severe = True
-            if form_h_grade_l in form_h_valid_grades:
-                if form_h_date_l and form_h_date_l <= target_date:
-                    hit_dates.append(form_h_date_l)
-                elif not form_h_date_l:
-                    undated_severe = True
-            if hit_dates:
-                return "Yes", min(hit_dates).isoformat()
-            if undated_severe:
-                # Severe grade recorded on Form H but no date to confirm it
-                # happened by this checkpoint — left blank rather than
-                # guessed "No", matching this function's own docstring.
-                return None, None
-            return "No", None
-        if usg_record is None:
-            usg_record = db.query(CranialUSGRecord).filter(CranialUSGRecord.enrollment_id == enrollment_id).first() or False
-        if usg_record and usg_record.scan_entries:
-            hit_dates = []
-            any_scan_by_target = False
-            for e in usg_record.scan_entries:
-                d = (e or {}).get("scanDate")
-                if not d or d > target_iso:
-                    continue
-                any_scan_by_target = True
-                if (e or {}).get(scan_grade_key_r) in scan_valid_grades or (e or {}).get(scan_grade_key_l) in scan_valid_grades:
-                    hit_dates.append(d)
-            if hit_dates:
-                return "Yes", min(hit_dates)
-            if any_scan_by_target:
-                return "No", None
-        return None, None
-
-    ivh_status, ivh_date = brain_injury_status(
-        form_h.ivh_grade_right if form_h else None, form_h.ivh_grade_left if form_h else None,
-        form_h.ivh_date_right if form_h else None, form_h.ivh_date_left if form_h else None,
-        ("III", "IV"), "ivhGradeRight", "ivhGradeLeft", ("III", "IV"),
+    # ---- Brain injury: IVH >= III / cPVL >= II (PI design 2026-09-28, rules in brain_injury_suggestion.py) ----
+    bi_records = _brain_injury_records(
+        db, enrollment_id, form_h,
+        lambda w: _pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, w),
     )
-    if ivh_status:
-        result["ivh_grade3"] = ivh_status
-        if ivh_date:
-            result["ivh_date"] = ivh_date
-
-    cpvl_status, cpvl_date = brain_injury_status(
-        form_h.pvl_grade_right if form_h else None, form_h.pvl_grade_left if form_h else None,
-        form_h.pvl_date_right if form_h else None, form_h.pvl_date_left if form_h else None,
-        ("2", "3", "4"), "cpvlGradeRight", "cpvlGradeLeft", ("II", "III", "IV"),
-    )
-    if cpvl_status:
-        result["cpvl_grade2"] = cpvl_status
-        if cpvl_date:
-            result["cpvl_date"] = cpvl_date
+    bi_notes, bi_disagree = [], False
+    for kind, key, date_key, flag_attr in (("ivh", "ivh_grade3", "ivh_date", "ivh"),
+                                            ("cpvl", "cpvl_grade2", "cpvl_date", "cpvl_confirmed")):
+        bi = suggest_brain_injury(
+            kind=kind, checkpoint=checkpoint, target_date=target_date, dob=nicu.day1_date,
+            records=bi_records[kind],
+            flags=[day_to_date(l.nicu_day) for l in resp_logs if getattr(l, flag_attr, None) is True],
+            term_date=_pma_target_date(nicu.day1_date, gestation_weeks, gestation_days, 40),
+            outcome=form_h.outcome if form_h else None,
+            discharge_date=form_h.discharge_date if form_h else None,
+            death_date=nec_death, today=clinical_today(),
+        )
+        if bi["answer"] is not None:
+            result[key] = bi["answer"]
+            if bi["date"]:
+                result[date_key] = bi["date"]
+        bi_disagree = bi_disagree or bi["sources_disagree"]
+        if bi["status"] == "not_applicable":
+            bi_notes = [bi["note"][0].upper() + bi["note"][1:]]
+            break
+        if bi["note"]:
+            bi_notes.append(("IVH ≥ III: " if kind == "ivh" else "cPVL ≥ II: ") + bi["note"])
+    result["brain_note"] = "; ".join(bi_notes)
+    result["brain_sources_disagree"] = bi_disagree
 
     # ---- ROP (cumulative-to-date; PI design 2026-09-27, rules in rop_suggestion.py) ----
     rop = _rop_checkpoint_suggestion(
