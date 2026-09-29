@@ -6357,10 +6357,11 @@ def _compute_completion_pct(record) -> int:
         "surfactant", "caffeine", "extub_attempted", "pulm_hemorrhage",
         "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",
     ]
-    resp_total = 23 + (1 if dual else 0)
+    # 2.1 Weight retired 2026-09-29 (PI): recorded in the DMS (5.7.A) now,
+    # not counted here - must match RespCVNeuroLog.jsx's respTotal.
+    resp_total = 22 + (1 if dual else 0)
     resp_done = min(resp_total, (
-        (1 if answered(getattr(record, "weight_kg", None)) else 0)                        # 2.1
-        + (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
+        (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
         + (1 if answered(getattr(record, "endotracheal_intubation", None)) else 0)        # 2
         + (1 if (resp_no or modes) else 0)                                                 # 3
         + (1 if (resp_no or map_cpap_mode == "NA" or value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4
