@@ -215,7 +215,8 @@ def fio2_auc_complete(fio2_logs, helper2_supp_o2: dict, last_day: Optional[int])
     for d in range(1, last_day + 1):
         h1, h2 = fio2_day_hours(fio2_logs, d)
         has_fio2 = (h1 + h2) > 0
-        if d not in helper2_supp_o2 and not has_fio2:
+        # Supplemental O2 unanswered (or no Helper 2 log) = unknown, not room air.
+        if helper2_supp_o2.get(d) not in (True, False) and not has_fio2:
             return False
         if helper2_supp_o2.get(d) is True or has_fio2:
             if h1 < 11.99 or h2 < 11.99:

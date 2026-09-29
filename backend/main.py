@@ -6234,7 +6234,7 @@ def _downstream_completion(db, enrollment_id, birth, nicu):
                     cal = calendar_date_for_nicu_day_from_birth(dob, d)
                     if cal:
                         _overlay_resp_cv_from_mml(db, enrollment_id, r, cal)
-                supp_o2[d] = r.supp_o2 is True
+                supp_o2[d] = r.supp_o2  # True / False / None (unanswered)
         fio2 = one(FiO2AUC, FiO2AUC.created_at.desc())
         out["fio2_auc_complete"] = fc.fio2_auc_complete(fio2.fio2_logs if fio2 else [], supp_o2, fio2_last)
     return out

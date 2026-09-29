@@ -166,7 +166,7 @@ export function fio2WindowHours(rows) {
  *  Supplemental O2 = Yes (or that already have FiO2 values) need both 12 h
  *  windows filled with real FiO2 values; room-air days are not required. A
  *  day with no Helper 2 log and no FiO2 data is unknown, so not complete.
- *  `suppO2ByDay` = { [day]: true|false } for every day Helper 2 has logged;
+ *  `suppO2ByDay` = { [day]: true|false|null } per Helper 2 day (null = unanswered);
  *  `hoursByDay` = { [day]: [w1Hours, w2Hours] }. Same as backend
  *  form_completion.fio2_auc_complete. */
 export function isFio2AucComplete(suppO2ByDay, hoursByDay, lastDay) {
@@ -174,8 +174,9 @@ export function isFio2AucComplete(suppO2ByDay, hoursByDay, lastDay) {
   for (let d = 1; d <= lastDay; d += 1) {
     const [h1, h2] = hoursByDay?.[d] || [0, 0];
     const hasFio2 = h1 + h2 > 0;
-    const logged = Object.prototype.hasOwnProperty.call(suppO2ByDay || {}, d);
-    if (!logged && !hasFio2) return false;
+    // Supplemental O2 unanswered (or no Helper 2 log) = unknown, not room air.
+    const known = suppO2ByDay?.[d] === true || suppO2ByDay?.[d] === false;
+    if (!known && !hasFio2) return false;
     if ((suppO2ByDay?.[d] === true || hasFio2) && (h1 < 11.99 || h2 < 11.99)) return false;
   }
   return true;

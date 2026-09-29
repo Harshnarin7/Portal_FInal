@@ -316,7 +316,7 @@ export default function Fio2AUCForm() {
 
       setHelper2SuppO2(Object.fromEntries((sumRes?.data || [])
         .filter(s => Number.isFinite(Number(s.nicu_day)))
-        .map(s => [Number(s.nicu_day), isTruthy(s.supp_o2)])));
+        .map(s => [Number(s.nicu_day), s.supp_o2 == null || s.supp_o2 === "" ? null : isTruthy(s.supp_o2)])));
 
       // FiO₂ AUC days = Helper Form 1 Supplemental O₂ = Yes (not Surfactant)
       const oxygenDays = (sumRes?.data || [])

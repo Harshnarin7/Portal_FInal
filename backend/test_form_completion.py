@@ -82,3 +82,7 @@ def test_fio2_auc_rule():
     assert fc.fio2_auc_complete([], {1: False, 2: False}, 2)         # room air throughout
     assert not fc.fio2_auc_complete([], {1: False}, 2)               # day 2 not logged anywhere
     assert not fc.fio2_auc_complete(full, {1: True, 2: True}, 2)     # O2 day 2 missing
+
+
+def test_fio2_unanswered_supp_o2_is_unknown():
+    assert not fc.fio2_auc_complete([], {1: None}, 1)
