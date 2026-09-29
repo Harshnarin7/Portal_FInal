@@ -12,7 +12,7 @@ import { useAuth } from "./context/AuthContext";
 import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
-import { maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
+import { findDuplicateCr, maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
 import {
   ClipboardList, Plus, AlertTriangle, CheckCircle2, HelpCircle, Circle, RefreshCw,
 } from "lucide-react";
@@ -143,12 +143,26 @@ export default function LogOfAllBirths() {
     () => entries.filter((e) => e.match_status === "in_range_no_match" || e.ga_log_missing).length,
     [entries]
   );
+  const crPendingCount = useMemo(() => entries.filter((e) => e.cr_pending).length, [entries]);
+
+  // PI 2026-09-28: the same CR number + same date of birth already logged at
+  // this site is flagged on the form; saving it needs explicit confirmation
+  // (twin / multiple birth).
+  const [allowDuplicateCr, setAllowDuplicateCr] = useState(false);
+  const duplicateCr = useMemo(
+    () => findDuplicateCr(entries, {
+      site: logSite, uid: form.mother_uid, excludeId: editingId,
+      dateOfBirth: form.date_of_birth, matchDob: true,
+    }),
+    [entries, logSite, form.mother_uid, form.date_of_birth, editingId]
+  );
 
   const setField = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
   const resetForm = () => {
     setForm(BLANK_ENTRY);
     setEditingId(null);
+    setAllowDuplicateCr(false);
     setSaveError("");
     setShowReasonSection(false);
     if (!isSiteLocked) setLogSite("");
@@ -156,6 +170,7 @@ export default function LogOfAllBirths() {
 
   const startEdit = (entry) => {
     setEditingId(entry.id);
+    setAllowDuplicateCr(false);
     setLogSite(entry.site_name || (isSiteLocked ? user?.site : "") || "");
     const reasonList = entry.reason_not_approached
       ? entry.reason_not_approached.split(",").map((s) => s.trim()).filter(Boolean) : [];
@@ -213,11 +228,16 @@ export default function LogOfAllBirths() {
       setSaveError("Date of birth is required.");
       return;
     }
+    if (duplicateCr && !allowDuplicateCr) {
+      setSaveError("This CR number is already logged for this date of birth — edit that entry, or tick 'Twin / multiple birth'.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     const payload = {
       site_name: logSite,
       mother_uid: form.mother_uid || null,
+      allow_duplicate_cr: !!(duplicateCr && allowDuplicateCr),
       mother_name: form.mother_name || null,
       husband_name: form.husband_name || null,
       date_of_birth: form.date_of_birth,
@@ -261,6 +281,16 @@ export default function LogOfAllBirths() {
         </p>
       </div>
 
+      {crPendingCount > 0 && (
+        <div className="lob-alert-banner">
+          <AlertTriangle size={16} />
+          <span>
+            <strong>{crPendingCount}</strong> entr{crPendingCount === 1 ? "y is" : "ies are"} pending a CR number —
+            use Edit to add it.
+          </span>
+        </div>
+      )}
+
       {alertCount > 0 && (
         <div className="lob-alert-banner">
           <AlertTriangle size={16} />
@@ -302,10 +332,24 @@ export default function LogOfAllBirths() {
             <input
               value={form.mother_uid}
               placeholder={maternalUidPlaceholder(logSite)}
-              onChange={(e) => setField("mother_uid", sanitizeMaternalUid(logSite, e.target.value))}
+              onChange={(e) => { setAllowDuplicateCr(false); setField("mother_uid", sanitizeMaternalUid(logSite, e.target.value)); }}
             />
             {maternalUidLiveError(logSite, form.mother_uid) && (
               <div className="lob-field-error">{maternalUidLiveError(logSite, form.mother_uid)}</div>
+            )}
+            {!form.mother_uid && (
+              <div className="lob-field-hint">Optional — can be added later (entry shows as "CR pending").</div>
+            )}
+            {duplicateCr && (
+              <div className="lob-field-error lob-dup">
+                Already logged for this date of birth
+                {duplicateCr.mother_name ? ` (${duplicateCr.mother_name})` : ""}.{" "}
+                <button type="button" className="lob-link-btn" onClick={() => startEdit(duplicateCr)}>Edit that entry</button>
+                <span className="lob-dup-allow">
+                  <input type="checkbox" checked={allowDuplicateCr} onChange={(ev) => setAllowDuplicateCr(ev.target.checked)} />
+                  {" "}Twin / multiple birth — log as a separate baby
+                </span>
+              </div>
             )}
           </label>
           <label className="lob-field">
@@ -432,7 +476,9 @@ export default function LogOfAllBirths() {
                 return (
                   <tr key={e.id} className={isAlert ? "lob-row--alert" : ""}>
                     <td>{e.date_of_birth ? formatDateToDDMMYYYY(e.date_of_birth) : "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
-                    <td>{e.mother_uid || "—"}</td>
+                    <td>
+                      {e.cr_pending ? <span className="lob-badge lob-badge--alert">CR pending</span> : (e.mother_uid || "—")}
+                    </td>
                     <td>{e.mother_name || "—"}</td>
                     <td>{e.gestation_weeks != null ? `${e.gestation_weeks}w ${e.gestation_days ?? 0}d` : "—"}</td>
                     <td>{e.mode_of_delivery || "—"}</td>

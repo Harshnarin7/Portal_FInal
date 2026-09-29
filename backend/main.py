@@ -49,6 +49,7 @@ from mml_helper5_autofill import (
 from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
+from cr_duplicates import normalize_cr, find_duplicate
 from brain_injury_suggestion import suggest_brain_injury, grade_rank as bi_grade_rank, record as bi_record
 from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
@@ -8358,7 +8359,32 @@ def submit_form_l(
 # ============================================================================
 from birth_log_matching import match_birth_log_entry
 
-BIRTH_LOG_WRITE_FIELDS = set(BirthLogEntryCreate.model_fields.keys()) - {"site_name"}
+BIRTH_LOG_WRITE_FIELDS = set(BirthLogEntryCreate.model_fields.keys()) - {"site_name", "allow_duplicate_cr"}
+
+
+def _refuse_duplicate_cr(db, model, site_name, mother_uid, *, exclude_id=None,
+                         date_of_birth=None, match_dob=False, allow=False, override_hint=""):
+    """CR number is optional, but one already logged at this site is refused
+    with a 409 unless the user confirmed a separate record (PI 2026-09-28).
+    mother_uid is encrypted, so the site's rows are compared in Python."""
+    if allow or not normalize_cr(mother_uid) or not site_name:
+        return
+    rows = db.query(model).filter(model.site_name == site_name).all()
+    dup = find_duplicate(rows, mother_uid, exclude_id=exclude_id,
+                         date_of_birth=date_of_birth, match_dob=match_dob)
+    if dup:
+        when = getattr(dup, "check_date", None) or getattr(dup, "date_of_birth", None)
+        when_txt = f" on {when.strftime('%d-%m-%Y')}" if when else ""
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicate: CR number {mother_uid} is already logged at {site_name}{when_txt} "
+                   f"(entry #{dup.id}). Edit that entry instead{override_hint}.",
+        )
+
+
+def _mark_cr_pending(record):
+    record.cr_pending = not normalize_cr(record.mother_uid)
+    return record
 
 
 @app.post("/birth-log/", response_model=BirthLogEntryOut)
@@ -8374,6 +8400,10 @@ def create_birth_log_entry(
         raise HTTPException(status_code=422, detail="site_name is required")
 
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    _refuse_duplicate_cr(db, BirthLogEntry, site_name, payload.get("mother_uid"),
+                         date_of_birth=payload.get("date_of_birth"), match_dob=True,
+                         allow=bool(data.allow_duplicate_cr),
+                         override_hint=", or tick 'Twin / multiple birth' if it is a separate baby")
     record = BirthLogEntry(**payload, site_name=site_name, entered_by=current_user.username)
 
     match = match_birth_log_entry(
@@ -8405,6 +8435,10 @@ def update_birth_log_entry(
         raise HTTPException(status_code=403, detail="Not authorized for this site")
 
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    _refuse_duplicate_cr(db, BirthLogEntry, record.site_name, payload.get("mother_uid"),
+                         exclude_id=record.id, date_of_birth=payload.get("date_of_birth"), match_dob=True,
+                         allow=bool(data.allow_duplicate_cr),
+                         override_hint=", or tick 'Twin / multiple birth' if it is a separate baby")
     for key, value in payload.items():
         setattr(record, key, value)
 
@@ -8437,6 +8471,7 @@ def list_birth_log_entries(
 
     out = []
     for r in records:
+        _mark_cr_pending(r)
         if not can_view_pii_for_site(current_user, r.site_name):
             r.mother_uid = None
             r.mother_name = None
@@ -8490,7 +8525,7 @@ def get_birth_log_alerts(
 # ============================================================================
 from ga_check import classify_eligibility
 
-GA_CHECK_WRITE_FIELDS = set(GACheckEntryCreate.model_fields.keys()) - {"site_name"}
+GA_CHECK_WRITE_FIELDS = set(GACheckEntryCreate.model_fields.keys()) - {"site_name", "allow_duplicate_cr"}
 
 
 def _normalize_ga_check_payload(payload: dict) -> dict:
@@ -8524,6 +8559,9 @@ def create_ga_check_entry(
     payload = _normalize_ga_check_payload(
         {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS}
     )
+    _refuse_duplicate_cr(db, GACheckEntry, site_name, payload.get("mother_uid"),
+                         allow=bool(data.allow_duplicate_cr),
+                         override_hint=", or tick 'New contact of the same woman' to log it again")
     record = GACheckEntry(
         **payload,
         site_name=site_name,
@@ -8561,6 +8599,9 @@ def update_ga_check_entry(
     payload = _normalize_ga_check_payload(
         {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS and k != "check_date"}
     )
+    _refuse_duplicate_cr(db, GACheckEntry, site_name, payload.get("mother_uid"), exclude_id=record.id,
+                         allow=bool(data.allow_duplicate_cr),
+                         override_hint=", or tick 'New contact of the same woman' to keep both")
     for key, value in payload.items():
         setattr(record, key, value)
     record.site_name = site_name
@@ -8587,6 +8628,7 @@ def list_ga_check_entries(
 
     out = []
     for r in records:
+        _mark_cr_pending(r)
         if not can_view_pii_for_site(current_user, r.site_name):
             r.mother_uid = None
             r.mother_name = None

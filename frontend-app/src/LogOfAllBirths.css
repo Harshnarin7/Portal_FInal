@@ -219,3 +219,9 @@
   .lob-page { padding: 8px 12px 56px; }
   .lob-form-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* CR number: optional hint + duplicate warning (PI 2026-09-28). */
+.lob-field-hint { margin-top: 6px; font-size: 12px; color: #64748b; }
+.lob-dup { display: block; }
+.lob-dup-allow { display: flex; align-items: center; gap: 4px; margin-top: 6px; color: #334155; font-weight: 600; }
+.lob-dup-allow input { width: auto; margin: 0; }
