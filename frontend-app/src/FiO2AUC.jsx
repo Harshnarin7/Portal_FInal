@@ -10,7 +10,7 @@ import { normalizeHelperDob } from "./hooks/useHelperDobSyncDay1";
 import { parseRespAEntries, buildFio2AucRowsFromRespA } from "./utils/mmlRespASync";
 import { printPatientPdf } from "./utils/printPatientPdf";
 import { useNicuWorkingDay } from "./hooks/useNicuWorkingDay";
-import { helperLastRequiredDay, isHelperLogComplete } from "./utils/formCompletion";
+import { fio2WindowHours, helperLastRequiredDay, isFio2AucComplete } from "./utils/formCompletion";
 import "./styles/global.css";
 import "./styles/FormC.css";
 import "./styles/FiO2AUC.css";
@@ -207,6 +207,9 @@ export default function Fio2AUCForm() {
 
   /*  Per-day state — built from Helper 2 Supplemental O₂=Yes days (not a fixed 1–7) */
   const [days, setDays] = useState([]);
+  // Helper 2 Supplemental O2 for every day it has logged ({ day: bool }),
+  // for the tick rule (room-air days aren't required).
+  const [helper2SuppO2, setHelper2SuppO2] = useState({});
   const [daysLoading, setDaysLoading] = useState(false);
   const [helper2Refreshing, setHelper2Refreshing] = useState(false);
   const [dmsPrefillingDay, setDmsPrefillingDay] = useState(null);
@@ -310,6 +313,10 @@ export default function Fio2AUCForm() {
 
       const isTruthy = (v) =>
         v === true || v === "true" || v === 1 || v === "1" || v === "Yes" || v === "yes";
+
+      setHelper2SuppO2(Object.fromEntries((sumRes?.data || [])
+        .filter(s => Number.isFinite(Number(s.nicu_day)))
+        .map(s => [Number(s.nicu_day), isTruthy(s.supp_o2)])));
 
       // FiO₂ AUC days = Helper Form 1 Supplemental O₂ = Yes (not Surfactant)
       const oxygenDays = (sumRes?.data || [])
@@ -565,18 +572,19 @@ export default function Fio2AUCForm() {
   // clinical endpoint itself.
   const hoursLoggedSoFar = totalHoursLogged(days);
 
-  // Green tick (PI rule 2026-09-26): the 7-day record is complete up to
-  // yesterday — every day 1..min(7, yesterday) has both 12 h windows fully
-  // logged (24 h). A day with no rows counts as 0 h.
+  // Green tick (PI rule 2026-09-29): up to min(7, yesterday), every day
+  // Helper 2 marks Supplemental O₂ = Yes (or that already has FiO₂ values)
+  // has both 12 h windows filled with real FiO₂ values; room-air days are
+  // not required. Same rule on the server (form_completion.py).
   useEffect(() => {
     const lastDay = helperLastRequiredDay({ todayNicuDay, maxDay: 7 });
-    const pctByDay = Object.fromEntries(days.map((d) => [
-      d.day, ((windowHours(d.w1) + windowHours(d.w2)) / 24) * 100,
+    const hoursByDay = Object.fromEntries(days.map((d) => [
+      d.day, [fio2WindowHours(d.w1), fio2WindowHours(d.w2)],
     ]));
-    if (isHelperLogComplete(pctByDay, lastDay)) markFormCompleted("fio2_auc");
+    if (isFio2AucComplete(helper2SuppO2, hoursByDay, lastDay)) markFormCompleted("fio2_auc");
     else unmarkFormCompleted("fio2_auc");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, todayNicuDay]);
+  }, [days, todayNicuDay, helper2SuppO2]);
   const meanFiO2     = hoursLoggedSoFar > 0 ? ((grandTotal / hoursLoggedSoFar) * 100).toFixed(1) : "0.0";
   const excessO2     = Math.max(0, grandTotal - 0.21 * hoursLoggedSoFar).toFixed(2);
   const daysComplete = days.filter(d => {

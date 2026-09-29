@@ -776,6 +776,8 @@ class BirthResuscitationCreate(BaseModel):
 
 class BirthResuscitationOut(BirthResuscitationCreate):
     id: int
+    # Read-only, from Form H (the helper pages' discharge cut-off).
+    discharge_date: Optional[date] = None
     created_at: Optional[datetime]
     original_gestation_weeks: Optional[int] = None
     original_gestation_days: Optional[int] = None
@@ -1640,6 +1642,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     infections: Optional[List[InfectionEpisode]] = []
 
     infection_flags_reviewed: Optional[List[str]] = None
+    is_complete: Optional[bool] = None
     rop_flags_reviewed: Optional[List[str]] = None
 
 

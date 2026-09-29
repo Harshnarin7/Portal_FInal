@@ -4901,6 +4901,9 @@ const num = (v) => {
       infections: infectionsList,
       infection_flags_reviewed: formData.infection_flags_reviewed || [],
       rop_flags_reviewed: formData.rop_flags_reviewed || [],
+      // Sidebar tick after a reload (server rule, form_completion.py) also
+      // needs the page-only check: no validation error showing.
+      is_complete: isFormHComplete(formData, { errors, infectionReviewed: allInfectionFlagsReviewed }),
     };
   };
 

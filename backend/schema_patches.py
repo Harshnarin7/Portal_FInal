@@ -1304,4 +1304,6 @@ FORM_IS_COMPLETE_PATCHES = [
     "ALTER TABLE maternal_details ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
     "ALTER TABLE postnatal_day1 ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
     "ALTER TABLE nicu_admission ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
+    # Form H: the page's own "no validation error showing" check (2026-09-29).
+    "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
 ]

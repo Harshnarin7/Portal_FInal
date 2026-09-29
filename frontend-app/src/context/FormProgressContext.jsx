@@ -10,6 +10,15 @@ const FormProgressContext = createContext();
 /** Forms whose completion is authoritative from GET /enrollment-status */
 const BACKEND_TRACKED = new Set(["form_a", "form_b", "form_c", "form_d", "form_e"]);
 
+/** Downstream forms whose green tick the server now also computes from the
+ *  saved records (backend form_completion.py), so ticks survive a reload or
+ *  a baby switch. The open page still marks/unmarks live as it is edited. */
+const SERVER_TICKED = [
+  "form_f", "form_g", "form_h", "form_i", "form_j", "form_k", "form_l",
+  "adverse_events", "sae_list", "form_y_sae",
+  "vs6_1", "fio2_auc", "infect_gi_hema", "metab_renal_vasc_eye",
+];
+
 const validId = (value) =>
   value && value !== "undefined" && value !== "null" ? value : null;
 
@@ -217,9 +226,12 @@ export function FormProgressProvider({ children }) {
       // Helpers are session-only for sidebar ticks. localStorage previously
       // leaked Patient A's helper completions onto Patient B's key whenever
       // the enrollment id flipped — do not rehydrate helpers from cache.
+      // Older backend without these keys: keep the session-only behaviour.
+      const serverKnows = SERVER_TICKED.filter((f) => data[`${f}_complete`] !== undefined);
+      SERVER_TICKED.forEach((f) => { if (data[`${f}_complete`] === true) fromBackend.push(f); });
       setCompletedForms((prev) => {
         const prevExtras = (helpersTrustedFor.current === enrollmentId)
-          ? prev.filter((f) => !BACKEND_TRACKED.has(f))
+          ? prev.filter((f) => !BACKEND_TRACKED.has(f) && !serverKnows.includes(f))
           : [];
         helpersTrustedFor.current = enrollmentId;
         const merged = [...new Set([...fromBackend, ...prevExtras])];

@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -27,6 +27,7 @@ from ae_reference import (
     detect_resp_misc_candidates,
 )
 from rop_form_g_linkage import (
+    compute_rop_review_alerts,
     enrich_rop_screening_payload,
     sync_rop_screening_from_metab_log,
 )
@@ -50,6 +51,7 @@ from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
 from cr_duplicates import normalize_cr, find_duplicate
+import form_completion as fc
 from brain_injury_suggestion import suggest_brain_injury, grade_rank as bi_grade_rank, record as bi_record
 from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
@@ -1607,6 +1609,17 @@ def get_birth_resuscitation(
         # Never fail the clinical GET if PII decrypt/auth fails — Form B
         # still loads; identity fields stay blank and the UI can retry PII.
         pass
+
+    # The helper pages read b.discharge_date from this response to stop
+    # requiring days after discharge, but it was never included - the date
+    # lives on Form H (PATCH /enrollment/{id}/discharge writes it there).
+    form_h_dd = (
+        db.query(NeonatalMorbidities.discharge_date)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
+        .first()
+    )
+    record_dict["discharge_date"] = form_h_dd[0] if form_h_dd else None
 
     return record_dict
 
@@ -6149,6 +6162,84 @@ def save_steroid(
 # ENROLLMENT STATUS ENDPOINT
 # ============================================================================
 
+def _downstream_completion(db, enrollment_id, birth, nicu):
+    """Green-tick state for Forms F-L, AE, SAE list, Form Y and Helpers 2-5,
+    from the saved records (rules in form_completion.py, same as the pages'
+    utils/formCompletion.js), so ticks survive a reload / switching babies."""
+    def one(model, order=None):
+        q = db.query(model).filter(model.enrollment_id == enrollment_id)
+        if order is not None:
+            q = q.order_by(order)
+        return q.first()
+
+    dob = birth.date_of_birth if birth else None
+    form_h = one(NeonatalMorbidities, NeonatalMorbidities.id.desc())
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    signatures = [w["signature"] for w in _compute_infection_windows(inf_logs, nicu)] if inf_logs else []
+    rop = one(ROPScreening, ROPScreening.id.desc())
+    out = {
+        "form_f_complete": fc.form_f_complete(one(CranialUSGRecord)),
+        "form_g_complete": fc.form_g_complete(rop, compute_rop_review_alerts(rop.screenings) if rop else []),
+        "form_h_complete": fc.form_h_complete(form_h, signatures),
+        "form_i_complete": fc.form_i_complete(one(StudyOutcomes, StudyOutcomes.id.desc())),
+        "form_j_complete": fc.form_j_complete(
+            db.query(ExternalHospitalAssessment).filter(ExternalHospitalAssessment.enrollment_id == enrollment_id).all()),
+        "form_k_complete": fc.form_k_complete(one(MRIBrainAssessment)),
+        "form_l_complete": fc.form_l_complete(one(BlenderStudySummary)),
+        "adverse_events_complete": fc.adverse_events_complete(one(AdverseEvents)),
+        "sae_list_complete": fc.sae_list_complete(one(SAEList)),
+        # Form Y ticks on any saved SAE report (the page's current rule).
+        "form_y_sae_complete": db.query(SAEReport.id).filter(SAEReport.enrollment_id == enrollment_id).first() is not None,
+    }
+
+    # Helpers: every NICU day up to yesterday at 100%, stopping at discharge.
+    today = fc.nicu_day_today(dob, clinical_now())
+    discharge_day = (form_h.discharge_date - dob).days + 1 if (form_h and form_h.discharge_date and dob) else None
+    last = fc.helper_last_required_day(today, discharge_day)
+
+    def scorer(model, pct_fn, overlay=None):
+        rows = {r.nicu_day: r for r in db.query(model).filter(model.enrollment_id == enrollment_id).all()}
+
+        def pct(day):
+            r = rows.get(day)
+            if r is None:
+                return None
+            if overlay and dob:
+                cal = calendar_date_for_nicu_day_from_birth(dob, day)
+                if cal:
+                    overlay(db, enrollment_id, r, cal)
+            return pct_fn(r)
+        return rows, pct
+
+    with db.no_autoflush:
+        h2_rows, h2_pct = scorer(RespCVNeuroDayLog, _compute_completion_pct, _overlay_resp_cv_from_mml)
+        out["vs6_1_complete"] = fc.helper_log_complete(h2_pct, last)
+        _, h4_pct = scorer(InfectGIHemaDayLog, _infect_completion_pct)
+        out["infect_gi_hema_complete"] = fc.helper_log_complete(h4_pct, last)
+        _, h5_pct = scorer(MetabRenalVascEyeDayLog, _metab_completion_pct, _overlay_helper5_from_mml)
+        out["metab_renal_vasc_eye_complete"] = fc.helper_log_complete(h5_pct, last)
+
+        # FiO2 AUC: Helper 2's Supplemental O2 per day, as the FiO2 page sees it.
+        # No discharge cut-off here, same as the FiO2 page (left as is, PI 2026-09-29).
+        fio2_last = fc.helper_last_required_day(today, None, max_day=7)
+        supp_o2 = {}
+        for d, r in h2_rows.items():
+            if fio2_last and d <= fio2_last:
+                if dob:
+                    cal = calendar_date_for_nicu_day_from_birth(dob, d)
+                    if cal:
+                        _overlay_resp_cv_from_mml(db, enrollment_id, r, cal)
+                supp_o2[d] = r.supp_o2 is True
+        fio2 = one(FiO2AUC, FiO2AUC.created_at.desc())
+        out["fio2_auc_complete"] = fc.fio2_auc_complete(fio2.fio2_logs if fio2 else [], supp_o2, fio2_last)
+    return out
+
+
 @app.get("/enrollment-status/{enrollment_id}")
 def get_enrollment_status(
     enrollment_id: str,
@@ -6272,7 +6363,15 @@ def get_enrollment_status(
         flag = getattr(row, "is_complete", None) if row is not None else None
         return bool(legacy) if flag is None else flag is True
 
+    try:
+        downstream = _downstream_completion(db, enrollment_id, birth, nicu)
+    except Exception:
+        # Never let the tick extras break unlocking / next_form.
+        logger.exception("downstream completion failed for %s", enrollment_id)
+        downstream = {}
+
     return {
+        **downstream,
         "enrollment_id": enrollment_id,
         "screening_status": screening.screening_status,
         "form_a_complete": _complete(screening, True),

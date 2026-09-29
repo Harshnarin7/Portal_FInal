@@ -1063,6 +1063,9 @@ class NeonatalMorbidities(Base):
     # detected window be addressed before the form counts as done, without
     # the software ever guessing which specific episode (if any) covers it.
     infection_flags_reviewed = Column(JSON, nullable=True, default=list)
+    # Page's own completeness check at last save (no validation error showing);
+    # an explicit False blocks the sidebar tick (form_completion.form_h_complete).
+    is_complete = Column(Boolean, nullable=True)
 
     # Field keys from rop_consistency (e.g. "stage_right") marked reviewed/explained
     rop_flags_reviewed = Column(JSON, nullable=True, default=list)
