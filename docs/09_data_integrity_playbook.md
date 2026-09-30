@@ -77,15 +77,17 @@ every Form B create *and* update (including the `NR-` "no PPV needed" path)
 window, no exclusion, consent Yes / Trial run). A screening with no
 `screening_id` sent at all passes unchecked (nothing to evaluate against).
 
-**Still open:** the mobile app itself still shows the "Form B1" button
-regardless of consent — a nurse can tap it and only find out from the
-error after filling the form. Flagged to Harsh (PR #49 comment) to add the
-same check client-side.
+**Mobile app fix, 30-09-2026 (`Portal_app1` PR #1, `venkatpgi` account, not
+build-tested — no Flutter toolchain available):** both Form B entry points
+(`screening_form.dart` `_formBLocked`, `nurse_dashboard.dart` `formBOpen`)
+now also require no exclusion and consent Yes/Trial run, so a nurse is
+stopped before filling in the form, not after saving it.
 
-**Investigate `01-0031`:** confirm with PGIMER what actually happened — was
-consent really refused, or was "No" itself a data-entry mistake? This is a
-protocol / IEC question, not only a data fix. The server guard prevents a
-*new* case like this; it does not by itself tell you which record is wrong.
+**`01-0009` / `01-0031`: confirmed trial-run/test data (PI, 30-09-2026)** —
+not a real protocol breach; these will be wiped along with the rest of the
+"Trial run" test screenings (check 9) rather than repaired in place. The
+server and mobile guards above exist so a *real* case of this can't happen
+again, independent of what these two specific test records turn out to be.
 
 ## 3. "The value should be X but the form says Y"
 Work upstream (README "How to use"):
@@ -138,12 +140,13 @@ Check section 10 after every deploy.
    deployment history).
 
 ## 9. Known open issues (30-09-2026)
-- `01-` and `01-B-` / `01-B-123`: **data not yet repaired** — see §1–2, awaiting
-  PGIMER confirmation of what actually happened. (Recurrence is now blocked
-  server-side; these two existing records still need the manual fix in §8.)
-- Ten "Trial run" screenings remain (check 9), incl. `01-A-001` with helper data.
-- Mobile app's Form B buttons don't check consent client-side (§2) — flagged
-  to Harsh, not yet fixed on his side.
+- `01-`, `01-B-`, `01-B-123` and the other 8 "Trial run" screenings (incl.
+  `01-A-001` with helper data): **confirmed test data (PI)** — will be wiped
+  wholesale rather than repaired individually. No manual fix needed; §1/§2's
+  repair procedure is documented for a *future* case, not for these records.
+- Mobile app fix (`Portal_app1` PR #1) is **open, not yet merged/build-tested**
+  by Harsh — until then the mobile Form B buttons on his deployed app build
+  still don't check consent.
 - DMS → Helper 4 transfusion "set by DMS" marker isn't saved (PR #49 comment).
 - Helper 5 "N days with no data entered" warning ignores the discharge day.
 - Form I death prefill doesn't read Form J deaths.
