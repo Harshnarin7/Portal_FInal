@@ -523,3 +523,21 @@
   .rop-completion-grid { grid-template-columns: 1fr; }
   .rop-context-bar { padding: 10px 16px; }
 }
+
+/* Item 18 suggestion strip (PI 2026-09-30). */
+.rop-item18-sgt {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rop-item18-sgt--pending { background: #f8fafc; border-color: #e2e8f0; color: #475569; }
+.rop-item18-apply {
+  border: 0; background: transparent; padding: 0;
+  color: #1d4ed8; font-weight: 700; font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+.rop-item18-differs { margin-top: 4px; color: #b45309; font-weight: 600; }

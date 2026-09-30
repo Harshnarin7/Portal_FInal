@@ -253,3 +253,22 @@
   display: block;
   width: 100%;
 }
+
+/* Composite / MRI suggestion strip (PI 2026-09-30). */
+.fl-suggest {
+  flex: 1 1 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.fl-suggest--pending { background: #f8fafc; border-color: #e2e8f0; color: #475569; }
+.fl-suggest-apply {
+  border: 0; background: transparent; padding: 0;
+  color: #1d4ed8; font-weight: 700; font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+.fl-suggest-differs { margin-top: 4px; color: #b45309; font-weight: 600; }

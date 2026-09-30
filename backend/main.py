@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
+﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -52,6 +52,7 @@ from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
 from cr_duplicates import normalize_cr, find_duplicate
 import form_completion as fc
+import composite_suggestion as cs
 from brain_injury_suggestion import suggest_brain_injury, grade_rank as bi_grade_rank, record as bi_record
 from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
@@ -4618,6 +4619,145 @@ def get_nec_stage_suggestion(
     if unstaged_days:
         return {"status": "flag", "note": f"NEC suspected on Helper 4 Day {unstaged_days[0]} but no stage recorded: please stage it"}
     return {"status": "none"}
+
+
+@app.get("/composite-suggestion/{enrollment_id}")
+def get_composite_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested Form L L.3 items 11 / 12a / 12b and Form G item 18 (PI
+    2026-09-30; rules in composite_suggestion.py). Components come from Form
+    I's saved checkpoint answers first and the live BPD / ROP / NEC / brain
+    injury suggestions only where Form I is blank. Read-only; Form L and
+    Form G show it with an Apply button."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    b = get_birth_resuscitation(enrollment_id, db=db, current_user=current_user)
+    dob = b.get("date_of_birth") if isinstance(b, dict) else None
+    if isinstance(dob, str):
+        dob = date.fromisoformat(dob[:10])
+    gw, gd = (b.get("gestation_weeks"), b.get("gestation_days")) if isinstance(b, dict) else (None, None)
+    t36 = _pma_target_date(dob, gw, gd, 36)
+    t44 = _pma_target_date(dob, gw, gd, 44)
+
+    fi = (
+        db.query(StudyOutcomes).filter(StudyOutcomes.enrollment_id == enrollment_id)
+        .order_by(StudyOutcomes.id.desc()).first()
+    )
+    form_h = (
+        db.query(NeonatalMorbidities).filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc()).first()
+    )
+    j_rows = db.query(ExternalHospitalAssessment).filter(
+        ExternalHospitalAssessment.enrollment_id == enrollment_id).all()
+
+    # ---- Death: dated deaths, and the latest date the baby is known alive.
+    deaths, alive = [], []
+    metab = db.query(MetabRenalVascEyeDayLog).filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id).all()
+    if dob:
+        dead_day = min((l.nicu_day for l in metab if l.survived_the_day is False), default=None)
+        if dead_day:
+            deaths.append((dob + timedelta(days=dead_day - 1), f"Helper 5 Day {dead_day}"))
+        log_days = [l.nicu_day for l in metab if l.survived_the_day is not False]
+        for model in (RespCVNeuroDayLog, InfectGIHemaDayLog):
+            log_days += [r[0] for r in db.query(model.nicu_day).filter(model.enrollment_id == enrollment_id).all()]
+        if log_days:
+            last = max(log_days)
+            alive.append((dob + timedelta(days=last - 1), f"daily logs Day {last}"))
+    if form_h and form_h.discharge_date:
+        if form_h.outcome == "Died":
+            deaths.append((form_h.discharge_date, "Form H outcome Died"))
+        else:
+            alive.append((form_h.discharge_date, f"Form H {form_h.outcome or 'discharge'}"))
+    for j in j_rows:
+        vd = _pma_target_date(dob, gw, gd, j.assessment_weeks) if j.assessment_weeks else None
+        if j.death is True:
+            deaths.append((j.death_date or vd, f"Form J {j.assessment_weeks}-week visit"))
+        elif j.death is False and vd:
+            alive.append((vd, f"Form J {j.assessment_weeks}-week visit"))
+    deaths = [d for d in deaths if d[0]]
+    death_date, death_src = min(deaths) if deaths else (None, "")
+    alive_until, alive_src = max(alive) if alive else (None, "")
+
+    def death_by(label, target, saved_values):
+        vals = [v for v in saved_values]
+        if any(v is True for v in vals):
+            return cs.comp(label, "Yes", "Form I")
+        if vals and all(v is False for v in vals):
+            return cs.comp(label, "No", "Form I")
+        return cs.death_component(label, target, death_date, death_src, alive_until, alive_src)
+
+    death36 = death_by("Death by 36 wk", t36, [fi.death36] if fi else [])
+    death44 = death_by("Death by 44 wk", t44, [fi.death36, fi.death40, fi.death44] if fi else [])
+
+    # ---- BPD at 36 wk: Form I, else the BPD suggestion.
+    bpd_saved = cs.bpd_from_form_i(fi.bpd36_jensen_grade) if fi else None
+    if bpd_saved:
+        bpd = cs.comp("BPD at 36 wk", bpd_saved, "Form I", fi.bpd36_jensen_grade.split("→")[-1].strip())
+    else:
+        sg = get_bpd_suggestion(enrollment_id, db=db, current_user=current_user)
+        if sg.get("status") == "suggested" and sg.get("bpd"):
+            detail = f"Grade {sg['bpd_grade']}" if sg.get("bpd_grade") else ""
+            bpd = cs.comp("BPD at 36 wk", sg["bpd"], f"suggestion: {sg.get('source')}", detail)
+        elif sg.get("status") == "not_applicable" and "Born at or after 36" in (sg.get("note") or ""):
+            bpd = cs.comp("BPD at 36 wk", "No", "born at/after 36 weeks")
+        else:
+            bpd = cs.comp("BPD at 36 wk", None, detail=sg.get("note") or "not assessed yet")
+
+    # ---- ROP-Rx / NEC / brain injury by 44 wk: Form I, else live suggestions.
+    live = {}
+    if gw is not None:
+        try:
+            live = get_pma_assessment_prefill(enrollment_id, 44, gestation_weeks=gw, gestation_days=gd or 0,
+                                              db=db, current_user=current_user) or {}
+        except HTTPException:
+            live = {}
+    if fi and fi.rop44_treated is True:
+        rop = cs.comp("ROP needing treatment", "Yes", "Form I", "treated")
+    elif live.get("rop_treatment_required"):
+        rop = cs.comp("ROP needing treatment", live["rop_treatment_required"], "ROP suggestion")
+    else:
+        rop = cs.comp("ROP needing treatment", None, detail=(live.get("rop_note") or "no ROP data yet"))
+    nec_saved = cs.form_i_value(fi.nec44_stage) if fi else None
+    if nec_saved:
+        nec = cs.comp("NEC ≥ IIA", nec_saved, "Form I")
+    elif live.get("nec_stage"):
+        nec = cs.comp("NEC ≥ IIA", live["nec_stage"], "NEC suggestion")
+    else:
+        nec = cs.comp("NEC ≥ IIA", None, detail=(live.get("nec_note") or "no NEC data yet"))
+    ivh = fi.ivh44_grade3 if fi else None
+    cpvl = fi.cpvl44_grade2 if fi else None
+    if ivh is True or cpvl is True:
+        brain = cs.comp("Brain injury", "Yes", "Form I", "IVH ≥ III" if ivh is True else "cPVL ≥ II")
+    elif ivh is False and cpvl is False:
+        brain = cs.comp("Brain injury", "No", "Form I")
+    else:
+        li, lc = live.get("ivh_grade3"), live.get("cpvl_grade2")
+        if li == "Yes" or lc == "Yes":
+            brain = cs.comp("Brain injury", "Yes", "brain injury suggestion", "IVH ≥ III" if li == "Yes" else "cPVL ≥ II")
+        elif li == "No" and lc == "No":
+            brain = cs.comp("Brain injury", "No", "brain injury suggestion")
+        else:
+            brain = cs.comp("Brain injury", None, detail=(live.get("brain_note") or "no cranial scan data yet"))
+
+    mri = db.query(MRIBrainAssessment).filter(MRIBrainAssessment.enrollment_id == enrollment_id).first()
+    g = (
+        db.query(ROPScreening).filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc()).first()
+    )
+    return {
+        "checkpoint_36": t36.isoformat() if t36 else None,
+        "checkpoint_44": t44.isoformat() if t44 else None,
+        "composite_1": cs.combine([death36, bpd]),
+        "composite_2": cs.combine([death44, bpd, rop, nec, brain]),
+        "mri_abnormality": cs.mri_suggestion(mri.selected_for_mri if mri else None, mri.overall_mri if mri else None),
+        "form_g_item18": cs.form_g_item18(
+            bool(g and (g.treatment_required is True or g.treatment_required_le is True)),
+            g.final_screening_date if g else None,
+            any(j.treat_right is True or j.treat_left is True for j in j_rows),
+        ),
+    }
 
 
 @app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")

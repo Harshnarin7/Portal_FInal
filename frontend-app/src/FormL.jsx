@@ -172,6 +172,29 @@ function buildPayload(data) {
   };
 }
 
+/** Composite / MRI suggestion strip (PI 2026-09-30): shows the suggested
+ *  value and why, with an Apply button — never fills the field by itself. */
+function SuggestStrip({ sgt, current, onApply }) {
+  if (!sgt || !sgt.note) return null;
+  const label = sgt.value === "NA" ? "N/A" : sgt.value;
+  const differs = !!(sgt.value && current && current !== sgt.value);
+  return (
+    <div className={`fl-suggest${sgt.value ? "" : " fl-suggest--pending"}`}>
+      {sgt.value ? (
+        <>
+          <strong>Suggested: {label}</strong> — {sgt.note}.{" "}
+          {current !== sgt.value && (
+            <button type="button" className="fl-suggest-apply" onClick={() => onApply(sgt.value)}>Apply suggestion</button>
+          )}
+          {differs && <div className="fl-suggest-differs">Your saved answer differs from this suggestion — check which is right.</div>}
+        </>
+      ) : (
+        <>No suggestion yet — {sgt.note}.</>
+      )}
+    </div>
+  );
+}
+
 export default function FormL() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -190,11 +213,24 @@ export default function FormL() {
   const [saveMessage, setSaveMessage] = useState("");
   const [assessors, setAssessors] = useState([]);
   const [siteName, setSiteName] = useState("");
+  // Suggested L.3 answers from Form I / BPD / ROP / NEC / brain injury /
+  // Form K (backend composite_suggestion.py). Apply button only.
+  const [compositeSgt, setCompositeSgt] = useState(null);
 
   const set = (field, value) => {
     setIsSaved(false);
     setFormData((p) => ({ ...p, [field]: value }));
   };
+
+  useEffect(() => {
+    const eid = formData.enrollment_id;
+    if (!eid) return undefined;
+    let cancelled = false;
+    api.get(`/composite-suggestion/${eid}`)
+      .then((res) => { if (!cancelled) setCompositeSgt(res?.data || null); })
+      .catch(() => { if (!cancelled) setCompositeSgt(null); });
+    return () => { cancelled = true; };
+  }, [formData.enrollment_id]);
 
   const setMinute = (idx, value) => {
     setIsSaved(false);
@@ -430,6 +466,8 @@ export default function FormL() {
             Death or BPD (Jensen 2019) at 36 weeks PMA
           </div>
           <YesNo value={formData.composite_outcome_1} onChange={(v) => set("composite_outcome_1", v)} />
+          <SuggestStrip sgt={compositeSgt?.composite_1} current={formData.composite_outcome_1}
+            onApply={(v) => set("composite_outcome_1", v)} />
         </div>
 
         <div className="fl-outcome">
@@ -438,6 +476,8 @@ export default function FormL() {
             Death or BPD or ROP-Rx or NEC or Brain Injury (IVH or cPVL) at 44 weeks
           </div>
           <YesNo value={formData.composite_outcome_2} onChange={(v) => set("composite_outcome_2", v)} />
+          <SuggestStrip sgt={compositeSgt?.composite_2} current={formData.composite_outcome_2}
+            onApply={(v) => set("composite_outcome_2", v)} />
         </div>
 
         <div className="fl-outcome">
@@ -446,6 +486,8 @@ export default function FormL() {
             MRI brain abnormality (25% subset)
           </div>
           <YesNo value={formData.mri_abnormality} onChange={(v) => set("mri_abnormality", v)} allowNA />
+          <SuggestStrip sgt={compositeSgt?.mri_abnormality} current={formData.mri_abnormality}
+            onApply={(v) => set("mri_abnormality", v)} />
         </div>
       </SectionCard>
 

@@ -232,6 +232,11 @@ export default function FormG() {
   const [ropReviewAlerts, setRopReviewAlerts] = useState([]);
   // Bumped when a saved record finishes loading, so the tick re-syncs.
   const [recordLoadedTick, setRecordLoadedTick] = useState(0);
+  // Item 18 suggestion (PI 2026-09-30, backend composite_suggestion.py):
+  // Yes when Form J records treatment; No once screening is completed with
+  // no treatment required. Apply button only. Refetched after each save.
+  const [item18Sgt, setItem18Sgt] = useState(null);
+  const [item18Nonce, setItem18Nonce] = useState(0);
   const [ropConsistency, setRopConsistency] = useState({ unreviewed_discrepancies: [] });
   const [roster, setRoster] = useState([]);
 
@@ -397,6 +402,16 @@ export default function FormG() {
 
   /* ================= HANDLERS ================= */
   const setField = (name, value) => setFormData((p) => ({ ...p, [name]: value }));
+
+  useEffect(() => {
+    const eid = formData.enrollment_id;
+    if (!eid) return undefined;
+    let cancelled = false;
+    api.get(`/composite-suggestion/${eid}`)
+      .then((res) => { if (!cancelled) setItem18Sgt(res?.data?.form_g_item18 || null); })
+      .catch(() => { if (!cancelled) setItem18Sgt(null); });
+    return () => { cancelled = true; };
+  }, [formData.enrollment_id, item18Nonce]);
   const handleChange = (e) => setField(e.target.name, e.target.value);
 
   const handleScreeningChange = (index, field, value) => {
@@ -557,6 +572,7 @@ export default function FormG() {
     try {
       await api.post("/rop-screening/", buildPayload());
       syncFormGTick();
+      setItem18Nonce((n) => n + 1);
       setMessage("Form G saved successfully.");
       setShowSaveSuccess(true);
       setTimeout(() => setMessage(""), 3000);
@@ -951,6 +967,24 @@ export default function FormG() {
                 </div>
               )}
             </div>
+            {!eitherEyeTreated && item18Sgt?.note && (
+              <div className={`rop-item18-sgt${item18Sgt.value ? "" : " rop-item18-sgt--pending"}`}>
+                {item18Sgt.value ? (
+                  <>
+                    <strong>Suggested: {item18Sgt.value}</strong> — {item18Sgt.note}.{" "}
+                    {formData.rop_treatment_composite !== item18Sgt.value && (
+                      <button type="button" className="rop-item18-apply"
+                        onClick={() => setField("rop_treatment_composite", item18Sgt.value)}>Apply suggestion</button>
+                    )}
+                    {formData.rop_treatment_composite && formData.rop_treatment_composite !== item18Sgt.value && (
+                      <div className="rop-item18-differs">Your answer differs from this suggestion — check which is right.</div>
+                    )}
+                  </>
+                ) : (
+                  <>No suggestion yet — {item18Sgt.note}.</>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ═══ COMPLETION ═══ */}
