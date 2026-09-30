@@ -9,7 +9,7 @@ def test_death_component():
     assert cs.death_component("Death", T36, date(2026, 10, 1), "Helper 5", None, "")["value"] == "Yes"
     assert cs.death_component("Death", T36, None, "", date(2026, 11, 20), "Form J 40-week visit")["value"] == "No"
     u = cs.death_component("Death", T36, None, "", date(2026, 10, 1), "Form H discharge")
-    assert u["value"] is None and "needs a Form J visit" in u["detail"]
+    assert u["value"] is None and "needs the baby known alive" in u["detail"]
     assert cs.death_component("Death", T36, date(2026, 12, 1), "Form J", date(2026, 11, 20), "x")["value"] == "No"
 
 

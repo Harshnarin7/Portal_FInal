@@ -41,7 +41,8 @@ def death_component(label: str, target: Optional[date], death_date: Optional[dat
     if alive_until and alive_until >= target:
         return comp(label, "No", alive_source, f"known alive on {_fmt(alive_until)}")
     seen = f"last known alive {_fmt(alive_until)} ({alive_source})" if alive_until else "no record of the baby after birth"
-    return comp(label, None, detail=f"{seen}: needs a Form J visit on/after {_fmt(target)}")
+    return comp(label, None, detail=(f"{seen}: needs the baby known alive on/after {_fmt(target)} "
+                                      "(NICU daily logs while admitted, or a Form J visit after discharge)"))
 
 
 def combine(components: Iterable[dict]) -> dict:
