@@ -79,10 +79,18 @@ spontaneous breathing ≤ total resuscitation time (APGAR timer); SpO₂ > 80%
 time as MM:SS; per-device PPV fields; chest compressions / epinephrine /
 fluid bolus details when Yes.
 
-**Server checks (`main.create_birth_resuscitation`)**: enrollment id and baby
-UID must not belong to another patient (409). **Not checked on the server:**
-enrollment id format; consent recorded on Form A (a refused consent can still
-be saved as randomised — chapter 09 §1).
+**Server checks (`main.create_birth_resuscitation` / `update_birth_resuscitation`)**:
+enrollment id and baby UID must not belong to another patient (409);
+**enrollment id must be a complete `<site>-<A-D>-<number>` id or an `NR-`
+placeholder** (`require_valid_enrollment_id_format`, 422 otherwise — added
+30-09-2026 after `01-` and `01-B-` each became their own permanent record);
+**the linked Form A screening must be Eligible** — GA in window, no
+exclusion, consent Yes / Trial run (`require_eligible_screening_for_form_b`,
+422 otherwise, applies to the `NR-` "no PPV needed" path too — added
+30-09-2026 after a consent-"No" screening still ended up with two randomised
+Form B rows and helper-form data, chapter 09 §1/§2). Both guards run on
+every create *and* update, so they apply to any caller (web, mobile app, a
+direct API call), not just the browser's own sidebar lock.
 
 ---
 

@@ -57,7 +57,8 @@ def main() -> int:
 
             births = c.execute(text(f"""
                 SELECT b.id, b.enrollment_id, b.screening_id, b.date_of_birth, b.randomised,
-                       b.required_resuscitation, s.consent_given, s.site_name, s.enrollment_id AS s_eid
+                       b.required_resuscitation, s.consent_given, s.screening_status,
+                       s.site_name, s.enrollment_id AS s_eid
                 FROM birth_resuscitation b
                 LEFT JOIN screenings s ON s.screening_id = b.screening_id
                 WHERE TRUE {site_sql}
@@ -84,11 +85,15 @@ def main() -> int:
             issues += len(split)
             print("  none" if not split else "")
 
-            section("3. Randomised on Form B but Form A consent not Yes / Trial run")
-            mismatch = [r for r in births if r["randomised"] is True
-                        and (r["consent_given"] or "") not in ("Yes", "Trial run")]
+            section("3. Form B saved for a screening that is not Eligible "
+                    "(mirrors main.require_eligible_screening_for_form_b, added 30-09-2026 -"
+                    " covers randomised AND NR- rows, not just randomised=True)")
+            mismatch = [r for r in births if r["screening_id"] and r["site_name"] is not None
+                        and (r["screening_status"] or "") != "Eligible"]
             for r in mismatch:
-                print(f"  {r['enrollment_id']} (screening {r['screening_id']}): consent={r['consent_given']!r}")
+                print(f"  {r['enrollment_id']} (screening {r['screening_id']}): "
+                      f"status={r['screening_status']!r} consent={r['consent_given']!r} "
+                      f"randomised={r['randomised']}")
             issues += len(mismatch)
             print("  none" if not mismatch else "")
 

@@ -17,7 +17,7 @@ prints ids and dates only — no names or CR numbers. Sections:
 |---|---|---|
 | 1 | Form B enrollment id not complete (`00-X-000`) and not `NR-` | half-typed id saved by autosave (§1) |
 | 2 | More than one Form B row for one screening | baby's data split across ids (§1) |
-| 3 | Randomised on Form B but Form A consent not Yes / Trial run | protocol / consent problem (§2) |
+| 3 | Form B saved for a screening that is not Eligible (any Form B row, incl. `NR-`) | protocol / consent problem (§2); server now refuses new saves like this |
 | 4 | Form B row whose screening id has no Form A | orphan birth record |
 | 5 | Rows in other forms whose enrollment id has no Form B | orphan / mistyped id downstream |
 | 6 | Form E Day 1 Date ≠ date of birth | helper days and PMA dates shift (§4) |
@@ -28,11 +28,12 @@ prints ids and dates only — no names or CR numbers. Sections:
 
 ## 1. Half-typed / changed enrollment ids — split babies
 **Seen live 30-09-2026:** `01-` (screening 01-0009) and `01-B-` + `01-B-123`
-(screening 01-0031).
+(screening 01-0031). These two pre-date the fix below; the data itself still
+needs repair (see below) — the fix only stops it recurring.
 
 **Mechanism:**
-- Form B autosaves once the enrollment id box is **non-empty**, and the server
-  does not check the format on create (`main.create_birth_resuscitation`).
+- Form B autosaves once the enrollment id box is **non-empty**; before
+  30-09-2026 the server never checked the format on create.
 - An existing Form B row is reused only if the **same** enrollment id (or, for
   not-randomised, the same screening id) is sent again. A randomised baby whose
   id changes between saves therefore gets a **new** Form B row.
@@ -41,7 +42,14 @@ prints ids and dates only — no names or CR numbers. Sections:
 - Everything filled afterwards (helpers, Forms C–L) follows whichever id the
   browser held at the time — so data can end up under two ids.
 
-**Investigate:** check-script sections 1, 2, 5. Ask the site which id is correct.
+**Fixed 30-09-2026**: `main.require_valid_enrollment_id_format` runs on every
+Form B create *and* update — rejects (422) anything that is not a complete
+`<site>-<A-D>-<number>` id or an `NR-` placeholder, for every caller (web,
+mobile app, direct API call), not just the browser's own autosave guard
+(chapter 02).
+
+**Investigate the two existing bad records:** check-script sections 1, 2, 5.
+Ask the site which id is correct.
 
 **Repair (superadmin, after a `pg_dump` backup — §8):** in one transaction, move
 every row from the wrong id to the right id (`UPDATE <table> SET enrollment_id =
@@ -51,13 +59,33 @@ checkpoint), delete the empty duplicate Form B row, set
 `screenings.enrollment_id` to the right id, and update `participant_pii`.
 **Keep `audit_log` rows.** Re-run the check script.
 
-**Prevention (to build):** refuse a malformed enrollment id on the server;
-don't autosave Form B until the id is complete.
-
 ## 2. Consent vs randomisation
-Nothing in the code stops Form B "randomised = Yes" when Form A consent is No
-(check section 3). The site must confirm what happened; this is a protocol
-matter, not just data.
+**Seen live 30-09-2026:** `01-0031` — Form A consent "No" (28-09, 05:55 IST,
+a full day before Form B existed) with two Form B rows saved as randomised
+and helper-form data filled in under one of them.
+
+**Mechanism:** the browser sidebar greys out Form B when Form A isn't
+Eligible, but that is a **page-only** lock. Before 30-09-2026 nothing on the
+server checked it, so any route that skips the browser's own logic — the
+mobile app's two "Form B1" buttons (neither checks consent, confirmed by
+reading `Portal_app1`), a stale browser tab open from before consent was
+recorded, or a direct API call — could still create the record.
+
+**Fixed 30-09-2026**: `main.require_eligible_screening_for_form_b` runs on
+every Form B create *and* update (including the `NR-` "no PPV needed" path)
+— rejects (422) unless the linked Form A screening is Eligible (GA in
+window, no exclusion, consent Yes / Trial run). A screening with no
+`screening_id` sent at all passes unchecked (nothing to evaluate against).
+
+**Still open:** the mobile app itself still shows the "Form B1" button
+regardless of consent — a nurse can tap it and only find out from the
+error after filling the form. Flagged to Harsh (PR #49 comment) to add the
+same check client-side.
+
+**Investigate `01-0031`:** confirm with PGIMER what actually happened — was
+consent really refused, or was "No" itself a data-entry mistake? This is a
+protocol / IEC question, not only a data fix. The server guard prevents a
+*new* case like this; it does not by itself tell you which record is wrong.
 
 ## 3. "The value should be X but the form says Y"
 Work upstream (README "How to use"):
@@ -110,8 +138,12 @@ Check section 10 after every deploy.
    deployment history).
 
 ## 9. Known open issues (30-09-2026)
-- `01-` and `01-B-` / `01-B-123`: see §1–2 — awaiting PGIMER confirmation.
+- `01-` and `01-B-` / `01-B-123`: **data not yet repaired** — see §1–2, awaiting
+  PGIMER confirmation of what actually happened. (Recurrence is now blocked
+  server-side; these two existing records still need the manual fix in §8.)
 - Ten "Trial run" screenings remain (check 9), incl. `01-A-001` with helper data.
+- Mobile app's Form B buttons don't check consent client-side (§2) — flagged
+  to Harsh, not yet fixed on his side.
 - DMS → Helper 4 transfusion "set by DMS" marker isn't saved (PR #49 comment).
 - Helper 5 "N days with no data entered" warning ignores the discharge day.
 - Form I death prefill doesn't read Form J deaths.

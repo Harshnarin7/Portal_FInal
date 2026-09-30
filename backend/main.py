@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
+﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -87,6 +87,7 @@ from baby_uid_duplicate import (
     baby_uid_conflict_message,
     find_enrollment_id_conflict,
     enrollment_id_conflict_message,
+    ENROLLMENT_ID_PATTERN,
 )
 import secrets
 import string
@@ -515,6 +516,55 @@ def resolve_birth_enrollment_id(data) -> str | None:
     ):
         return f"NR-{data.screening_id}"
     return None
+
+
+ENROLLMENT_ID_FORMAT_HINT = "e.g. 01-A-001 (site-blender-number)"
+
+
+def require_valid_enrollment_id_format(enrollment_id: str | None) -> None:
+    """Form B is the only place an enrollment id is typed by hand (no
+    generator, unlike screening_id) — reject anything that is not a
+    complete <site>-<A-D>-<number> id or an NR- placeholder, rather than
+    silently saving a half-typed id as its own row (found live 2026-09-30:
+    "01-" and "01-B-" each became a permanent, separate patient record
+    because nothing on the server checked the format on save)."""
+    eid = (enrollment_id or "").strip()
+    if not eid or eid.upper().startswith("NR-") or ENROLLMENT_ID_PATTERN.match(eid):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=f"'{enrollment_id}' is not a complete Enrollment ID ({ENROLLMENT_ID_FORMAT_HINT}). "
+               "Finish typing the full ID before saving Form B.",
+    )
+
+
+def require_eligible_screening_for_form_b(db: Session, screening_id: str | None) -> None:
+    """Form B (birth/resuscitation, incl. the NR- "no PPV needed" path) may
+    only be created/updated for a screening that is actually Eligible —
+    GA in the 25w0d-31w6d window, no A4 exclusion, and consent Yes / Trial
+    run. Found live 2026-09-30: a baby whose Form A consent was "No" (Not
+    Eligible) still had two Form B rows and helper-form data saved under
+    it — the browser's own sidebar greys out Form B for a non-Eligible
+    screening, but nothing enforced that on the server, so a route that
+    doesn't run that page logic (the mobile app's Form B buttons, an old
+    browser tab, a direct API call) could still create the record. No
+    screening_id at all is allowed through unchecked (nothing to check
+    against) rather than blocking a save this function can't evaluate."""
+    sid = (screening_id or "").strip()
+    if not sid:
+        return
+    screening = db.query(Screening).filter(Screening.screening_id == sid).first()
+    if not screening:
+        return
+    if compute_screening_status(screening) != "Eligible":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Screening {sid} is not Eligible (status: {screening.screening_status}). "
+                "Form B can only be filled for a baby whose Form A screening is Eligible "
+                "— check the gestational age, exclusion criteria and consent on Form A."
+            ),
+        )
 
 
 def link_screening_enrollment(
@@ -1417,6 +1467,8 @@ def create_birth_resuscitation(
     # got the ID to store for the next screen.
     enrollment_id = resolve_birth_enrollment_id(data)
     require_enrollment_access(enrollment_id, db, current_user)
+    require_valid_enrollment_id_format(enrollment_id)
+    require_eligible_screening_for_form_b(db, data.screening_id)
     # Re-bind so payload / DB row use the resolved id (incl. NR- placeholders).
     data = data.model_copy(update={"enrollment_id": enrollment_id})
     eid_conflict = find_enrollment_id_conflict(db, enrollment_id, data.screening_id)
@@ -1632,12 +1684,14 @@ def update_birth_resuscitation(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
+    require_valid_enrollment_id_format(enrollment_id)
     entry = db.query(BirthResuscitation).filter(
         BirthResuscitation.enrollment_id == enrollment_id
     ).first()
 
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
+    require_eligible_screening_for_form_b(db, entry.screening_id or updated_data.screening_id)
 
     # FIX: same class of bug as create_birth_resuscitation (see its comments) —
     # this PUT is looked up by enrollment_id ALONE, with no check that the
