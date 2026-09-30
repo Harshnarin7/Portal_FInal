@@ -488,3 +488,10 @@
 .form-ae-page .id-val { color: #115e59; }
 
 .ae-datepicker-popper { z-index: 60 !important; }
+
+/* Linked SAE report suggestion (v1.1, 2026-09-30). */
+.ae-sae-link { margin-top: 4px; font-size: 11.5px; color: #1e3a8a; white-space: nowrap; }
+.ae-sae-apply {
+  border: 0; background: transparent; padding: 0;
+  color: #1d4ed8; font-weight: 700; font-size: 11.5px; cursor: pointer; text-decoration: underline;
+}

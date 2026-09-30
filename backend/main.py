@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
@@ -5633,6 +5633,18 @@ def _concomitant_from_logs(db, enrollment_id, day1_date):
     return rows
 
 
+def _linked_ae_for_report(snap):
+    """The AE copy saved on an SAE report (v1.1) -> item 15.1's linked-AE line."""
+    if not isinstance(snap, dict) or not snap:
+        return None
+    import sae_config
+    return {
+        "description": snap.get("description") or snap.get("definition_no") or "—",
+        "grade_label": sae_config.severity_label(snap.get("grade")),
+        "evidence": snap.get("severity_desc") or "—",
+    }
+
+
 def _assemble_sae_context(db, enrollment_id, record, current_user):
     import sae_report  # noqa: F401  (keeps the docx import lazy)
 
@@ -5702,7 +5714,8 @@ def _assemble_sae_context(db, enrollment_id, record, current_user):
             {"report_type": r.report_type, "report_date": r.report_date, "diary_no": None}
             for r in prior
         ],
-        "linked_ae": None,
+        # Copy of the AE saved on the report when it was linked (v1.1).
+        "linked_ae": _linked_ae_for_report(getattr(record, "linked_ae", None)),
         "generated_by": getattr(current_user, "username", None),
     }
 

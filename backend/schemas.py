@@ -2253,6 +2253,14 @@ class SAEReportCreate(BaseModel):
     investigator_date: Optional[str] = None
     site: Optional[str] = None
 
+    # v1.1 (2026-09-30)
+    linked_ae: Optional[dict] = None
+    dechallenge: Optional[str] = None
+    reporting_delay_reason: Optional[str] = None
+    death_details: Optional[str] = None
+    other_relevant_info: Optional[str] = None
+    sponsor_causality: Optional[str] = None
+
     class Config:
         extra = "ignore"
 

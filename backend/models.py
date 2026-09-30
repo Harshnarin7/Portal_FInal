@@ -1729,6 +1729,16 @@ class SAEReport(Base):
     investigator_date = Column(String, nullable=True)
     site = Column(String, nullable=True)
 
+    # v1.1 (PI 2026-09-30): copy of the linked AE at the time of linking
+    # {description, definition_no, start_date, end_date, grade, severity_desc},
+    # and the IEC form items that used to print blank.
+    linked_ae = Column(JSON, nullable=True)
+    dechallenge = Column(Text, nullable=True)             # 15.4
+    reporting_delay_reason = Column(Text, nullable=True)  # 15.9
+    death_details = Column(Text, nullable=True)           # 16.2
+    other_relevant_info = Column(Text, nullable=True)     # 16.3
+    sponsor_causality = Column(String, nullable=True)     # 20
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow) 
 

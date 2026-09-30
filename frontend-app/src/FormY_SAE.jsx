@@ -81,6 +81,40 @@ function normalizeSeverity(v) {
 // recorded AE" picker).
 const gradeToSeverity = (g) => SEVERITY_ALIASES[String(g || "").trim()] || "";
 
+// v1.1 (PI 2026-09-30): IEC form items that used to print blank.
+const DEFAULT_DECHALLENGE =
+  "Not applicable — the randomised oxygen intervention is titrated to physiological targets, "
+  + "not withdrawn/re-administered as a discrete challenge; see the respiratory support log.";
+const SPONSOR_CAUSALITY_OPTIONS = ["Related", "Unrelated", "Awaiting sponsor assessment"];
+
+/** Copy of an AE row saved on the SAE report when it is linked. */
+function aeSnapshot(e) {
+  return {
+    description: e.description || "",
+    definition_no: e.definition_no || "",
+    start_date: dateOnly(e.start_date) || "",
+    end_date: dateOnly(e.end_date) || "",
+    grade: e.grade != null ? String(e.grade) : "",
+    severity_desc: e.severity_desc || "",
+  };
+}
+
+/** The linked AE's current row in the AE list (same description + start). */
+function findLinkedAeRow(aeRows, snap) {
+  if (!snap) return null;
+  return (aeRows || []).find((e) =>
+    (e.description || e.definition_no || "") === (snap.description || snap.definition_no || "")
+    && (dateOnly(e.start_date) || "") === (snap.start_date || "")) || null;
+}
+
+/** Initial SAE reporting is due within 24 h of onset (NDCT Rules 2019). */
+function isReportDelayed(data) {
+  if (!data.report_date || !data.onset_date) return false;
+  const onset = new Date(`${data.onset_date}T${data.onset_time || "00:00"}:00`);
+  const reported = new Date(`${data.report_date}T23:59:59`);
+  return reported - onset > 24 * 3600 * 1000;
+}
+
 const CAUSALITY_OPTIONS = [
   "Not Related (Clearly extraneous)",
   "Unlikely (Doubtfully related)",
@@ -184,6 +218,12 @@ function BLANK(enrollmentId = "") {
     investigator_name: "",
     investigator_date: "",
     site: "",
+    linked_ae: null,
+    dechallenge: DEFAULT_DECHALLENGE,
+    reporting_delay_reason: "",
+    death_details: "",
+    other_relevant_info: "",
+    sponsor_causality: "",
   };
 }
 
@@ -218,6 +258,12 @@ function mapApiToForm(row) {
     investigator_name: row.investigator_name || "",
     investigator_date: dateOnly(row.investigator_date),
     site: row.site || "",
+    linked_ae: row.linked_ae && typeof row.linked_ae === "object" ? row.linked_ae : null,
+    dechallenge: row.dechallenge || DEFAULT_DECHALLENGE,
+    reporting_delay_reason: row.reporting_delay_reason || "",
+    death_details: row.death_details || "",
+    other_relevant_info: row.other_relevant_info || "",
+    sponsor_causality: row.sponsor_causality || "",
   };
 }
 
@@ -248,6 +294,12 @@ function buildPayload(data) {
     investigator_signature: null,
     investigator_date: emptyToNull(data.investigator_date),
     site: emptyToNull(data.site),
+    linked_ae: data.linked_ae || null,
+    dechallenge: emptyToNull(data.dechallenge),
+    reporting_delay_reason: emptyToNull(data.reporting_delay_reason),
+    death_details: data.outcome === "Fatal" ? emptyToNull(data.death_details) : null,
+    other_relevant_info: emptyToNull(data.other_relevant_info),
+    sponsor_causality: emptyToNull(data.sponsor_causality),
   };
 }
 
@@ -564,6 +616,9 @@ export default function FormY_SAE() {
     setIsSaved(false);
     setFormData((p) => ({
       ...p,
+      // v1.1: remember which AE this report is about (a copy, so the report
+      // stays as reported even if the AE list is edited later).
+      linked_ae: aeSnapshot(e),
       diagnosis: p.diagnosis || e.description || "",
       severity: p.severity || gradeToSeverity(e.grade),
       onset_date: p.onset_date || dateOnly(e.start_date),
@@ -792,6 +847,26 @@ export default function FormY_SAE() {
             </div>
           </div>
         )}
+        {formData.linked_ae && (() => {
+          const snap = formData.linked_ae;
+          const now = findLinkedAeRow(aeRows, snap);
+          const changed = now && String(now.grade ?? "") !== String(snap.grade ?? "");
+          return (
+            <div className="fy-linked-ae">
+              <strong>Linked adverse event:</strong>{" "}
+              {snap.description || snap.definition_no}
+              {snap.grade ? ` — Grade ${snap.grade}` : ""}
+              {snap.start_date ? ` (from ${snap.start_date})` : ""}.{" "}
+              <button type="button" className="fy-link-btn" onClick={() => set("linked_ae", null)}>Unlink</button>
+              {!now && aeRows.length > 0 && (
+                <div className="fy-linked-ae-warn">This AE is no longer in the AE list as linked (edited or removed). The report keeps the copy saved here.</div>
+              )}
+              {changed && (
+                <div className="fy-linked-ae-warn">The AE list now shows Grade {now.grade} for this event; this report was linked at Grade {snap.grade}.</div>
+              )}
+            </div>
+          );
+        })()}
         <div className="fy-block">
           <div className="form-group">
             <label>Diagnosis / Event term</label>
@@ -910,6 +985,13 @@ export default function FormY_SAE() {
             />
           </div>
         )}
+        {formData.outcome === "Fatal" && (
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label>16.2 Cause of death, its possible relationship to the event, post-mortem findings</label>
+            <textarea rows={3} value={formData.death_details}
+              onChange={(e) => set("death_details", e.target.value)} />
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard icon={FileText} num="VIII" title="Narrative">
@@ -921,6 +1003,35 @@ export default function FormY_SAE() {
             rows={6}
             placeholder="Describe the event chronologically, interventions, and current status…"
           />
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={FileText} num="VIII-b" title="IEC report items">
+        <div className="form-group">
+          <label>15.4 Dechallenge / rechallenge</label>
+          <textarea rows={2} value={formData.dechallenge}
+            onChange={(e) => set("dechallenge", e.target.value)} />
+          <small className="fy-hint">Standard wording pre-filled — change it only for an unusual case.</small>
+        </div>
+        {(isReportDelayed(formData) || formData.reporting_delay_reason) && (
+          <div className="form-group">
+            <label>15.9 Reason for the delay in reporting</label>
+            <textarea rows={2} value={formData.reporting_delay_reason}
+              onChange={(e) => set("reporting_delay_reason", e.target.value)} />
+            {isReportDelayed(formData) && (
+              <small className="fy-hint fy-hint-warn">The report date is more than 24 h after onset — initial SAE reports are due within 24 h.</small>
+            )}
+          </div>
+        )}
+        <div className="form-group">
+          <label>16.3 Other relevant information (medical history, allergy, family history, special investigations)</label>
+          <textarea rows={3} value={formData.other_relevant_info}
+            onChange={(e) => set("other_relevant_info", e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label>20. Causality assessment by Sponsor / CRO</label>
+          <Chips options={SPONSOR_CAUSALITY_OPTIONS} value={formData.sponsor_causality}
+            onChange={(v) => set("sponsor_causality", v)} />
         </div>
       </SectionCard>
 

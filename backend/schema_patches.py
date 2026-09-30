@@ -1307,3 +1307,15 @@ FORM_IS_COMPLETE_PATCHES = [
     # Form H: the page's own "no validation error showing" check (2026-09-29).
     "ALTER TABLE neonatal_morbidities ADD COLUMN IF NOT EXISTS is_complete BOOLEAN",
 ]
+
+
+# SAE report v1.1 (2026-09-30): linked AE snapshot + IEC items 15.4, 15.9,
+# 16.2, 16.3, 20 (previously printed blank). All nullable.
+SAE_REPORT_V11_COLUMN_PATCHES = [
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS linked_ae JSON",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS dechallenge TEXT",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS reporting_delay_reason TEXT",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS death_details TEXT",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS other_relevant_info TEXT",
+    "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS sponsor_causality VARCHAR",
+]

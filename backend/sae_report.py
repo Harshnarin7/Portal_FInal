@@ -24,6 +24,13 @@ import sae_config as cfg
 _NA = "Not applicable"
 _BLANK = "—"
 
+# Default 15.4 wording; Form Y pre-fills it and the investigator may edit it.
+DEFAULT_DECHALLENGE = (
+    "Not applicable — the randomised oxygen intervention is titrated to "
+    "physiological targets, not withdrawn/re-administered as a discrete challenge; "
+    "see the respiratory support log."
+)
+
 
 # --------------------------------------------------------------------------
 # small helpers
@@ -235,9 +242,7 @@ def build_sae_report_docx(sae, ctx) -> bytes:
         ("15.3  Stop date/time or duration",
          "Ongoing" if getattr(sae, "ongoing", False) else _fmt_dt(sae.end_datetime)),
         ("15.4  Dechallenge / rechallenge",
-         "Not applicable — the randomised oxygen intervention is titrated to "
-         "physiological targets, not withdrawn/re-administered as a discrete challenge; "
-         "see the respiratory support log."),
+         (getattr(sae, "dechallenge", None) or "").strip() or DEFAULT_DECHALLENGE),
         ("15.5  Setting", "Neonatal Intensive Care Unit / delivery room"),
         ("15.6  Seriousness criteria met", _yesno_list(sae.seriousness)),
         ("15.7  Severity (INC NAESS)", cfg.severity_label(sae.severity)),
