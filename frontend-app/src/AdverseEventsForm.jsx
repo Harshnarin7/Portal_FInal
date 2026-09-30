@@ -254,6 +254,24 @@ export default function AdverseEventsForm() {
   };
 
   const [formData, setFormData] = useState(() => BLANK());
+  // SAE reports that are linked to one of these AEs (v1.1, PI 2026-09-30):
+  // shown next to the event with an Apply for "Converted to SAE" = Yes.
+  const [linkedSaes, setLinkedSaes] = useState([]);
+  useEffect(() => {
+    const eid = formData.enrollment_id;
+    if (!eid) return undefined;
+    let cancelled = false;
+    api.get(`/sae-report/${encodeURIComponent(eid)}`)
+      .then((res) => {
+        if (cancelled) return;
+        setLinkedSaes((Array.isArray(res.data) ? res.data : []).filter((r) => r && r.linked_ae));
+      })
+      .catch(() => { if (!cancelled) setLinkedSaes([]); });
+    return () => { cancelled = true; };
+  }, [formData.enrollment_id]);
+  const saeLinkedTo = (row) => linkedSaes.find((r) =>
+    (r.linked_ae.description || r.linked_ae.definition_no || "") === (row.description || row.definition_no || "")
+    && (r.linked_ae.start_date || "") === (dateOnly(row.start_date) || ""));
   const [isSaved, setIsSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [assessors, setAssessors] = useState([]);
@@ -701,6 +719,19 @@ export default function AdverseEventsForm() {
                           value={row.converted_to_sae}
                           onChange={(v) => updateRow(idx, "converted_to_sae", v)}
                         />
+                        {saeLinkedTo(row) && (
+                          <div className="ae-sae-link">
+                            Linked to SAE report
+                            {saeLinkedTo(row).report_date ? ` (${dateOnly(saeLinkedTo(row).report_date)})` : ""}
+                            {row.converted_to_sae !== "Yes" && (
+                              <>
+                                {" — "}
+                                <button type="button" className="ae-sae-apply"
+                                  onClick={() => updateRow(idx, "converted_to_sae", "Yes")}>Apply: Yes</button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <button

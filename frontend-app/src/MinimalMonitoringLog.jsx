@@ -1300,6 +1300,34 @@ const GROWTH_A_COLUMNS = [
 // a different cadence menu than the hourly GI/Glucose/Vitals flowsheets.
 const GROWTH_A_FREQUENCY_OPTIONS = [12, 24];
 
+/** The day's last weight (grams) from the 5.7.A rows, by slot/entry time. */
+function lastDayWeightGrams(rows) {
+  const real = (rows || [])
+    .filter(e => ans(e.weight_g) && Number.isFinite(Number(e.weight_g)))
+    .sort((a, b) => String(a.slot_time || a.time || "").localeCompare(String(b.slot_time || b.time || "")));
+  return real.length ? Number(real[real.length - 1].weight_g) : null;
+}
+
+/** Day-on-day weight change check, moved here from Helper 2's retired 2.1
+ *  Weight field (PI 2026-09-29) with the same rules: age < 2 weeks flag a
+ *  change of more than 2% either way; age >= 2 weeks flag any loss, or a
+ *  gain of 2% or more. Advisory only - saving is still allowed. */
+function weightChangeWarning({ todayG, prevG, ageDays }) {
+  if (ageDays == null || ageDays < 0 || todayG == null || prevG == null || prevG === 0) return null;
+  const pct = ((todayG - prevG) / prevG) * 100;
+  const absPct = Math.abs(pct);
+  const dir = pct > 0 ? "gain" : "loss";
+  const vs = `vs yesterday (${prevG} g → ${todayG} g)`;
+  if (ageDays < 14) {
+    return absPct > 2
+      ? `Weight ${dir} of ${absPct.toFixed(1)}% ${vs}: threshold 2% at age < 2 weeks. Check the reading — save is still allowed.`
+      : null;
+  }
+  if (pct < 0) return `Weight loss of ${absPct.toFixed(1)}% ${vs}: any loss is flagged at age ≥ 2 weeks. Check the reading — save is still allowed.`;
+  if (pct >= 2) return `Weight gain of ${absPct.toFixed(1)}% ${vs}: threshold 2% at age ≥ 2 weeks. Check the reading — save is still allowed.`;
+  return null;
+}
+
 /** Min/max per numeric column across the day's real entries — a blank slot
  *  contributes to neither bound, same never-invent-data-for-gaps rule as
  *  every other DMS aggregate this session. */
@@ -1696,6 +1724,9 @@ export default function MinimalMonitoringLog() {
   const [vitalsFrequencyHours, setVitalsFrequencyHours] = useState(2);
   const [weightFrequencyHours, setWeightFrequencyHours] = useState(24);
   const [patientInfo, setPatientInfo] = useState({ enrollmentId, motherName: "", babyUid: "", gestation: "" });
+  const [dobYmd, setDobYmd] = useState("");
+  // Yesterday's last DMS weight, for the day-on-day weight change warning.
+  const [prevDayWeightG, setPrevDayWeightG] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -1862,6 +1893,7 @@ export default function MinimalMonitoringLog() {
       try {
         const birth = await api.get(`/birth-resuscitation/${enrollmentId}`);
         const b = birth?.data || {};
+        setDobYmd(b.date_of_birth ? String(b.date_of_birth).slice(0, 10) : "");
         setPatientInfo(prev => ({
           ...prev, enrollmentId,
           babyUid: b.baby_uid || "",
@@ -1879,6 +1911,25 @@ export default function MinimalMonitoringLog() {
     };
     loadPatient();
   }, [enrollmentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPrevDayWeightG(null);
+    if (!enrollmentId || !sheetDate) return undefined;
+    const d = new Date(`${sheetDate}T00:00:00`);
+    d.setDate(d.getDate() - 1);
+    const yesterday = toDateOnlyValue(d);
+    api.get(`/minimal-monitoring/${enrollmentId}/latest-weight-kg/${yesterday}`)
+      .then(res => {
+        const kg = res?.data?.weight_kg;
+        // Same rule as the old Helper 2 check: compare with yesterday only.
+        if (!cancelled && res?.data?.date === yesterday && typeof kg === "number") {
+          setPrevDayWeightG(Math.round(kg * 1000));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [enrollmentId, sheetDate]);
 
   const sheetDateOptions = useMemo(() => mmlDropdownDateOptions(), []);
 
@@ -2574,8 +2625,15 @@ export default function MinimalMonitoringLog() {
             )}
           </EntryBlock>
         );
-      case "growth_a":
+      case "growth_a": {
+        const ageDays = (dobYmd && sheetDate)
+          ? Math.round((new Date(`${sheetDate}T00:00:00`) - new Date(`${dobYmd}T00:00:00`)) / 86400000)
+          : null;
+        const weightWarn = weightChangeWarning({
+          todayG: lastDayWeightGrams(entries.growth_a), prevG: prevDayWeightG, ageDays,
+        });
         return (
+          <>
           <ScheduledFlowsheet
             blockKey="growth_a"
             columns={GROWTH_A_COLUMNS}
@@ -2590,7 +2648,12 @@ export default function MinimalMonitoringLog() {
             sheetDate={sheetDate}
             errors={errors}
           />
+          {weightWarn && (
+            <div className="mml-weight-warn" role="status">⚠ {weightWarn}</div>
+          )}
+          </>
         );
+      }
       default:
         return null;
     }

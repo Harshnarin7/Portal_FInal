@@ -22,7 +22,21 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import sae_config as cfg
 
 _NA = "Not applicable"
+
+
+def _is_fatal(sae) -> bool:
+    """Fatal SAE: "Death" ticked under seriousness OR outcome "Fatal" (either
+    alone used to leave item 2 as "Other than death" and 16.2 blank)."""
+    seriousness = sae.seriousness if isinstance(sae.seriousness, list) else []
+    return "Death" in seriousness or (getattr(sae, "outcome", None) or "") == "Fatal"
 _BLANK = "—"
+
+# Default 15.4 wording; Form Y pre-fills it and the investigator may edit it.
+DEFAULT_DECHALLENGE = (
+    "Not applicable — the randomised oxygen intervention is titrated to "
+    "physiological targets, not withdrawn/re-administered as a discrete challenge; "
+    "see the respiratory support log."
+)
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +202,7 @@ def build_sae_report_docx(sae, ctx) -> bytes:
 
     _para(d, cfg.SUBMISSION_RULES, italic=True, size=9)
 
-    death = "Death" in (sae.seriousness or []) if isinstance(sae.seriousness, list) else False
+    death = _is_fatal(sae)
 
     _h(d, "1–10. Report and trial identification")
     _kv_table(d, [
@@ -235,9 +249,7 @@ def build_sae_report_docx(sae, ctx) -> bytes:
         ("15.3  Stop date/time or duration",
          "Ongoing" if getattr(sae, "ongoing", False) else _fmt_dt(sae.end_datetime)),
         ("15.4  Dechallenge / rechallenge",
-         "Not applicable — the randomised oxygen intervention is titrated to "
-         "physiological targets, not withdrawn/re-administered as a discrete challenge; "
-         "see the respiratory support log."),
+         (getattr(sae, "dechallenge", None) or "").strip() or DEFAULT_DECHALLENGE),
         ("15.5  Setting", "Neonatal Intensive Care Unit / delivery room"),
         ("15.6  Seriousness criteria met", _yesno_list(sae.seriousness)),
         ("15.7  Severity (INC NAESS)", cfg.severity_label(sae.severity)),
@@ -355,7 +367,7 @@ def build_covering_letter_docx(sae, ctx) -> bytes:
     _para(d, iec["address"])
     d.add_paragraph()
 
-    death = "Death" in (sae.seriousness or []) if isinstance(sae.seriousness, list) else False
+    death = _is_fatal(sae)
     _para(d, "Subject: 24-hour notification of a Serious Adverse Event — "
              + cfg.TRIAL["protocol_title"], bold=True)
     d.add_paragraph()

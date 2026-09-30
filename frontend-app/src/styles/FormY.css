@@ -457,3 +457,20 @@
   color: #6b7280;
 }
 p.fy-hint { margin-bottom: 10px; }
+
+/* v1.1 linked AE + IEC items (2026-09-30). */
+.fy-linked-ae {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+.fy-link-btn {
+  border: 0; background: transparent; padding: 0;
+  color: #1d4ed8; font-weight: 700; font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+.fy-linked-ae-warn { margin-top: 4px; color: #b45309; font-weight: 600; font-size: 12.5px; }
+.fy-hint-warn { color: #b45309; }

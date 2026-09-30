@@ -27,6 +27,7 @@ from ae_reference import (
     detect_resp_misc_candidates,
 )
 from rop_form_g_linkage import (
+    compute_rop_review_alerts,
     enrich_rop_screening_payload,
     sync_rop_screening_from_metab_log,
 )
@@ -50,6 +51,8 @@ from clinical_time import clinical_now, clinical_today
 from bpd_suggestion import suggest_bpd
 from rop_suggestion import suggest_rop, stage_rank, exam as rop_exam, event as rop_event
 from cr_duplicates import normalize_cr, find_duplicate
+import form_completion as fc
+import composite_suggestion as cs
 from brain_injury_suggestion import suggest_brain_injury, grade_rank as bi_grade_rank, record as bi_record
 from nec_suggestion import suggest_nec, stage_rank as nec_stage_rank, finding as nec_finding, highest_stage as nec_highest_stage
 from concurrent_writes import (
@@ -84,6 +87,7 @@ from baby_uid_duplicate import (
     baby_uid_conflict_message,
     find_enrollment_id_conflict,
     enrollment_id_conflict_message,
+    ENROLLMENT_ID_PATTERN,
 )
 import secrets
 import string
@@ -512,6 +516,55 @@ def resolve_birth_enrollment_id(data) -> str | None:
     ):
         return f"NR-{data.screening_id}"
     return None
+
+
+ENROLLMENT_ID_FORMAT_HINT = "e.g. 01-A-001 (site-blender-number)"
+
+
+def require_valid_enrollment_id_format(enrollment_id: str | None) -> None:
+    """Form B is the only place an enrollment id is typed by hand (no
+    generator, unlike screening_id) — reject anything that is not a
+    complete <site>-<A-D>-<number> id or an NR- placeholder, rather than
+    silently saving a half-typed id as its own row (found live 2026-09-30:
+    "01-" and "01-B-" each became a permanent, separate patient record
+    because nothing on the server checked the format on save)."""
+    eid = (enrollment_id or "").strip()
+    if not eid or eid.upper().startswith("NR-") or ENROLLMENT_ID_PATTERN.match(eid):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=f"'{enrollment_id}' is not a complete Enrollment ID ({ENROLLMENT_ID_FORMAT_HINT}). "
+               "Finish typing the full ID before saving Form B.",
+    )
+
+
+def require_eligible_screening_for_form_b(db: Session, screening_id: str | None) -> None:
+    """Form B (birth/resuscitation, incl. the NR- "no PPV needed" path) may
+    only be created/updated for a screening that is actually Eligible —
+    GA in the 25w0d-31w6d window, no A4 exclusion, and consent Yes / Trial
+    run. Found live 2026-09-30: a baby whose Form A consent was "No" (Not
+    Eligible) still had two Form B rows and helper-form data saved under
+    it — the browser's own sidebar greys out Form B for a non-Eligible
+    screening, but nothing enforced that on the server, so a route that
+    doesn't run that page logic (the mobile app's Form B buttons, an old
+    browser tab, a direct API call) could still create the record. No
+    screening_id at all is allowed through unchecked (nothing to check
+    against) rather than blocking a save this function can't evaluate."""
+    sid = (screening_id or "").strip()
+    if not sid:
+        return
+    screening = db.query(Screening).filter(Screening.screening_id == sid).first()
+    if not screening:
+        return
+    if compute_screening_status(screening) != "Eligible":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Screening {sid} is not Eligible (status: {screening.screening_status}). "
+                "Form B can only be filled for a baby whose Form A screening is Eligible "
+                "— check the gestational age, exclusion criteria and consent on Form A."
+            ),
+        )
 
 
 def link_screening_enrollment(
@@ -1414,6 +1467,8 @@ def create_birth_resuscitation(
     # got the ID to store for the next screen.
     enrollment_id = resolve_birth_enrollment_id(data)
     require_enrollment_access(enrollment_id, db, current_user)
+    require_valid_enrollment_id_format(enrollment_id)
+    require_eligible_screening_for_form_b(db, data.screening_id)
     # Re-bind so payload / DB row use the resolved id (incl. NR- placeholders).
     data = data.model_copy(update={"enrollment_id": enrollment_id})
     eid_conflict = find_enrollment_id_conflict(db, enrollment_id, data.screening_id)
@@ -1608,6 +1663,17 @@ def get_birth_resuscitation(
         # still loads; identity fields stay blank and the UI can retry PII.
         pass
 
+    # The helper pages read b.discharge_date from this response to stop
+    # requiring days after discharge, but it was never included - the date
+    # lives on Form H (PATCH /enrollment/{id}/discharge writes it there).
+    form_h_dd = (
+        db.query(NeonatalMorbidities.discharge_date)
+        .filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc())
+        .first()
+    )
+    record_dict["discharge_date"] = form_h_dd[0] if form_h_dd else None
+
     return record_dict
 
 @app.put("/birth-resuscitation/{enrollment_id}", response_model=BirthResuscitationOut)
@@ -1618,12 +1684,14 @@ def update_birth_resuscitation(
     current_user: User = Depends(get_current_user),
 ):
     require_enrollment_access(enrollment_id, db, current_user)
+    require_valid_enrollment_id_format(enrollment_id)
     entry = db.query(BirthResuscitation).filter(
         BirthResuscitation.enrollment_id == enrollment_id
     ).first()
 
     if not entry:
         raise HTTPException(status_code=404, detail="Not found")
+    require_eligible_screening_for_form_b(db, entry.screening_id or updated_data.screening_id)
 
     # FIX: same class of bug as create_birth_resuscitation (see its comments) —
     # this PUT is looked up by enrollment_id ALONE, with no check that the
@@ -4607,6 +4675,145 @@ def get_nec_stage_suggestion(
     return {"status": "none"}
 
 
+@app.get("/composite-suggestion/{enrollment_id}")
+def get_composite_suggestion(
+    enrollment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggested Form L L.3 items 11 / 12a / 12b and Form G item 18 (PI
+    2026-09-30; rules in composite_suggestion.py). Components come from Form
+    I's saved checkpoint answers first and the live BPD / ROP / NEC / brain
+    injury suggestions only where Form I is blank. Read-only; Form L and
+    Form G show it with an Apply button."""
+    require_enrollment_access(enrollment_id, db, current_user)
+    b = get_birth_resuscitation(enrollment_id, db=db, current_user=current_user)
+    dob = b.get("date_of_birth") if isinstance(b, dict) else None
+    if isinstance(dob, str):
+        dob = date.fromisoformat(dob[:10])
+    gw, gd = (b.get("gestation_weeks"), b.get("gestation_days")) if isinstance(b, dict) else (None, None)
+    t36 = _pma_target_date(dob, gw, gd, 36)
+    t44 = _pma_target_date(dob, gw, gd, 44)
+
+    fi = (
+        db.query(StudyOutcomes).filter(StudyOutcomes.enrollment_id == enrollment_id)
+        .order_by(StudyOutcomes.id.desc()).first()
+    )
+    form_h = (
+        db.query(NeonatalMorbidities).filter(NeonatalMorbidities.enrollment_id == enrollment_id)
+        .order_by(NeonatalMorbidities.id.desc()).first()
+    )
+    j_rows = db.query(ExternalHospitalAssessment).filter(
+        ExternalHospitalAssessment.enrollment_id == enrollment_id).all()
+
+    # ---- Death: dated deaths, and the latest date the baby is known alive.
+    deaths, alive = [], []
+    metab = db.query(MetabRenalVascEyeDayLog).filter(MetabRenalVascEyeDayLog.enrollment_id == enrollment_id).all()
+    if dob:
+        dead_day = min((l.nicu_day for l in metab if l.survived_the_day is False), default=None)
+        if dead_day:
+            deaths.append((dob + timedelta(days=dead_day - 1), f"Helper 5 Day {dead_day}"))
+        log_days = [l.nicu_day for l in metab if l.survived_the_day is not False]
+        for model in (RespCVNeuroDayLog, InfectGIHemaDayLog):
+            log_days += [r[0] for r in db.query(model.nicu_day).filter(model.enrollment_id == enrollment_id).all()]
+        if log_days:
+            last = max(log_days)
+            alive.append((dob + timedelta(days=last - 1), f"daily logs Day {last}"))
+    if form_h and form_h.discharge_date:
+        if form_h.outcome == "Died":
+            deaths.append((form_h.discharge_date, "Form H outcome Died"))
+        else:
+            alive.append((form_h.discharge_date, f"Form H {form_h.outcome or 'discharge'}"))
+    for j in j_rows:
+        vd = _pma_target_date(dob, gw, gd, j.assessment_weeks) if j.assessment_weeks else None
+        if j.death is True:
+            deaths.append((j.death_date or vd, f"Form J {j.assessment_weeks}-week visit"))
+        elif j.death is False and vd:
+            alive.append((vd, f"Form J {j.assessment_weeks}-week visit"))
+    deaths = [d for d in deaths if d[0]]
+    death_date, death_src = min(deaths) if deaths else (None, "")
+    alive_until, alive_src = max(alive) if alive else (None, "")
+
+    def death_by(label, target, saved_values):
+        vals = [v for v in saved_values]
+        if any(v is True for v in vals):
+            return cs.comp(label, "Yes", "Form I")
+        if vals and all(v is False for v in vals):
+            return cs.comp(label, "No", "Form I")
+        return cs.death_component(label, target, death_date, death_src, alive_until, alive_src)
+
+    death36 = death_by("Death by 36 wk", t36, [fi.death36] if fi else [])
+    death44 = death_by("Death by 44 wk", t44, [fi.death36, fi.death40, fi.death44] if fi else [])
+
+    # ---- BPD at 36 wk: Form I, else the BPD suggestion.
+    bpd_saved = cs.bpd_from_form_i(fi.bpd36_jensen_grade) if fi else None
+    if bpd_saved:
+        bpd = cs.comp("BPD at 36 wk", bpd_saved, "Form I", fi.bpd36_jensen_grade.split("→")[-1].strip())
+    else:
+        sg = get_bpd_suggestion(enrollment_id, db=db, current_user=current_user)
+        if sg.get("status") == "suggested" and sg.get("bpd"):
+            detail = f"Grade {sg['bpd_grade']}" if sg.get("bpd_grade") else ""
+            bpd = cs.comp("BPD at 36 wk", sg["bpd"], f"suggestion: {sg.get('source')}", detail)
+        elif sg.get("status") == "not_applicable" and "Born at or after 36" in (sg.get("note") or ""):
+            bpd = cs.comp("BPD at 36 wk", "No", "born at/after 36 weeks")
+        else:
+            bpd = cs.comp("BPD at 36 wk", None, detail=sg.get("note") or "not assessed yet")
+
+    # ---- ROP-Rx / NEC / brain injury by 44 wk: Form I, else live suggestions.
+    live = {}
+    if gw is not None:
+        try:
+            live = get_pma_assessment_prefill(enrollment_id, 44, gestation_weeks=gw, gestation_days=gd or 0,
+                                              db=db, current_user=current_user) or {}
+        except HTTPException:
+            live = {}
+    if fi and fi.rop44_treated is True:
+        rop = cs.comp("ROP needing treatment", "Yes", "Form I", "treated")
+    elif live.get("rop_treatment_required"):
+        rop = cs.comp("ROP needing treatment", live["rop_treatment_required"], "ROP suggestion")
+    else:
+        rop = cs.comp("ROP needing treatment", None, detail=(live.get("rop_note") or "no ROP data yet"))
+    nec_saved = cs.form_i_value(fi.nec44_stage) if fi else None
+    if nec_saved:
+        nec = cs.comp("NEC ≥ IIA", nec_saved, "Form I")
+    elif live.get("nec_stage"):
+        nec = cs.comp("NEC ≥ IIA", live["nec_stage"], "NEC suggestion")
+    else:
+        nec = cs.comp("NEC ≥ IIA", None, detail=(live.get("nec_note") or "no NEC data yet"))
+    ivh = fi.ivh44_grade3 if fi else None
+    cpvl = fi.cpvl44_grade2 if fi else None
+    if ivh is True or cpvl is True:
+        brain = cs.comp("Brain injury", "Yes", "Form I", "IVH ≥ III" if ivh is True else "cPVL ≥ II")
+    elif ivh is False and cpvl is False:
+        brain = cs.comp("Brain injury", "No", "Form I")
+    else:
+        li, lc = live.get("ivh_grade3"), live.get("cpvl_grade2")
+        if li == "Yes" or lc == "Yes":
+            brain = cs.comp("Brain injury", "Yes", "brain injury suggestion", "IVH ≥ III" if li == "Yes" else "cPVL ≥ II")
+        elif li == "No" and lc == "No":
+            brain = cs.comp("Brain injury", "No", "brain injury suggestion")
+        else:
+            brain = cs.comp("Brain injury", None, detail=(live.get("brain_note") or "no cranial scan data yet"))
+
+    mri = db.query(MRIBrainAssessment).filter(MRIBrainAssessment.enrollment_id == enrollment_id).first()
+    g = (
+        db.query(ROPScreening).filter(ROPScreening.enrollment_id == enrollment_id)
+        .order_by(ROPScreening.id.desc()).first()
+    )
+    return {
+        "checkpoint_36": t36.isoformat() if t36 else None,
+        "checkpoint_44": t44.isoformat() if t44 else None,
+        "composite_1": cs.combine([death36, bpd]),
+        "composite_2": cs.combine([death44, bpd, rop, nec, brain]),
+        "mri_abnormality": cs.mri_suggestion(mri.selected_for_mri if mri else None, mri.overall_mri if mri else None),
+        "form_g_item18": cs.form_g_item18(
+            bool(g and (g.treatment_required is True or g.treatment_required_le is True)),
+            g.final_screening_date if g else None,
+            any(j.treat_right is True or j.treat_left is True for j in j_rows),
+        ),
+    }
+
+
 @app.get("/neonatal-morbidities/pma-assessment-prefill/{enrollment_id}")
 def get_pma_assessment_prefill(
     enrollment_id: str,
@@ -5480,6 +5687,18 @@ def _concomitant_from_logs(db, enrollment_id, day1_date):
     return rows
 
 
+def _linked_ae_for_report(snap):
+    """The AE copy saved on an SAE report (v1.1) -> item 15.1's linked-AE line."""
+    if not isinstance(snap, dict) or not snap:
+        return None
+    import sae_config
+    return {
+        "description": snap.get("description") or snap.get("definition_no") or "—",
+        "grade_label": sae_config.severity_label(snap.get("grade")),
+        "evidence": snap.get("severity_desc") or "—",
+    }
+
+
 def _assemble_sae_context(db, enrollment_id, record, current_user):
     import sae_report  # noqa: F401  (keeps the docx import lazy)
 
@@ -5549,7 +5768,8 @@ def _assemble_sae_context(db, enrollment_id, record, current_user):
             {"report_type": r.report_type, "report_date": r.report_date, "diary_no": None}
             for r in prior
         ],
-        "linked_ae": None,
+        # Copy of the AE saved on the report when it was linked (v1.1).
+        "linked_ae": _linked_ae_for_report(getattr(record, "linked_ae", None)),
         "generated_by": getattr(current_user, "username", None),
     }
 
@@ -6149,6 +6369,84 @@ def save_steroid(
 # ENROLLMENT STATUS ENDPOINT
 # ============================================================================
 
+def _downstream_completion(db, enrollment_id, birth, nicu):
+    """Green-tick state for Forms F-L, AE, SAE list, Form Y and Helpers 2-5,
+    from the saved records (rules in form_completion.py, same as the pages'
+    utils/formCompletion.js), so ticks survive a reload / switching babies."""
+    def one(model, order=None):
+        q = db.query(model).filter(model.enrollment_id == enrollment_id)
+        if order is not None:
+            q = q.order_by(order)
+        return q.first()
+
+    dob = birth.date_of_birth if birth else None
+    form_h = one(NeonatalMorbidities, NeonatalMorbidities.id.desc())
+    inf_logs = (
+        db.query(InfectGIHemaDayLog)
+        .filter(InfectGIHemaDayLog.enrollment_id == enrollment_id)
+        .order_by(InfectGIHemaDayLog.nicu_day)
+        .all()
+    )
+    signatures = [w["signature"] for w in _compute_infection_windows(inf_logs, nicu)] if inf_logs else []
+    rop = one(ROPScreening, ROPScreening.id.desc())
+    out = {
+        "form_f_complete": fc.form_f_complete(one(CranialUSGRecord)),
+        "form_g_complete": fc.form_g_complete(rop, compute_rop_review_alerts(rop.screenings) if rop else []),
+        "form_h_complete": fc.form_h_complete(form_h, signatures),
+        "form_i_complete": fc.form_i_complete(one(StudyOutcomes, StudyOutcomes.id.desc())),
+        "form_j_complete": fc.form_j_complete(
+            db.query(ExternalHospitalAssessment).filter(ExternalHospitalAssessment.enrollment_id == enrollment_id).all()),
+        "form_k_complete": fc.form_k_complete(one(MRIBrainAssessment)),
+        "form_l_complete": fc.form_l_complete(one(BlenderStudySummary)),
+        "adverse_events_complete": fc.adverse_events_complete(one(AdverseEvents)),
+        "sae_list_complete": fc.sae_list_complete(one(SAEList)),
+        # Form Y ticks on any saved SAE report (the page's current rule).
+        "form_y_sae_complete": db.query(SAEReport.id).filter(SAEReport.enrollment_id == enrollment_id).first() is not None,
+    }
+
+    # Helpers: every NICU day up to yesterday at 100%, stopping at discharge.
+    today = fc.nicu_day_today(dob, clinical_now())
+    discharge_day = (form_h.discharge_date - dob).days + 1 if (form_h and form_h.discharge_date and dob) else None
+    last = fc.helper_last_required_day(today, discharge_day)
+
+    def scorer(model, pct_fn, overlay=None):
+        rows = {r.nicu_day: r for r in db.query(model).filter(model.enrollment_id == enrollment_id).all()}
+
+        def pct(day):
+            r = rows.get(day)
+            if r is None:
+                return None
+            if overlay and dob:
+                cal = calendar_date_for_nicu_day_from_birth(dob, day)
+                if cal:
+                    overlay(db, enrollment_id, r, cal)
+            return pct_fn(r)
+        return rows, pct
+
+    with db.no_autoflush:
+        h2_rows, h2_pct = scorer(RespCVNeuroDayLog, _compute_completion_pct, _overlay_resp_cv_from_mml)
+        out["vs6_1_complete"] = fc.helper_log_complete(h2_pct, last)
+        _, h4_pct = scorer(InfectGIHemaDayLog, _infect_completion_pct)
+        out["infect_gi_hema_complete"] = fc.helper_log_complete(h4_pct, last)
+        _, h5_pct = scorer(MetabRenalVascEyeDayLog, _metab_completion_pct, _overlay_helper5_from_mml)
+        out["metab_renal_vasc_eye_complete"] = fc.helper_log_complete(h5_pct, last)
+
+        # FiO2 AUC: Helper 2's Supplemental O2 per day, as the FiO2 page sees it.
+        # No discharge cut-off here, same as the FiO2 page (left as is, PI 2026-09-29).
+        fio2_last = fc.helper_last_required_day(today, None, max_day=7)
+        supp_o2 = {}
+        for d, r in h2_rows.items():
+            if fio2_last and d <= fio2_last:
+                if dob:
+                    cal = calendar_date_for_nicu_day_from_birth(dob, d)
+                    if cal:
+                        _overlay_resp_cv_from_mml(db, enrollment_id, r, cal)
+                supp_o2[d] = r.supp_o2  # True / False / None (unanswered)
+        fio2 = one(FiO2AUC, FiO2AUC.created_at.desc())
+        out["fio2_auc_complete"] = fc.fio2_auc_complete(fio2.fio2_logs if fio2 else [], supp_o2, fio2_last)
+    return out
+
+
 @app.get("/enrollment-status/{enrollment_id}")
 def get_enrollment_status(
     enrollment_id: str,
@@ -6272,7 +6570,15 @@ def get_enrollment_status(
         flag = getattr(row, "is_complete", None) if row is not None else None
         return bool(legacy) if flag is None else flag is True
 
+    try:
+        downstream = _downstream_completion(db, enrollment_id, birth, nicu)
+    except Exception:
+        # Never let the tick extras break unlocking / next_form.
+        logger.exception("downstream completion failed for %s", enrollment_id)
+        downstream = {}
+
     return {
+        **downstream,
         "enrollment_id": enrollment_id,
         "screening_status": screening.screening_status,
         "form_a_complete": _complete(screening, True),
@@ -6357,10 +6663,11 @@ def _compute_completion_pct(record) -> int:
         "surfactant", "caffeine", "extub_attempted", "pulm_hemorrhage",
         "pneumothorax", "chest_drain", "pphn", "postnatal_steroids",
     ]
-    resp_total = 23 + (1 if dual else 0)
+    # 2.1 Weight retired 2026-09-29 (PI): recorded in the DMS (5.7.A) now,
+    # not counted here - must match RespCVNeuroLog.jsx's respTotal.
+    resp_total = 22 + (1 if dual else 0)
     resp_done = min(resp_total, (
-        (1 if answered(getattr(record, "weight_kg", None)) else 0)                        # 2.1
-        + (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
+        (1 if answered(getattr(record, "respiratory_support", None)) else 0)            # 1
         + (1 if answered(getattr(record, "endotracheal_intubation", None)) else 0)        # 2
         + (1 if (resp_no or modes) else 0)                                                 # 3
         + (1 if (resp_no or map_cpap_mode == "NA" or value_or_status("map_cpap", "map_cpap_status")) else 0)  # 4

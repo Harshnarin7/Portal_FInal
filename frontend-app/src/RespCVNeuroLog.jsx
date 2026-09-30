@@ -575,7 +575,7 @@ const TABLE_VIEW_FIELD_GROUPS = [
   {
     section: "General",
     rows: [
-      { key: "weight_kg", label: "Weight (kg)" },
+      { key: "weight_kg", label: "Weight (old Helper 2 entry, before 29-09-2026)" },
     ],
   },
   {
@@ -673,62 +673,6 @@ function computeMissingFields(d) {
         .map(row => row.label),
     }))
     .filter(group => group.labels.length > 0);
-}
-
-/* Validates the free-text weight field, which accepts one or more
-   comma-separated readings (e.g. "1250g, 1245g" or "1.25kg").
-   Returns an error string, or null when valid / empty. */
-function validateWeightEntries(str) {
-  if (!str || !str.trim()) return null;
-  const entries = str.split(",").map(s => s.trim()).filter(Boolean);
-  for (const entry of entries) {
-    const m = entry.match(/^(\d+(?:\.\d+)?)\s*(g|kg)?$/i);
-    if (!m) return `"${entry}" isn't a valid weight — use e.g. 1250g or 1.25kg`;
-    const num = parseFloat(m[1]);
-    const unit = (m[2] || "g").toLowerCase();
-    if (unit === "kg") {
-      if (num < 0.2 || num > 8) return `"${entry}" is outside the expected 0.2–8 kg range`;
-    } else if (num < 200 || num > 8000) {
-      return `"${entry}" is outside the expected 200–8000 g range`;
-    }
-  }
-  return null;
-}
-
-function parseWeightToGrams(entry) {
-  const m = String(entry || "").trim().match(/^(\d+(?:\.\d+)?)\s*(g|kg)?$/i);
-  if (!m) return null;
-  const num = parseFloat(m[1]);
-  if (!Number.isFinite(num)) return null;
-  return (m[2] || "g").toLowerCase() === "kg" ? num * 1000 : num;
-}
-function lastWeightGrams(str) {
-  if (!str || !String(str).trim()) return null;
-  const entries = String(str).split(",").map(s => s.trim()).filter(Boolean);
-  if (!entries.length) return null;
-  return parseWeightToGrams(entries[entries.length - 1]);
-}
-function weightChangeWarning({ todayStr, prevStr, ageDays }) {
-  if (ageDays == null || ageDays < 0) return null;
-  const todayG = lastWeightGrams(todayStr);
-  const prevG = lastWeightGrams(prevStr);
-  if (todayG == null || prevG == null || prevG === 0) return null;
-  const pct = ((todayG - prevG) / prevG) * 100;
-  const absPct = Math.abs(pct);
-  const dir = pct > 0 ? "gain" : "loss";
-  if (ageDays < 14) {
-    if (absPct > 2) {
-      return `Weight ${dir} of ${absPct.toFixed(1)}% vs yesterday (threshold 2% at age < 2 weeks). Check the reading — save is still allowed.`;
-    }
-    return null;
-  }
-  if (pct < 0) {
-    return `Weight loss of ${absPct.toFixed(1)}% vs yesterday (any loss is flagged at age ≥ 2 weeks). Check the reading — save is still allowed.`;
-  }
-  if (pct >= 2) {
-    return `Weight gain of ${absPct.toFixed(1)}% vs yesterday (threshold 2% at age ≥ 2 weeks). Check the reading — save is still allowed.`;
-  }
-  return null;
 }
 
 const INVASIVE_MODES = ["SIMV", "AC", "PSV", "HFOV"];
@@ -1075,9 +1019,10 @@ export default function RespCVNeuroLog() {
     currentSupport: "None",
   });
 
-  /* ── Weight (2.1) ── */
-  const [weightKg, setWeightKg] = useState("");
-  const [prevDayWeightKg, setPrevDayWeightKg] = useState("");
+  /* ── Weight (2.1) retired 2026-09-29 (PI): daily weight is recorded in the
+     DMS (5.7.A), which also runs the day-on-day weight change check. Shown
+     here read-only for that day. The old weight_kg column is kept. ── */
+  const [dmsDayWeightG, setDmsDayWeightG] = useState(null);
 
   /* ── Respiratory state ── */
   const [supportModes, setSupportModes] = useState([]);
@@ -1730,7 +1675,6 @@ export default function RespCVNeuroLog() {
             severeDesatCount: severeParsed.value,
             severeDesatCountNotDone: severeParsed.notDone,
           };
-          setWeightKg(d.weight_kg || "");
           setSupportModes(d.support_modes ? d.support_modes.split(",").map(s => s.trim()).filter(Boolean) : []);
           setRespiratorySupport(d.respiratory_support ?? null);
           setEndotrachealIntubation(d.endotracheal_intubation ?? null);
@@ -1830,20 +1774,18 @@ export default function RespCVNeuroLog() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!enrollmentId || activeDay < 2) {
-      setPrevDayWeightKg("");
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get(`/resp-cv-neuro/${enrollmentId}/${activeDay - 1}`);
-        if (!cancelled) setPrevDayWeightKg(res?.data?.weight_kg || "");
-      } catch {
-        if (!cancelled) setPrevDayWeightKg("");
-      }
-    })();
+    setDmsDayWeightG(null);
+    if (!enrollmentId || !activeDayDate) return undefined;
+    api.get(`/minimal-monitoring/${enrollmentId}/latest-weight-kg/${activeDayDate}`)
+      .then(res => {
+        const kg = res?.data?.weight_kg;
+        if (!cancelled && res?.data?.date === activeDayDate && typeof kg === "number") {
+          setDmsDayWeightG(Math.round(kg * 1000));
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [enrollmentId, activeDay]);
+  }, [enrollmentId, activeDayDate]);
 
   useEffect(() => {
     if (!enrollmentId || !activeDayDate || loading) return;
@@ -1895,7 +1837,6 @@ export default function RespCVNeuroLog() {
 
   const resetFormState = () => {
     loadedUpdatedAtRef.current = null;
-    setWeightKg("");
     setSupportModes([]);
     setRespiratorySupport(null); setEndotrachealIntubation(null);
     setMapCpap(""); setMapCpapStatus(null);
@@ -1954,15 +1895,6 @@ export default function RespCVNeuroLog() {
   const isExtubAttemptedYes = respEvents.extub_attempted === true;
   const respSupportIsNo = respiratorySupport === false;
   const isRespSupportYes = respiratorySupport === true;
-  const weightError  = validateWeightEntries(weightKg);
-  const ageDaysOnLog = (day1Date && activeDayDate)
-    ? Math.round(
-        (new Date(`${activeDayDate}T00:00:00`) - new Date(`${day1Date}T00:00:00`)) / 86400000
-      )
-    : null;
-  const weightWarn = !weightError
-    ? weightChangeWarning({ todayStr: weightKg, prevStr: prevDayWeightKg, ageDays: ageDaysOnLog })
-    : null;
   const mapCpapMode  = getMapCpapMode(supportModes);
   const mapCpapModeForCount = mapCpapMode;
   const isMapCpapNA  = mapCpapMode === "NA";
@@ -1984,10 +1916,9 @@ export default function RespCVNeuroLog() {
     || ((!desatCountNotDone && !severeDesatCountNotDone && desatCount !== "" && severeDesatCount !== "" && Number(severeDesatCount) > Number(desatCount))
       ? "Severe desaturations can't exceed total desaturations (#14)"
       : null);
-  const respTotal    = 23 + (isMapCpapBoth ? 1 : 0); // weight(2.1) + items 1-22 (+4b when both CPAP & MAP selected)
+  const respTotal    = 22 + (isMapCpapBoth ? 1 : 0); // items 1-22 (+4b when both CPAP & MAP selected); 2.1 weight retired to DMS
   const respAnswered = Math.min(
-    (weightKg !== "" ? 1 : 0)                      // 2.1 weight
-    + (respiratorySupport !== null ? 1 : 0)          // 1
+    (respiratorySupport !== null ? 1 : 0)            // 1
     + (endotrachealIntubation !== null ? 1 : 0)    // 2
     + ((respSupportIsNo || supportModes.length > 0) ? 1 : 0)                        // 3
     + ((respSupportIsNo || mapCpapModeForCount === "NA" || mapCpap !== "" || !!mapCpapStatus) ? 1 : 0) // 4
@@ -2120,7 +2051,6 @@ export default function RespCVNeuroLog() {
     const payload = {
       enrollment_id:       enrollmentId,
       nicu_day:            activeDay,
-      weight_kg:           weightKg || null,
       support_modes:       supportModes.join(", "),
       respiratory_support: respiratorySupport,
       endotracheal_intubation: endotrachealIntubation,
@@ -2797,26 +2727,17 @@ export default function RespCVNeuroLog() {
               </div>
             )}
 
-            {/* ════ 2.1 WEIGHT ════ */}
+            {/* ════ 2.1 WEIGHT — retired, now recorded in the DMS (5.7.A) ════ */}
             <div className="rcn-field-group" style={{ marginBottom: 16 }}>
               <label className="rcn-field-label">
-                2.1 Weight
-                <span className="rcn-field-sub">(all measured weights of the day, chronologically)</span>
+                Weight
+                <span className="rcn-field-sub">(recorded in the Daily Monitoring Sheet, 5.7.A)</span>
               </label>
-              <input
-                type="text" placeholder="e.g. 1250g, 1245g"
-                className={`rcn-text-input${weightError ? " rcn-text-input--error" : ""}`}
-                value={weightKg}
-                onChange={e => isFieldEditable && setWeightKg(e.target.value)}
-                readOnly={!isFieldEditable}
-              />
-              {weightError && <span className="rcn-field-error">{weightError}</span>}
-              {!weightError && weightWarn && (
-                <div className="rcn-field-warn">
-                  <AlertTriangle size={14} />
-                  <span>{weightWarn}</span>
-                </div>
-              )}
+              <div className="rcn-field-sub" style={{ marginLeft: 0 }}>
+                {dmsDayWeightG != null
+                  ? `${dmsDayWeightG} g on this day (last DMS reading)`
+                  : "No weight logged in the DMS for this day."}
+              </div>
             </div>
 
             {/* ════ RESPIRATORY ════ */}

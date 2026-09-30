@@ -776,6 +776,8 @@ class BirthResuscitationCreate(BaseModel):
 
 class BirthResuscitationOut(BirthResuscitationCreate):
     id: int
+    # Read-only, from Form H (the helper pages' discharge cut-off).
+    discharge_date: Optional[date] = None
     created_at: Optional[datetime]
     original_gestation_weeks: Optional[int] = None
     original_gestation_days: Optional[int] = None
@@ -1640,6 +1642,7 @@ class NeonatalMorbiditiesCreate(BaseModel):
     infections: Optional[List[InfectionEpisode]] = []
 
     infection_flags_reviewed: Optional[List[str]] = None
+    is_complete: Optional[bool] = None
     rop_flags_reviewed: Optional[List[str]] = None
 
 
@@ -2249,6 +2252,14 @@ class SAEReportCreate(BaseModel):
     investigator_signature: Optional[str] = None
     investigator_date: Optional[str] = None
     site: Optional[str] = None
+
+    # v1.1 (2026-09-30)
+    linked_ae: Optional[dict] = None
+    dechallenge: Optional[str] = None
+    reporting_delay_reason: Optional[str] = None
+    death_details: Optional[str] = None
+    other_relevant_info: Optional[str] = None
+    sponsor_causality: Optional[str] = None
 
     class Config:
         extra = "ignore"
