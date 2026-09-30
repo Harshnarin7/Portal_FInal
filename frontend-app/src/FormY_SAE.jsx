@@ -297,7 +297,8 @@ function buildPayload(data) {
     linked_ae: data.linked_ae || null,
     dechallenge: emptyToNull(data.dechallenge),
     reporting_delay_reason: emptyToNull(data.reporting_delay_reason),
-    death_details: data.outcome === "Fatal" ? emptyToNull(data.death_details) : null,
+    death_details: (data.outcome === "Fatal" || (data.seriousness || []).includes("Death"))
+      ? emptyToNull(data.death_details) : null,
     other_relevant_info: emptyToNull(data.other_relevant_info),
     sponsor_causality: emptyToNull(data.sponsor_causality),
   };
@@ -985,7 +986,7 @@ export default function FormY_SAE() {
             />
           </div>
         )}
-        {formData.outcome === "Fatal" && (
+        {(formData.outcome === "Fatal" || (formData.seriousness || []).includes("Death")) && (
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>16.2 Cause of death, its possible relationship to the event, post-mortem findings</label>
             <textarea rows={3} value={formData.death_details}
