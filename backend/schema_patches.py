@@ -1319,3 +1319,9 @@ SAE_REPORT_V11_COLUMN_PATCHES = [
     "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS other_relevant_info TEXT",
     "ALTER TABLE sae_reports ADD COLUMN IF NOT EXISTS sponsor_causality VARCHAR",
 ]
+
+# Log of All Births: twin/triplet/quadruplet disambiguation (2026-10-01).
+BIRTH_LOG_MULTIPLE_BIRTH_PATCHES = [
+    "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS multiple_birth_count INTEGER",
+    "ALTER TABLE birth_log_all_births ADD COLUMN IF NOT EXISTS birth_order INTEGER",
+]

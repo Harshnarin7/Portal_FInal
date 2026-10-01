@@ -12,13 +12,37 @@ import { useAuth } from "./context/AuthContext";
 import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
-import { findDuplicateCr, maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
+import { findDuplicateCr, maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, normalizeCr, sanitizeMaternalUid } from "./utils/maternalUid";
 import {
   ClipboardList, Plus, AlertTriangle, CheckCircle2, HelpCircle, Circle, RefreshCw,
 } from "lucide-react";
 import "./LogOfAllBirths.css";
 
 const MODES_OF_DELIVERY = ["Emergency LSCS", "Elective LSCS", "NVD", "Instrumental", "Other"];
+
+// Twin / triplet / quadruplet disambiguation (PI 2026-10-01): a multiple
+// birth genuinely shares the mother's CR number and date of birth with its
+// sibling(s) -- declaring it up front (not reacting to a duplicate warning
+// afterwards) lets the duplicate check itself tell the siblings apart, and
+// shows which baby is which directly in the table.
+const BIRTH_TYPES = [
+  { count: 1, label: "Singleton" },
+  { count: 2, label: "Twins" },
+  { count: 3, label: "Triplets" },
+  { count: 4, label: "Quadruplets" },
+];
+const ORDINALS = ["1st", "2nd", "3rd", "4th"];
+const BIRTH_TYPE_WORD = { 2: "Twin", 3: "Triplet", 4: "Quadruplet" };
+
+/** Table-column label. Distinguishes "Singleton" (explicitly count=1) from a
+ *  row saved before this field existed, which is left unclassified rather
+ *  than silently assumed to be a singleton. */
+function multipleBirthLabel(count, order) {
+  if (count == null || order == null) return "— not classified —";
+  if (count <= 1) return "Singleton";
+  const word = BIRTH_TYPE_WORD[count] || "Multiple";
+  return `${word} — ${ORDINALS[order - 1] || order} of ${count}`;
+}
 
 // Same vocabulary as ScreeningForm.jsx's own NOT_APPROACHED_REASONS, plus
 // "No time to approach to screen" -- the PI's own reported scenario (a
@@ -43,6 +67,8 @@ const BLANK_ENTRY = {
   birth_weight_grams: "",
   resuscitation_required: "",
   ppv_required: "",
+  multiple_birth_count: 1,
+  birth_order: 1,
   reason_not_approached_list: [],
   reason_not_approached_other: "",
 };
@@ -145,6 +171,21 @@ export default function LogOfAllBirths() {
   );
   const crPendingCount = useMemo(() => entries.filter((e) => e.cr_pending).length, [entries]);
 
+  // How many entries at this site share the same CR number + date of birth --
+  // a genuine multiple birth (PI 2026-10-01). Used only to flag the rows
+  // that actually need a Birth order classification; an ordinary
+  // non-duplicated singleton is left to show a plain "—", not a warning.
+  const siblingGroupCounts = useMemo(() => {
+    const counts = new Map();
+    entries.forEach((e) => {
+      const cr = normalizeCr(e.mother_uid);
+      if (!cr || !e.date_of_birth) return;
+      const key = `${e.site_name}|${cr}|${e.date_of_birth}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [entries]);
+
   // PI 2026-09-28: the same CR number + same date of birth already logged at
   // this site is flagged on the form; saving it needs explicit confirmation
   // (twin / multiple birth).
@@ -152,12 +193,19 @@ export default function LogOfAllBirths() {
   const duplicateCr = useMemo(
     () => findDuplicateCr(entries, {
       site: logSite, uid: form.mother_uid, excludeId: editingId,
-      dateOfBirth: form.date_of_birth, matchDob: true,
+      dateOfBirth: form.date_of_birth, matchDob: true, birthOrder: form.birth_order,
     }),
-    [entries, logSite, form.mother_uid, form.date_of_birth, editingId]
+    [entries, logSite, form.mother_uid, form.date_of_birth, form.birth_order, editingId]
   );
 
   const setField = (key, value) => setForm((p) => ({ ...p, [key]: value }));
+
+  /** Birth type changing to a smaller count can leave a stale, now-invalid
+   *  order (e.g. "3rd" after switching Triplets -> Twins) -- clamp back to
+   *  1st rather than silently keep an out-of-range value. */
+  const setBirthType = (count) => setForm((p) => ({
+    ...p, multiple_birth_count: count, birth_order: p.birth_order > count ? 1 : p.birth_order,
+  }));
 
   const resetForm = () => {
     setForm(BLANK_ENTRY);
@@ -186,6 +234,11 @@ export default function LogOfAllBirths() {
       birth_weight_grams: entry.birth_weight_grams ?? "",
       resuscitation_required: ynLabel(entry.resuscitation_required),
       ppv_required: ynLabel(entry.ppv_required),
+      // Legacy rows with nothing recorded default to Singleton in the form
+      // (something must be selected to save); the table itself shows these
+      // as "not classified" rather than assuming Singleton silently.
+      multiple_birth_count: entry.multiple_birth_count ?? 1,
+      birth_order: entry.birth_order ?? 1,
       reason_not_approached_list: reasonList,
       reason_not_approached_other: reasonList.includes("Other") ? (entry.reason_not_approached_other || "") : "",
     });
@@ -229,7 +282,7 @@ export default function LogOfAllBirths() {
       return;
     }
     if (duplicateCr && !allowDuplicateCr) {
-      setSaveError("This CR number is already logged for this date of birth — edit that entry, or tick 'Twin / multiple birth'.");
+      setSaveError("This CR number is already logged for this date of birth — edit that entry, set the Birth order above for a twin/triplet/quadruplet, or tick 'This is a genuinely separate record'.");
       return;
     }
     setSaving(true);
@@ -248,6 +301,8 @@ export default function LogOfAllBirths() {
       birth_weight_grams: form.birth_weight_grams === "" ? null : Number(form.birth_weight_grams),
       resuscitation_required: yn(form.resuscitation_required),
       ppv_required: yn(form.ppv_required),
+      multiple_birth_count: form.multiple_birth_count,
+      birth_order: form.birth_order,
       reason_not_approached: form.reason_not_approached_list.length > 0
         ? form.reason_not_approached_list.join(", ") : null,
       reason_not_approached_other: form.reason_not_approached_list.includes("Other")
@@ -328,6 +383,25 @@ export default function LogOfAllBirths() {
             )}
           </label>
           <label className="lob-field">
+            <span>Birth type</span>
+            <select
+              value={form.multiple_birth_count}
+              onChange={(e) => setBirthType(Number(e.target.value))}
+            >
+              {BIRTH_TYPES.map((t) => <option key={t.count} value={t.count}>{t.label}</option>)}
+            </select>
+          </label>
+          {form.multiple_birth_count > 1 && (
+            <label className="lob-field">
+              <span>This baby is the…</span>
+              <select value={form.birth_order} onChange={(e) => setField("birth_order", Number(e.target.value))}>
+                {Array.from({ length: form.multiple_birth_count }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{ORDINALS[n - 1] || n} born</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="lob-field">
             <span>Mother's UHID / CR Number</span>
             <input
               value={form.mother_uid}
@@ -345,9 +419,14 @@ export default function LogOfAllBirths() {
                 Already logged for this date of birth
                 {duplicateCr.mother_name ? ` (${duplicateCr.mother_name})` : ""}.{" "}
                 <button type="button" className="lob-link-btn" onClick={() => startEdit(duplicateCr)}>Edit that entry</button>
+                {form.multiple_birth_count === 1 && (
+                  <div className="lob-dup-hint">
+                    If this is a twin, triplet or quadruplet, set "Birth type" above instead of using the tick below.
+                  </div>
+                )}
                 <span className="lob-dup-allow">
                   <input type="checkbox" checked={allowDuplicateCr} onChange={(ev) => setAllowDuplicateCr(ev.target.checked)} />
-                  {" "}Twin / multiple birth — log as a separate baby
+                  {" "}This is a genuinely separate record
                 </span>
               </div>
             )}
@@ -453,6 +532,7 @@ export default function LogOfAllBirths() {
             <thead>
               <tr>
                 <th>Date / Time</th>
+                <th>Birth order</th>
                 <th>Mother's UID</th>
                 <th>Mother's Name</th>
                 <th>GA</th>
@@ -477,6 +557,18 @@ export default function LogOfAllBirths() {
                   <tr key={e.id} className={isAlert ? "lob-row--alert" : ""}>
                     <td>{e.date_of_birth ? formatDateToDDMMYYYY(e.date_of_birth) : "—"}{e.time_of_birth ? ` ${e.time_of_birth}` : ""}</td>
                     <td>
+                      {e.multiple_birth_count != null && e.birth_order != null ? (
+                        multipleBirthLabel(e.multiple_birth_count, e.birth_order)
+                      ) : (() => {
+                        const cr = normalizeCr(e.mother_uid);
+                        const key = cr && e.date_of_birth ? `${e.site_name}|${cr}|${e.date_of_birth}` : null;
+                        const shared = key ? (siblingGroupCounts.get(key) || 0) > 1 : false;
+                        return shared ? (
+                          <span className="lob-badge lob-badge--alert">Not classified — shares CR + DOB</span>
+                        ) : "—";
+                      })()}
+                    </td>
+                    <td>
                       {e.cr_pending ? <span className="lob-badge lob-badge--alert">CR pending</span> : (e.mother_uid || "—")}
                     </td>
                     <td>{e.mother_name || "—"}</td>
@@ -498,7 +590,7 @@ export default function LogOfAllBirths() {
                 );
               })}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={11} className="lob-empty">No births logged yet.</td></tr>
+                <tr><td colSpan={12} className="lob-empty">No births logged yet.</td></tr>
               )}
             </tbody>
           </table>

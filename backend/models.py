@@ -2368,6 +2368,18 @@ class BirthLogEntry(Base):
     mode_of_delivery   = Column(String, nullable=True)  # "Emergency LSCS" / "Elective LSCS" / "NVD" / "Instrumental" / "Other"
     birth_weight_grams = Column(Float, nullable=True)
 
+    # Twin / triplet / quadruplet disambiguation (PI 2026-10-01): a multiple
+    # birth genuinely shares the mother's CR number and date of birth across
+    # entries -- that used to always be flagged as a probable duplicate, with
+    # no way to tell the siblings apart once saved. multiple_birth_count = 1
+    # for a singleton (the form's default); birth_order = this baby's
+    # position (1st/2nd/...) within that count. Both NULL on every row saved
+    # before this field existed -- left as is, not backfilled (nobody here
+    # can know which twin was born first from the data alone; see
+    # docs/09_data_integrity_playbook.md).
+    multiple_birth_count = Column(Integer, nullable=True)
+    birth_order           = Column(Integer, nullable=True)
+
     resuscitation_required = Column(Boolean, nullable=True)
     ppv_required            = Column(Boolean, nullable=True)
 

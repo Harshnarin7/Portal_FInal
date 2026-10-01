@@ -41,8 +41,37 @@ Page `LogOfAllBirths.jsx`; API `/birth-log/…`; matching `backend/birth_log_mat
 - If typed: PGIMER 12 digits, AMC `serial/year` (`utils/maternalUid.js`).
 - **Duplicate** = same site + same normalised CR (Log of All Births: **and same
   date of birth**). Shown under the field; saving needs the tick
-  "New contact of the same woman" / "Twin / multiple birth". The server
-  enforces it too (**409**, `cr_duplicates.py`, `main._refuse_duplicate_cr`).
+  "New contact of the same woman" (Gestation Log) / "This is a genuinely
+  separate record" (Log of All Births, edge-case fallback only — see below).
+  The server enforces it too (**409**, `cr_duplicates.py`,
+  `main._refuse_duplicate_cr`).
+
+### Twin / triplet / quadruplet births (Log of All Births, PI 2026-10-01)
+A CR number belongs to the **mother**, so every baby of a multiple birth
+genuinely shares it and the same date of birth with its sibling(s) — that is
+not a duplicate. Each entry now also records **`multiple_birth_count`**
+(1 = singleton, the default) and **`birth_order`** (this baby's position),
+chosen via "Birth type" + "This baby is the…" at the top of the Add-a-birth
+form — a deliberate, upfront declaration, not a reactive override.
+- The duplicate check (`cr_duplicates.find_duplicate`) adds `birth_order` to
+  its match key: two entries with the **same** site, CR and date of birth are
+  *not* flagged as duplicates when they state a **different** birth order.
+  Both sides must state an order for this to apply — a row saved before
+  this field existed (`birth_order` NULL) still triggers the old behaviour,
+  so an existing genuine duplicate is never silently hidden.
+- The generic "This is a genuinely separate record" tick remains as a
+  fallback for whatever doesn't fit the structured field (e.g. an unusual
+  record-keeping situation), consistent with every other duplicate check
+  in the app — never a silent block, always an informed override.
+- The table shows the computed label ("Twin — 1st of 2") for a classified
+  entry; an *unclassified* entry (`birth_order` NULL) that genuinely shares
+  a CR + date of birth with another entry is flagged "Not classified —
+  shares CR + DOB" so it's visibly waiting on someone to pick an order.
+  An ordinary non-duplicated singleton shows a plain "—", not a warning.
+- **4 real twin/triplet pairs (8 rows) existed in the live data before this
+  field was added** — left unclassified rather than guessed at (nobody can
+  know which twin was born first from the data alone); a nurse fills them
+  in via Edit (chapter 09 §9 has the row ids).
 
 ## 4. CONSORT (Trial Monitoring dashboard, Section 1)
 Code: `backend/routers/dashboard.py`. **Its module docstring is the full,

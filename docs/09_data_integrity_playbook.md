@@ -139,7 +139,13 @@ Check section 10 after every deploy.
 5. Record the change (date, reason, backup file) in the project log (`CLAUDE.md`
    deployment history).
 
-## 9. Known open issues (30-09-2026)
+## 9. Known open issues (01-10-2026)
+- **Log of All Births: 4 twin/triplet pairs (8 rows) saved before the Birth
+  order field existed** (chapter 08 §3) — PGIMER row ids 11/12 (23-09),
+  91/92 (27-09), 102/103 (28-09), 159/160 (01-10). Each pair shows "Not
+  classified — shares CR + DOB" in the table; a nurse opens each row via
+  Edit and sets "Birth type"/"This baby is the…" — I don't know birth
+  order myself and shouldn't guess it from entry sequence.
 - `01-`, `01-B-`, `01-B-123` and the other 8 "Trial run" screenings (incl.
   `01-A-001` with helper data): **confirmed test data (PI)** — will be wiped
   wholesale rather than repaired individually. No manual fix needed; §1/§2's

@@ -26,9 +26,19 @@ def normalize_cr(value: Optional[str]) -> str:
 
 
 def find_duplicate(rows: Iterable, mother_uid: Optional[str], *, exclude_id=None,
-                   date_of_birth=None, match_dob: bool = False):
-    """First row with the same normalised CR (and, for births, the same date of
-    birth), ignoring `exclude_id`. None when the CR is blank or unique."""
+                   date_of_birth=None, match_dob: bool = False, birth_order=None):
+    """First row with the same normalised CR (and, for births, the same date
+    of birth), ignoring `exclude_id`. None when the CR is blank or unique.
+
+    birth_order (PI 2026-10-01): a twin/triplet genuinely shares the mother's
+    CR number and date of birth with its sibling(s) -- that is not a data-
+    entry mistake, so a *different*, explicitly-stated birth_order on both
+    sides is not treated as a duplicate. A row with no birth_order recorded
+    (every row before this field existed, or a still-unclassified entry)
+    keeps the old behaviour and is still flagged -- only a genuine,
+    stated disagreement in order clears the match, so an existing real
+    duplicate is never silently hidden just because the new column is
+    blank on one or both sides."""
     cr = normalize_cr(mother_uid)
     if not cr:
         return None
@@ -38,6 +48,9 @@ def find_duplicate(rows: Iterable, mother_uid: Optional[str], *, exclude_id=None
         if normalize_cr(getattr(r, "mother_uid", None)) != cr:
             continue
         if match_dob and getattr(r, "date_of_birth", None) != date_of_birth:
+            continue
+        other_order = getattr(r, "birth_order", None)
+        if birth_order is not None and other_order is not None and birth_order != other_order:
             continue
         return r
     return None
