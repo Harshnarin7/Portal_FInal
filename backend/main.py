@@ -1549,6 +1549,7 @@ def create_birth_resuscitation(
             link_screening_enrollment(
                 db, existing.screening_id, existing.enrollment_id
             )
+            _sync_day1_date(db, existing.enrollment_id, dob=existing.date_of_birth)
 
             return existing
 
@@ -1560,6 +1561,7 @@ def create_birth_resuscitation(
         # Always write enrollment_id back to screenings (incl. NR- ids from
         # mobile / not-randomised / no-PPV saves) so Form B reopen works.
         link_screening_enrollment(db, entry.screening_id, entry.enrollment_id)
+        _sync_day1_date(db, entry.enrollment_id, dob=entry.date_of_birth)
 
         return entry
 
@@ -1748,6 +1750,7 @@ def update_birth_resuscitation(
 
         # Keep screenings.enrollment_id in sync for randomised and NR- rows.
         link_screening_enrollment(db, entry.screening_id, entry.enrollment_id)
+        _sync_day1_date(db, entry.enrollment_id, dob=entry.date_of_birth)
 
         return entry
 
@@ -2009,6 +2012,39 @@ def _validate_admission_after_birth(db: Session, enrollment_id: str, admission_d
         )
 
 
+def _sync_day1_date(db: Session, enrollment_id: str, *, nicu_record=None, dob=None) -> None:
+    """day1_date (used throughout main.py for every PMA-checkpoint and
+    AE/SAE onset-date calculation) has no nurse-facing field anywhere --
+    the DOB/Day1 sync UI built for this (useHelperDobSyncDay1 /
+    HelperDobDay1Panel) was never actually wired into any Helper form, web
+    or mobile (confirmed 2026-10-02: every live baby had day1_date NULL
+    despite daily logs already existing for some of them). Auto-derive it
+    from Form B's date_of_birth instead, the moment both the NICU
+    admission row and the DOB are known, so nobody has to remember a
+    separate step. Never overwrites an already-set value -- a superadmin
+    correction via PUT .../day1-date still sticks."""
+    nicu_record = nicu_record or (
+        db.query(NICUAdmission)
+        .filter(NICUAdmission.enrollment_id == enrollment_id)
+        .first()
+    )
+    if not nicu_record or nicu_record.day1_date is not None:
+        return
+    if dob is None:
+        birth = (
+            db.query(BirthResuscitation)
+            .filter(BirthResuscitation.enrollment_id == enrollment_id)
+            .first()
+        )
+        dob = birth.date_of_birth if birth else None
+    if not dob:
+        return
+    nicu_record.day1_date = dob
+    nicu_record.day1_date_set_by = "system (Form B date of birth)"
+    nicu_record.day1_date_set_at = datetime.utcnow()
+    db.commit()
+
+
 @app.post("/nicu-admission/", response_model=NICUAdmissionOut)
 def create_nicu_admission(
     data: NICUAdmissionCreate,
@@ -2037,6 +2073,7 @@ def create_nicu_admission(
                 setattr(existing_record, key, value)
         db.commit()
         db.refresh(existing_record)
+        _sync_day1_date(db, data.enrollment_id, nicu_record=existing_record)
         return existing_record
     else:
         # Create new record
@@ -2044,6 +2081,7 @@ def create_nicu_admission(
         db.add(record)
         db.commit()
         db.refresh(record)
+        _sync_day1_date(db, data.enrollment_id, nicu_record=record)
         return record
 
 @app.get("/nicu-admission/{enrollment_id}")
@@ -2089,6 +2127,7 @@ def update_nicu_admission(
         db.add(record)
         db.commit()
         db.refresh(record)
+        _sync_day1_date(db, enrollment_id, nicu_record=record)
         return record
 
     for key, value in payload.items():
@@ -2096,10 +2135,11 @@ def update_nicu_admission(
             setattr(record, key, value)
     db.commit()
     db.refresh(record)
+    _sync_day1_date(db, enrollment_id, nicu_record=record)
     return record
 
 
-#  -  Day 1 Date (shared across RespCVNeuro / InfectGIHema / MetabRenalVascEye logs)  - 
+#  -  Day 1 Date (shared across RespCVNeuro / InfectGIHema / MetabRenalVascEye logs)  -
 class Day1DateUpdate(BaseModel):
     day1_date: date
 

@@ -103,7 +103,24 @@ Work upstream (README "How to use"):
    dates.
 
 ## 4. Dates
-- Day N = DOB + N − 1. Form E Day 1 Date must equal DOB (check 6).
+- Day N = DOB + N − 1. `nicu_admission.day1_date` equals DOB (check 6).
+- **`day1_date` is auto-derived, not a form field (fixed 02-10-2026)**: no
+  Helper form (web or mobile) ever actually set it — a DOB/Day1 sync
+  UI was built (`useHelperDobSyncDay1`/`HelperDobDay1Panel`, web;
+  `helper_dob_day1_bar.dart`, mobile) but never wired into any page; every
+  Helper form just reads Form B's `date_of_birth` into its own local state
+  for day-numbering and never writes `day1_date` back. Confirmed live
+  02-10-2026: all 3 babies in production had `day1_date` NULL, including
+  one with 11 days of Helper 2 entries already logged — so Form I's PMA
+  checkpoints (IVH/cPVL/NEC/ROP/BPD/death) and every AE/SAE onset-date
+  calculation had silently returned nothing for every real baby.
+  `main._sync_day1_date()` now auto-sets `nicu_admission.day1_date` from
+  `birth_resuscitation.date_of_birth` the moment both rows exist — called
+  from every Form B and Form E create/update endpoint. Never overwrites an
+  already-set value, so a superadmin correction via `PUT
+  /nicu-admission/{id}/day1-date` still sticks. A baby enrolled before this
+  fix needs one of Form B/Form E re-saved (or the dedicated PUT) to backfill
+  it — check section 7 below.
 - Clinical day uses **IST with an 08:00 boundary**; the server clock is UTC.
   Saved timestamps (`created_at`, `saved_at`, …) are **UTC**, stored without a
   time zone — add 5 h 30 min to read them as IST.
