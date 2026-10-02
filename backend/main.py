@@ -4559,7 +4559,12 @@ def _rop_checkpoint_suggestion(db, enrollment_id, checkpoint, target_date, day1_
     for l in metab_logs:
         d = day1_date + timedelta(days=l.nicu_day - 1)
         if l.rop_detected is True:
-            exams.append(rop_exam(d, stage_rank(l.rop_stage) or 1, f"Helper 5 Day {l.nicu_day}"))
+            # stage_rank(None) used to fall back to `1` here, silently
+            # guessing Stage 1 for a detection the nurse never staged --
+            # found 2026-10-02 via a synthetic test baby. Pass None through
+            # instead; suggest_rop's own "unstaged" branch (mirroring NEC's
+            # "please stage it" flag) surfaces it correctly.
+            exams.append(rop_exam(d, stage_rank(l.rop_stage), f"Helper 5 Day {l.nicu_day}"))
         elif l.rop_screened is True and l.rop_detected is False:
             exams.append(rop_exam(d, 0, f"Helper 5 Day {l.nicu_day}"))
         if l.rop_treatment is True:

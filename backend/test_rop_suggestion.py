@@ -43,6 +43,21 @@ def test_no_rop_needs_an_exam_on_or_after_checkpoint():
     assert after["rop_treatment_required"] == "No"
 
 
+def test_detected_but_unstaged_is_flagged_not_defaulted_to_stage_1():
+    # Found 2026-10-02: a detection with rank=None (Helper 5 "ROP detected"
+    # with no stage typed in) used to silently default to Stage 1 in the
+    # caller before reaching here. Confirm it now surfaces as its own
+    # "please answer yourself" flag instead of a fabricated stage.
+    r = run(exams=[exam(date(2026, 11, 20), None, "Helper 5 Day 20")])
+    assert r["rop"] is None
+    assert "no stage recorded" in r["note"] and "Helper 5 Day 20" in r["note"]
+    assert "stage 1" not in r["note"].lower()
+    # A real staged finding still wins over an unrelated unstaged one.
+    staged = run(exams=[exam(date(2026, 11, 20), None, "Helper 5 Day 20"),
+                        exam(date(2026, 11, 25), 2, "Form G visit 1")])
+    assert staged["rop"] == "Yes" and staged["rop_date"] == "2026-11-25"
+
+
 def test_screening_completed_no_rop_answers_later_checkpoints():
     r = run(checkpoint=44, target_date=T44,
             exams=[exam(date(2026, 12, 1), 0, "Form G visit 4")],
