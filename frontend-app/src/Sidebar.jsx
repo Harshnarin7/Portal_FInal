@@ -87,8 +87,8 @@ const SECTIONS = [
     key: 'safety',
     title: 'Safety',
     items: [
-      { id: 'form_y_sae',     label: 'Form Y', sub: 'SAE Reporting',  path: '/form-y-sae',     Icon: ShieldAlert   },
       { id: 'adverse_events', label: 'AE',     sub: 'Adverse Events', path: '/adverse-events', Icon: ClipboardList },
+      { id: 'form_y_sae',     label: 'Form Y', sub: 'SAE Reporting',  path: '/form-y-sae',     Icon: ShieldAlert   },
       { id: 'sae_list',       label: 'SAE',     sub: 'SAE Listing',    path: '/sae-list',       Icon: FileText      },
     ],
   },
