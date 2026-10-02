@@ -60,14 +60,25 @@ export function normalizeCr(value) {
 }
 
 /** An entry at the same site with the same CR number (and, for births, the
- *  same date of birth), other than the one being edited. */
-export function findDuplicateCr(entries, { site, uid, excludeId = null, dateOfBirth = null, matchDob = false }) {
+ *  same date of birth), other than the one being edited.
+ *
+ *  birthOrder (PI 2026-10-01): a twin/triplet genuinely shares the mother's
+ *  CR number and date of birth with its sibling(s) -- not a duplicate once
+ *  both sides state which baby they are. A row with no birth order recorded
+ *  (saved before this field existed, or still unclassified) keeps the old
+ *  behaviour and is still flagged -- only a stated disagreement in order
+ *  clears the match, mirroring backend cr_duplicates.find_duplicate. */
+export function findDuplicateCr(entries, {
+  site, uid, excludeId = null, dateOfBirth = null, matchDob = false, birthOrder = null,
+}) {
   const cr = normalizeCr(uid);
   if (!cr || !site) return null;
-  return (entries || []).find((e) =>
-    e.id !== excludeId
-    && e.site_name === site
-    && normalizeCr(e.mother_uid) === cr
-    && (!matchDob || (e.date_of_birth || "") === (dateOfBirth || ""))
-  ) || null;
+  return (entries || []).find((e) => {
+    if (e.id === excludeId) return false;
+    if (e.site_name !== site) return false;
+    if (normalizeCr(e.mother_uid) !== cr) return false;
+    if (matchDob && (e.date_of_birth || "") !== (dateOfBirth || "")) return false;
+    if (birthOrder != null && e.birth_order != null && birthOrder !== e.birth_order) return false;
+    return true;
+  }) || null;
 }

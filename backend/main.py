@@ -8670,7 +8670,8 @@ BIRTH_LOG_WRITE_FIELDS = set(BirthLogEntryCreate.model_fields.keys()) - {"site_n
 
 
 def _refuse_duplicate_cr(db, model, site_name, mother_uid, *, exclude_id=None,
-                         date_of_birth=None, match_dob=False, allow=False, override_hint=""):
+                         date_of_birth=None, match_dob=False, birth_order=None,
+                         allow=False, override_hint=""):
     """CR number is optional, but one already logged at this site is refused
     with a 409 unless the user confirmed a separate record (PI 2026-09-28).
     mother_uid is encrypted, so the site's rows are compared in Python."""
@@ -8678,7 +8679,8 @@ def _refuse_duplicate_cr(db, model, site_name, mother_uid, *, exclude_id=None,
         return
     rows = db.query(model).filter(model.site_name == site_name).all()
     dup = find_duplicate(rows, mother_uid, exclude_id=exclude_id,
-                         date_of_birth=date_of_birth, match_dob=match_dob)
+                         date_of_birth=date_of_birth, match_dob=match_dob,
+                         birth_order=birth_order)
     if dup:
         when = getattr(dup, "check_date", None) or getattr(dup, "date_of_birth", None)
         when_txt = f" on {when.strftime('%d-%m-%Y')}" if when else ""
@@ -8709,8 +8711,10 @@ def create_birth_log_entry(
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
     _refuse_duplicate_cr(db, BirthLogEntry, site_name, payload.get("mother_uid"),
                          date_of_birth=payload.get("date_of_birth"), match_dob=True,
+                         birth_order=payload.get("birth_order"),
                          allow=bool(data.allow_duplicate_cr),
-                         override_hint=", or tick 'Twin / multiple birth' if it is a separate baby")
+                         override_hint=", set the Birth order for a twin/triplet/quadruplet, "
+                                       "or tick 'This is a genuinely separate record'")
     record = BirthLogEntry(**payload, site_name=site_name, entered_by=current_user.username)
 
     match = match_birth_log_entry(
@@ -8744,8 +8748,10 @@ def update_birth_log_entry(
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
     _refuse_duplicate_cr(db, BirthLogEntry, record.site_name, payload.get("mother_uid"),
                          exclude_id=record.id, date_of_birth=payload.get("date_of_birth"), match_dob=True,
+                         birth_order=payload.get("birth_order"),
                          allow=bool(data.allow_duplicate_cr),
-                         override_hint=", or tick 'Twin / multiple birth' if it is a separate baby")
+                         override_hint=", set the Birth order for a twin/triplet/quadruplet, "
+                                       "or tick 'This is a genuinely separate record'")
     for key, value in payload.items():
         setattr(record, key, value)
 

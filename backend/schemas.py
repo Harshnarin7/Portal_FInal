@@ -2975,11 +2975,16 @@ class BirthLogEntryCreate(BaseModel):
     resuscitation_required: Optional[bool] = None
     ppv_required: Optional[bool] = None
 
+    # Twin / triplet / quadruplet disambiguation (2026-10-01). 1/1 = singleton.
+    multiple_birth_count: Optional[int] = None
+    birth_order: Optional[int] = None
+
     reason_not_approached: Optional[str] = None
     reason_not_approached_other: Optional[str] = None
 
-    # Request-only (not a column): the user confirmed this is a separate birth
-    # with the same CR number and date (twin / multiple birth).
+    # Request-only (not a column): the user confirmed this is a genuinely
+    # separate record despite sharing the mother's CR number and date (an
+    # edge case the multiple_birth_count/birth_order fields don't fit).
     allow_duplicate_cr: Optional[bool] = None
 
     model_config = {"extra": "ignore"}

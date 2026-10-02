@@ -25,6 +25,7 @@ from sqlalchemy import inspect, text
 logging.disable(logging.CRITICAL)
 
 from db import engine  # noqa: E402
+from cr_duplicates import normalize_cr  # noqa: E402
 
 ENROLLMENT_RE = re.compile(r"^\d{2}-[A-D]-\d{3}$", re.IGNORECASE)
 SITE = sys.argv[1] if len(sys.argv) > 1 else None
@@ -177,10 +178,31 @@ def main() -> int:
                     gaps += 1
             issues += gaps
             print("  none" if not gaps else "")
+
+            section("11. Log of All Births: entries sharing a CR + date of "
+                    "birth with no Birth order recorded (mirrors the "
+                    "'Not classified' badge on the page itself, chapter 08 §3)")
+            from crypto import decrypt_value  # noqa: E402
+            blab_site_sql = "AND site_name = :site" if SITE else ""
+            blab_rows = c.execute(text(f"""
+                SELECT id, site_name, mother_uid, date_of_birth, birth_order
+                FROM birth_log_all_births WHERE TRUE {blab_site_sql}
+            """), params).fetchall()
+            groups = defaultdict(list)
+            for rid, site, uid_enc, dob, order in blab_rows:
+                uid = normalize_cr(decrypt_value(uid_enc)) if uid_enc else ""
+                if uid and dob:
+                    groups[(site, uid, dob)].append((rid, order))
+            unclassified = {k: v for k, v in groups.items()
+                            if len(v) > 1 and any(order is None for _, order in v)}
+            for (site, _, dob), rows_ in unclassified.items():
+                print(f"  {site} {dob}: Log of All Births ids {[r for r, _ in rows_]}")
+            issues += len(unclassified)
+            print("  none" if not unclassified else "")
         finally:
             trans.rollback()
 
-    print(f"\nIssues needing attention (sections 1-6, 10): {issues}")
+    print(f"\nIssues needing attention (sections 1-6, 10-11): {issues}")
     return 0
 
 
