@@ -103,7 +103,24 @@ Work upstream (README "How to use"):
    dates.
 
 ## 4. Dates
-- Day N = DOB + N − 1. Form E Day 1 Date must equal DOB (check 6).
+- Day N = DOB + N − 1. `nicu_admission.day1_date` equals DOB (check 6).
+- **`day1_date` is auto-derived, not a form field (fixed 02-10-2026)**: no
+  Helper form (web or mobile) ever actually set it — a DOB/Day1 sync
+  UI was built (`useHelperDobSyncDay1`/`HelperDobDay1Panel`, web;
+  `helper_dob_day1_bar.dart`, mobile) but never wired into any page; every
+  Helper form just reads Form B's `date_of_birth` into its own local state
+  for day-numbering and never writes `day1_date` back. Confirmed live
+  02-10-2026: all 3 babies in production had `day1_date` NULL, including
+  one with 11 days of Helper 2 entries already logged — so Form I's PMA
+  checkpoints (IVH/cPVL/NEC/ROP/BPD/death) and every AE/SAE onset-date
+  calculation had silently returned nothing for every real baby.
+  `main._sync_day1_date()` now auto-sets `nicu_admission.day1_date` from
+  `birth_resuscitation.date_of_birth` the moment both rows exist — called
+  from every Form B and Form E create/update endpoint. Never overwrites an
+  already-set value, so a superadmin correction via `PUT
+  /nicu-admission/{id}/day1-date` still sticks. A baby enrolled before this
+  fix needs one of Form B/Form E re-saved (or the dedicated PUT) to backfill
+  it — check section 7 below.
 - Clinical day uses **IST with an 08:00 boundary**; the server clock is UTC.
   Saved timestamps (`created_at`, `saved_at`, …) are **UTC**, stored without a
   time zone — add 5 h 30 min to read them as IST.
@@ -138,6 +155,26 @@ Check section 10 after every deploy.
    clean-up of 30-09-2026 kept them).
 5. Record the change (date, reason, backup file) in the project log (`CLAUDE.md`
    deployment history).
+
+## 9a. Simulation testing (02-10-2026)
+A PI bug report on `02-B-003` (Form I's 36-week IVH suggestion returning
+nothing — day1_date gap, §4) prompted building 8 synthetic "Trial run" test
+babies (`01-D-901`..`908`, scripted via direct ORM inserts, not through the
+UI) covering known trap conditions: PMA-at-birth boundary, a Helper-2 flag
+with no graded scan, Form-H-vs-Form-F/Helper-4 disagreement, a suspected
+but unstaged NEC/ROP, early death, discharged/Back-referred before a
+checkpoint with no Form J, a fully-populated admission across every
+auto-fill domain, and AE threshold boundary values. Confirmed several
+designs work correctly (pending-flag messaging, sources-disagree
+detection, Form-H-only AE policy even under disagreement, incremental
+death windows, Grade 5 never auto-assigned) and found one real bug (fixed
+same day): `_rop_checkpoint_suggestion`'s Helper 5 fallback used
+`stage_rank(l.rop_stage) or 1`, silently defaulting an unstaged "ROP
+detected" tick to Stage 1 instead of flagging it for the clinician the way
+NEC's parallel code already did — `rop_suggestion.suggest_rop` now has the
+same "unstaged" branch NEC has. Re-run this kind of simulation after any
+future change to the suggestion/detection functions in `main.py`,
+`*_suggestion.py`, or `ae_reference.py`.
 
 ## 9. Known open issues (01-10-2026)
 - **Log of All Births: 4 twin/triplet pairs (8 rows) saved before the Birth

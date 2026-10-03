@@ -86,6 +86,12 @@ def suggest_rop(
     - a whole-record claim like Form H "ROP: No" (valid up to discharge) or
     Form G worst stage "None" in both eyes (valid up to its last visit).
     """
+    # A detection with no stage recorded (e.g. Helper 5 "ROP detected" ticked
+    # with no stage) used to be silently defaulted to Stage 1 by the caller
+    # -- kept separately here instead, so it can surface as "please stage
+    # it" (mirroring nec_suggestion.suggest_nec's `unstaged` handling) rather
+    # than quietly asserting a specific stage nobody recorded.
+    unstaged = [e for e in exams if e.get("date") and e.get("rank") is None]
     exams = [e for e in exams if e.get("date") and e.get("rank") is not None]
     treatments = list(treatments)
     required = list(required)
@@ -163,7 +169,11 @@ def suggest_rop(
     if out["rop"] is not None:
         out["status"] = "flag" if out["sources_disagree"] else "suggested"
     else:
-        if today and today < target_date and not positives:
+        unstaged_by_t = [e for e in unstaged if e["date"] <= target_date]
+        if unstaged_by_t:
+            u = min(unstaged_by_t, key=lambda e: e["date"])
+            notes.append(f"ROP detected ({u['source']}) but no stage recorded: please answer yourself")
+        elif today and today < target_date and not positives:
             notes.append(f"{checkpoint} weeks PMA is {_fmt(target_date)}")
         else:
             left = bool(outcome in LEFT_EARLY and discharge_date and discharge_date < target_date)
