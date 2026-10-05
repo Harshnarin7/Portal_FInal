@@ -1722,11 +1722,26 @@ def get_safety(
             COALESCE(s.site_name, '__overall__') AS site_name,
             COUNT(nm.enrollment_id)                                                                          AS n,
             SUM(CASE WHEN nm.ivh_present = 'Yes'                                               THEN 1 ELSE 0 END) AS n_ivh_any,
-            SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4')                 THEN 1 ELSE 0 END) AS n_ivh_severe,
+            -- Grade lives in ivh_grade_right/left (Papile, Roman numerals -- "III"/"IV")
+            -- since the per-side rework; the old singular ivh_grade column is a
+            -- carried-over mirror, not the source of truth, and this check's old
+            -- '3'/'4' literals never matched either column's actual values (found
+            -- 2026-10-05 live-checking the dashboard against a confirmed Grade IV
+            -- case that showed as 0% severe).
+            SUM(CASE WHEN nm.ivh_present = 'Yes'
+                     AND (nm.ivh_grade_right IN ('III','IV') OR nm.ivh_grade_left IN ('III','IV')
+                          OR nm.ivh_grade IN ('III','IV','3','4'))                              THEN 1 ELSE 0 END) AS n_ivh_severe,
             SUM(CASE WHEN nm.nec = TRUE                                                        THEN 1 ELSE 0 END) AS n_nec_any,
-            SUM(CASE WHEN nm.nec = TRUE AND nm.nec_stage IN ('2','3','2a','2b','3a','3b')      THEN 1 ELSE 0 END) AS n_nec_2plus,
+            -- Modified Bell's staging is stored as "IA"/"IB"/"IIA"/"IIB"/"IIIA"/"IIIB"
+            -- (see nec_suggestion.STAGE_ORDER) -- never the '2'/'3'/'2a' shorthand
+            -- this checked before.
+            SUM(CASE WHEN nm.nec = TRUE AND nm.nec_stage IN ('IIA','IIB','IIIA','IIIB')        THEN 1 ELSE 0 END) AS n_nec_2plus,
             SUM(CASE WHEN nm.bpd = TRUE                                                        THEN 1 ELSE 0 END) AS n_bpd,
-            SUM(CASE WHEN nm.rop_treatment = 'Yes'                                             THEN 1 ELSE 0 END) AS n_rop_tx,
+            -- rop_treatment_right/left are what Form H's UI and the ROP suggestion
+            -- logic actually write (per-eye); the singular rop_treatment column is
+            -- never set by any current save path.
+            SUM(CASE WHEN nm.rop_treatment_right = 'Yes' OR nm.rop_treatment_left = 'Yes'
+                     OR nm.rop_treatment = 'Yes'                                                THEN 1 ELSE 0 END) AS n_rop_tx,
             SUM(CASE WHEN nm.sepsis = TRUE                                                     THEN 1 ELSE 0 END) AS n_sepsis,
             SUM(CASE WHEN nm.pneumothorax = TRUE                                               THEN 1 ELSE 0 END) AS n_pneumo
         FROM neonatal_morbidities nm
@@ -2339,13 +2354,20 @@ def get_ops_summary(
 
     try:
         if global_view:
+            # Same column/format fix as MORB_Q above (2026-10-05): grade lives in
+            # ivh_grade_right/left (Roman numerals), not the legacy ivh_grade
+            # column checked against '3'/'4'; rop_treatment_right/left are what
+            # Form H actually writes, not the unused singular rop_treatment.
             morb = db.execute(text("""
                 SELECT
                     COUNT(nm.enrollment_id) AS n,
                     SUM(CASE WHEN nm.bpd = TRUE THEN 1 ELSE 0 END) AS n_bpd,
                     SUM(CASE WHEN nm.nec = TRUE THEN 1 ELSE 0 END) AS n_nec,
-                    SUM(CASE WHEN nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
-                    SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4') THEN 1 ELSE 0 END) AS n_ivh
+                    SUM(CASE WHEN nm.rop_treatment_right = 'Yes' OR nm.rop_treatment_left = 'Yes'
+                             OR nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
+                    SUM(CASE WHEN nm.ivh_present = 'Yes'
+                             AND (nm.ivh_grade_right IN ('III','IV') OR nm.ivh_grade_left IN ('III','IV')
+                                  OR nm.ivh_grade IN ('III','IV','3','4')) THEN 1 ELSE 0 END) AS n_ivh
                 FROM neonatal_morbidities nm
                 JOIN birth_resuscitation br ON br.enrollment_id = nm.enrollment_id AND br.randomised = TRUE
                 JOIN screenings s ON s.screening_id = br.screening_id
@@ -2358,8 +2380,11 @@ def get_ops_summary(
                     COUNT(nm.enrollment_id) AS n,
                     SUM(CASE WHEN nm.bpd = TRUE THEN 1 ELSE 0 END) AS n_bpd,
                     SUM(CASE WHEN nm.nec = TRUE THEN 1 ELSE 0 END) AS n_nec,
-                    SUM(CASE WHEN nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
-                    SUM(CASE WHEN nm.ivh_present = 'Yes' AND nm.ivh_grade IN ('3','4') THEN 1 ELSE 0 END) AS n_ivh
+                    SUM(CASE WHEN nm.rop_treatment_right = 'Yes' OR nm.rop_treatment_left = 'Yes'
+                             OR nm.rop_treatment = 'Yes' THEN 1 ELSE 0 END) AS n_rop,
+                    SUM(CASE WHEN nm.ivh_present = 'Yes'
+                             AND (nm.ivh_grade_right IN ('III','IV') OR nm.ivh_grade_left IN ('III','IV')
+                                  OR nm.ivh_grade IN ('III','IV','3','4')) THEN 1 ELSE 0 END) AS n_ivh
                 FROM neonatal_morbidities nm
                 JOIN birth_resuscitation br ON br.enrollment_id = nm.enrollment_id AND br.randomised = TRUE
                 JOIN screenings s ON s.screening_id = br.screening_id

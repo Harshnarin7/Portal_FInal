@@ -52,6 +52,18 @@ const GESTATION_METHODS = [
 ];
 const METHOD_LABELS = Object.fromEntries(GESTATION_METHODS.map((m) => [m.value, m.label]));
 
+// Broad sanity bound (20w0d-46w6d), not the trial's 25w0d-31w6d eligibility
+// window -- this log captures every woman checked, eligible or not. PI-set
+// 2026-10-05, mirrors the backend's own check (main.require_plausible_gestation).
+function gestationOutOfRange(weeksStr, daysStr) {
+  if (weeksStr === "" || weeksStr == null) return false;
+  const w = Number(weeksStr);
+  const d = daysStr === "" || daysStr == null ? 0 : Number(daysStr);
+  if (Number.isNaN(w) || Number.isNaN(d)) return false;
+  const totalDays = w * 7 + d;
+  return totalDays < 20 * 7 || totalDays > 46 * 7 + 6;
+}
+
 const BLANK_FORM = {
   site_name: "",
   identification_type: DEFAULT_IDENTIFICATION_TYPE,
@@ -174,6 +186,10 @@ export default function GACheckLog() {
     }
     if (!form.found_iufd && !form.ga_source) {
       setSaveError("Select a gestation source.");
+      return;
+    }
+    if (isReliable && gestationOutOfRange(form.gestation_weeks, form.gestation_days)) {
+      setSaveError("Gestation must be between 20w0d and 46w6d.");
       return;
     }
     if (duplicateCr && !allowDuplicateCr) {
@@ -423,7 +439,7 @@ export default function GACheckLog() {
           <label className="gac-field gac-field--ga">
             <span>Gestation (completed)</span>
             <div className="gac-ga-row">
-              <input type="number" min="10" max="45" placeholder="wks" value={form.gestation_weeks} onChange={(e) => setField("gestation_weeks", e.target.value)} disabled={!isReliable} />
+              <input type="number" min="20" max="46" placeholder="wks" value={form.gestation_weeks} onChange={(e) => setField("gestation_weeks", e.target.value)} disabled={!isReliable} />
               <input type="number" min="0" max="6" placeholder="days" value={form.gestation_days} onChange={(e) => setField("gestation_days", e.target.value)} disabled={!isReliable} />
             </div>
           </label>

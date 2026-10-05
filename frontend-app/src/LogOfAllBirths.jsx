@@ -44,6 +44,21 @@ function multipleBirthLabel(count, order) {
   return `${word} — ${ORDINALS[order - 1] || order} of ${count}`;
 }
 
+// Broad sanity bound (20w0d-46w6d), not the trial's 25w0d-31w6d inclusion
+// window -- this log captures every birth regardless of eligibility. PI-set
+// 2026-10-05 after a "3w 5d" entry (almost certainly a missing digit) saved
+// cleanly with no validation at all. Mirrors the backend's own check
+// (main.require_plausible_gestation) so the nurse sees the problem before
+// the save round-trip, not just after.
+function gestationOutOfRange(weeksStr, daysStr) {
+  if (weeksStr === "" || weeksStr == null) return false;
+  const w = Number(weeksStr);
+  const d = daysStr === "" || daysStr == null ? 0 : Number(daysStr);
+  if (Number.isNaN(w) || Number.isNaN(d)) return false;
+  const totalDays = w * 7 + d;
+  return totalDays < 20 * 7 || totalDays > 46 * 7 + 6;
+}
+
 // Same vocabulary as ScreeningForm.jsx's own NOT_APPROACHED_REASONS, plus
 // "No time to approach to screen" -- the PI's own reported scenario (a
 // birth too fast to even check gestational age on). This is the only
@@ -281,6 +296,10 @@ export default function LogOfAllBirths() {
       setSaveError("Date of birth is required.");
       return;
     }
+    if (gestationOutOfRange(form.gestation_weeks, form.gestation_days)) {
+      setSaveError("Gestation must be between 20w0d and 46w6d.");
+      return;
+    }
     if (duplicateCr && !allowDuplicateCr) {
       setSaveError("This CR number is already logged for this date of birth — edit that entry, set the Birth order above for a twin/triplet/quadruplet, or tick 'This is a genuinely separate record'.");
       return;
@@ -450,7 +469,7 @@ export default function LogOfAllBirths() {
           <label className="lob-field lob-field--ga">
             <span>Gestation (completed)</span>
             <div className="lob-ga-row">
-              <input type="number" min="18" max="45" placeholder="wks" value={form.gestation_weeks} onChange={(e) => setField("gestation_weeks", e.target.value)} />
+              <input type="number" min="20" max="46" placeholder="wks" value={form.gestation_weeks} onChange={(e) => setField("gestation_weeks", e.target.value)} />
               <input type="number" min="0" max="6" placeholder="days" value={form.gestation_days} onChange={(e) => setField("gestation_days", e.target.value)} />
             </div>
           </label>
