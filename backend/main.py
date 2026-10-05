@@ -377,6 +377,27 @@ def ga_in_inclusion_window(weeks, days) -> bool:
     return total is not None and GA_MIN_TOTAL_DAYS <= total <= GA_MAX_TOTAL_DAYS
 
 
+PLAUSIBLE_GA_MIN_TOTAL_DAYS = 20 * 7
+PLAUSIBLE_GA_MAX_TOTAL_DAYS = 46 * 7 + 6
+PLAUSIBLE_GA_REJECT = "Gestation must be between 20w0d and 46w6d."
+
+
+def require_plausible_gestation(weeks, days) -> None:
+    """Broad sanity bound for the Log of All Births and the Gestation
+    (Inclusion Criteria) Screening Log -- these capture every birth / every
+    GA check at the site regardless of trial eligibility, so the narrow
+    25w0d-31w6d inclusion window (require_ga_in_inclusion_window, above)
+    doesn't apply. PI-set bounds 2026-10-05, after a "3w 5d" entry (almost
+    certainly a missing digit) saved cleanly with no validation at all on
+    either log. Only checked when a value was actually entered -- both logs
+    allow gestation to be left blank/unknown."""
+    total = _ga_total_days(weeks, days)
+    if total is None:
+        return
+    if not (PLAUSIBLE_GA_MIN_TOTAL_DAYS <= total <= PLAUSIBLE_GA_MAX_TOTAL_DAYS):
+        raise HTTPException(status_code=422, detail=PLAUSIBLE_GA_REJECT)
+
+
 def require_ga_in_inclusion_window(data):
     """Do not persist Form A or issue a screening ID unless GA is 25w0d–31w6d."""
     known = getattr(data, "gestation_known", None)
@@ -8754,6 +8775,7 @@ def create_birth_log_entry(
         raise HTTPException(status_code=422, detail="site_name is required")
 
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    require_plausible_gestation(payload.get("gestation_weeks"), payload.get("gestation_days"))
     _refuse_duplicate_cr(db, BirthLogEntry, site_name, payload.get("mother_uid"),
                          date_of_birth=payload.get("date_of_birth"), match_dob=True,
                          birth_order=payload.get("birth_order"),
@@ -8791,6 +8813,7 @@ def update_birth_log_entry(
         raise HTTPException(status_code=403, detail="Not authorized for this site")
 
     payload = {k: v for k, v in data.model_dump().items() if k in BIRTH_LOG_WRITE_FIELDS}
+    require_plausible_gestation(payload.get("gestation_weeks"), payload.get("gestation_days"))
     _refuse_duplicate_cr(db, BirthLogEntry, record.site_name, payload.get("mother_uid"),
                          exclude_id=record.id, date_of_birth=payload.get("date_of_birth"), match_dob=True,
                          birth_order=payload.get("birth_order"),
@@ -8917,6 +8940,7 @@ def create_ga_check_entry(
     payload = _normalize_ga_check_payload(
         {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS}
     )
+    require_plausible_gestation(payload.get("gestation_weeks"), payload.get("gestation_days"))
     _refuse_duplicate_cr(db, GACheckEntry, site_name, payload.get("mother_uid"),
                          allow=bool(data.allow_duplicate_cr),
                          override_hint=", or tick 'New contact of the same woman' to log it again")
@@ -8957,6 +8981,7 @@ def update_ga_check_entry(
     payload = _normalize_ga_check_payload(
         {k: v for k, v in data.model_dump().items() if k in GA_CHECK_WRITE_FIELDS and k != "check_date"}
     )
+    require_plausible_gestation(payload.get("gestation_weeks"), payload.get("gestation_days"))
     _refuse_duplicate_cr(db, GACheckEntry, site_name, payload.get("mother_uid"), exclude_id=record.id,
                          allow=bool(data.allow_duplicate_cr),
                          override_hint=", or tick 'New contact of the same woman' to keep both")
