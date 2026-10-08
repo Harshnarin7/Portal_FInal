@@ -145,8 +145,8 @@ function PrintReport({ formData = {}, preparedByName = "", piName = "" }) {
               <R label="Husband surname" value={formData.husband_surname} />
               <R label="Maternal UID" value={formData.maternal_uid} />
               <R label="Hospital admission number" value={formData.hospital_admission_number} />
-              <R label="Mother mobile number" value={formData.mother_contact} />
-              <R label="Husband mobile number" value={formData.husband_contact} />
+              <R label="Mobile number - Primary" value={formData.mother_contact} />
+              <R label="Mobile number - Secondary" value={formData.husband_contact} />
             </tbody></table>
           </div>
         </div>

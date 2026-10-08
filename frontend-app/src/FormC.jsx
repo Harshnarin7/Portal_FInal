@@ -1631,11 +1631,11 @@ export default function FormC() {
                 </div>
                 <div className="form-grid-2">
                   <div className="form-group">
-                    <label>5. Mobile (Mother) <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
+                    <label>5. Mobile number - Primary <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
                     <input value={formData.contact_mother||""} readOnly className="readonly-input"/>
                   </div>
                   <div className="form-group">
-                    <label>5. Mobile (Husband) <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
+                    <label>5. Mobile number - Secondary <FieldLogicBadge type="carried" title="From Form A — Screening" /></label>
                     <input value={formData.contact_husband||""} readOnly className="readonly-input"/>
                   </div>
                 </div>

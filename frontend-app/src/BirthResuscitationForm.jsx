@@ -1815,11 +1815,11 @@ export default function BirthResuscitationForm() {
                     {errors.baby_uid&&<div className="field-error">{errors.baby_uid}</div>}
                   </div>
                   <div className="form-group">
-                    <label>5. Mobile No. — Mother</label>
+                    <label>5. Mobile number - Primary</label>
                     <input value={formData.contact_mother||""} readOnly className="readonly-input" placeholder="From Form A"/>
                   </div>
                   <div className="form-group">
-                    <label>5. Mobile No. — Husband</label>
+                    <label>5. Mobile number - Secondary</label>
                     <input value={formData.contact_husband||""} readOnly className="readonly-input" placeholder="From Form A"/>
                   </div>
                 </div>

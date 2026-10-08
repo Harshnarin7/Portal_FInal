@@ -1,4 +1,6 @@
 from pydantic import BaseModel, field_validator, field_serializer, model_validator
+
+from mobile_numbers import mobile_pair_errors
 from typing import Optional, List, Dict
 from datetime import datetime, date, time
 
@@ -304,6 +306,27 @@ class ParticipantPIICreate(BaseModel):
     contact_mother: Optional[str] = None
     contact_husband: Optional[str] = None
 
+    @model_validator(mode="after")
+    def validate_mobile_numbers(self):
+        """Format and uniqueness on write. Reads of existing rows skip this
+        so a previously stored pair still loads.
+        """
+        if type(self) is not ParticipantPIICreate:
+            return self
+        for primary, secondary in (
+            (self.mother_contact, self.husband_contact),
+            (self.contact_mother, self.contact_husband),
+        ):
+            primary_error, secondary_error = mobile_pair_errors(
+                primary,
+                secondary,
+                primary_required=False,
+                allow_partial=True,
+            )
+            if primary_error or secondary_error:
+                raise ValueError(primary_error or secondary_error)
+        return self
+
 
 class ParticipantPIIOut(ParticipantPIICreate):
     id: int
@@ -376,6 +399,24 @@ class ScreeningCreate(BaseModel):
     reason_for_consent_refusal_other: Optional[str] = None
     video_pis_shown: Optional[str] = None
     explicitly_saved: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def validate_mobile_numbers(self):
+        """Primary is required on a real save. Drafts may leave it blank.
+
+        A half-typed number is allowed only while this is still a draft
+        (is_complete and explicitly_saved are both false).
+        """
+        strict = bool(self.is_complete or self.explicitly_saved)
+        primary_error, secondary_error = mobile_pair_errors(
+            self.mother_contact,
+            self.husband_contact,
+            primary_required=strict,
+            allow_partial=not strict,
+        )
+        if primary_error or secondary_error:
+            raise ValueError(primary_error or secondary_error)
+        return self
 
 
 class ScreeningClinicalOut(BaseModel):
@@ -639,11 +680,25 @@ class BirthResuscitationCreate(BaseModel):
     def validate_contact(cls, v):
         if not v:
             return None
-        if not v.isdigit():
+        if not str(v).isdigit():
             raise ValueError("Contact must contain digits only")
-        if len(v) != 10:
+        if len(str(v)) != 10:
             raise ValueError("Contact must be exactly 10 digits")
-        return v
+        return str(v)
+
+    @model_validator(mode="after")
+    def mobile_numbers_must_differ(self):
+        """Indian-format and uniqueness checks apply to new writes only."""
+        if type(self) is not BirthResuscitationCreate:
+            return self
+        primary_error, secondary_error = mobile_pair_errors(
+            self.contact_mother,
+            self.contact_husband,
+            primary_required=False,
+        )
+        if primary_error or secondary_error:
+            raise ValueError(primary_error or secondary_error)
+        return self
 
     @field_validator("blender_letter")
     @classmethod

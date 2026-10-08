@@ -24,6 +24,7 @@ import { relativeTime, toDateTimeLocalValue, formatDateToDDMMYYYY, toDateOnlyVal
 import { resolveConsentSignatureFromRecord, resolvePiSignatureFromRecord } from "./utils/consentSignature";
 import { sanitizeScreeningCreatePayload } from "./utils/screeningPayload";
 import { printPatientPdf } from "./utils/printPatientPdf";
+import { mobilePairErrors, PRIMARY_MOBILE_LABEL, SECONDARY_MOBILE_LABEL } from "./utils/mobileNumbers";
 
 /* ─── YesNoToggle — animated sliding segment ──────────────── */
 function YesNoToggle({ label, name, value, onChange, disabled = false, eligibleWhen }) {
@@ -865,9 +866,12 @@ export default function ScreeningForm() {
       newErrors.best_ga_days = value && (n < 0 || n > 6) ? "Must be between 0 and 6 days" : "";
     }
     if (name === "mother_contact" || name === "husband_contact") {
-      if (value && value.length !== 10)          newErrors[name] = "Must be exactly 10 digits";
-      else if (value && !/^[6-9]/.test(value))   newErrors[name] = "Indian mobile must start with 6, 7, 8, or 9";
-      else                                        newErrors[name] = "";
+      const pair = mobilePairErrors(
+        name === "mother_contact" ? value : formData.mother_contact,
+        name === "husband_contact" ? value : formData.husband_contact,
+      );
+      newErrors.mother_contact = pair.primary;
+      newErrors.husband_contact = pair.secondary;
     }
     if (name === "mother_first_name" && !value.trim()) newErrors.mother_first_name = "Required";
     if (name === "husband_first_name" && !value.trim()) newErrors.husband_first_name = "Required";
@@ -938,12 +942,11 @@ export default function ScreeningForm() {
         add(`Hospital Admission Number — ${hanRule.hint} (A3)`, "hospital_admission_number");
       }
     }
-    if (!formData.mother_contact)        add("Mother's Mobile Number (A3)",        "mother_contact");
-    else if (formData.mother_contact.length !== 10) add("Mother's Mobile — must be 10 digits (A3)", "mother_contact");
-    else if (!/^[6-9]/.test(formData.mother_contact)) add("Mother's Mobile — Indian mobile must start with 6, 7, 8, or 9 (A3)", "mother_contact");
-    if (!formData.husband_contact)       add("Husband's Mobile Number (A3)",       "husband_contact");
-    else if (formData.husband_contact.length !== 10) add("Husband's Mobile — must be 10 digits (A3)", "husband_contact");
-    else if (!/^[6-9]/.test(formData.husband_contact)) add("Husband's Mobile — Indian mobile must start with 6, 7, 8, or 9 (A3)", "husband_contact");
+    {
+      const pair = mobilePairErrors(formData.mother_contact, formData.husband_contact);
+      if (pair.primary) add(pair.primary, "mother_contact");
+      if (pair.secondary) add(pair.secondary, "husband_contact");
+    }
     if (!formData.exclusion_anomaly)     add("Structural Anomaly? (A4)",           "exclusion_anomaly");
     else if (formData.exclusion_anomaly === "Yes" && !formData.exclusion_anomaly_details)
       add("Specify structural anomaly (A4)",                                        "exclusion_anomaly_details");
@@ -1682,10 +1685,10 @@ export default function ScreeningForm() {
                     </div>
                   </div>
 
-                  {/* Row 4: Mother mobile + Husband mobile */}
+                  {/* Row 4: Primary mobile (required) + secondary mobile (optional) */}
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label>17. Mobile Number — Mother<span className="required">*</span></label>
+                      <label>{PRIMARY_MOBILE_LABEL}<span className="required">*</span></label>
                       <input type="text" name="mother_contact" value={formData.mother_contact||""}
                         maxLength={10} inputMode="numeric" placeholder="10-digit mobile"
                         disabled={!isFieldEditable}
@@ -1694,7 +1697,7 @@ export default function ScreeningForm() {
                       {errors.mother_contact && <div className="field-error">{errors.mother_contact}</div>}
                     </div>
                     <div className="form-group">
-                      <label>Husband<span className="required">*</span></label>
+                      <label>{SECONDARY_MOBILE_LABEL}</label>
                       <input type="text" name="husband_contact" value={formData.husband_contact||""}
                         maxLength={10} inputMode="numeric" placeholder="10-digit mobile"
                         disabled={!isFieldEditable}

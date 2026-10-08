@@ -25,6 +25,7 @@ import { isGlobalUser } from "./utils/roles";
 import { SITE_ORDER } from "./utils/siteNames";
 import { formatDateToDDMMYYYY } from "./utils/datetime";
 import { findDuplicateCr, maternalUidLiveError, maternalUidPlaceholder, maternalUidSaveError, sanitizeMaternalUid } from "./utils/maternalUid";
+import { collapseSearchSpaces, filterGaChecks } from "./utils/gaCheckSearch";
 import {
   Search, AlertTriangle, CheckCircle2, ArrowRight, RefreshCw, X,
 } from "lucide-react";
@@ -98,6 +99,8 @@ export default function GACheckLog() {
   const [lastResult, setLastResult] = useState(null); // the just-saved entry
 
   const [entries, setEntries] = useState([]);
+  const [searchText, setSearchText] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
   const [gapEntries, setGapEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -130,6 +133,17 @@ export default function GACheckLog() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedQuery(searchText), 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
+
+  const visibleEntries = useMemo(
+    () => filterGaChecks(entries, appliedQuery),
+    [entries, appliedQuery],
+  );
+  const searching = collapseSearchSpaces(appliedQuery).length > 0;
 
   const stats = useMemo(() => {
     const total = entries.length;
@@ -465,6 +479,22 @@ export default function GACheckLog() {
         </div>
       </form>
 
+      <div className="gac-search">
+        <Search size={16} className="gac-search-icon" aria-hidden="true" />
+        <input
+          type="text"
+          value={searchText}
+          placeholder="Search by name or ID"
+          aria-label="Search by name or ID"
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+        {searchText && (
+          <button type="button" className="gac-search-clear" onClick={() => setSearchText("")} aria-label="Clear search">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
       <div className="gac-card">
         <div className="gac-card-head">
           <h2>Recent checks {user?.site ? `— ${user.site}` : ""}</h2>
@@ -473,6 +503,11 @@ export default function GACheckLog() {
           </button>
         </div>
         {loadError && <div className="gac-form-error">{loadError}</div>}
+        {searching && (
+          <p className="gac-search-count">
+            {visibleEntries.length === 1 ? "1 result" : `${visibleEntries.length} results`}
+          </p>
+        )}
         <div className="gac-table-wrap">
           <table className="gac-table">
             <thead>
@@ -490,7 +525,7 @@ export default function GACheckLog() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => {
+              {visibleEntries.map((e) => {
                 const isGap = e.eligible && !e.continued_to_screening;
                 const unreliable = e.ga_source && e.ga_source !== RELIABLE_SOURCE;
                 return (
@@ -543,6 +578,14 @@ export default function GACheckLog() {
               })}
               {!loading && entries.length === 0 && (
                 <tr><td colSpan={10} className="gac-empty">No checks logged yet.</td></tr>
+              )}
+              {!loading && searching && visibleEntries.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="gac-empty">
+                    No matching checks found.{" "}
+                    <button type="button" className="gac-link-btn" onClick={() => setSearchText("")}>Clear search</button>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
